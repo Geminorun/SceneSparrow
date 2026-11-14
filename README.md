@@ -11,11 +11,15 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
+The current phase is framework setup only. The v0.1 technical proposal remains a
+preliminary draft, and detailed design documents will precede production workflow
+implementation. Existing sample models and interfaces are provisional.
+
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
 the same UI through a restricted preload bridge. A Remotion sample validates the
-separate render pipeline. Full editing, review, locks, and Agent execution remain
-future work; this is the beginning of M0.
+separate render pipeline. These are framework integration samples, not completed
+product features or evidence that a business implementation milestone has begun.
 
 See [development setup](docs/development.md) for prerequisites and platform limits.
 After installing the pinned tools:

@@ -1,7 +1,9 @@
-# Architecture baseline
+# Draft architecture outline
 
-This is an implementation guide derived from the two user-provided v0.1 documents,
-not a claim that the described components already exist. See the
+This is a provisional framework outline derived from the two user-provided v0.1
+documents. The technical proposal is a preliminary draft, and detailed design
+documents are still required before production workflow implementation. Framework
+samples do not establish approved business models or completed milestones. See the
 [reference index](reference/README.md) for the unmodified originals.
 
 ## Product direction

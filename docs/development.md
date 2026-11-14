@@ -7,13 +7,14 @@ JSON Schema contracts, a platform client, a procedural Remotion sample, and Agen
 and render boundaries. The Cargo workspace separates domain, application,
 infrastructure, and local HTTP service responsibilities.
 
-The current vertical slice creates one project in a selected directory, persists
+The current integration sample creates one project in a selected directory, persists
 it in SQLite, and reopens it after a core restart. The working revision starts at
 zero and has no approved baseline. Creating the same request twice is idempotent;
 a different request cannot replace the existing project. A file lock prevents two
 core instances from owning the same directory.
 
-This is the beginning of M0, not completed M0 or a production application. Script
+The current phase is framework setup, not a business implementation milestone.
+The v0.1 proposal is a preliminary draft; detailed designs are still pending. Script
 editing/Tiptap, assets, revision history, lock enforcement, review acceptance, SSE,
 durable worker jobs, provider authentication, incremental rendering, file pickers,
 packaging, and updates remain to be implemented. The Agent package contains an
@@ -137,6 +138,7 @@ The initial authenticated endpoints are `GET /v1/health`, `GET /v1/project`, and
 client-supplied revision or approve a baseline. There is intentionally no edit,
 unlock, or acceptance endpoint until revision and lock validation exist.
 
-Future work should complete M0 with immutable revisions and asset references, then
-exercise the three-shot/lock/dependency cases in M1. Do not use the bootstrap's
-single-project API as a substitute for that model.
+The next planning step is detailed design of module responsibilities, domain
+models, protocols, storage, and workflow behavior. The draft M0/M1 roadmap does
+not authorize further feature implementation. Treat the bootstrap's single-project
+API as an integration sample, not a substitute for those detailed designs.
