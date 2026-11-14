@@ -1,0 +1,13 @@
+{
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "name": "@scenesparrow/contracts",
+  "exports": {
+    ".": "./src/generated.ts",
+    "./schema": "./schema/protocol.schema.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

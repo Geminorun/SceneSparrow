@@ -1,0 +1,19 @@
+{
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "name": "@scenesparrow/video-runtime",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  }
+}

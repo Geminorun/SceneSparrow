@@ -20,13 +20,13 @@ scope does not restrict the internationalized UI or future content languages.
 
 ## Runtime responsibilities
 
-| Unit | Planned technologies | Responsibility |
-| --- | --- | --- |
-| Shared editor | React, TypeScript, Vite, Tiptap/ProseMirror | Script, storyboard, review, asset, and task workspaces |
-| Desktop shell | Electron and a narrow preload bridge | Windows, platform APIs, and local process lifecycle |
-| Local core | Rust, Tokio, Axum, SQLite | Domain rules, revisions, locks, dependencies, persistence, and durable jobs |
-| Agent worker | Provider adapters and versioned Skills | Read scoped inputs and propose candidate changes with evidence |
-| Render worker | Node.js, Remotion, dedicated Chrome, FFmpeg | Preview, render chunks, transcode, mix audio, and export |
+| Unit          | Planned technologies                        | Responsibility                                                              |
+| ------------- | ------------------------------------------- | --------------------------------------------------------------------------- |
+| Shared editor | React, TypeScript, Vite, Tiptap/ProseMirror | Script, storyboard, review, asset, and task workspaces                      |
+| Desktop shell | Electron and a narrow preload bridge        | Windows, platform APIs, and local process lifecycle                         |
+| Local core    | Rust, Tokio, Axum, SQLite                   | Domain rules, revisions, locks, dependencies, persistence, and durable jobs |
+| Agent worker  | Provider adapters and versioned Skills      | Read scoped inputs and propose candidate changes with evidence              |
+| Render worker | Node.js, Remotion, dedicated Chrome, FFmpeg | Preview, render chunks, transcode, mix audio, and export                    |
 
 Browser and desktop clients share the UI and versioned application protocol.
 JSON Schema defines the protocol; TypeScript and Rust protocol structures derive
@@ -38,10 +38,12 @@ script/content, review/versioning, storyboard/engineering, assets/media,
 Agent/Skills, and rendering/delivery. These are ownership boundaries within one
 core, not seven independently deployed services.
 
-## Planned repository layout
+## Workspace layout
 
-Create these components when implementing them; the bootstrap does not create
-empty packages or pretend the workspaces are already runnable.
+The foundation now contains these workspace boundaries, with project creation and
+reopening as its first working slice. Worker interfaces and the procedural render
+sample do not yet implement production jobs. See [development setup](development.md)
+for the exact implemented scope and commands.
 
 ```text
 SceneSparrow/
@@ -69,11 +71,10 @@ SceneSparrow/
 └── docs/                   # References, architecture, workflow, and decisions
 ```
 
-Introduce pnpm/Cargo workspace manifests, pinned toolchains, and committed lockfiles
-with the first working components. Do not select arbitrary versions from the
-design's publication date; validate compatible versions during implementation.
-Generated protocol output needs an explicit generation/check policy when added,
-rather than a repository-wide rule that silently ignores every generated file.
+The pnpm/Cargo manifests, toolchain pins, and lockfiles are now committed with the
+foundation. Protocol types are generated from JSON Schema, committed, and checked
+with `pnpm contracts:check`. Validate compatible versions when updating dependencies
+rather than selecting versions solely from the design's publication date.
 
 ## Invariants to implement first
 
@@ -131,12 +132,12 @@ Unicode paths, text expansion, and OS differences need actual platform checks.
 Use the technical design's stage definitions; the earlier requirements report uses
 different M0–M3 boundaries.
 
-| Stage | Intended deliverable | Evidence needed |
-| --- | --- | --- |
-| M0: Core foundation | Protocol, models, SQLite, assets, and minimal revisions | Browser entry saves and reopens a project; working/approved revisions are distinct |
+| Stage                    | Intended deliverable                                                  | Evidence needed                                                                           |
+| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| M0: Core foundation      | Protocol, models, SQLite, assets, and minimal revisions               | Browser entry saves and reopens a project; working/approved revisions are distinct        |
 | M1: High-risk mechanisms | Three-shot sample, lock checks, local rendering, basic Electron entry | Shared core works through browser and Windows; applicable DESIGN-v0.1:T03–T08 checks pass |
-| M2: Creation loop | Script, review, storyboard, Agent, preview, and export | A real two-minute project completes a revision cycle; Windows is the primary experience |
-| M3: Desktop product | macOS adaptation, packaging, updates, recovery, performance | Both target platforms pass relevant workflow and distribution checks |
+| M2: Creation loop        | Script, review, storyboard, Agent, preview, and export                | A real two-minute project completes a revision cycle; Windows is the primary experience   |
+| M3: Desktop product      | macOS adaptation, packaging, updates, recovery, performance           | Both target platforms pass relevant workflow and distribution checks                      |
 
 The first mechanism scenario locks sentence/shot one, changes shot two's title,
 and verifies dependency checks and unaffected chunk reuse. A subsequent narration

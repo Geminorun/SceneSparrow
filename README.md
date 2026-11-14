@@ -11,13 +11,30 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-This repository currently contains project foundations and development guidelines.
-Application packages, dependency manifests, toolchain pins, CI, and runnable tests
-have not been implemented. There is no application startup command yet.
+The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
+to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
+the same UI through a restricted preload bridge. A Remotion sample validates the
+separate render pipeline. Full editing, review, locks, and Agent execution remain
+future work; this is the beginning of M0.
+
+See [development setup](docs/development.md) for prerequisites and platform limits.
+After installing the pinned tools:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+pnpm dev
+```
+
+In the managed cloud, first run `bash scripts/cloud-setup.sh` and source
+`scripts/cloud-env.sh` in each shell. The Electron binary is installed, but desktop
+launch is blocked by this cloud's Linux sandbox configuration; use the browser
+workflow here and validate desktop behavior on Windows/macOS.
 
 ## Start here
 
 - [Agent and contributor rules](AGENTS.md)
+- [Setup, commands, and current implementation](docs/development.md)
 - [Branch, commit, and review workflow](docs/development-workflow.md)
 - [Architecture, planned layout, and milestones](docs/architecture.md)
 - [Original requirements and technical design, v0.1](docs/reference/README.md)

@@ -1,0 +1,15 @@
+[package]
+name = "scenesparrow-infrastructure"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+scenesparrow-domain.workspace = true
+scenesparrow-application.workspace = true
+rusqlite.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

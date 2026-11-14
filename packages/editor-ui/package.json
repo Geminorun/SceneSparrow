@@ -1,0 +1,23 @@
+{
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "name": "@scenesparrow/editor-ui",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@scenesparrow/contracts": "workspace:*",
+    "@scenesparrow/platform-client": "workspace:*",
+    "@scenesparrow/video-runtime": "workspace:*",
+    "@remotion/player": "4.0.543",
+    "react": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  }
+}

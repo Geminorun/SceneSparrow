@@ -1,0 +1,149 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #20302d;
+  background: #f3f2ed;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 20px;
+  background: #286653;
+  color: white;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid #73b49e;
+  outline-offset: 3px;
+}
+.workspace {
+  max-width: 1160px;
+  margin: auto;
+  padding: 32px;
+}
+header,
+header > div,
+.language {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+header {
+  justify-content: space-between;
+}
+header strong {
+  font-size: 22px;
+}
+.brand-mark {
+  font-size: 30px;
+  color: #286653;
+}
+select {
+  border: 1px solid #cad2cc;
+  border-radius: 7px;
+  background: white;
+  padding: 8px;
+}
+.intro {
+  padding: 66px 0 30px;
+}
+.eyebrow {
+  color: #5c796c;
+  letter-spacing: 0.22em;
+  font-size: 12px;
+}
+h1 {
+  font-size: clamp(28px, 4vw, 46px);
+  letter-spacing: -0.04em;
+  margin: 12px 0;
+}
+h2 {
+  font-size: 26px;
+  margin: 12px 0 28px;
+  overflow-wrap: anywhere;
+}
+h3 {
+  font-size: 15px;
+  margin-top: 0;
+}
+.create-card,
+.project-card {
+  background: white;
+  border: 1px solid #e2e5dc;
+  border-radius: 18px;
+  padding: 32px;
+  box-shadow: 0 10px 35px #273c2710;
+}
+.create-card {
+  max-width: 520px;
+  display: grid;
+  gap: 14px;
+}
+input {
+  padding: 14px;
+  border: 1px solid #b7c7bd;
+  border-radius: 8px;
+  width: 100%;
+}
+.project-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+}
+.saved {
+  color: #286653;
+  font-size: 13px;
+}
+dl {
+  display: flex;
+  gap: 40px;
+}
+dt {
+  color: #63776d;
+  font-size: 13px;
+}
+dd {
+  margin: 8px 0;
+}
+.muted {
+  color: #64776e;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.error {
+  background: #fff0e9;
+  padding: 18px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+.error button {
+  margin-left: 12px;
+}
+@media (max-width: 720px) {
+  .workspace {
+    padding: 20px;
+  }
+  .project-card {
+    grid-template-columns: 1fr;
+  }
+  .language {
+    font-size: 13px;
+  }
+}

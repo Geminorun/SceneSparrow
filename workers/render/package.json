@@ -1,0 +1,20 @@
+{
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "name": "@scenesparrow/render",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@scenesparrow/video-runtime": "workspace:*",
+    "@remotion/bundler": "4.0.543",
+    "@remotion/renderer": "4.0.543",
+    "react": "19.3.1",
+    "remotion": "4.0.543"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  }
+}

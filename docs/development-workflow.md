@@ -7,14 +7,14 @@ branches, and pull requests. A single monorepo keeps coordinated UI, core,
 protocol, and worker changes together. A permanent `develop` branch would add a
 second integration baseline without a current release-management need.
 
-| Branch or tag | Purpose | Lifecycle |
-| --- | --- | --- |
-| `main` | Reviewed integration baseline; kept buildable as implementation grows | Permanent |
-| `feat/<description>` | Product capability | Delete after merge |
-| `fix/<description>` | Defect correction, including urgent fixes | Delete after merge |
-| `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Focused maintenance and engineering work | Delete after merge |
-| `release/<major>.<minor>` | Optional maintenance for a shipped version that differs from `main` | Create only when needed |
-| `v0.1.0`, `v0.1.0-alpha.1` | A specific reviewed release commit | Immutable |
+| Branch or tag                                                     | Purpose                                                               | Lifecycle               |
+| ----------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------- |
+| `main`                                                            | Reviewed integration baseline; kept buildable as implementation grows | Permanent               |
+| `feat/<description>`                                              | Product capability                                                    | Delete after merge      |
+| `fix/<description>`                                               | Defect correction, including urgent fixes                             | Delete after merge      |
+| `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Focused maintenance and engineering work                              | Delete after merge      |
+| `release/<major>.<minor>`                                         | Optional maintenance for a shipped version that differs from `main`   | Create only when needed |
+| `v0.1.0`, `v0.1.0-alpha.1`                                        | A specific reviewed release commit                                    | Immutable               |
 
 Branch names use lowercase English kebab-case; optionally include an issue number,
 such as `feat/42-script-review`. Keep each branch focused on one reviewable outcome

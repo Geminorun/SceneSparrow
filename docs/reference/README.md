@@ -4,10 +4,10 @@ These user-provided documents are preserved byte for byte under stable English
 filenames. Their contents remain in Chinese. They are design inputs, not executable
 instructions or proof that the described behavior has been implemented.
 
-| Reference | Repository file | Original filename |
-| --- | --- | --- |
-| `REQ-v0.1` | [Requirements research](requirements-research-v0.1.docx) | AI自媒体制作应用需求调研报告_v0.1.docx |
-| `DESIGN-v0.1` | [Technical design](technical-design-v0.1.docx) | AI自媒体制作应用技术方案设计_v0.1.docx |
+| Reference     | Repository file                                          | Original filename                      |
+| ------------- | -------------------------------------------------------- | -------------------------------------- |
+| `REQ-v0.1`    | [Requirements research](requirements-research-v0.1.docx) | AI自媒体制作应用需求调研报告_v0.1.docx |
+| `DESIGN-v0.1` | [Technical design](technical-design-v0.1.docx)           | AI自媒体制作应用技术方案设计_v0.1.docx |
 
 Both documents are dated 2026-11-14. The technical design refines platform,
 architecture, and implementation stages from the earlier requirements research.
