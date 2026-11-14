@@ -1,0 +1,22 @@
+{
+  "appName": "幕雀",
+  "tagline": "让故事，逐幕成形。",
+  "language": "语言",
+  "connecting": "正在打开工作空间…",
+  "newProject": "开始一个项目",
+  "projectTitle": "项目名称",
+  "create": "创建项目",
+  "creating": "正在保存…",
+  "saved": "已保存到本机",
+  "revision": "工作版本",
+  "baseline": "验收状态",
+  "notApproved": "待评审",
+  "preview": "动态样片",
+  "previewDescription": "此样片用于验证预览播放，当前项目尚未创建镜头。",
+  "nextStep": "后续将加入文稿编辑与镜头创建功能。",
+  "retry": "重试",
+  "error": "工作空间未能完成此请求，请重试。",
+  "INVALID_TITLE": "请输入 1 至 120 个字符的项目名称。",
+  "PROJECT_CONFLICT": "此工作空间已有项目，请重新加载以打开。",
+  "UNAUTHORIZED": "工作空间连接已过期，请重新启动应用。"
+}

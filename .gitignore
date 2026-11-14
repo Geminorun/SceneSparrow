@@ -1,0 +1,96 @@
+# JavaScript dependencies and package-manager caches.
+node_modules/
+.pnpm-store/
+.npm/
+
+# TypeScript, Vite, and test caches.
+*.tsbuildinfo
+.vite/
+.cache/
+coverage/
+test-results/
+playwright-report/
+
+# Workspace build outputs. Keep source directories with similar names visible.
+/dist/
+/build/
+/out/
+/release/
+/apps/*/dist/
+/apps/*/build/
+/apps/*/out/
+/apps/*/release/
+/packages/*/dist/
+/packages/*/build/
+/workers/*/dist/
+/workers/*/build/
+
+# Rust build artifacts. Cargo.lock and pnpm-lock.yaml must be committed.
+target/
+**/*.rs.bk
+
+# Local configuration and credentials. Examples must contain placeholders only.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+/secrets/
+/credentials/
+
+# Local runtime downloads, render artifacts, and developer-owned project data.
+# Prefer keeping real user projects outside the source checkout entirely.
+/.runtime/
+/.local/
+/.artifacts/
+/.data/
+/projects/
+/objects/
+/staging/
+/cache/
+/exports/
+/tmp/
+/temp/
+
+# Live databases and sidecars. Small, sanitized database fixtures are allowed.
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-*
+*.sqlite3-*
+*.db-journal
+*.db-wal
+*.db-shm
+!/tests/fixtures/**/*.sqlite
+!/tests/fixtures/**/*.sqlite3
+!/tests/fixtures/**/*.db
+
+# Logs and crash dumps.
+*.log
+*.dmp
+*.stackdump
+
+# Operating system and editor-local files.
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.swp
+*.swo
+*~
+~$*
+
+# Intentionally track small media fixtures, design documents, migrations,
+# JSON Schemas, translations, toolchain pins, and dependency lockfiles.
+# Do not add blanket media exclusions: runtime output belongs in ignored paths.

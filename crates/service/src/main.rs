@@ -1,0 +1,39 @@
+use scenesparrow_infrastructure::SqliteProjectRepository;
+use std::{
+    env,
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let token = env::var("SCENESPARROW_SESSION_TOKEN")
+        .map_err(|_| "SCENESPARROW_SESSION_TOKEN is required")?;
+    if token.len() < 32 || !token.bytes().all(|c| c.is_ascii_alphanumeric()) {
+        return Err("Session token must contain at least 32 ASCII letters or digits".into());
+    }
+    let directory = PathBuf::from(
+        env::var("SCENESPARROW_PROJECT_DIR").unwrap_or_else(|_| ".local/project".to_owned()),
+    );
+    let port: u16 = env::var("SCENESPARROW_CORE_PORT")
+        .unwrap_or_else(|_| "4318".to_owned())
+        .parse()?;
+    let origin =
+        env::var("SCENESPARROW_WEB_ORIGIN").unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned());
+    let repository = SqliteProjectRepository::open(&directory)?;
+    let listener =
+        tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await?;
+    println!(
+        "SceneSparrow core is listening on {}",
+        listener.local_addr()?
+    );
+    axum::serve(
+        listener,
+        scenesparrow_service::router(repository, &token, &origin),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
+    Ok(())
+}

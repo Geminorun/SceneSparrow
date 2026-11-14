@@ -1,0 +1,10 @@
+pnpm-lock.yaml
+Cargo.lock
+target/
+.pnpm-store/
+.local/
+.runtime/
+.artifacts/
+dist/
+node_modules/
+packages/contracts/src/generated.ts

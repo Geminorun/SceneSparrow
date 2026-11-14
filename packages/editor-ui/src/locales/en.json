@@ -1,0 +1,22 @@
+{
+  "appName": "SceneSparrow",
+  "tagline": "Your story, scene by scene.",
+  "language": "Language",
+  "connecting": "Opening your workspace…",
+  "newProject": "Start a project",
+  "projectTitle": "Project name",
+  "create": "Create project",
+  "creating": "Saving…",
+  "saved": "Saved on this device",
+  "revision": "Working revision",
+  "baseline": "Approval status",
+  "notApproved": "Awaiting review",
+  "preview": "Motion sample",
+  "previewDescription": "A sample animation to verify preview playback. Your project has no scenes yet.",
+  "nextStep": "Script editing and scene creation will be added next.",
+  "retry": "Try again",
+  "error": "The workspace could not complete this request. Please try again.",
+  "INVALID_TITLE": "Enter a project name with 1 to 120 characters.",
+  "PROJECT_CONFLICT": "This workspace already contains a project. Reload to open it.",
+  "UNAUTHORIZED": "The workspace connection has expired. Restart the application."
+}

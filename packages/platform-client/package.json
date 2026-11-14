@@ -1,0 +1,15 @@
+{
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "name": "@scenesparrow/platform-client",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@scenesparrow/contracts": "workspace:*"
+  }
+}
