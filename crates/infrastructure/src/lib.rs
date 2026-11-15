@@ -1,4 +1,9 @@
-use std::{fs::File, path::Path, sync::Mutex, time::Duration};
+use std::{
+    fs::File,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::{Error, ProjectRepository};
@@ -6,6 +11,8 @@ use scenesparrow_domain::Project;
 
 pub struct SqliteProjectRepository {
     connection: Mutex<Connection>,
+    directory: std::path::PathBuf,
+    policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     // Holding the file lock prevents a second core from owning this project.
     _owner: File,
 }
@@ -45,23 +52,58 @@ impl SqliteProjectRepository {
         storage(owner.try_lock())?;
         let mut connection = storage(Connection::open(directory.join("project.sqlite")))?;
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
-        storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
-        storage(connection.pragma_update(None, "foreign_keys", true))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        match version {
-            0 => {
-                let transaction = storage(connection.transaction())?;
-                storage(transaction.execute_batch(include_str!("../migrations/001_project.sql")))?;
-                storage(transaction.commit())?;
-            }
-            1 => {}
-            _ => return Err(Error::Storage),
+        if version > 2 {
+            return Err(Error::SchemaUnsupported);
         }
-        Ok(Self {
+        storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
+        storage(connection.pragma_update(None, "synchronous", "FULL"))?;
+        storage(connection.pragma_update(None, "foreign_keys", true))?;
+        if version == 0 {
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/001_project.sql")))?;
+            storage(transaction.commit())?;
+        }
+        if version < 2 {
+            // SQLite's backup API includes committed WAL pages in a consistent snapshot.
+            let mut backup_path = directory.join("pre-migration-002.sqlite");
+            if backup_path.exists() {
+                backup_path =
+                    directory.join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+            }
+            let mut backup = storage(Connection::open(&backup_path))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/002_manuscript.sql")))?;
+            if read_project(&transaction)?.is_some() {
+                manuscript::initialize(&transaction)?;
+            }
+            storage(transaction.commit())?;
+        }
+        storage(std::fs::create_dir_all(directory.join("objects")))?;
+        storage(std::fs::create_dir_all(directory.join("staging")))?;
+        let repository = Self {
             connection: Mutex::new(connection),
+            directory: directory.to_path_buf(),
+            policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             _owner: owner,
-        })
+        };
+        repository.verify_manuscript()?;
+        storage(
+            storage(repository.connection.lock())?
+                .execute("UPDATE edit_groups SET closed=1 WHERE closed=0", []),
+        )?;
+        Ok(repository)
+    }
+    pub fn with_policy(
+        mut self,
+        policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
+    ) -> Self {
+        self.policy = policy;
+        self
     }
 }
 
@@ -96,6 +138,7 @@ impl ProjectRepository for SqliteProjectRepository {
             "INSERT INTO project (singleton, id, title, request_id, working_revision, approved_baseline) VALUES (1, ?1, ?2, ?3, 0, NULL)",
             params![project.id, project.title, request_id],
         ))?;
+        manuscript::initialize(&transaction)?;
         storage(transaction.commit())?;
         Ok(project)
     }
@@ -147,3 +190,7 @@ mod tests {
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
     }
 }
+
+pub mod manuscript;
+#[cfg(test)]
+mod manuscript_tests;

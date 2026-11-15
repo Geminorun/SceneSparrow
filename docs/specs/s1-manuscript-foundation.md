@@ -1,7 +1,8 @@
 # S1 specification: manuscript editing foundation
 
-Status: specified for implementation; no S1 business functionality is implemented
-by this document. Version: 0.1. Scope: the first slice of the
+Status: execution step 1 implements the manual editing/save/reopen subset.
+History, sources/import and full S1 validation remain pending. See
+[step 1 evidence](../validation/step-01.md). Version: 0.1. Scope: the first slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
 Read the [workbench design](../design/script-workbench-v0.1.md),
@@ -426,9 +427,11 @@ Axum, Electron, Tiptap, concrete SQL or parser libraries. Infrastructure impleme
 repository, object-store, document-worker and platform adapters. Worker code never
 opens `project.sqlite` or edits current body/history rows.
 
-Planned migration `002_manuscript_foundation.sql` moves bootstrap schema version 1
-to 2. The implementation must add the actual migration and transactional rollback
-tests together. Suggested table responsibilities and constraints are:
+Applied migration `002_manuscript.sql` moves bootstrap schema version 1 to 2 for
+the manual editing foundation. Append `003` for bounded history and `004` for
+sources/import as delivery steps 2 and 3 land; do not rewrite applied 002. The
+shared AI ledger reserves later stages. Each migration needs transactional
+rollback/reopen evidence. Table responsibilities across the complete S1 stage are:
 
 | Table                                      | Keys and invariant                                                                                            |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
@@ -534,7 +537,9 @@ private document content in diagnostics, or an arbitrary worker stack trace.
 
 ## 10. Development tasks and dependencies
 
-All tasks below are pending. Deliver small vertical changes with tests; task IDs
+T01–T06 have a manual-slice implementation (T05 import entry/commit remains in
+step 3); see the linked evidence for coverage and gaps. T07–T13 remain pending.
+Deliver small vertical changes with tests; task IDs
 are units within this single stage spec, not separate documents or branches that
 the current instruction asks to create. Tests/localization belong to each task.
 In the table, `Tnn` means `S1-Tnn` and `ACnn` means `S1-ACnn`.
@@ -612,6 +617,6 @@ AI integration consumes these interfaces; no provider imports or model configura
 are added to S1 manuscript/editor modules.
 The [shared AI spec](shared-ai-integration.md) implements those infrastructure
 ports through a common application unit of work without importing script models.
-Its migration ledger follows S1's schema version 2 with shared AI at version 3.
+Its migration ledger follows S1's schema versions 2–4 with shared AI at version 5.
 S1 editing/import/history must remain usable without any provider configuration,
 even after later project migrations add AI execution tables.

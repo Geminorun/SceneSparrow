@@ -3,6 +3,7 @@ import { Player } from "@remotion/player";
 import type { Project } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import { MotionSample, sampleMetadata } from "@scenesparrow/video-runtime";
+import { Manuscript } from "./editor/Manuscript";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
@@ -123,18 +124,32 @@ export function App({ client }: { client: PlatformClient }) {
                 <dd>{t.notApproved}</dd>
               </div>
             </dl>
-            <p className="muted">{t.nextStep}</p>
           </div>
-          <div className="preview">
-            <h3>{t.preview}</h3>
-            <Player
-              component={MotionSample}
-              {...sampleMetadata}
-              controls
-              style={{ width: "100%", borderRadius: 12 }}
-            />
-            <p className="muted">{t.previewDescription}</p>
-          </div>
+          <Manuscript
+            client={client}
+            projectId={project.id}
+            t={t}
+            onRevision={(workingRevision) =>
+              setProject((p) =>
+                p && p.workingRevision !== workingRevision
+                  ? { ...p, workingRevision }
+                  : p,
+              )
+            }
+          />
+          <details className="preview">
+            <summary>{t.preview}</summary>
+            <div>
+              <h3>{t.preview}</h3>
+              <Player
+                component={MotionSample}
+                {...sampleMetadata}
+                controls
+                style={{ width: "100%", borderRadius: 12 }}
+              />
+              <p className="muted">{t.previewDescription}</p>
+            </div>
+          </details>
         </section>
       ) : (
         !error && (

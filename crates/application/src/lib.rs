@@ -8,6 +8,8 @@ pub enum Error {
     InvalidRequest,
     #[error("The request conflicts with existing project state")]
     Conflict,
+    #[error("Unsupported project schema")]
+    SchemaUnsupported,
     #[error("Project storage is unavailable")]
     Storage,
 }
@@ -24,6 +26,10 @@ pub struct ProjectService<R> {
 impl<R: ProjectRepository> ProjectService<R> {
     pub fn new(repository: R) -> Self {
         Self { repository }
+    }
+
+    pub fn repository(&self) -> &R {
+        &self.repository
     }
 
     pub fn read(&self) -> Result<Option<Project>, Error> {
@@ -43,3 +49,5 @@ impl<R: ProjectRepository> ProjectService<R> {
         self.repository.create(request_id, &title)
     }
 }
+
+pub mod manuscript;

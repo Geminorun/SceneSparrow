@@ -8,7 +8,10 @@
     "health",
     "createProject",
     "projectResponse",
-    "apiError"
+    "apiError",
+    "manuscriptState",
+    "manuscriptCommand",
+    "commandReceipt"
   ],
   "properties": {
     "project": {
@@ -25,6 +28,15 @@
     },
     "apiError": {
       "$ref": "#/definitions/ApiError"
+    },
+    "manuscriptState": {
+      "$ref": "#/definitions/ManuscriptState"
+    },
+    "manuscriptCommand": {
+      "$ref": "#/definitions/ManuscriptCommand"
+    },
+    "commandReceipt": {
+      "$ref": "#/definitions/CommandReceipt"
     }
   },
   "definitions": {
@@ -105,8 +117,431 @@
       "properties": {
         "code": {
           "type": "string"
+        },
+        "requestId": {
+          "type": "string"
         }
       }
+    },
+    "Mark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["bold", "italic", "code", "link"]
+        },
+        "href": {
+          "type": "string"
+        }
+      }
+    },
+    "TextRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "marks"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Mark"
+          }
+        }
+      }
+    },
+    "BlockAttrs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "listKind": {
+          "type": "string",
+          "enum": ["bullet", "ordered"]
+        },
+        "depth": {
+          "type": "integer"
+        }
+      }
+    },
+    "NewBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "attrs", "runs"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/BlockKind"
+        },
+        "attrs": {
+          "$ref": "#/definitions/BlockAttrs"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TextRun"
+          }
+        }
+      }
+    },
+    "Block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "attrs", "runs", "revision"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/BlockKind"
+        },
+        "attrs": {
+          "$ref": "#/definitions/BlockAttrs"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TextRun"
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ManuscriptState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manuscriptId",
+        "schemaVersion",
+        "workspaceStage",
+        "blocks",
+        "workingRevision"
+      ],
+      "properties": {
+        "manuscriptId": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "workspaceStage": {
+          "type": "string",
+          "enum": ["outline", "draft"]
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "BlockRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "EditGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientSessionId", "groupId", "groupSequence", "kind"],
+      "properties": {
+        "clientSessionId": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "groupSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["typing", "discrete"]
+        }
+      }
+    },
+    "Primitive": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "block", "after"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["insertBlock"]
+            },
+            "block": {
+              "$ref": "#/definitions/NewBlock"
+            },
+            "after": {
+              "type": ["string", "null"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id", "runs"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["setBlockContent"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "runs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TextRun"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id", "kind", "attrs"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["setBlockAttributes"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/definitions/BlockKind"
+            },
+            "attrs": {
+              "$ref": "#/definitions/BlockAttrs"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["deleteBlock"]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "ids", "after"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["moveBlocks"]
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "after": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      ]
+    },
+    "EmptyPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "EditPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operations", "expectedBlockRevisions", "group"],
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Primitive"
+          }
+        },
+        "expectedBlockRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        }
+      }
+    },
+    "ManuscriptCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["StartManualDraft"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["ApplyDocumentEdit"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EditPayload"
+            }
+          }
+        }
+      ]
+    },
+    "CommandReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "workingRevision",
+        "blockRevisions",
+        "historyRevision",
+        "cursor",
+        "undoCount",
+        "redoCount",
+        "eventSequence",
+        "normalized"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "blockRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
+        },
+        "historyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "redoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "eventSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "normalized": {
+          "type": "boolean"
+        }
+      }
+    },
+    "BlockKind": {
+      "type": "string",
+      "enum": ["paragraph", "heading", "list_item"]
     }
   }
 }

@@ -6,6 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde_json.workspace = true
+sha2 = "=0.10.9"
+
 scenesparrow-domain.workspace = true
 scenesparrow-application.workspace = true
 rusqlite.workspace = true

@@ -1,33 +1,20 @@
 // Generated from protocol.schema.json. Do not edit by hand.
-export interface Protocol {
-    apiError:        APIError;
-    createProject:   CreateProject;
-    health:          Health;
-    project:         Project;
-    projectResponse: ProjectResponse;
-}
-
-export interface APIError {
-    code: string;
-}
-
-export interface CreateProject {
-    requestId: string;
-    title:     string;
-}
-
-export interface Health {
-    protocolVersion: string;
-    status:          string;
-}
-
-export interface Project {
-    approvedBaseline: number | null;
-    id:               string;
-    title:            string;
-    workingRevision:  number;
-}
-
-export interface ProjectResponse {
-    project: Project | null;
-}
+export type Project = { id: string; title: string; workingRevision: number; approvedBaseline: number | null; };
+export type Health = { status: string; protocolVersion: string; };
+export type CreateProject = { requestId: string; title: string; };
+export type ProjectResponse = { project: Project | null; };
+export type ApiError = { code: string; requestId?: string; };
+export type Mark = { type: "bold" | "italic" | "code" | "link"; href?: string; };
+export type TextRun = { text: string; marks: Array<Mark>; };
+export type BlockAttrs = { level?: number; listKind?: "bullet" | "ordered"; depth?: number; };
+export type NewBlock = { id: string; kind: BlockKind; attrs: BlockAttrs; runs: Array<TextRun>; };
+export type Block = { id: string; kind: BlockKind; attrs: BlockAttrs; runs: Array<TextRun>; revision: number; };
+export type ManuscriptState = { manuscriptId: string; schemaVersion: 1; workspaceStage: "outline" | "draft"; blocks: Array<Block>; workingRevision: number; };
+export type BlockRevision = { id: string; revision: number; };
+export type EditGroup = { clientSessionId: string; groupId: string; groupSequence: number; kind: "typing" | "discrete"; };
+export type Primitive = { op: "insertBlock"; block: NewBlock; after: string | null; } | { op: "setBlockContent"; id: string; runs: Array<TextRun>; } | { op: "setBlockAttributes"; id: string; kind: BlockKind; attrs: BlockAttrs; } | { op: "deleteBlock"; id: string; } | { op: "moveBlocks"; ids: Array<string>; after: string | null; };
+export type EmptyPayload = {  };
+export type EditPayload = { operations: Array<Primitive>; expectedBlockRevisions: Array<BlockRevision>; group: EditGroup; };
+export type ManuscriptCommand = { type: "StartManualDraft"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: EmptyPayload; } | { type: "ApplyDocumentEdit"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: EditPayload; };
+export type CommandReceipt = { requestId: string; workingRevision: number; blockRevisions: Array<BlockRevision>; historyRevision: number; cursor: number; undoCount: number; redoCount: number; eventSequence: number; normalized: boolean; };
+export type BlockKind = "paragraph" | "heading" | "list_item";

@@ -31,3 +31,6 @@ mod tests {
         }
     }
 }
+
+pub mod contracts;
+pub mod manuscript;

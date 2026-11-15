@@ -497,8 +497,8 @@ revisions and applicability in SQLite. Add unique constraints on script task/run
 binding and task-result application. Table ownership remains separate from generic
 AI runs/attempts/artifacts even within the same project database.
 
-Reserve `004_planning.sql` and project schema version 4 after S1 version 2 and
-shared AI version 3, following the shared spec's migration ledger. Append later
+Reserve `006_planning.sql` and project schema version 6 after S1 versions 2–4 and
+shared AI version 5, following the shared spec's migration ledger. Append later
 changes without renumbering applied migrations. Test migration from bootstrap
 through S1 into S2 and reopening an existing S1 draft. That draft
 keeps its IDs/content/history, opens in draft stage and gains no invented outline.

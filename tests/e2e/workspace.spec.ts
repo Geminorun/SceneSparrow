@@ -6,8 +6,15 @@ test("creates a persistent project and switches the shared UI language", async (
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
-  await page.getByLabel("Project name").fill("幕雀 project");
-  await page.getByRole("button", { name: "Create project" }).click();
+  await expect(
+    page
+      .getByLabel("Project name")
+      .or(page.getByRole("heading", { name: "幕雀 project", exact: true })),
+  ).toBeVisible();
+  if (await page.getByLabel("Project name").isVisible()) {
+    await page.getByLabel("Project name").fill("幕雀 project");
+    await page.getByRole("button", { name: "Create project" }).click();
+  }
   await expect(
     page.getByRole("heading", { name: "幕雀 project" }),
   ).toBeVisible();

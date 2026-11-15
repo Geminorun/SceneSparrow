@@ -68,10 +68,14 @@ Settings and the runtime library can be developed against fakes before S1 finish
 Durable project execution uses the S1 repository/object abstractions. Shared AI
 does not depend on S2 or S3; those consumers depend on its public ports.
 
-Reserve the initial database sequence while none of these migrations is implemented:
-`001` bootstrap, `002` S1, `003` shared AI execution, `004` S2 planning,
-`005` S3 review, `006` S4 export. Actual migration files and tests land with
-implementation. Additional migrations append
+The eight-step delivery sequence uses append-only project migrations:
+`001` bootstrap, `002_manuscript.sql` manual editing (step 1),
+`003` bounded history (step 2), `004` sources/import (step 3),
+`005` shared AI execution (step 4), `006` S2 planning (step 5),
+`007` S3 review (step 6), `008` S3 finalization (step 7), and
+`009` S4 export (step 8). Applied `001`/`002` retain their original numbers and
+bytes. Later numbers are reservations until implemented with their tests; each
+delivery adds its own migration instead of rewriting an earlier step. Additional migrations append
 to the sequence; never renumber an applied migration or reuse a version for another
 layout. Global settings have their own JSON `schemaVersion`, not a second database.
 
@@ -492,7 +496,7 @@ All tasks are pending. `Tnn`, `ACnn` and `DEPnn` mean `SAI-Tnn`, `SAI-ACnn` and
 | SAI-T04 | Build localized shared settings UI and safe platform endpoints, manual/discovered model selection                        | T02, T03                | AC01, AC02, AC03, AC05       |
 | SAI-T05 | Add reusable runtime library and deterministic fake adapter with normalized bounded text/image/output contract           | T01                     | AC08, AC09, AC10             |
 | SAI-T06 | Implement compatible SDK adapter, shared transport and explicit discovery/inference test with zero retries               | T02, T03, T05           | AC05, AC06, AC11, AC12, AC13 |
-| SAI-T07 | Add migration 003, input/artifact/run/attempt/dispatch repositories and idempotent execution receipts                    | T01, DEP02              | AC14, AC15, AC16             |
+| SAI-T07 | Add migration 005, input/artifact/run/attempt/dispatch repositories and idempotent execution receipts                    | T01, DEP02              | AC14, AC15, AC16             |
 | SAI-T08 | Implement task-start config locking and shared unit-of-work enqueue with fake consumer transaction participant           | T02, T03, T07           | AC14, AC15, AC17             |
 | SAI-T09 | Add supervised worker IPC, scoped input/credential broker and bounded protocol validation                                | T03, T05, T06, T07      | AC07, AC09, AC10, AC18       |
 | SAI-T10 | Implement queue/dispatch permit and at-most-one generation invariant, deadlines and worker-loss handling                 | T08, T09                | AC16, AC18, AC19, AC20       |

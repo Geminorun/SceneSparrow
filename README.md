@@ -11,16 +11,17 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The framework setup is complete and the current work is detailed design of the
-first manuscript workbench. The [workbench and shared AI specifications](docs/design/README.md)
-define the planned behavior and implementation slices; production business features
-are not implemented yet. Existing sample models and interfaces are provisional.
+The manuscript workbench is being implemented in eight reviewed steps. Step 1
+provides manual manuscript editing, autosave, recovery and reopening acknowledged
+content. [Step 1 evidence](docs/validation/step-01.md) records its checks and limits.
+History, sources/import, AI, review/locks and export follow in later steps; the
+[workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
 the same UI through a restricted preload bridge. A Remotion sample validates the
-separate render pipeline. These are framework integration samples, not completed
-product features or evidence that a business implementation milestone has begun.
+separate render pipeline. The render sample remains a framework example. Native
+Windows/macOS desktop validation and complete-stage acceptance remain open.
 
 See [development setup](docs/development.md) for prerequisites and platform limits.
 After installing the pinned tools:
@@ -48,9 +49,9 @@ workflow here and validate desktop behavior on Windows/macOS.
 - [Architecture, planned layout, and milestones](docs/architecture.md)
 - [Original requirements and technical design, v0.1](docs/reference/README.md)
 
-The planned stack is React, TypeScript, Vite, Tiptap/ProseMirror, Electron,
+The stack is React, TypeScript, Vite, Tiptap/ProseMirror, Electron,
 Rust/Tokio/Axum, SQLite, and Node.js/Remotion with a dedicated rendering browser
-and FFmpeg. TypeScript and Rust will use pnpm and Cargo workspaces in one repository.
+and FFmpeg. TypeScript and Rust use pnpm and Cargo workspaces in one repository.
 
 ## Working on SceneSparrow
 

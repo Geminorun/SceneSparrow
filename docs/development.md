@@ -13,28 +13,39 @@ zero and has no approved baseline. Creating the same request twice is idempotent
 a different request cannot replace the existing project. A file lock prevents two
 core instances from owning the same directory.
 
-The current phase is detailed design following framework setup. The
-[workbench and shared AI specifications](design/README.md) describe planned
-functionality, not a completed business implementation milestone. Script
-editing/Tiptap, assets, revision history, lock enforcement, review acceptance, SSE,
-durable worker jobs, provider authentication, incremental rendering, file pickers,
-packaging, and updates remain to be implemented. The Agent package contains an
-interface only. The sample render does not render project scenes or contain audio.
+Execution step 1 now provides manual manuscript editing: start an empty draft,
+write paragraphs/headings/nested lists with bold, italic, inline code and safe
+links, autosave, and reopen acknowledged content. The shared Tiptap editor adapts
+application-owned canonical blocks; it does not persist editor JSON or HTML.
+Heading navigation derives from the same blocks. Save feedback distinguishes
+pending, saving, saved, error and conflict; failed/uncertain saves retain local
+input and offer retry or explicit copy/discard recovery.
+
+Migration 002 adds immutable content-addressed objects, canonical block identities
+and revisions, request receipts, edit-group metadata and a transactional outbox.
+Bootstrap upgrades use SQLite's consistent backup API. The existing project owner
+lock remains. Only `StartManualDraft` and atomic `ApplyDocumentEdit` commands are
+implemented. Project history, sources/import, event subscriptions, retention/GC,
+production locks, review, AI and export remain planned; their controls are hidden.
+Editor undo shortcuts are reserved for step 2's project history and currently do
+not perform local-only undo. The existing procedural motion sample remains an
+independent collapsible development example.
 
 ## Pinned tools and prerequisites
 
-| Tool              | Version / policy                                              |
-| ----------------- | ------------------------------------------------------------- |
-| Node.js           | 24.22.1, `.node-version`                                      |
-| pnpm              | 11.25.0, root `packageManager`                                |
-| Rust              | 1.100.0, `rust-toolchain.toml`, with rustfmt and Clippy       |
-| TypeScript        | 5.9.3                                                         |
-| React / Vite      | 19.3.1 / 8.3.8                                                |
-| Electron          | 45.3.2, installed independently of the renderer browser       |
-| Remotion          | 4.0.543 across all Remotion packages                          |
-| Rendering browser | Chrome Headless Shell selected by the pinned Remotion version |
-| FFmpeg            | System prerequisite; cloud validation uses 7.1.5              |
-| SQLite            | Bundled through rusqlite; no database server needed           |
+| Tool              | Version / policy                                                   |
+| ----------------- | ------------------------------------------------------------------ |
+| Node.js           | 24.22.1, `.node-version`                                           |
+| pnpm              | 11.25.0, root `packageManager`                                     |
+| Rust              | 1.100.0, `rust-toolchain.toml`, with rustfmt and Clippy            |
+| Tiptap            | 3.34.0, including the core, React, ProseMirror and used extensions |
+| TypeScript        | 5.9.3                                                              |
+| React / Vite      | 19.3.1 / 8.3.8                                                     |
+| Electron          | 45.3.2, installed independently of the renderer browser            |
+| Remotion          | 4.0.543 across all Remotion packages                               |
+| Rendering browser | Chrome Headless Shell selected by the pinned Remotion version      |
+| FFmpeg            | System prerequisite; cloud validation uses 7.1.5                   |
+| SQLite            | Bundled through rusqlite; no database server needed                |
 
 Install Node, pnpm, Rust/rustfmt/Clippy, a native C compiler, and FFmpeg for local
 development. Windows needs the MSVC build tools; macOS needs Xcode command-line
@@ -93,11 +104,19 @@ pnpm dev:desktop
 ```
 
 The launcher builds the web bundle, desktop code, and Rust core. Electron owns the
-core lifecycle, creates a session token, and exposes only health/read/create
-operations through a sandboxed preload bridge. The renderer cannot read arbitrary
+core lifecycle, creates a session token, and exposes only named project/manuscript reads, closed commands and
+receipt lookup operations through a sandboxed preload bridge. The renderer cannot read arbitrary
 files, run commands, or call arbitrary core endpoints. Electron uses an application
 data directory by default; set `SCENESPARROW_PROJECT_DIR` to share a particular
 development project with the browser, one core instance at a time.
+
+Controlled desktop close waits for a flush. Failure keeps the window open for
+retry, cancellation or an explicit discard decision; an unresponsive renderer has
+a separate confirmation path. The handshake/preload lifecycle is unit-tested and
+compiled in the cloud. Actual Windows/macOS launch, IME and close behavior remain
+unverified. Browser unload warns about unsaved edits and cannot guarantee a final
+asynchronous save. Unexpected process/browser failure can lose unacknowledged
+input; no local-storage keystroke replay is used.
 
 ## Commands and verification
 
@@ -108,11 +127,11 @@ development project with the browser, one core instance at a time.
 | `pnpm contracts:check`              | Detect stale generated protocol types                                              |
 | `pnpm typecheck`                    | Check all TypeScript packages                                                      |
 | `pnpm format` / `pnpm format:check` | Apply/check Prettier and rustfmt                                                   |
-| `pnpm test`                         | Run locale consistency and Rust domain/storage/HTTP tests                          |
+| `pnpm test`                         | Run autosave/bridge/locale and Rust domain/storage/HTTP tests                      |
 | `pnpm check`                        | Run contract, format, type, unit, and Clippy checks                                |
 | `pnpm build`                        | Build the browser, Electron shell, and Rust workspaces                             |
-| `pnpm test:integration`             | Create a project via HTTP and verify recovery across actual process restart        |
-| `pnpm test:e2e`                     | Create/reload a project and switch languages in a real browser                     |
+| `pnpm test:integration`             | Save a manuscript/receipts via HTTP and verify actual core restart recovery        |
+| `pnpm test:e2e`                     | Exercise structure, formatting, IME events, autosave and recovery in Chromium      |
 | `pnpm render:smoke`                 | Download the dedicated rendering browser if needed and render 30 H.264 frames      |
 
 For browser tests, use `pnpm exec playwright install chromium`, or point
@@ -129,22 +148,35 @@ gain dedicated CI jobs as those workflows mature.
 ## Protocol and change boundaries
 
 `packages/contracts/schema/protocol.schema.json` is the protocol source of truth.
-Its named definitions generate `packages/contracts/src/generated.ts` and
-`crates/service/src/contracts.rs`; generated files are committed and checked for
-drift. Generated Rust structs reject unknown fields for these closed schema
-objects. Domain validation enforces name and request constraints separately.
+Its named definitions generate `packages/contracts/src/generated.ts`, transport-neutral
+canonical/command types in `crates/domain/src/contracts.rs`, and transport DTOs in
+`crates/service/src/contracts.rs`. The small generator retains closed tagged
+command unions, distinguishes required null from missing fields, and rejects
+unsupported schema type constructs. Generated files are committed and checked for
+drift. Core validation separately enforces canonical invariants and named limits.
 
-The initial authenticated endpoints are `GET /v1/health`, `GET /v1/project`, and
-`POST /v1/project`. Creation accepts a request ID and title; it does not accept a
-client-supplied revision or approve a baseline. There is intentionally no edit,
-unlock, or acceptance endpoint until revision and lock validation exist.
+The existing authenticated project/health routes remain compatible. New routes:
+
+- `GET /v1/manuscript`: current canonical manuscript and working revision.
+- `POST /v1/manuscript/commands`: the closed manual-start/edit command union.
+- `GET /v1/commands/{requestId}`: resolve an immutable success/rejection receipt.
+
+Manuscript commands have an 8 MiB route limit; small routes retain 16 KiB. Identical
+requests replay their original outcomes before revision checks; changed payloads
+with a reused request ID fail. Successful responses follow object verification and
+an atomic SQLite commit of state, revisions, receipt and outbox metadata. No-op
+edits preserve working/block revisions. History metadata in receipts is reserved
+at zero until step 2. Edit groups are foundations, without bounded undo behavior.
+
+See [step 1 evidence](validation/step-01.md) for the acceptance mapping and
+remaining platform/fault/performance gaps.
 
 The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
 orders upcoming work by usable manuscript slices. The preliminary M0/M1 media
 roadmap does not authorize further feature implementation. Treat the bootstrap's
 single-project API as an integration sample, not a substitute for the detailed
 domain, history, lock and execution contracts.
-All [stage and shared AI specs](specs/README.md) are now documented. Their tasks
-remain unimplemented; follow the shared AI migration/port ledger when those slices
+All [stage and shared AI specs](specs/README.md) are documented. Only the manual
+step 1 subset above is implemented; follow the shared AI migration/port ledger when those slices
 are explicitly developed, without making provider access a prerequisite for
 manual editing/export.

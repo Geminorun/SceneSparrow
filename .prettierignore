@@ -8,3 +8,5 @@ target/
 dist/
 node_modules/
 packages/contracts/src/generated.ts
+
+.agents/

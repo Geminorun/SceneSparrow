@@ -391,8 +391,8 @@ Persist `export_jobs`, `export_snapshots` metadata/pins, and verified artifact
 records under core ownership. Link serializer version and content hash for audit.
 Compact terminal snapshot payloads when input pins are released; current/generated
 files remain referenced as applicable. Destination capabilities are app-session
-state, not portable project paths. Reserve `006_exports.sql` and project schema
-version 6 after S3 version 5, following the shared AI migration ledger, and test
+state, not portable project paths. Reserve `009_exports.sql` and project schema
+version 9 after S3 versions 7–8, following the shared AI migration ledger, and test
 upgrade/recovery together. Export utility queues never use AI dispatch permits.
 
 | Error                                                                  | Required presentation / behavior                                         |

@@ -147,3 +147,82 @@ dd {
     font-size: 13px;
   }
 }
+.project-card {
+  display: block;
+}
+.manuscript-workspace {
+  margin-top: 1.5rem;
+  border-top: 1px solid #ccd3df;
+  padding-top: 1rem;
+}
+.manuscript-header,
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.manuscript-header {
+  justify-content: space-between;
+}
+.editor-toolbar button,
+.editor-toolbar select {
+  padding: 0.45rem 0.65rem;
+}
+.document-layout {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  margin: 1rem 0;
+  gap: 1rem;
+}
+.document-layout nav button {
+  display: block;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+.tiptap {
+  min-height: 320px;
+  padding: 1rem;
+  border: 1px solid #ccd3df;
+  border-radius: 8px;
+  background: white;
+  color: #182437;
+  outline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.tiptap p {
+  margin: 0.5em 0;
+}
+.tiptap ul,
+.tiptap ol {
+  padding-inline-start: 1.5rem;
+}
+.tiptap code {
+  background: #edf0f6;
+  padding: 0.1em 0.25em;
+}
+.tiptap a {
+  color: #4058c9;
+  text-decoration: underline;
+}
+.recovery {
+  border: 2px solid #a75325;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+.recovery textarea {
+  width: 100%;
+  min-height: 180px;
+  margin-bottom: 1rem;
+}
+.preview {
+  margin-top: 2rem;
+}
+@media (max-width: 700px) {
+  .document-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

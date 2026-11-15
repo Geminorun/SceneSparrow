@@ -25,7 +25,8 @@
   authorized slice, read its stage spec and use its task/acceptance IDs; keep
   shared AI contracts independent of manuscript-specific orchestration. S1–S4
   specs and `docs/specs/shared-ai-integration.md` are written and indexed there;
-  implementation and validation are pending. Use the shared spec's ports, initial
+  implementation follows the eight-step sequence and its validation reports.
+  Use the shared spec's ports, append-only
   migration sequence, task-start configuration boundary and dispatch guards.
   S2/S3 own business applicability; S4 cites independent AI/platform evidence.
 - The user has selected the eight-step implementation loop in
@@ -38,8 +39,11 @@
   separately; this workflow does not authorize automatic merge/release.
 - The foundation implements project creation/reopen, a shared bilingual UI,
   authenticated local API, SQLite storage, and a procedural render sample. Read
-  `docs/development.md` for setup and limitations. Full revisions, assets, locks,
-  review, Agent execution, and incremental rendering are not implemented yet.
+  `docs/development.md` for setup and limitations. Step 1 adds canonical manuscript
+  editing, monotonic revisions, immutable objects, receipts, autosave and recovery;
+  evidence is in `docs/validation/step-01.md`. History, sources/import, production
+  locks/review, AI and export follow in later steps. Applied migrations are
+  immutable; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
   `pnpm render:smoke` exercises rendering. Never claim unrun platform checks.

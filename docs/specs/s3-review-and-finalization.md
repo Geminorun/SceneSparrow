@@ -530,8 +530,9 @@ index threads by manuscript/target/status and candidates by request/claimed bloc
 Store large quoted/diff/context payloads as immutable references. Complete verified
 objects before referencing them. Commit acceptance, lock/readiness changes, history,
 receipts and events with the same short SQLite transaction. No provider call,
-large diff computation or UI wait runs inside it. Reserve `005_review.sql` and
-project schema version 5 after S2 version 4 under the shared AI migration ledger;
+large diff computation or UI wait runs inside it. Reserve `007_review.sql` for
+step 6 after S2 schema version 6, then append `008` for step 7's finalization/lock
+storage under the shared AI migration ledger;
 migrate existing drafts/history without inventing locks, reviews or approved baselines.
 
 Persist generic results first, then apply script-local answer/candidate projections

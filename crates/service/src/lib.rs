@@ -1,4 +1,5 @@
 pub mod contracts;
+mod manuscript;
 
 use axum::{
     Json, Router,
@@ -31,6 +32,7 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/project", get(read_project).post(create_project))
+        .merge(manuscript::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -42,6 +44,7 @@ fn api_error(status: StatusCode, code: &str) -> Response {
         status,
         Json(contracts::ApiError {
             code: code.to_owned(),
+            request_id: None,
         }),
     )
         .into_response()
@@ -91,6 +94,9 @@ fn result_response(result: Result<Option<scenesparrow_domain::Project>, Error>) 
             api_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST")
         }
         Err(Error::Conflict) => api_error(StatusCode::CONFLICT, "PROJECT_CONFLICT"),
+        Err(Error::SchemaUnsupported) => {
+            api_error(StatusCode::SERVICE_UNAVAILABLE, "SCHEMA_UNSUPPORTED")
+        }
         Err(Error::Storage) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_UNAVAILABLE"),
     }
 }

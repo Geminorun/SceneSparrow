@@ -1,7 +1,9 @@
 # Eight-step implementation and review workflow
 
 Status: execution policy selected by the user. The detailed designs/specs were
-committed as `11d36fa`; all eight implementation steps are pending. This document
+committed as `11d36fa`. Step 1 implements manual editing/save/reopen;
+steps 2–8 remain pending. See [step 1 evidence](validation/step-01.md).
+This document
 formalizes dispatch/review/delivery and does not claim product implementation.
 
 Read [AGENTS.md](../AGENTS.md), the [development workflow](development-workflow.md),
@@ -190,5 +192,5 @@ a report to contain its own future commit hash.
 
 After each push, report the completed behavior, review/validation outcome, known
 limits, branch/commit and next step. Continue the approved sequence without asking
-for another routine go-ahead. The present delivery establishes this process only;
-product implementation starts at step 1.
+for another routine go-ahead. The status and linked validation reports above track
+the current implementation checkpoints.
