@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 // @ts-expect-error Controlled local provider fixture is plain ESM.
@@ -13,7 +13,7 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
     process.env.SCENESPARROW_REVIEW_PERFORMANCE !== "1",
     "Run the explicit review performance fixture.",
   );
-  test.setTimeout(600000);
+  test.setTimeout(1800000);
   const provider = await planningProvider();
   const req = async (path: string, body?: unknown, method?: string) => {
     const response = await page.request.fetch("/api/v1" + path, {
@@ -56,10 +56,23 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
     if (state.workspaceStage === "outline")
       await command("StartManualDraft", {});
     const blocks = Array.from({ length: 500 }, (_, i) => ({
-      id: crypto.randomUUID(),
-      kind: "paragraph",
-      attrs: {},
-      runs: [{ text: `Source ${i} 中文`, marks: [] }],
+      id: `00000000-0000-4000-8000-${(i + 1).toString(16).padStart(12, "0")}`,
+      kind: i % 100 === 0 ? "heading" : i % 100 < 4 ? "list_item" : "paragraph",
+      attrs:
+        i % 100 === 0
+          ? { level: 2 }
+          : i % 100 < 4
+            ? {
+                listKind: i % 100 === 2 ? "ordered" : "bullet",
+                depth: i % 100 === 2 ? 1 : 0,
+              }
+            : {},
+      runs: [
+        {
+          text: `Source ${i} 中文`,
+          marks: i % 17 === 0 ? [{ type: "bold" }] : [],
+        },
+      ],
     }));
     await command("ApplyDocumentEdit", {
       operations: blocks.map((block, i) => ({
@@ -163,13 +176,67 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
     }
     const setupMs = performance.now() - setupStart,
       results = [];
+    const sources: Array<{ name: string; bytes: number; sha256: string }> = [];
+    if (process.env.SCENESPARROW_PERF_SOURCES === "1") {
+      // @ts-expect-error Self-authored document fixtures are plain ESM.
+      const { docx, pdf } = await import("../fixtures/documents.mjs");
+      const files = [
+        {
+          name: "large-source.txt",
+          bytes: Buffer.from("source only 中文 é\n".repeat(262144)),
+        },
+        {
+          name: "reference.md",
+          bytes: Buffer.from("# Reference\n\nSource **only** 中文\n"),
+        },
+        {
+          name: "reference.docx",
+          bytes: docx("<w:p><w:r><w:t>Reference only 中文</w:t></w:r></w:p>"),
+        },
+        {
+          name: "reference.pdf",
+          bytes: pdf([{ text: "Reference source only" }]),
+        },
+      ];
+      const { createHash } = await import("node:crypto");
+      for (const file of files) {
+        const intakeId = crypto.randomUUID();
+        const upload = await page.request.post("/api/v1/intakes", {
+          headers: {
+            "x-intake-id": intakeId,
+            "x-file-name": encodeURIComponent(file.name),
+            "content-type": "application/octet-stream",
+          },
+          data: file.bytes,
+        });
+        expect(upload.ok()).toBeTruthy();
+        const intake = await upload.json();
+        state = (await req("/manuscript")).data;
+        await command("AddSourceFile", {
+          sourceId: crypto.randomUUID(),
+          intakeId: intake.id,
+          hash: intake.hash,
+        });
+        sources.push({
+          name: file.name,
+          bytes: file.bytes.length,
+          sha256: createHash("sha256").update(file.bytes).digest("hex"),
+        });
+      }
+    }
     let largeIds: string[] = [];
-    for (const size of [500000, 2000000]) {
+    for (const size of (
+      process.env.SCENESPARROW_PERF_SIZES ?? "50000,500000,2000000"
+    )
+      .split(",")
+      .map(Number)) {
       const current = (await req("/manuscript")).data;
       state = current;
       const chunk = Math.ceil((size - 5000) / 4),
         large = Array.from({ length: 4 }, (_, i) => ({
-          id: largeIds[i] ?? crypto.randomUUID(),
+          id:
+            largeIds[i] ??
+            `ffffffff-0000-4000-8000-${(i + 1).toString(16).padStart(12, "0")}`,
           kind: "paragraph",
           attrs: {},
           runs: [{ text: "x".repeat(chunk), marks: [] }],
@@ -214,7 +281,11 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
         save: number[] = [],
         undo: number[] = [],
         scroll: number[] = [];
-      for (let n = 0; n < 5; n++) {
+      for (
+        let n = 0;
+        n < Number(process.env.SCENESPARROW_PERF_SAMPLES ?? 50);
+        n++
+      ) {
         await editor.click();
         await editor.press("ControlOrMeta+End");
         await page.evaluate(() => {
@@ -304,6 +375,26 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
       ).toHaveLength(10);
       results.push({
         nominalBytes: size,
+        blockCount: currentBody.blocks.length,
+        longestTextBlockBytes: Math.max(
+          ...currentBody.blocks.map((b: { runs: Array<{ text: string }> }) =>
+            Buffer.byteLength(b.runs.map((r) => r.text).join("")),
+          ),
+        ),
+        fixtureSha256: await page.evaluate(
+          async (body) =>
+            [
+              ...new Uint8Array(
+                await crypto.subtle.digest(
+                  "SHA-256",
+                  new TextEncoder().encode(JSON.stringify(body)),
+                ),
+              ),
+            ]
+              .map((n) => n.toString(16).padStart(2, "0"))
+              .join(""),
+          currentBody.blocks,
+        ),
         canonicalJsonBytes: Buffer.byteLength(JSON.stringify(currentBody)),
         actualTextBytes: Buffer.byteLength(
           currentBody.blocks
@@ -321,21 +412,43 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
         save: quantiles(save),
         undo: quantiles(undo),
         scrollTwoFrames: quantiles(scroll),
-        sampledCoreRssKiB: execFileSync(
-          "ps",
-          ["-C", "scenesparrow-service", "-o", "rss="],
-          { encoding: "utf8" },
-        )
-          .trim()
-          .split(/\s+/)
-          .map(Number)
-          .filter((value) => value > 0),
+        sampledProcessRssKiB: await (async () => {
+          const pids = process.env.SCENESPARROW_PERF_PID_FILE
+            ? JSON.parse(
+                await readFile(process.env.SCENESPARROW_PERF_PID_FILE, "utf8"),
+              )
+            : {};
+          pids.testWorker = process.pid;
+          const cdp = await browser.newBrowserCDPSession();
+          const info = await cdp.send("SystemInfo.getProcessInfo");
+          await cdp.detach();
+          for (const p of info.processInfo)
+            pids[`chromium-${p.type}-${p.id}`] = p.id;
+          const rss: Record<string, { pid: number; rssKiB: number }> = {};
+          for (const [label, pid] of Object.entries(pids))
+            try {
+              const status = await readFile(`/proc/${pid}/status`, "utf8");
+              const kib = Number(/^VmRSS:\s+(\d+)/m.exec(status)?.[1] ?? 0);
+              if (kib > 0) rss[label] = { pid: Number(pid), rssKiB: kib };
+            } catch {}
+          return rss;
+        })(),
       });
     }
     const report = {
       platform: process.platform,
       browser: browser.version(),
-      build: "debug core + Vite development browser",
+      build:
+        process.env.SCENESPARROW_PRODUCTION_UI === "1"
+          ? "release core + production browser"
+          : "debug core + Vite development browser",
+      hardware: {
+        cpu: "AMD EPYC 9V74",
+        effectiveCpuQuota: 4,
+        cgroupMemoryGiB: 32,
+      },
+      sources,
+      samplesPerOperation: Number(process.env.SCENESPARROW_PERF_SAMPLES ?? 50),
       setupMs: +setupMs.toFixed(2),
       provider: "counted localhost fake endpoint through actual SDK",
       providerCalls: provider.calls.length,
@@ -344,7 +457,7 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
     expect(provider.calls).toHaveLength(10);
     await mkdir(".artifacts", { recursive: true });
     await writeFile(
-      ".artifacts/review-performance.json",
+      `.artifacts/${process.env.SCENESPARROW_PERF_LABEL ?? "review-performance"}.json`,
       JSON.stringify(report, null, 2),
     );
     console.log(JSON.stringify(report));

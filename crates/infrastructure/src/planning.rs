@@ -1190,6 +1190,7 @@ impl SqliteProjectRepository {
         Self::visual(&c, id)
     }
     pub fn run_planning_visual(&self, id: &str) -> Result<()> {
+        let _worker = self.worker_guard();
         use base64::{Engine, engine::general_purpose::STANDARD};
         use std::{
             io::{Read, Write},
@@ -1199,6 +1200,9 @@ impl SqliteProjectRepository {
         let (source, index) = {
             let c = db(self.connection.lock())?;
             let visual = Self::visual(&c, id)?;
+            if self.is_quiescing() {
+                return Ok(());
+            }
             if visual.status != "queued" {
                 return Ok(());
             }
@@ -1387,6 +1391,9 @@ impl SqliteProjectRepository {
         Ok(())
     }
     pub fn has_queued_ai(&self) -> Result<bool> {
+        if self.is_quiescing() {
+            return Ok(false);
+        }
         let c = db(self.connection.lock())?;
         db(c.query_row(
             "SELECT EXISTS(SELECT 1 FROM ai_runs WHERE status='queued')",

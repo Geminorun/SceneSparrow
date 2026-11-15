@@ -12,7 +12,11 @@ use scenesparrow_domain::Project;
 pub struct SqliteProjectRepository {
     #[cfg(test)]
     business_read_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    fail_export_directory_sync: std::sync::atomic::AtomicBool,
     connection: Mutex<Connection>,
+    quiescing: std::sync::atomic::AtomicBool,
+    workers: std::sync::atomic::AtomicUsize,
     directory: std::path::PathBuf,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     // Holding the file lock prevents a second core from owning this project.
@@ -48,6 +52,25 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        for component in ["objects", "staging", "exports"] {
+            let path = directory.join(component);
+            if path.exists()
+                && (!storage(std::fs::symlink_metadata(&path))?.is_dir()
+                    || storage(std::fs::symlink_metadata(&path))?
+                        .file_type()
+                        .is_symlink())
+            {
+                return Err(Error::Storage);
+            }
+        }
+        for component in ["project.sqlite", ".core.lock"] {
+            let path = directory.join(component);
+            if std::fs::symlink_metadata(&path)
+                .is_ok_and(|m| !m.is_file() || m.file_type().is_symlink())
+            {
+                return Err(Error::Storage);
+            }
+        }
         storage(std::fs::create_dir_all(directory))?;
         let owner = storage(
             File::options()
@@ -62,7 +85,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 8 {
+        if version > 9 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -74,6 +97,8 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 2 {
+            backup::migration_backup(&connection, directory, 2)?;
+            // Keep the original bare SQLite compatibility restore point as well.
             // SQLite's backup API includes committed WAL pages in a consistent snapshot.
             let mut backup_path = directory.join("pre-migration-002.sqlite");
             if backup_path.exists() {
@@ -92,100 +117,13 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 3 {
-            // Backup API pins committed WAL pages. Preserve object bytes alongside the
-            // database so future GC cannot invalidate a pre-migration restore point.
-            let backup_directory =
-                directory.join(format!("pre-migration-003-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let destination = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &destination))?;
-                        if storage(std::fs::read(entry.path()))?
-                            != storage(std::fs::read(&destination))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        // Windows FlushFileBuffers requires a writable file handle.
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(destination)
-                                .and_then(|file| file.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|file| file.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|file| file.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|file| file.sync_all()))?;
-                storage(File::open(directory).and_then(|file| file.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 3)?;
             let transaction = storage(connection.transaction())?;
             storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
             storage(transaction.commit())?;
         }
         if version < 4 {
-            let backup_directory =
-                directory.join(format!("pre-migration-004-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let destination = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &destination))?;
-                        if storage(std::fs::read(entry.path()))?
-                            != storage(std::fs::read(&destination))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(destination)
-                                .and_then(|f| f.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|f| f.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
-                storage(File::open(directory).and_then(|f| f.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 4)?;
             let transaction = storage(connection.transaction())?;
             storage(
                 transaction.execute_batch(include_str!("../migrations/004_sources_import.sql")),
@@ -193,48 +131,7 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 5 {
-            let backup_directory =
-                directory.join(format!("pre-migration-005-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let target = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &target))?;
-                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(target)
-                                .and_then(|f| f.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|f| f.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
-                storage(File::open(directory).and_then(|f| f.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 5)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/005_shared_ai.sql")))?;
             storage(tx.execute(
@@ -244,156 +141,41 @@ impl SqliteProjectRepository {
             storage(tx.commit())?;
         }
         if version < 6 {
-            let backup_directory =
-                directory.join(format!("pre-migration-006-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let target = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &target))?;
-                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(target)
-                                .and_then(|f| f.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|f| f.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
-                storage(File::open(directory).and_then(|f| f.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 6)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/006_planning.sql")))?;
+            storage(tx.execute("INSERT OR IGNORE INTO planning_state(singleton,revision,content_json) VALUES(1,0,?1)", [serde_json::to_string(&scenesparrow_domain::planning::empty()).map_err(|_| Error::Storage)?]))?;
             storage(tx.commit())?;
         }
         if version < 7 {
-            let backup_directory =
-                directory.join(format!("pre-migration-007-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let target = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &target))?;
-                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(target)
-                                .and_then(|f| f.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|f| f.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
-                storage(File::open(directory).and_then(|f| f.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 7)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/007_review.sql")))?;
             storage(tx.commit())?;
         }
         if version < 8 {
-            let backup_directory =
-                directory.join(format!("pre-migration-008-{}", uuid::Uuid::new_v4()));
-            storage(std::fs::create_dir(&backup_directory))?;
-            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
-            let objects = backup_directory.join("objects");
-            storage(std::fs::create_dir(&objects))?;
-            if directory.join("objects").exists() {
-                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
-                    let entry = storage(entry)?;
-                    if storage(entry.file_type())?.is_file() {
-                        let target = objects.join(entry.file_name());
-                        storage(std::fs::copy(entry.path(), &target))?;
-                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
-                        {
-                            return Err(Error::Storage);
-                        }
-                        storage(
-                            File::options()
-                                .read(true)
-                                .write(true)
-                                .open(target)
-                                .and_then(|f| f.sync_all()),
-                        )?;
-                    }
-                }
-            }
-            storage(
-                File::options()
-                    .read(true)
-                    .write(true)
-                    .open(backup_directory.join("project.sqlite"))
-                    .and_then(|f| f.sync_all()),
-            )?;
-            #[cfg(unix)]
-            {
-                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
-                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
-                storage(File::open(directory).and_then(|f| f.sync_all()))?;
-            }
+            backup::migration_backup(&connection, directory, 8)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/008_finalization.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 9 {
+            backup::migration_backup(&connection, directory, 9)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/009_exports.sql")))?;
+            storage(tx.commit())?;
+        }
+        storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
-        storage(connection.execute(
-            "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
-            [],
-        ))?;
         let repository = Self {
             #[cfg(test)]
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(connection),
+            quiescing: std::sync::atomic::AtomicBool::new(false),
+            workers: std::sync::atomic::AtomicUsize::new(0),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             _owner: owner,
@@ -404,8 +186,18 @@ impl SqliteProjectRepository {
                 .initialize_ai_origin()
                 .map_err(|_| Error::Storage)?;
         }
+        // Validate acknowledged data before startup recovery mutates task state.
+        repository.verify_manuscript()?;
+        {
+            let c = storage(repository.connection.lock())?;
+            storage(c.execute(
+                "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
+                [],
+            ))?;
+        }
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
             .map_err(|_| Error::Storage)?;
+        repository.recover_exports().map_err(|_| Error::Storage)?;
         repository.recover_documents().map_err(|_| Error::Storage)?;
         repository
             .initialize_planning()
@@ -541,6 +333,7 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE copy_preparations;DROP TABLE export_deliveries;DROP TABLE export_controls;DROP TABLE export_jobs;").unwrap();
     c.execute_batch("DROP TABLE downstream_dependencies;DROP TABLE downstream_inputs;DROP TABLE review_candidate_bindings;DROP TABLE review_history_evidence;DROP TABLE manuscript_baseline;DROP TABLE approved_manifest_history;DROP TABLE approved_manifests;DROP TABLE user_locks;").unwrap();
 }
 #[cfg(test)]
@@ -553,3 +346,50 @@ fn drop_ai_schema_for_legacy_fixture(c: &Connection) {
 pub mod planning;
 
 pub mod review;
+
+mod backup;
+pub mod exports;
+
+struct WorkerGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+impl Drop for WorkerGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+impl SqliteProjectRepository {
+    fn worker_guard(&self) -> WorkerGuard<'_> {
+        self.workers
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        WorkerGuard(&self.workers)
+    }
+    pub fn is_quiescing(&self) -> bool {
+        self.quiescing.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub fn resume(&self) {
+        self.quiescing
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+    pub fn quiesce(&self) -> Result<(), Error> {
+        self.quiescing
+            .store(true, std::sync::atomic::Ordering::Release);
+        scenesparrow_application::ai::AiExecutionPort::reconcile_execution(self)
+            .map_err(|_| Error::Storage)?;
+        self.reconcile_planning().map_err(|_| Error::Storage)?;
+        self.reconcile_reviews().map_err(|_| Error::Storage)?;
+        {
+            let c = storage(self.connection.lock())?;
+            storage(c.execute("UPDATE document_attempts SET status='interrupted',attempt=attempt+1,error='DOCUMENT_JOB_INTERRUPTED' WHERE status='running'",[]))?;
+            storage(c.execute("UPDATE planning_visuals SET status='interrupted',error='DOCUMENT_JOB_INTERRUPTED' WHERE status='running'",[]))?;
+        }
+        let start = std::time::Instant::now();
+        while self.workers.load(std::sync::atomic::Ordering::Acquire) > 0 {
+            if start.elapsed() > Duration::from_secs(65) {
+                return Err(Error::Storage);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
+    }
+}
+
+mod operation;

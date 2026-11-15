@@ -355,6 +355,7 @@ pub fn safe_code(code: &str) -> &'static str {
 impl SqliteProjectRepository {
     /// A host tick claims at most one queued task; no retry loop exists.
     pub fn execute_next_ai(&self, settings: &settings::SettingsStore) -> Result<Option<AiRun>> {
+        let _worker = self.worker_guard();
         let Some((run, fence)) = self.claim_ai()? else {
             return Ok(None);
         };
@@ -371,8 +372,10 @@ impl SqliteProjectRepository {
                 WorkerOperation::Generate,
                 &mut || self.dispatch_ai(&run.run_id, run.attempt, &fence, &run.input_hash),
                 &mut || {
-                    self.read_run(&run.run_id)
-                        .is_ok_and(|r| r.status == AiRunStatus::Cancelled)
+                    self.is_quiescing()
+                        || self.read_run(&run.run_id).is_ok_and(|r| {
+                            matches!(r.status, AiRunStatus::Cancelled | AiRunStatus::Interrupted)
+                        })
                 },
             )?;
             self.complete_ai(&receipt, &output)
@@ -479,5 +482,30 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.0, "PROTOCOL_MISMATCH");
+        #[cfg(target_os = "linux")]
+        {
+            let mut memory_run = run.clone();
+            memory_run.configuration.policy.overall_ms = 5000;
+            std::fs::write(
+                &shim,
+                "globalThis.payload=Buffer.alloc(600*1024*1024,1);setInterval(()=>{},1000);",
+            )
+            .unwrap();
+            let started = Instant::now();
+            let error = run_worker_at(
+                &memory_run,
+                &fence,
+                CredentialLease::new(None),
+                &input_bytes,
+                &artifacts,
+                WorkerOperation::Generate,
+                &mut || panic!("memory-limited shim cannot dispatch"),
+                &mut || false,
+                Some(&shim),
+            )
+            .unwrap_err();
+            assert_eq!(error.0, "WORKER_RESOURCE_LIMIT");
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
     }
 }

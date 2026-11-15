@@ -1382,3 +1382,50 @@ fn reopened_session_cannot_resume_an_interrupted_group_but_old_receipt_replays()
     );
     assert_eq!(repo.read_history().unwrap(), before);
 }
+#[test]
+fn closing_group_preserves_exact_history_roots_and_uses_only_compact_metadata() {
+    let (_dir, repo, project) = setup();
+    let block_id = id();
+    let edit = command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&block_id,"group body"),"after":null}]),
+        json!([]),
+    );
+    let receipt = repo.execute_manuscript(&edit).unwrap();
+    let before = repo.read_manuscript().unwrap();
+    let rows = |repo: &SqliteProjectRepository| {
+        let c = repo.connection.lock().unwrap();
+        let mut q=c.prepare("SELECT h.before_hash,h.after_hash,i.entry_id FROM history_entries h JOIN history_entry_identities i USING(position) ORDER BY position").unwrap();
+        q.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap()
+    };
+    let roots = rows(&repo);
+    let payload = if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = &edit {
+        json!({"clientSessionId":payload.group.client_session_id,"groupId":payload.group.group_id,"groupSequence":payload.group.group_sequence})
+    } else {
+        unreachable!()
+    };
+    let close:ManuscriptCommand=serde_json::from_value(json!({"type":"CloseEditGroup","requestId":id(),"projectId":project,"expectedWorkingRevision":receipt.working_revision,"expectedHistoryRevision":receipt.history_revision,"expectedCursor":receipt.cursor,"payload":payload})).unwrap();
+    repo.business_read_count
+        .store(0, std::sync::atomic::Ordering::Relaxed);
+    let closed = repo.execute_manuscript(&close).unwrap();
+    assert_eq!(
+        repo.business_read_count
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+    assert_eq!(closed.working_revision, receipt.working_revision);
+    assert_eq!(closed.history_revision, receipt.history_revision + 1);
+    assert_eq!(rows(&repo), roots);
+    assert_eq!(repo.read_manuscript().unwrap(), before);
+    assert_eq!(repo.execute_manuscript(&close).unwrap(), closed);
+}

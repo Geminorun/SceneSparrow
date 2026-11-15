@@ -166,30 +166,78 @@ function PlanningEditor({
   useEffect(() => {
     active.current = true;
     void refreshSources().catch(() => {});
-    const refresh = () => {
-      void planning
-        .refresh()
-        .then(() => save.resync())
-        .catch(() => {});
-      void refreshSources().catch(() => {});
+    let refreshing = false,
+      again = false,
+      wantSources = false,
+      sourceEpoch = 0,
+      failures = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async (sources = false) => {
+      if (sources) {
+        wantSources = true;
+        sourceEpoch++;
+      }
+      again = true;
+      if (refreshing || !active.current) return;
+      clearTimeout(retry);
+      refreshing = true;
+      try {
+        while (again && active.current) {
+          again = false;
+          const readSources = wantSources,
+            epoch = sourceEpoch;
+          await planning.refresh();
+          if (!active.current) return;
+          await save.resync();
+          if (readSources) {
+            await refreshSources();
+            if (epoch === sourceEpoch) wantSources = false;
+          }
+          failures = 0;
+        }
+      } catch {
+        again = true;
+        failures++;
+        if (active.current)
+          retry = setTimeout(
+            () => void refresh(),
+            Math.min(30000, 1000 * 2 ** Math.min(failures, 5)),
+          );
+      } finally {
+        refreshing = false;
+      }
     };
-    const unsubscribe = client.subscribeEvents((e) => {
+    const unsubscribe = client.subscribeEvents(
+      (e) => {
+        if (
+          [
+            "planning.changed",
+            "planningTask.changed",
+            "draft.created",
+            "history.changed",
+            "sources.changed",
+          ].includes(e.type) ||
+          (e.type === "aiRun.changed" &&
+            planning.state.tasks.some((task) =>
+              e.affectedIds.includes(task.run.runId),
+            ))
+        )
+          void refresh(e.type === "sources.changed");
+      },
+      () => void refresh(true),
+    );
+    const timer = setInterval(() => {
       if (
-        [
-          "planning.changed",
-          "planningTask.changed",
-          "draft.created",
-          "history.changed",
-          "sources.changed",
-          "aiRun.changed",
-        ].includes(e.type)
+        planning.state.tasks.some((task) =>
+          ["queued", "running", "cancelling"].includes(task.run.status),
+        )
       )
-        refresh();
-    }, refresh);
-    const timer = setInterval(refresh, 1000);
+        void refresh();
+    }, 3000);
     return () => {
       active.current = false;
       clearInterval(timer);
+      clearTimeout(retry);
       unsubscribe();
       planning.dispose();
     };

@@ -1,7 +1,10 @@
 # S4 specification: delivery and validation
 
-Status: specified for implementation; S1–S4 business functionality is not
-implemented by this document. Version: 0.1. This completes the stage specifications
+Status: implemented on the step-8 work branch; validation and independent review
+are tracked in [step-08](../validation/step-08.md) and the
+[acceptance matrix](../validation/acceptance-matrix.md). Target-platform and actual-provider
+cases remain separately unvalidated, and interaction performance budgets remain
+unmet. Version: 0.1. This completes the stage specifications
 for the first [manuscript workbench plan](../design/implementation-and-acceptance-v0.1.md).
 
 Read the [S1](s1-manuscript-foundation.md),
@@ -453,7 +456,9 @@ documented limits and record any rejected case honestly.
 
 ## 9. Development tasks and dependencies
 
-All tasks are pending. `Tnn`, `ACnn` and `DEPnn` mean `S4-Tnn`, `S4-ACnn` and
+Step 8 implements T01–T08 and the portable portions of T09–T14. Native-host and
+real-provider checks remain unrun, and interaction performance budgets remain
+failed. The validation report separates these limits from the code checkpoint. `Tnn`, `ACnn` and `DEPnn` mean `S4-Tnn`, `S4-ACnn` and
 `S4-DEPnn`. Earlier-stage fixes keep their original acceptance IDs and add regression
 coverage; S4 tasks integrate and demonstrate them rather than relabeling them done.
 
@@ -542,3 +547,42 @@ Present the completed manuscript capability and its measured limits for user rev
 No merge, environment publication, binary release or installer distribution is
 authorized by the existence of this completion checklist; follow the user's actual
 delivery instruction and repository PR workflow.
+
+## 12. Implemented engineering interfaces
+
+Migration 009 owns utility jobs, exact control receipts, temporary copy preparations
+and external delivery receipts. It does not modify applied migrations 001–008 or
+add these utility records to business history or generic AI execution.
+
+`POST /v1/manuscript/copies` prepares bounded plain text without an export job or
+permanent artifact; `GET /v1/manuscript/copies/{id}` replays the same preparation.
+Preparations expire after ten minutes. `POST/GET /v1/manuscript/exports` captures or
+lists jobs; named job, cancel, retry and artifact routes complete the utility API.
+Capture accepts an ordered-body hash precondition independent of comment/lock
+sequence changes; expected global revision remains a compatibility fallback.
+`GET /v1/manuscript/identity` supplies that cheap ordered body identity. Generated
+contracts are authoritative for request/response fields, including baseline
+metadata and the latest delivery receipt on each job.
+
+The native main process owns the save dialog and its selected-destination
+capability in one scoped operation. Renderer code receives neither an absolute
+path nor a reusable filesystem handle. Delivery IDs bind the job and verified
+artifact hash, replay a known acknowledgment, and report unknown after a lost
+external acknowledgment or restart. An explicit new delivery ID and normal dialog
+consent can reuse a ready artifact. Named clipboard operations consume only a
+prepared copy and never accept arbitrary renderer text or code. Native delivery,
+backup and quiesce routes require a separate native token.
+
+Project inspection is read-only and version-aware before activation. Consistent
+backups include only referenced immutable objects and registered ready artifacts,
+plus SQLite and a completion manifest. Restore verifies required roots and creates
+a new copy; it never overwrites the selected source. Unknown-origin queued AI work
+is fenced in that recovered copy. Picker switch and close share a frozen-editor
+handshake, native admission fence, worker quiescence and rollback to the previous
+owner if candidate activation fails.
+
+Browser export requests a download and never claims a saved external file. Browser
+clipboard denial retains selectable prepared text. Both clients distinguish
+captured body identity from later local input. All feedback uses English/Chinese
+localization keys. The exact runnable evidence and remaining native/provider cases
+belong to the linked validation documents, not this normative acceptance table.

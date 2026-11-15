@@ -13,6 +13,19 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readManuscriptIdentity: () => ipcRenderer.invoke("manuscript:identity"),
+  readExports: () => ipcRenderer.invoke("export:list"),
+  prepareCopy: (body: unknown) => ipcRenderer.invoke("copy:prepare", body),
+  startExport: (body: unknown) => ipcRenderer.invoke("export:start", body),
+  exportJob: (id: string) => ipcRenderer.invoke("export:job", id),
+  cancelExport: (id: string, body: unknown) =>
+    ipcRenderer.invoke("export:cancel", id, body),
+  retryExport: (id: string, body: unknown) =>
+    ipcRenderer.invoke("export:retry", id, body),
+  exportBytes: (id: string) => ipcRenderer.invoke("export:bytes", id),
+  writePreparedClipboard: (body: unknown) =>
+    ipcRenderer.invoke("export:clipboard", body),
+  saveExport: (body: unknown) => ipcRenderer.invoke("export:save", body),
   reviewCandidate: (id: string, offset?: number) =>
     ipcRenderer.invoke("reviews:candidate", id, offset),
   reviewSourceComparison: (id: string) =>
@@ -98,6 +111,15 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
     ipcRenderer.invoke("manuscript:command", command),
   commandReceipt: (requestId: string) =>
     ipcRenderer.invoke("manuscript:receipt", requestId),
+  pickProject: (recover?: boolean) =>
+    ipcRenderer.invoke("project:pick", recover),
+  backupProject: () => ipcRenderer.invoke("project:backup"),
+  onCloseAborted: (handler: () => void) => {
+    const listener = () => handler();
+    ipcRenderer.on("manuscript:close-aborted", listener);
+    return () =>
+      ipcRenderer.removeListener("manuscript:close-aborted", listener);
+  },
   onCloseRequested: (handler: () => Promise<boolean>) => {
     closeHandler = handler;
     return () => {

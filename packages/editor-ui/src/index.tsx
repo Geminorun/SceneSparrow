@@ -142,6 +142,36 @@ export function App({ client }: { client: PlatformClient }) {
           </select>
         </label>
       </header>
+      {client.pickProject && (
+        <nav aria-label={t.projectFiles}>
+          <button
+            onClick={() => {
+              void client.pickProject?.().catch(() => setError("error"));
+            }}
+          >
+            {t.openProject}
+          </button>
+          <button
+            onClick={() => {
+              void client.pickProject?.(true).catch(() => setError("error"));
+            }}
+          >
+            {t.recoverProject}
+          </button>
+          {client.backupProject && project && (
+            <button
+              onClick={() => {
+                void client
+                  .backupProject?.()
+                  .then(() => window.alert(t.backupComplete))
+                  .catch(() => setError("error"));
+              }}
+            >
+              {t.backupProject}
+            </button>
+          )}
+        </nav>
+      )}
       <AiSettings client={client} t={t} />
       <section className="intro">
         <p className="eyebrow">SCENESPARROW</p>

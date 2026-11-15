@@ -217,7 +217,6 @@ impl SqliteProjectRepository {
                     .map_err(|_| AiError("ARTIFACT_MISMATCH"))?;
                 ensure(data.len() as i64 == a.size, "ARTIFACT_MISMATCH")?;
             }
-            let watermark = self.ai_prepare_watermark(&c)?;
             let tx = safe(c.transaction())?;
             let mut uow = AiUnitOfWork {
                 tx: &tx,
@@ -225,6 +224,9 @@ impl SqliteProjectRepository {
             };
             let run = uow.enqueue_in_unit_of_work(guard, start)?;
             participant(&tx, &mut uow, &run)?;
+            // A rejected queue/consumer request has no dispatch intent. Advance
+            // the external crash fence only once all ordinary checks succeeded.
+            let watermark = self.ai_prepare_watermark(&tx)?;
             self.ai_commit_watermark(&tx, watermark)?;
             safe(tx.commit())?;
             result = Some(run);
@@ -234,6 +236,9 @@ impl SqliteProjectRepository {
     }
     pub fn claim_ai(&self) -> Result<Option<(AiRun, String)>> {
         let mut c = safe(self.connection.lock())?;
+        if self.is_quiescing() {
+            return Ok(None);
+        }
         let active: i64 = safe(c.query_row(
             "SELECT COUNT(*) FROM ai_runs WHERE status IN ('running','cancelling')",
             [],

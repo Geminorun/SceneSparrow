@@ -657,7 +657,7 @@ fn escaped_one_mib_input_is_not_confused_with_control_frame_limit_and_schema_ref
     );
 }
 #[test]
-fn failed_transaction_origin_ahead_is_conservative_and_terminal_receipts_survive_restart() {
+fn rejected_transaction_preserves_known_queue_but_actual_origin_ahead_fences_reopen() {
     let (dir, repo) = project();
     let sd = tempfile::tempdir().unwrap();
     let settings = SettingsStore::open(sd.path()).unwrap();
@@ -673,9 +673,22 @@ fn failed_transaction_origin_ahead_is_conservative_and_terminal_receipts_survive
     let reopened = SqliteProjectRepository::open(dir.path()).unwrap();
     assert_eq!(
         reopened.read_run(&a.run_id).unwrap().status,
-        AiRunStatus::Interrupted
+        AiRunStatus::Queued
     );
     assert_eq!(reopened.read_run(&b.run_id).unwrap_err().0, "RUN_NOT_FOUND");
+    // Simulate power loss after the external durable fence but before the SQL
+    // watermark commits. This is ambiguous, unlike an ordinary rejected request.
+    {
+        let connection = reopened.connection.lock().unwrap();
+        reopened.ai_prepare_watermark(&connection).unwrap();
+    }
+    drop(reopened);
+    let fenced = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(
+        fenced.read_run(&a.run_id).unwrap().status,
+        AiRunStatus::Interrupted
+    );
+    assert_eq!(fenced.read_run(&b.run_id).unwrap_err().0, "RUN_NOT_FOUND");
 }
 
 #[test]
@@ -803,4 +816,42 @@ fn credential_reference_commit_fault_preserves_old_settings_and_reconciles_orpha
         std::fs::read(directory.path().join("ai-settings.json")).unwrap(),
         before
     );
+}
+#[test]
+fn verified_backup_recovered_copy_fences_every_queued_run_and_quiesce_preserves_original_undispatched_work()
+ {
+    let (dir, repo) = project();
+    let sd = tempfile::tempdir().unwrap();
+    let settings = SettingsStore::open(sd.path()).unwrap();
+    configured(&settings, "none");
+    let active = start(&repo, &settings);
+    accept(&repo, &settings, &active);
+    repo.claim_ai().unwrap().unwrap();
+    let queued = start(&repo, &settings);
+    accept(&repo, &settings, &queued);
+    let backup = repo.verified_backup().unwrap();
+    let copy =
+        SqliteProjectRepository::restore_verified_copy(&backup, &dir.path().join("recovered"))
+            .unwrap();
+    assert_eq!(
+        copy.read_run(&active.run_id).unwrap().status,
+        AiRunStatus::Interrupted
+    );
+    assert_eq!(
+        copy.read_run(&queued.run_id).unwrap().status,
+        AiRunStatus::Interrupted
+    );
+    assert!(copy.claim_ai().unwrap().is_none());
+    repo.quiesce().unwrap();
+    assert_eq!(
+        repo.read_run(&active.run_id).unwrap().status,
+        AiRunStatus::Interrupted
+    );
+    assert_eq!(
+        repo.read_run(&queued.run_id).unwrap().status,
+        AiRunStatus::Queued
+    );
+    assert!(repo.claim_ai().unwrap().is_none());
+    repo.resume();
+    assert_eq!(repo.claim_ai().unwrap().unwrap().0.run_id, queued.run_id);
 }

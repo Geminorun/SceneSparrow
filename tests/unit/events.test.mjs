@@ -108,3 +108,102 @@ test("desktop file intake cancellation and progress remain scoped to the selecti
     assert.throws(() => validateExternalLink(url));
   validateExternalLink("https://example.com/path");
 });
+test("HTTP project subscribers share one stream and isolate exceptions, independent unsubscribe and last abort", async () => {
+  const { createHttpClient } =
+    await import("../../packages/platform-client/src/index.ts");
+  const original = globalThis.fetch;
+  const calls = [];
+  let controller;
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          controller = c;
+        },
+        cancel() {},
+      }),
+    );
+  };
+  const client = createHttpClient("http://local"),
+    seen = [],
+    resync = [];
+  let a, b, c;
+  try {
+    a = client.subscribeEvents(
+      () => {
+        throw Error("listener");
+      },
+      () => {},
+    );
+    b = client.subscribeEvents(
+      (e) => seen.push(e.sequence),
+      () => resync.push("b"),
+    );
+    c = client.subscribeEvents(
+      (e) => seen.push(e.sequence + 100),
+      () => resync.push("c"),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(calls.length, 1);
+    const send = (sequence) =>
+      controller.enqueue(
+        new TextEncoder().encode(
+          `event: project\ndata: ${JSON.stringify({ sequence, projectId: "p", type: "exportJob.changed", workingRevision: 1, affectedIds: [] })}\n\n`,
+        ),
+      );
+    send(1);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(seen, [1, 101]);
+    b();
+    send(2);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(seen, [1, 101, 102]);
+    assert.equal(calls[0].options.signal.aborted, false);
+    a();
+    c();
+    assert.equal(calls[0].options.signal.aborted, true);
+  } finally {
+    a?.();
+    b?.();
+    c?.();
+    globalThis.fetch = original;
+  }
+});
+test("malformed event reconnect cancels the old body before opening another stream", async () => {
+  const original = globalThis.fetch;
+  let calls = 0,
+    cancels = 0,
+    stop;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          c.enqueue(
+            new TextEncoder().encode("event: project\ndata: INVALID\n\n"),
+          );
+        },
+        cancel() {
+          cancels++;
+        },
+      }),
+    );
+  };
+  try {
+    stop = subscribeProjectEvents(
+      "http://local/events",
+      {},
+      () => {},
+      () => {},
+    );
+    await new Promise((r) => setTimeout(r, 620));
+    stop();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(calls >= 2);
+    assert.equal(cancels, calls);
+  } finally {
+    stop?.();
+    globalThis.fetch = original;
+  }
+});

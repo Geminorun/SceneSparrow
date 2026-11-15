@@ -112,6 +112,19 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "testAiConnection",
       "readAiRun",
       "readAiResult",
+      "backupProject",
+      "cancelExport",
+      "exportBytes",
+      "exportJob",
+      "onCloseAborted",
+      "pickProject",
+      "prepareCopy",
+      "readExports",
+      "readManuscriptIdentity",
+      "retryExport",
+      "saveExport",
+      "startExport",
+      "writePreparedClipboard",
       "cancelAiRun",
       "readSources",
       "readFinalization",
@@ -180,4 +193,31 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
     "after-cleanup",
     true,
   ]);
+});
+
+test("cancelled timeout drops only its project switch intent and stale replies cannot clear a newer target", async () => {
+  let target = null,
+    accepted = [];
+  const close = new CloseHandshake(
+    () => accepted.push(target),
+    async () => false,
+    5,
+    () => {
+      target = null;
+    },
+  );
+  target = "first";
+  close.request("first-nonce", () => {});
+  assert.equal(close.isPending, true);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(close.isPending, false);
+  assert.equal(target, null);
+  target = "second";
+  close.request("second-nonce", () => {});
+  close.reply("first-nonce", false);
+  assert.equal(target, "second");
+  assert.equal(close.isPending, true);
+  close.reply("second-nonce", true);
+  assert.deepEqual(accepted, ["second"]);
+  close.dispose();
 });

@@ -519,9 +519,11 @@ pub fn apply(
             }
         }
     }
+    let old_index: BTreeMap<_, _> = before.blocks.iter().map(|b| (&b.id, b)).collect();
+    let new_index: BTreeMap<_, _> = state.blocks.iter().map(|b| (&b.id, b)).collect();
     // A split must not cut a user-perceived grapheme, even when encoded as primitives.
     for old in &before.blocks {
-        if let Some(first) = state.blocks.iter().find(|b| b.id == old.id) {
+        if let Some(first) = new_index.get(&old.id).copied() {
             let old_text = text(old);
             let first_text = text(first);
             if old_text.starts_with(&first_text) && first_text.len() < old_text.len() {
@@ -539,10 +541,12 @@ pub fn apply(
             }
         }
     }
+    drop(new_index);
     let normalized = normalize(&mut state)?;
+    let new_index: BTreeMap<_, _> = state.blocks.iter().map(|b| (&b.id, b)).collect();
     let mut affected = BTreeSet::new();
     for old in &before.blocks {
-        if let Some(new) = state.blocks.iter().find(|b| b.id == old.id) {
+        if let Some(new) = new_index.get(&old.id).copied() {
             if new != old {
                 affected.insert(old.id.clone());
             }
@@ -551,20 +555,20 @@ pub fn apply(
         }
     }
     for b in &state.blocks {
-        if !before.blocks.iter().any(|old| old.id == b.id) {
+        if !old_index.contains_key(&b.id) {
             affected.insert(b.id.clone());
         }
     }
     let old_order: Vec<_> = before
         .blocks
         .iter()
-        .filter(|b| state.blocks.iter().any(|n| n.id == b.id))
+        .filter(|b| new_index.contains_key(&b.id))
         .map(|b| &b.id)
         .collect();
     let new_order: Vec<_> = state
         .blocks
         .iter()
-        .filter(|b| before.blocks.iter().any(|n| n.id == b.id))
+        .filter(|b| old_index.contains_key(&b.id))
         .map(|b| &b.id)
         .collect();
     if old_order != new_order {
@@ -583,7 +587,7 @@ pub fn apply(
     }
     if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command {
         for id in &affected {
-            if let Some(old) = before.blocks.iter().find(|b| &b.id == id)
+            if let Some(old) = old_index.get(id).copied()
                 && !payload
                     .expected_block_revisions
                     .iter()
@@ -669,6 +673,12 @@ pub fn restore(
             recorded,
         ));
     }
+    let old_index: BTreeMap<_, _> = before
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (&b.id, i))
+        .collect();
     let mut state = before.clone();
     state.workspace_stage = target.workspace_stage.clone();
     state.blocks = target
@@ -679,32 +689,36 @@ pub fn restore(
             kind: b.kind.clone(),
             attrs: b.attrs.clone(),
             runs: b.runs.clone(),
-            revision: before
-                .blocks
-                .iter()
-                .find(|old| old.id == b.id)
-                .map_or(1, |old| old.revision),
+            revision: old_index
+                .get(&b.id)
+                .map_or(1, |i| before.blocks[*i].revision),
         })
         .collect();
     normalize(&mut state)?;
     let mut affected = BTreeSet::new();
     let old_ancestry = ancestry(&before.blocks);
     let new_ancestry = ancestry(&state.blocks);
+    let new_index: BTreeMap<_, _> = state
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (&b.id, i))
+        .collect();
     let old_order: Vec<_> = before
         .blocks
         .iter()
-        .filter(|b| state.blocks.iter().any(|v| v.id == b.id))
+        .filter(|b| new_index.contains_key(&b.id))
         .map(|b| &b.id)
         .collect();
     let new_order: Vec<_> = state
         .blocks
         .iter()
-        .filter(|b| before.blocks.iter().any(|v| v.id == b.id))
+        .filter(|b| old_index.contains_key(&b.id))
         .map(|b| &b.id)
         .collect();
     for b in before.blocks.iter().chain(state.blocks.iter()) {
-        let old = before.blocks.iter().position(|v| v.id == b.id);
-        let new = state.blocks.iter().position(|v| v.id == b.id);
+        let old = old_index.get(&b.id).copied();
+        let new = new_index.get(&b.id).copied();
         if old.is_none()
             || new.is_none()
             || (old_order != new_order && recorded.contains(&b.id))

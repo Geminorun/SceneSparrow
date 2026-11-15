@@ -32,6 +32,7 @@ export const CanonicalIdentity = UniqueID.extend({
           const oldRows = rows(oldState.doc);
           const newRows = rows(newState.doc);
           const tr = newState.tr;
+          const repaired = new Map<number, string>();
           // Joining at an empty boundary can remove the first ProseMirror node.
           // Restore its identity when the collapsed caret joins that adjacent pair.
           if (
@@ -60,16 +61,18 @@ export const CanonicalIdentity = UniqueID.extend({
                   row.node.textContent ===
                     first.node.textContent + second.node.textContent,
               );
-              if (merged)
+              if (merged) {
+                repaired.set(merged.pos, first.id);
                 tr.setNodeMarkup(merged.pos, undefined, {
                   ...merged.node.attrs,
                   [attributeName]: first.id,
                 });
+              }
             }
           }
           const seen = new Set<string>();
           for (const { node, pos } of newRows) {
-            const id = tr.doc.nodeAt(pos)?.attrs[attributeName];
+            const id = repaired.get(pos) ?? node.attrs[attributeName];
             if (!id || seen.has(id)) {
               const fresh = crypto.randomUUID();
               tr.setNodeMarkup(pos, undefined, {

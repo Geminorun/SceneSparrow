@@ -505,6 +505,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
         .boundingBox();
     expect(allBox!.y + allBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
     expect(allBox!.width).toBeGreaterThan(100);
+    await editor.locator("[data-blockid]").first().scrollIntoViewIfNeeded();
     await editor.focus();
     await editor
       .locator("[data-blockid]")

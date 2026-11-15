@@ -773,6 +773,7 @@ test("IME beginning after a business dispatch prevents canonical replacement on 
       (r) => (release = () => r({ ...save.state, workingRevision: 2 })),
     );
   };
+  client.readHistory = async () => ({ ...save.history, workingRevision: 2 });
   const before = save.canonicalVersion,
     pending = save.businessCore((revision) => ({
       type: "SetUserLocks",
@@ -916,5 +917,79 @@ test("body-changing candidate acknowledgment cannot replace a newly started IME 
   assert.equal(save.canonicalVersion, 0);
   assert.equal(save.state.blocks[0].runs[0].text, "Text");
   assert.equal(save.composing, true);
+  save.dispose();
+});
+test("history metadata held after canonical read cannot publish an older body over new input or IME", async () => {
+  for (const ime of [false, true]) {
+    const { save, client, calls } = historySetup();
+    const readHistory = client.readHistory;
+    let release;
+    client.readHistory = async () => {
+      const value = await readHistory();
+      return new Promise((r) => (release = () => r(value)));
+    };
+    let applied = 0;
+    const before = save.canonicalVersion;
+    const pending = save.navigate("UndoProject", () => applied++);
+    await settle();
+    assert.equal(typeof release, "function");
+    assert.equal(save.canonicalVersion, before);
+    if (ime) save.composition(true);
+    else save.update(local(save, "Private input during history read"));
+    release();
+    assert.equal(await pending, false);
+    assert.equal(applied, 0);
+    assert.equal(save.canonicalVersion, before);
+    assert.equal(save.status, "conflict");
+    assert.equal(
+      save.businessReceipt?.requestId,
+      calls.find((c) => c.type === "UndoProject").requestId,
+    );
+    if (ime) assert.equal(save.composing, true);
+    else
+      assert.equal(
+        save.local[0].runs[0].text,
+        "Private input during history read",
+      );
+    save.dispose();
+  }
+});
+test("cheap identity resync rechecks late input and never fetches a whole unchanged body", async () => {
+  const { save, client } = setup();
+  const before = save.state;
+  const token = `canonical-1|${before.manuscriptId}|${before.schemaVersion}|${before.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
+  const hash = [
+    ...new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)),
+    ),
+  ]
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("");
+  let bodies = 0,
+    release,
+    entered;
+  const enteredHistory = new Promise((r) => (entered = r));
+  client.readManuscript = async () => {
+    bodies++;
+    return before;
+  };
+  client.readManuscriptIdentity = async () => ({
+    bodyHash: hash,
+    workingRevision: 2,
+    workspaceStage: "draft",
+  });
+  client.readHistory = () =>
+    new Promise((r) => {
+      release = () => r({ ...save.history, workingRevision: 2 });
+      entered();
+    });
+  const pending = save.resync();
+  await enteredHistory;
+  save.update(local(save, "New private input"));
+  release();
+  assert.equal(await pending, false);
+  assert.equal(save.local[0].runs[0].text, "New private input");
+  assert.equal(save.state.workingRevision, 1);
+  assert.equal(bodies, 0);
   save.dispose();
 });

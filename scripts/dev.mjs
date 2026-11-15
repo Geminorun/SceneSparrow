@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -5,13 +6,23 @@ import { run, start, pnpmCommand, waitFor } from "./processes.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 process.chdir(root);
-run("cargo", ["build", "--locked", "-p", "scenesparrow-service"]);
-const coreBinary = fileURLToPath(
-  new URL(
-    `../target/debug/scenesparrow-service${process.platform === "win32" ? ".exe" : ""}`,
-    import.meta.url,
-  ),
-);
+const release = process.env.SCENESPARROW_CORE_PROFILE === "release";
+if (!process.env.SCENESPARROW_CORE_BIN)
+  run("cargo", [
+    "build",
+    ...(release ? ["--release"] : []),
+    "--locked",
+    "-p",
+    "scenesparrow-service",
+  ]);
+const coreBinary =
+  process.env.SCENESPARROW_CORE_BIN ??
+  fileURLToPath(
+    new URL(
+      `../target/${release ? "release" : "debug"}/scenesparrow-service${process.platform === "win32" ? ".exe" : ""}`,
+      import.meta.url,
+    ),
+  );
 const children = [];
 let stopping = false;
 function stop(code = 0) {
@@ -71,12 +82,32 @@ try {
         pathToFileURL(require.resolve("vite/package.json")),
       ),
     );
-    supervise(
-      start(process.execPath, [vite], {
-        env,
-        cwd: fileURLToPath(new URL("../apps/web/", import.meta.url)),
-      }),
+    if (process.env.SCENESPARROW_PRODUCTION_UI === "1")
+      run(...pnpmCommand(["--filter", "@scenesparrow/web", "build"]));
+    const web = supervise(
+      start(
+        process.execPath,
+        [
+          vite,
+          ...(process.env.SCENESPARROW_PRODUCTION_UI === "1"
+            ? ["preview", "--host", "127.0.0.1", "--port", webPort]
+            : []),
+        ],
+        {
+          env,
+          cwd: fileURLToPath(new URL("../apps/web/", import.meta.url)),
+        },
+      ),
     );
+    if (process.env.SCENESPARROW_PERF_PID_FILE)
+      writeFileSync(
+        process.env.SCENESPARROW_PERF_PID_FILE,
+        JSON.stringify({
+          core: core.pid,
+          web: web.pid,
+          coordinator: process.pid,
+        }),
+      );
   }
 } catch (error) {
   console.error(error.message);

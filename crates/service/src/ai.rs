@@ -302,6 +302,7 @@ mod tests {
             database_slots: Arc::new(Semaphore::new(4)),
             document_slots: Arc::new(Semaphore::new(1)),
             ai: Arc::new(ai),
+            native_authorization: None,
         };
         let app = super::super::state_router(state);
         let file = std::fs::File::options()

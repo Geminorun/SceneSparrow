@@ -1,8 +1,11 @@
 # Shared AI specification: configuration and execution
 
 Status: step 4 implements the generic T01–T13 boundary; see
-[step 4 evidence](../validation/step-04.md). Consumer T14 and target-platform/real-provider
-T15 readiness remain open. Version: 0.1. This independent spec supports the
+[step 4 evidence](../validation/step-04.md). Steps 5–7 implement text-consumer T14;
+[step 8 evidence](../validation/step-08.md) and the
+[acceptance matrix](../validation/acceptance-matrix.md) record cross-stage T15
+evidence. Target-platform/real-provider readiness remains open. Version: 0.1.
+This independent spec supports the
 [S1–S4 stage specifications](README.md) and refines the
 [shared AI technical design](../design/shared-ai-v0.1.md).
 
@@ -76,8 +79,7 @@ The eight-step delivery sequence uses append-only project migrations:
 `007` S3 review (step 6), `008` S3 finalization (step 7), and
 `009` S4 export (step 8). Applied `001`/`002` retain their original numbers and
 bytes. Steps 2 and 3 append applied 003 and 004 with their migration/recovery tests.
-Migrations 005–008 are implemented with their delivery evidence in steps 4–7;
-009 remains reserved for S4. Each
+Migrations 005–009 are implemented with their delivery evidence in steps 4–8. Each
 delivery adds its own migration instead of rewriting an earlier step. Additional migrations append
 to the sequence; never renumber an applied migration or reuse a version for another
 layout. Global settings have their own JSON `schemaVersion`, not a second database.

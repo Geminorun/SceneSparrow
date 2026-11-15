@@ -37,6 +37,7 @@ pub fn drive(state: &AppState) {
                         .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?
                         .is_some()
                 {
+                    repository.prune_export_inputs()?;
                     repository.prune_planning_payloads()?;
                     repository.prune_review_payloads()?;
                 }

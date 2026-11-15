@@ -328,3 +328,36 @@ undo never revives stale proposals; newer claims block replay atomically. A
 Rust-only future-consumer fixture verifies dependency validity and scoped use
 without creating media jobs. See [step 7 evidence](validation/step-07.md) for
 recovery/race cases, measured large-document budget misses and platform limits.
+
+## Copy, export and verified recovery (execution step 8)
+
+The Draft workspace copies saved body text or generates UTF-8 TXT, Markdown and
+DOCX independently of AI configuration and pending proposals. Capture first flushes
+visible edits and closes the typing group, then checks the ordered body identity.
+One utility generation runs per project with four pending slots; cancellation,
+explicit retained-input retry and explicit recapture have durable identities.
+Generated outputs are intentional artifacts outside business undo. Copy uses a
+separate bounded ten-minute preparation.
+
+Browser delivery distinguishes generated files, requested downloads and clipboard
+permission fallback. Electron uses narrow main-process save/clipboard capabilities;
+the renderer receives identities rather than destination paths. Unknown external
+save receipts survive restart and require explicit checking or reselection. Native
+file contracts are tested with injected ports on Linux; Windows/macOS behavior and
+Word application opening remain unverified.
+
+Migration 009 adds utility/copy/delivery records without rewriting 001–008.
+Consistent backups verify the version-aware retained graph and registered exports,
+then write a completion manifest. Recovery verifies that manifest and creates a
+new copy. Read-only selection preflight, a frozen close handshake, worker quiescence
+and failed-switch rollback preserve the active project. Development CLI tools are
+`scenesparrow-service --inspect-project <directory>` and
+`scenesparrow-service --recover-project <backup-directory> <new-directory>`.
+Run them only against intended fixture/project paths; restore never replaces its
+source.
+
+See [step 8 evidence](validation/step-08.md) for measurements and reproducible
+commands, and the [130-case acceptance matrix](validation/acceptance-matrix.md).
+Large-document and attachment-heavy interaction budgets remain unmet; every body
+edit still verifies referenced source bytes. Native worker resource enforcement,
+packaged desktop behavior and real-provider interoperability remain open.

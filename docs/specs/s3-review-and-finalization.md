@@ -4,7 +4,8 @@ Status: steps 6–7 implement anchored review, candidate decisions, production l
 derived finalization and validated review replay. The
 [step 6](../validation/step-06.md) and [step 7 validation](../validation/step-07.md)
 record actual checks and limits. Native/provider and large-document performance
-acceptance remains open; S4/export follows in step 8.
+acceptance remains open. [Step 8](../validation/step-08.md) adds S4/export and
+cross-stage evidence, including measured performance misses.
 Version: 0.1. This is the third slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
@@ -564,7 +565,9 @@ Compact superseded unreferenced payloads, not the latest active evidence or user
 ## 11. Development tasks and dependencies
 
 Execution step 6 implements the review portion of T01–T08; its root gate is recorded
-in [step 6 evidence](../validation/step-06.md). T09–T15 remain pending. `Tnn`, `ACnn` and `DEPnn` mean `S3-Tnn`, `S3-ACnn` and
+in [step 6 evidence](../validation/step-06.md). Step 7 implements T09–T15 core/browser
+behavior; target-host/provider and performance acceptance remain open in
+[step 7](../validation/step-07.md) and [step 8 evidence](../validation/step-08.md). `Tnn`, `ACnn` and `DEPnn` mean `S3-Tnn`, `S3-ACnn` and
 `S3-DEPnn`. Keep tasks/tests in this one stage document. Implement with controlled
 fake tasks and barriers before deliberately initiated live-provider checks.
 
@@ -648,11 +651,14 @@ metadata stored outside spoken text, pending-candidate exclusion rules and durab
 history/locks. Export must read a consistent current-body snapshot and never
 include unaccepted proposals or review UI marks as manuscript content.
 
-## 14. Execution step 6 implementation interface
+## 14. Execution steps 6–7 implementation interface
 
 Step 6 implements the review portion of T01–T08; independent root review/gate is
-recorded separately in [step 6 evidence](../validation/step-06.md). T09–T15,
-production user locks/finalization and full replay/rebinding remain pending.
+recorded separately in [step 6 evidence](../validation/step-06.md). Step 7 adds
+production locks/finalization, retained approved baselines and validated decision
+replay/rebinding; see [step 7 evidence](../validation/step-07.md). Remaining
+target-host/provider and performance cases are tracked in the
+[acceptance matrix](../validation/acceptance-matrix.md).
 
 `SaveReview`, `SetReviewHandled`, `DeleteReviewThread`, `StartReviewTask`,
 `CancelReviewTask`, `DiscardReviewCandidate` and exact-set

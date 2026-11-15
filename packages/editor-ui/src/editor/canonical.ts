@@ -1,3 +1,4 @@
+import type { Node as PMNode } from "@tiptap/pm/model";
 import type { JSONContent } from "@tiptap/core";
 import type {
   Block,
@@ -195,8 +196,9 @@ export function edits(
   const operations: Primitive[] = [];
   const order = before.map((b) => b.id);
   const old = new Map(before.map((b) => [b.id, b]));
+  const afterIds = new Set(after.map((b) => b.id));
   for (const b of before)
-    if (!after.some((n) => n.id === b.id)) {
+    if (!afterIds.has(b.id)) {
       operations.push({ op: "deleteBlock", id: b.id });
       order.splice(order.indexOf(b.id), 1);
     }
@@ -236,4 +238,128 @@ export function edits(
       revision,
     })),
   };
+}
+
+// ProseMirror nodes are immutable. Cache only their derived projection and byte
+// counts; a changed node gets a new identity and is revalidated independently.
+const projectionCache = new WeakMap<
+  PMNode,
+  Map<string, { block: NewBlock; textBytes: number; jsonBytes: number }>
+>();
+export function fromEditorNode(
+  doc: PMNode,
+  knownIds: Set<string> = new Set(),
+): NewBlock[] {
+  const blocks: NewBlock[] = [];
+  const ids = new Set<string>();
+  let textBytes = 0,
+    jsonBytes = 2;
+  const encoder = new TextEncoder();
+  const add = (node: PMNode, kind: BlockKind, attrs: BlockAttrs) => {
+    const key = `${kind}:${attrs.level ?? ""}:${attrs.listKind ?? ""}:${attrs.depth ?? ""}`;
+    let cache = projectionCache.get(node);
+    if (!cache) {
+      cache = new Map();
+      projectionCache.set(node, cache);
+    }
+    let entry = cache.get(key);
+    if (!entry) {
+      const block: NewBlock = {
+        id: String(node.attrs.blockId ?? ""),
+        kind,
+        attrs,
+        runs: runs(node.toJSON().content),
+      };
+      entry = {
+        block,
+        textBytes: encoder.encode(block.runs.map((r) => r.text).join(""))
+          .length,
+        jsonBytes: encoder.encode(JSON.stringify(block)).length,
+      };
+      for (const run of block.runs) {
+        for (const mark of run.marks) Object.freeze(mark);
+        Object.freeze(run.marks);
+        Object.freeze(run);
+      }
+      Object.freeze(block.runs);
+      Object.freeze(block.attrs);
+      Object.freeze(block);
+      cache.set(key, entry);
+    }
+    let block = entry.block;
+    if (!block.id || ids.has(block.id))
+      block = { ...block, id: crypto.randomUUID() };
+    ids.add(block.id);
+    blocks.push(block);
+    textBytes += entry.textBytes;
+    jsonBytes +=
+      (block === entry.block
+        ? entry.jsonBytes
+        : encoder.encode(JSON.stringify(block)).length) +
+      (blocks.length > 1 ? 1 : 0);
+    if (entry.textBytes > 1024 * 1024) throw Error("DOCUMENT_TOO_LARGE");
+  };
+  const visit = (
+    node: PMNode,
+    depth = 0,
+    listKind: "ordered" | "bullet" | null = null,
+  ) => {
+    node.forEach((child) => {
+      switch (child.type.name) {
+        case "paragraph":
+          if (listKind) throw Error("DOCUMENT_INVALID");
+          add(child, "paragraph", {});
+          break;
+        case "heading":
+          add(child, "heading", { level: Number(child.attrs.level) });
+          break;
+        case "bulletList":
+        case "orderedList":
+          visit(
+            child,
+            depth,
+            child.type.name === "bulletList" ? "bullet" : "ordered",
+          );
+          break;
+        case "listItem": {
+          if (
+            !listKind ||
+            depth > 3 ||
+            child.firstChild?.type.name !== "paragraph"
+          )
+            throw Error("DOCUMENT_INVALID");
+          add(child.firstChild, "list_item", { listKind, depth });
+          child.forEach((nested, _offset, index) => {
+            if (index) {
+              if (!["bulletList", "orderedList"].includes(nested.type.name))
+                throw Error("DOCUMENT_INVALID");
+              visit(
+                nested,
+                depth + 1,
+                nested.type.name === "bulletList" ? "bullet" : "ordered",
+              );
+            }
+          });
+          break;
+        }
+        default:
+          throw Error("DOCUMENT_INVALID");
+      }
+    });
+  };
+  visit(doc);
+  if (
+    blocks.length === 1 &&
+    blocks[0]!.kind === "paragraph" &&
+    !blocks[0]!.runs.length &&
+    !knownIds.has(blocks[0]!.id)
+  )
+    return [];
+  if (
+    blocks.length > 10000 ||
+    textBytes > 2 * 1024 * 1024 ||
+    jsonBytes > 4 * 1024 * 1024
+  )
+    throw Error("DOCUMENT_TOO_LARGE");
+  return blocks;
 }

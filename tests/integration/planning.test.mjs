@@ -315,6 +315,188 @@ test("saved planning uses the actual SDK exactly once per outline/draft; restart
     );
     assert.equal(provider.calls.length, 2);
     assert.equal((await req("/planning/tasks/" + done.id)).status, 200);
+    // Continue the same real-core project through questions, individual and
+    // batch acceptance, approval locks, clean delivery, then cold reopen.
+    provider.setHandler(async (_request, response, body) => {
+      const content = body.messages.find((m) => m.role === "user").content;
+      const input = JSON.parse(
+        typeof content === "string"
+          ? content
+          : content.find((p) => p.type === "text").text,
+      );
+      const result =
+        input.thread.kind === "question"
+          ? {
+              schemaVersion: 1,
+              answer: "Read-only answer 中文",
+              evidenceReferences: [],
+            }
+          : {
+              schemaVersion: 1,
+              mode: "replace_ranges",
+              explanation: "Scoped accepted revision",
+              replacements: input.thread.anchor.ranges.map((_, rangeIndex) => ({
+                rangeIndex,
+                runs: [
+                  { text: `Accepted ${input.thread.text} 中文 🐦`, marks: [] },
+                ],
+              })),
+            };
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              message: { content: JSON.stringify(result) },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+      );
+    });
+    const review = async (kind, index, text) => {
+      const b = (await req("/manuscript")).data.blocks[index],
+        quote = b.runs.map((r) => r.text).join(""),
+        id = randomUUID();
+      const saved = await command("SaveReview", {
+        expectedRequestVersion: 0,
+        thread: {
+          id,
+          kind,
+          requestVersion: 0,
+          text,
+          anchor: {
+            ranges: [
+              {
+                blockId: b.id,
+                revision: b.revision,
+                start: 0,
+                end: quote.length,
+                quote,
+                wholeBlock: true,
+              },
+            ],
+            state: "mapped",
+            slot: null,
+          },
+          handled: false,
+          deleted: false,
+          language: "zh-CN",
+          evidence: [],
+          decision: null,
+          userMessageIds: [],
+        },
+      });
+      assert.equal(saved.status, 200, JSON.stringify(saved));
+      assert.equal(
+        (await command("StartReviewTask", { threadId: id, requestVersion: 1 }))
+          .status,
+        200,
+      );
+      for (let i = 0; i < 180; i++) {
+        const card = (await req("/reviews")).data.cards.find(
+          (c) => c.thread.id === id,
+        );
+        if (card.task && card.task.application !== "pending") {
+          assert.equal(card.task.application, "applied", JSON.stringify(card));
+          return card;
+        }
+        await pause();
+      }
+      throw Error("Composed review timeout");
+    };
+    const beforeQuestion = (await req("/manuscript")).data.blocks;
+    const question = await review("question", 1, "Explain the draft");
+    assert.equal(question.task.answer, "Read-only answer 中文");
+    assert.deepEqual((await req("/manuscript")).data.blocks, beforeQuestion);
+    const one = await review("revision_note", 1, "individual");
+    const accept = async (cards) => {
+      const h = (await req("/history")).data;
+      const result = await command("AcceptReviewCandidates", {
+        expectedHistoryRevision: h.historyRevision,
+        candidates: cards.map((c) => ({
+          id: c.candidate.id,
+          version: c.candidate.version,
+        })),
+      });
+      assert.equal(result.status, 200, JSON.stringify(result));
+      return result;
+    };
+    await accept([one]);
+    const batch = [
+      await review("revision_note", 1, "batch A"),
+      await review("revision_note", 3, "batch B"),
+    ];
+    const accepted = await accept(batch);
+    assert.equal(
+      (await req("/manuscript/commands", accepted.body)).status,
+      200,
+    );
+    assert.equal(
+      (await command("SetUserLocks", { all: true, blockIds: [], locked: true }))
+        .status,
+      200,
+    );
+    const finalBody = (await req("/manuscript")).data,
+      finalHistory = (await req("/history")).data,
+      finalLocks = (await req("/manuscript/finalization")).data;
+    // The identity route supplies the ordered body hash, independent of locks.
+    const identity = (await req("/manuscript/identity")).data;
+    const preparedCopy = await req("/manuscript/copies", {
+      requestId: randomUUID(),
+      expectedRevision: finalBody.workingRevision,
+      expectedBodyHash: identity.bodyHash,
+    });
+    assert.equal(preparedCopy.status, 200, JSON.stringify(preparedCopy));
+    assert.match(preparedCopy.data.text, /Accepted batch A 中文 🐦/);
+    assert.doesNotMatch(
+      preparedCopy.data.text,
+      /Read-only answer|Scoped accepted revision/,
+    );
+    const jobs = [];
+    for (const format of ["txt", "md", "docx"]) {
+      const begun = await req("/manuscript/exports", {
+        requestId: randomUUID(),
+        expectedRevision: finalBody.workingRevision,
+        expectedBodyHash: identity.bodyHash,
+        format,
+      });
+      assert.equal(begun.status, 200, JSON.stringify(begun));
+      let job = begun.data;
+      for (
+        let i = 0;
+        i < 180 && ["queued", "running"].includes(job.status);
+        i++
+      ) {
+        await pause();
+        job = (await req(`/manuscript/exports/${job.id}`)).data;
+      }
+      assert.equal(job.status, "ready", JSON.stringify(job));
+      const response = await fetch(
+        base + `/manuscript/exports/${job.id}/artifact`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      assert.equal(response.status, 200);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.ok(bytes.length > 0);
+      if (format !== "docx") {
+        assert.match(bytes.toString(), /Accepted batch A 中文 🐦/);
+        assert.doesNotMatch(
+          bytes.toString(),
+          /Read-only answer|Scoped accepted revision/,
+        );
+      }
+      jobs.push(job);
+    }
+    assert.deepEqual((await req("/history")).data, finalHistory);
+    await stop();
+    await boot();
+    assert.deepEqual((await req("/manuscript")).data, finalBody);
+    assert.deepEqual((await req("/history")).data, finalHistory);
+    assert.deepEqual((await req("/manuscript/finalization")).data, finalLocks);
+    assert.equal((await req("/manuscript/exports")).data.length, 3);
+    assert.equal(provider.calls.length, 6);
     console.log(
       JSON.stringify({
         fixture:

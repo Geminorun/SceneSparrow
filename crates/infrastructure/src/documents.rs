@@ -69,12 +69,29 @@ impl SqliteProjectRepository {
 
     pub(super) fn business(c: &Connection, state: &ManuscriptState) -> Result<BusinessSnapshot> {
         let mut root = BusinessSnapshot::capture(state);
-        root.locks = Self::user_lock_ids(c)?;
+        let version: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+        root.locks = if version >= 8 {
+            Self::user_lock_ids(c)?
+        } else {
+            vec![]
+        };
         root.planning = Some(scenesparrow_domain::planning::content_snapshot(
-            &Self::planning_content(c)?,
+            &if version >= 6 {
+                Self::planning_content(c)?
+            } else {
+                scenesparrow_domain::planning::empty()
+            },
         ));
-        root.reviews = scenesparrow_domain::review::snapshot(&Self::review_threads(c)?);
-        root.sources = Self::source_members(c)?;
+        root.reviews = if version >= 7 {
+            scenesparrow_domain::review::snapshot(&Self::review_threads(c)?)
+        } else {
+            vec![]
+        };
+        root.sources = if version >= 4 {
+            Self::source_members(c)?
+        } else {
+            vec![]
+        };
         for s in &mut root.sources {
             s.revision = 0;
         }
@@ -155,11 +172,10 @@ impl SqliteProjectRepository {
         {
             return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
         }
-        let bytes = db(std::fs::read(self.directory.join("objects").join(digest)))?;
-        if hash(&bytes) != digest {
-            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-        }
-        Ok(bytes)
+        db(crate::operation::read(
+            &self.directory.join("objects").join(digest),
+            digest,
+        ))
     }
     fn verify_sources(&self, sources: &[Source]) -> Result<()> {
         let mut ids = BTreeSet::new();
@@ -444,9 +460,13 @@ impl SqliteProjectRepository {
         self.run_document_with_limits(id, Duration::from_secs(60), 512 * 1024 * 1024)
     }
     pub fn run_document_with_limits(&self, id: &str, wall: Duration, memory: u64) -> Result<()> {
+        let _worker = self.worker_guard();
         let (attempt, input, name) = {
             let mut c = db(self.connection.lock())?;
             let j = self.job(&c, id)?;
+            if self.is_quiescing() {
+                return Ok(());
+            }
             if j.status != DocumentJobStatus::Queued {
                 return Ok(());
             }

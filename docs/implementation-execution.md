@@ -1,14 +1,16 @@
 # Eight-step implementation and review workflow
 
 Status: execution policy selected by the user. The detailed designs/specs were
-committed as `11d36fa`. Steps 1–7 implement manual editing/save/reopen, persistent
+committed as `11d36fa`. Steps 1–8 implement manual editing/save/reopen, persistent
 bounded history, sources/import/recovery, shared AI foundations and saved
 outline-to-draft generation, anchored review/candidate decisions, production locks,
-derived finalization and validated review replay. Step 8 remains pending. See
+derived finalization, validated review replay, clean manuscript delivery and
+verified recovery. See
 [step 1](validation/step-01.md), [step 2](validation/step-02.md),
 [step 3](validation/step-03.md), [step 4](validation/step-04.md),
 [step 5](validation/step-05.md), [step 6](validation/step-06.md) and
-[step 7 evidence](validation/step-07.md).
+[step 7](validation/step-07.md) and [step 8 evidence](validation/step-08.md).
+The [acceptance matrix](validation/acceptance-matrix.md) records all 130 cases.
 Native platform, real-provider and large-document
 performance acceptance remains open, independently of these code checkpoints.
 This document formalizes dispatch/review/delivery. The linked validation reports

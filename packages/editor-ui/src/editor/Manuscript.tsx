@@ -13,9 +13,11 @@ import { Locks } from "./Locks";
 import { ContentProtection } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
 import { Planning, GeneratedDraftEvidence } from "./Planning";
+import { Exports } from "./Exports";
 import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
-import { fromEditor, toEditor } from "./canonical";
+import { canonicalTransaction } from "./canonical-transaction";
+import { fromEditorNode, toEditor } from "./canonical";
 export function Manuscript({
   client,
   projectId,
@@ -70,6 +72,7 @@ export function Manuscript({
   if (!initial) return <p role="status">{t.connecting}</p>;
   return (
     <Draft
+      key={projectId}
       initial={initial.document}
       history={initial.history}
       client={client}
@@ -97,6 +100,8 @@ function Draft({
   const [, render] = useState(0);
   const [recovery, setRecovery] = useState(false);
   const [protectionReady, setProtectionReady] = useState(false);
+  const protectionReadyRef = useRef(false);
+  protectionReadyRef.current = protectionReady;
   const [lockHeader, setLockHeader] = useState<HTMLDivElement | null>(null);
   const [link, setLink] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
@@ -198,13 +203,20 @@ function Draft({
             if (mod && !event.altKey && ["z", "y"].includes(key)) {
               void save.navigate(
                 key === "y" || event.shiftKey ? "RedoProject" : "UndoProject",
-                () =>
-                  liveEditor.current?.commands.setContent(
-                    toEditor(save.state.blocks),
-                    {
-                      emitUpdate: false,
-                    },
-                  ),
+                () => {
+                  const current = liveEditor.current;
+                  if (
+                    current &&
+                    !current.isDestroyed &&
+                    save.canPresentCanonical
+                  ) {
+                    const transaction = canonicalTransaction(
+                      current.state,
+                      current.schema.nodeFromJSON(toEditor(save.state.blocks)),
+                    );
+                    if (transaction) current.view.dispatch(transaction);
+                  }
+                },
               );
               return true;
             }
@@ -266,8 +278,8 @@ function Draft({
                 if (editor) {
                   try {
                     save.update(
-                      fromEditor(
-                        editor.getJSON(),
+                      fromEditorNode(
+                        editor.state.doc,
                         new Set(save.state.blocks.map((b) => b.id)),
                       ),
                     );
@@ -297,8 +309,8 @@ function Draft({
         onUpdate: ({ editor }) => {
           try {
             save.update(
-              fromEditor(
-                editor.getJSON(),
+              fromEditorNode(
+                editor.state.doc,
                 new Set(save.state.blocks.map((b) => b.id)),
               ),
             );
@@ -314,10 +326,15 @@ function Draft({
     ),
   );
   liveEditor.current = editor;
-  const applyCanonical = () =>
-    editor?.commands.setContent(toEditor(save.state.blocks), {
-      emitUpdate: false,
-    });
+  const applyCanonical = () => {
+    const editor = liveEditor.current;
+    if (!editor || editor.isDestroyed || !save.canPresentCanonical) return;
+    const transaction = canonicalTransaction(
+      editor.state,
+      editor.schema.nodeFromJSON(toEditor(save.state.blocks)),
+    );
+    if (transaction) editor.view.dispatch(transaction);
+  };
   useEffect(() => {
     if (save.canonicalVersion) applyCanonical();
   }, [editor, save.canonicalVersion]);
@@ -348,6 +365,24 @@ function Draft({
   }, [editor, save]);
   const closeDecision = useRef<((allowed: boolean) => void) | null>(null);
   const [closing, setClosing] = useState(false);
+  const [frozen, setFrozen] = useState(false);
+  const freezeContainer = useRef<HTMLFieldSetElement | null>(null);
+  const freeze = (value: boolean) => {
+    if (freezeContainer.current) {
+      freezeContainer.current.disabled = value;
+      freezeContainer.current.inert = value;
+    }
+    liveEditor.current?.setEditable(!value && protectionReadyRef.current);
+    setFrozen(value);
+  };
+  useEffect(
+    () =>
+      client.onCloseAborted?.(() => {
+        freeze(false);
+        setClosing(false);
+      }),
+    [client, editor, protectionReady],
+  );
   useEffect(() => {
     onRevision(save.state.workingRevision);
   }, [save.state.workingRevision, onRevision]);
@@ -364,8 +399,10 @@ function Draft({
     };
     window.addEventListener("beforeunload", warning);
     const remove = client.onCloseRequested?.(async () => {
+      freeze(true);
       const ok = await save.controlledClose();
       if (ok) return true;
+      freeze(false);
       setRecovery(true);
       setClosing(true);
       return new Promise<boolean>((resolve) => {
@@ -381,16 +418,17 @@ function Draft({
     };
   }, [client, save]);
   async function reload() {
+    const closeAfter = closing;
+    freeze(true);
     if (await save.reload()) {
-      editor?.commands.setContent(toEditor(save.state.blocks), {
-        emitUpdate: false,
-      });
+      applyCanonical();
       setRecovery(false);
       setClosing(false);
-      // The user explicitly chose to discard local input; finish the close handshake.
-      closeDecision.current?.(true);
-      closeDecision.current = null;
-    }
+      if (closeAfter) {
+        closeDecision.current?.(true);
+        closeDecision.current = null;
+      } else freeze(false);
+    } else freeze(false);
   }
   const operationLabel = (label: string | null) =>
     label === "typing"
@@ -414,255 +452,274 @@ function Draft({
   };
   return (
     <section className="manuscript-workspace">
-      <div className="manuscript-header">
-        <h3>{t.manuscript}</h3>
-        <span role="status" data-testid="save-status" data-state={save.status}>
-          {t[`save_${save.status}`]}
-        </span>
-        <div ref={setLockHeader} className="lock-header-target" />
-      </div>
-      <div role="toolbar" aria-label={t.history}>
-        <button
-          disabled={
-            save.busy ||
-            save.composing ||
-            (!save.history.undoCount && save.status === "saved") ||
-            ["error", "conflict"].includes(save.status)
-          }
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void historyAction("UndoProject")}
-          title={
-            save.history.undoLabel
-              ? `${t.undo}: ${operationLabel(save.history.undoLabel)}`
-              : t.undo
-          }
-        >
-          {t.undo}
-        </button>
-        <button
-          disabled={
-            save.busy ||
-            save.composing ||
-            !save.history.redoCount ||
-            ["error", "conflict"].includes(save.status)
-          }
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void historyAction("RedoProject")}
-          title={
-            save.history.redoLabel
-              ? `${t.redo}: ${operationLabel(save.history.redoLabel)}`
-              : t.redo
-          }
-        >
-          {t.redo}
-        </button>
-      </div>
-      {save.state.workspaceStage === "outline" ? (
-        <Planning client={client} save={save} projectId={projectId} t={t} />
-      ) : (
-        <>
-          <div
-            className="editor-toolbar"
-            role="toolbar"
-            aria-label={t.formatting}
+      {frozen && <p role="status">{t.closingProject}</p>}
+      <fieldset
+        ref={freezeContainer}
+        disabled={frozen}
+        inert={frozen}
+        className="manuscript-freeze"
+      >
+        <div className="manuscript-header">
+          <h3>{t.manuscript}</h3>
+          <span
+            role="status"
+            data-testid="save-status"
+            data-state={save.status}
           >
-            <select
-              aria-label={t.blockStyle}
-              value=""
-              onChange={(e) =>
-                toolbar(() =>
-                  e.target.value === "paragraph"
-                    ? editor?.chain().setParagraph().run()
-                    : editor
-                        ?.chain()
-                        .setHeading({
-                          level: Number(e.target.value) as
-                            1 | 2 | 3 | 4 | 5 | 6,
-                        })
-                        .run(),
-                )
-              }
-            >
-              <option value="" disabled>
-                {t.blockStyle}
-              </option>
-              <option value="paragraph">{t.paragraph}</option>
-              {[1, 2, 3, 4, 5, 6].map((n) => (
-                <option key={n} value={n}>
-                  {t.heading} {n}
-                </option>
-              ))}
-            </select>
-            <button
-              aria-label={t.bold}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => toolbar(() => editor?.chain().toggleBold().run())}
-            >
-              <strong>B</strong>
-            </button>
-            <button
-              aria-label={t.italic}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                toolbar(() => editor?.chain().toggleItalic().run())
-              }
-            >
-              <em>I</em>
-            </button>
-            <button
-              aria-label={t.inlineCode}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => toolbar(() => editor?.chain().toggleCode().run())}
-            >
-              {"</>"}
-            </button>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                toolbar(() => editor?.chain().toggleBulletList().run())
-              }
-            >
-              {t.bulletList}
-            </button>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                toolbar(() => editor?.chain().toggleOrderedList().run())
-              }
-            >
-              {t.orderedList}
-            </button>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                setLink(String(editor?.getAttributes("link").href ?? ""));
-                setLinkOpen(!linkOpen);
-              }}
-            >
-              {t.link}
-            </button>
-            <button
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => toolbar(() => editor?.chain().unsetLink().run())}
-            >
-              {t.removeLink}
-            </button>
-          </div>
-          {linkOpen && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (/^(https?:\/\/|mailto:)/i.test(link)) {
-                  toolbar(() =>
-                    editor
-                      ?.chain()
-                      .extendMarkRange("link")
-                      .setLink({ href: link })
-                      .run(),
-                  );
-                  setLinkOpen(false);
-                }
-              }}
-            >
-              <label>
-                {t.linkUrl}
-                <input
-                  value={link}
-                  onChange={(e) => setLink(e.target.value)}
-                  required
-                  pattern="(https?://|mailto:).*"
-                />
-              </label>
-              <button type="submit">{t.applyLink}</button>
-            </form>
-          )}
-          <div className="document-layout">
-            <nav aria-label={t.headings}>
-              {headings.length ? (
-                headings.map((b) => (
-                  <button
-                    key={b.id}
-                    style={{
-                      paddingInlineStart: `${(b.attrs.level ?? 1) * 8}px`,
-                    }}
-                    onClick={() =>
-                      editor?.view.dom
-                        .querySelector(`[data-blockid="${b.id}"]`)
-                        ?.scrollIntoView({
-                          block: "center",
-                          behavior: "smooth",
-                        })
-                    }
-                  >
-                    {b.runs.map((r) => r.text).join("") || t.heading}
-                  </button>
-                ))
-              ) : (
-                <p className="muted">{t.noHeadings}</p>
-              )}
-            </nav>
-            <EditorContent editor={editor} />
-            <Review
-              client={client}
-              save={save}
-              editor={editor}
-              projectId={projectId}
-              t={t}
-            />
-            <Locks
-              client={client}
-              save={save}
-              editor={editor}
-              projectId={projectId}
-              t={t}
-              headerTarget={lockHeader}
-              onReady={setProtectionReady}
-            />
-          </div>
-        </>
-      )}
-      {save.state.workspaceStage === "draft" && (
-        <GeneratedDraftEvidence
-          client={client}
-          blockIds={save.state.blocks.map((b) => b.id)}
-          t={t}
-        />
-      )}
-      <Sources client={client} save={save} projectId={projectId} t={t} />
-      {save.operationError && (
-        <p role="status">
-          {save.operationError.code === "UNSENT_REVIEW"
-            ? t.reviewUnsent
-            : t.historyBlocked}{" "}
-          <code>
-            {save.operationError.details?.reason ?? save.operationError.code}
-          </code>
-        </p>
-      )}
-      {(save.status === "error" || save.status === "conflict") && (
-        <div role="alert" className="error">
-          <p>
-            {save.status === "conflict" ? t.conflictHelp : t.saveErrorHelp}{" "}
-            <span data-testid="save-error-code" data-error-code={save.error}>
-              {save.error === "DOCUMENT_TOO_LARGE"
-                ? t.documentTooLarge
-                : save.error === "DOCUMENT_INVALID"
-                  ? t.documentInvalid
-                  : save.error === "HISTORY_BLOCKED"
-                    ? t.historyBlocked
-                    : save.error === "HISTORY_EMPTY"
-                      ? t.historyEmpty
-                      : save.error === "HISTORY_CONFLICT"
-                        ? t.historyConflict
-                        : ""}
-            </span>
-          </p>
-          {save.status !== "conflict" && (
-            <button onClick={() => void save.flush(true)}>{t.retry}</button>
-          )}
-          <button onClick={() => setRecovery(true)}>{t.recover}</button>
+            {t[`save_${save.status}`]}
+          </span>
+          <div ref={setLockHeader} className="lock-header-target" />
         </div>
-      )}
+        {save.state.workspaceStage === "draft" && (
+          <Exports client={client} save={save} t={t} />
+        )}
+        <div role="toolbar" aria-label={t.history}>
+          <button
+            disabled={
+              save.busy ||
+              save.composing ||
+              (!save.history.undoCount && save.status === "saved") ||
+              ["error", "conflict"].includes(save.status)
+            }
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void historyAction("UndoProject")}
+            title={
+              save.history.undoLabel
+                ? `${t.undo}: ${operationLabel(save.history.undoLabel)}`
+                : t.undo
+            }
+          >
+            {t.undo}
+          </button>
+          <button
+            disabled={
+              save.busy ||
+              save.composing ||
+              !save.history.redoCount ||
+              ["error", "conflict"].includes(save.status)
+            }
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void historyAction("RedoProject")}
+            title={
+              save.history.redoLabel
+                ? `${t.redo}: ${operationLabel(save.history.redoLabel)}`
+                : t.redo
+            }
+          >
+            {t.redo}
+          </button>
+        </div>
+        {save.state.workspaceStage === "outline" ? (
+          <Planning client={client} save={save} projectId={projectId} t={t} />
+        ) : (
+          <>
+            <div
+              className="editor-toolbar"
+              role="toolbar"
+              aria-label={t.formatting}
+            >
+              <select
+                aria-label={t.blockStyle}
+                value=""
+                onChange={(e) =>
+                  toolbar(() =>
+                    e.target.value === "paragraph"
+                      ? editor?.chain().setParagraph().run()
+                      : editor
+                          ?.chain()
+                          .setHeading({
+                            level: Number(e.target.value) as
+                              1 | 2 | 3 | 4 | 5 | 6,
+                          })
+                          .run(),
+                  )
+                }
+              >
+                <option value="" disabled>
+                  {t.blockStyle}
+                </option>
+                <option value="paragraph">{t.paragraph}</option>
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>
+                    {t.heading} {n}
+                  </option>
+                ))}
+              </select>
+              <button
+                aria-label={t.bold}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  toolbar(() => editor?.chain().toggleBold().run())
+                }
+              >
+                <strong>B</strong>
+              </button>
+              <button
+                aria-label={t.italic}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  toolbar(() => editor?.chain().toggleItalic().run())
+                }
+              >
+                <em>I</em>
+              </button>
+              <button
+                aria-label={t.inlineCode}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  toolbar(() => editor?.chain().toggleCode().run())
+                }
+              >
+                {"</>"}
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  toolbar(() => editor?.chain().toggleBulletList().run())
+                }
+              >
+                {t.bulletList}
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  toolbar(() => editor?.chain().toggleOrderedList().run())
+                }
+              >
+                {t.orderedList}
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setLink(String(editor?.getAttributes("link").href ?? ""));
+                  setLinkOpen(!linkOpen);
+                }}
+              >
+                {t.link}
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => toolbar(() => editor?.chain().unsetLink().run())}
+              >
+                {t.removeLink}
+              </button>
+            </div>
+            {linkOpen && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (/^(https?:\/\/|mailto:)/i.test(link)) {
+                    toolbar(() =>
+                      editor
+                        ?.chain()
+                        .extendMarkRange("link")
+                        .setLink({ href: link })
+                        .run(),
+                    );
+                    setLinkOpen(false);
+                  }
+                }}
+              >
+                <label>
+                  {t.linkUrl}
+                  <input
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                    required
+                    pattern="(https?://|mailto:).*"
+                  />
+                </label>
+                <button type="submit">{t.applyLink}</button>
+              </form>
+            )}
+            <div className="document-layout">
+              <nav aria-label={t.headings}>
+                {headings.length ? (
+                  headings.map((b) => (
+                    <button
+                      key={b.id}
+                      style={{
+                        paddingInlineStart: `${(b.attrs.level ?? 1) * 8}px`,
+                      }}
+                      onClick={() =>
+                        editor?.view.dom
+                          .querySelector(`[data-blockid="${b.id}"]`)
+                          ?.scrollIntoView({
+                            block: "center",
+                            behavior: "smooth",
+                          })
+                      }
+                    >
+                      {b.runs.map((r) => r.text).join("") || t.heading}
+                    </button>
+                  ))
+                ) : (
+                  <p className="muted">{t.noHeadings}</p>
+                )}
+              </nav>
+              <EditorContent editor={editor} />
+              <Review
+                client={client}
+                save={save}
+                editor={editor}
+                projectId={projectId}
+                t={t}
+              />
+              <Locks
+                client={client}
+                save={save}
+                editor={editor}
+                projectId={projectId}
+                t={t}
+                headerTarget={lockHeader}
+                onReady={setProtectionReady}
+              />
+            </div>
+          </>
+        )}
+        {save.state.workspaceStage === "draft" && (
+          <GeneratedDraftEvidence
+            client={client}
+            blockIds={save.state.blocks.map((b) => b.id)}
+            t={t}
+          />
+        )}
+        <Sources client={client} save={save} projectId={projectId} t={t} />
+        {save.operationError && (
+          <p role="status">
+            {save.operationError.code === "UNSENT_REVIEW"
+              ? t.reviewUnsent
+              : t.historyBlocked}{" "}
+            <code>
+              {save.operationError.details?.reason ?? save.operationError.code}
+            </code>
+          </p>
+        )}
+        {(save.status === "error" || save.status === "conflict") && (
+          <div role="alert" className="error">
+            <p>
+              {save.status === "conflict" ? t.conflictHelp : t.saveErrorHelp}{" "}
+              <span data-testid="save-error-code" data-error-code={save.error}>
+                {save.error === "DOCUMENT_TOO_LARGE"
+                  ? t.documentTooLarge
+                  : save.error === "DOCUMENT_INVALID"
+                    ? t.documentInvalid
+                    : save.error === "HISTORY_BLOCKED"
+                      ? t.historyBlocked
+                      : save.error === "HISTORY_EMPTY"
+                        ? t.historyEmpty
+                        : save.error === "HISTORY_CONFLICT"
+                          ? t.historyConflict
+                          : ""}
+              </span>
+            </p>
+            {save.status !== "conflict" && (
+              <button onClick={() => void save.flush(true)}>{t.retry}</button>
+            )}
+            <button onClick={() => setRecovery(true)}>{t.recover}</button>
+          </div>
+        )}
+      </fieldset>
       {recovery && (
         <div className="recovery" role="dialog" aria-label={t.recover}>
           <p>{t.recoveryHelp}</p>
@@ -676,9 +733,13 @@ function Draft({
                 .join("\n")
             }
           />
-          <button onClick={() => void reload()}>{t.discardAndReload}</button>
+          <button disabled={frozen} onClick={() => void reload()}>
+            {t.discardAndReload}
+          </button>
           <button
+            disabled={frozen}
             onClick={() => {
+              freeze(false);
               setRecovery(false);
               setClosing(false);
               closeDecision.current?.(false);
@@ -690,20 +751,25 @@ function Draft({
           {closing && (
             <>
               <button
+                disabled={frozen}
                 onClick={() =>
-                  void save.controlledClose(true).then((ok) => {
+                  void (async () => {
+                    freeze(true);
+                    const ok = await save.controlledClose(true);
                     if (ok) {
                       setClosing(false);
                       closeDecision.current?.(true);
                       closeDecision.current = null;
-                    }
-                  })
+                    } else freeze(false);
+                  })()
                 }
               >
                 {t.retryClose}
               </button>
               <button
+                disabled={frozen}
                 onClick={() => {
+                  freeze(true);
                   closeDecision.current?.(true);
                   closeDecision.current = null;
                 }}

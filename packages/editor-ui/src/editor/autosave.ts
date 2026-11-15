@@ -64,6 +64,10 @@ export class Autosave {
     groupSequence: number;
   } | null = null;
   private generation = 0;
+  private settledGeneration = 0;
+  get hasLocalBodyChanges() {
+    return this.generation !== this.settledGeneration;
+  }
   private compositionGeneration = 0;
   private metadataPending: ManuscriptCommand | null = null;
   private capturedGeneration = -1;
@@ -188,7 +192,8 @@ export class Autosave {
         const type = this.controlPending.type as
           "UndoProject" | "RedoProject" | "CloseEditGroup";
         const ok = await this.control(type);
-        if (ok && type !== "CloseEditGroup" && !this.disposed) apply();
+        if (ok && type !== "CloseEditGroup" && this.canPresentCanonical)
+          apply();
         return ok;
       }
       if (
@@ -216,9 +221,21 @@ export class Autosave {
       )
         return true;
       const ok = await this.control(direction);
-      if (ok && !this.disposed) apply();
+      if (ok && this.canPresentCanonical) apply();
       return ok;
     });
+  }
+  get canPresentCanonical() {
+    return (
+      !this.disposed &&
+      !this.composing &&
+      !this.conversionError &&
+      this.status === "saved" &&
+      !this.hasLocalBodyChanges
+    );
+  }
+  get exportInputIdentity() {
+    return `${this.generation}:${this.compositionGeneration}:${this.canonicalVersion}`;
   }
   prepareInput() {
     if (!this.planningAdapter)
@@ -386,8 +403,50 @@ export class Autosave {
         return false;
       const generation = this.generation;
       try {
+        if (this.client.readManuscriptIdentity) {
+          const identity = await this.client.readManuscriptIdentity();
+          if (
+            this.disposed ||
+            identity.workingRevision < this.state.workingRevision
+          )
+            return false;
+          const token = `canonical-1|${this.state.manuscriptId}|${this.state.schemaVersion}|${this.state.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
+          const bodyHash = [
+            ...new Uint8Array(
+              await crypto.subtle.digest(
+                "SHA-256",
+                new TextEncoder().encode(token),
+              ),
+            ),
+          ]
+            .map((n) => n.toString(16).padStart(2, "0"))
+            .join("");
+          if (
+            identity.bodyHash === bodyHash &&
+            identity.workspaceStage === this.state.workspaceStage
+          ) {
+            const history = await this.client.readHistory();
+            if (
+              this.disposed ||
+              history.workingRevision !== identity.workingRevision ||
+              generation !== this.generation
+            )
+              return false;
+            this.state = {
+              ...this.state,
+              workingRevision: identity.workingRevision,
+            };
+            this.history = history;
+            this.notify();
+            return true;
+          }
+        }
         const current = await this.client.readManuscript();
-        if (this.disposed) return false;
+        if (
+          this.disposed ||
+          current.workingRevision < this.state.workingRevision
+        )
+          return false;
         const history = await this.client.readHistory();
         if (
           this.disposed ||
@@ -510,9 +569,11 @@ export class Autosave {
           "StartReviewTask",
           "CancelReviewTask",
         ].includes(command.type);
+        let canonical: ManuscriptState | undefined;
+        let sameBody = true;
         if (command.type !== "CloseEditGroup") {
-          const canonical = await this.client.readManuscript();
-          const sameBody =
+          canonical = await this.client.readManuscript();
+          sameBody =
             JSON.stringify(canonical.blocks) ===
               JSON.stringify(this.state.blocks) &&
             canonical.workspaceStage === this.state.workspaceStage;
@@ -521,16 +582,35 @@ export class Autosave {
               !reviewControl &&
               canonical.workingRevision !== receipt.workingRevision) ||
             (reviewControl &&
-              canonical.workingRevision < receipt.workingRevision) ||
-            JSON.stringify(this.local) !== visible ||
-            this.conversionError ||
-            (canonical.workspaceStage !== this.state.workspaceStage &&
-              this.reviewDirty?.()) ||
-            (!sameBody &&
-              (this.composing ||
-                this.compositionGeneration !== compositionGeneration))
+              canonical.workingRevision < receipt.workingRevision)
           )
             throw new ApiError("REVISION_CONFLICT");
+        }
+        // Do not publish canonical state/version while a later metadata read can
+        // still allow private typing or IME to arrive against the visible old body.
+        const metadata = await this.client.readHistory();
+        if (
+          metadata.workingRevision !==
+            (canonical ?? this.state).workingRevision ||
+          (!taskControl &&
+            !reviewControl &&
+            metadata.historyRevision !== receipt.historyRevision)
+        )
+          throw new ApiError("HISTORY_CONFLICT");
+        if (
+          canonical &&
+          (JSON.stringify(this.local) !== visible ||
+            this.conversionError ||
+            (!sameBody &&
+              (this.composing ||
+                this.compositionGeneration !== compositionGeneration)) ||
+            (canonical.workspaceStage !== this.state.workspaceStage &&
+              this.reviewDirty?.()))
+        )
+          throw new ApiError("REVISION_CONFLICT");
+        // All awaits are complete. The final visible-input fence and adoption form
+        // one synchronous operation; a proven receipt never acknowledges newer input.
+        if (canonical) {
           this.state = canonical;
           this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
           if (!sameBody) this.canonicalVersion++;
@@ -548,15 +628,6 @@ export class Autosave {
         }
         this.error = "";
         this.status = this.same() ? "saved" : "pending";
-        // Read operation labels from the same authenticated project boundary.
-        const metadata = await this.client.readHistory();
-        if (
-          metadata.workingRevision !== this.state.workingRevision ||
-          (!taskControl &&
-            !reviewControl &&
-            metadata.historyRevision !== receipt.historyRevision)
-        )
-          throw new ApiError("HISTORY_CONFLICT");
         this.history = metadata;
         this.controlPending = null;
         this.controlVisible = null;
@@ -658,11 +729,12 @@ export class Autosave {
     return this.status === "saved";
   }
   private same() {
-    return (
+    const same =
       this.segments.length === 0 &&
       JSON.stringify(this.local) ===
-        JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b))
-    );
+        JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b));
+    if (same) this.settledGeneration = this.generation;
+    return same;
   }
   invalidate(error: string, rawText: string) {
     clearTimeout(this.timer);
@@ -860,6 +932,12 @@ export class Autosave {
           if (!this.conversionError)
             this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
         } else {
+          const acknowledgedRevisions = new Map(
+            receipt.blockRevisions.map((r) => [r.id, r.revision]),
+          );
+          const previousRevisions = new Map(
+            this.state.blocks.map((b) => [b.id, b.revision]),
+          );
           this.state = {
             ...this.state,
             workspaceStage:
@@ -870,8 +948,8 @@ export class Autosave {
             blocks: sent.blocks.map((b) => ({
               ...b,
               revision:
-                receipt.blockRevisions.find((r) => r.id === b.id)?.revision ??
-                this.state.blocks.find((old) => old.id === b.id)?.revision ??
+                acknowledgedRevisions.get(b.id) ??
+                previousRevisions.get(b.id) ??
                 1,
             })),
           };
@@ -952,6 +1030,7 @@ export class Autosave {
       this.conversionError = null;
       this.recoveryText = null;
       this.status = "saved";
+      this.settledGeneration = this.generation;
       this.error = "";
       this.notify();
       return true;

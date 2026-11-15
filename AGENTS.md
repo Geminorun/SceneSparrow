@@ -56,10 +56,13 @@
   production locks, derived finalization, exact approved baselines and validated
   review history rebinding; see `docs/validation/step-07.md`. Approval retention
   follows actual history/downstream references and reopen verifies the approval
-  graph. Copy/export and final validation follow in step 8. Real providers/native credential
-  stores remain unverified. Large-document performance budgets and native worker RSS
-  enforcement remain open; do not claim full S1 acceptance. Applied migrations are
-  immutable; append new versions using the shared ledger.
+  graph. Step 8 adds clean copy/exports, scoped external delivery, verified
+  recovery/lifecycle guards and cross-stage evidence; see
+  `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
+  Real providers/native credential stores remain unverified. Large-document and
+  attachment-heavy interaction budgets and native worker RSS enforcement remain
+  open; do not claim full stage acceptance. Applied migrations 001–009 are
+  immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
   `pnpm render:smoke` exercises rendering. Never claim unrun platform checks.

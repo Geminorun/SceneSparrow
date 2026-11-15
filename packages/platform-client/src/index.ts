@@ -1,4 +1,14 @@
 import type {
+  ManuscriptIdentity,
+  CopyRequest,
+  PreparedCopy,
+  ClipboardAction,
+  ExportRequest,
+  ExportControl,
+  ExportRetry,
+  ExportJob,
+  DeliveryAction,
+  DeliveryReceipt,
   FinalizationState,
   ReviewPage,
   ReviewCandidate,
@@ -36,6 +46,18 @@ import type {
 } from "@scenesparrow/contracts";
 
 export interface PlatformClient {
+  readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
+  prepareCopy(request: CopyRequest): Promise<PreparedCopy>;
+
+  readExports(): Promise<ExportJob[]>;
+  startExport(request: ExportRequest): Promise<ExportJob>;
+  exportJob(id: string): Promise<ExportJob>;
+  cancelExport(id: string, request: ExportControl): Promise<ExportJob>;
+  retryExport(id: string, request: ExportRetry): Promise<ExportJob>;
+  exportBytes(id: string): Promise<Uint8Array>;
+  writePreparedClipboard?(action: ClipboardAction): Promise<void>;
+  saveExport?(action: DeliveryAction): Promise<DeliveryReceipt | null>;
+
   readFinalization(): Promise<FinalizationState>;
   readReviews(after?: string): Promise<ReviewPage>;
   reviewCandidate(id: string, offset?: number): Promise<ReviewCandidate>;
@@ -85,6 +107,9 @@ export interface PlatformClient {
   readManuscript(): Promise<ManuscriptState>;
   executeManuscript(command: ManuscriptCommand): Promise<CommandReceipt>;
   commandReceipt(requestId: string): Promise<CommandReceipt>;
+  pickProject?(recover?: boolean): Promise<void>;
+  backupProject?(): Promise<{ id: string }>;
+  onCloseAborted?(handler: () => void): () => void;
   onCloseRequested?(handler: () => Promise<boolean>): () => void;
   health(): Promise<Health>;
   readProject(): Promise<ProjectResponse>;
@@ -104,6 +129,10 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | CopyRequest
+      | ExportRequest
+      | ExportControl
+      | ExportRetry
       | PlanningPreparationRequest
       | PlanningVisualAction
       | CreateProject
@@ -137,7 +166,70 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     }
     return (await response.json()) as T;
   }
+  const subscribers = new Set<{
+    handler: (event: ProjectEvent) => void;
+    resync: () => void;
+  }>();
+  let stopEvents: (() => void) | undefined;
+  const subscribeEvents: PlatformClient["subscribeEvents"] = (
+    handler,
+    resync,
+  ) => {
+    const listener = { handler, resync };
+    subscribers.add(listener);
+    if (!stopEvents)
+      stopEvents = subscribeProjectEvents(
+        `${baseUrl}/v1/project/events`,
+        {},
+        (event) => {
+          for (const sub of [...subscribers]) {
+            try {
+              sub.handler(event);
+            } catch {}
+          }
+        },
+        () => {
+          for (const sub of [...subscribers]) {
+            try {
+              sub.resync();
+            } catch {}
+          }
+        },
+      );
+    return () => {
+      subscribers.delete(listener);
+      if (!subscribers.size) {
+        stopEvents?.();
+        stopEvents = undefined;
+      }
+    };
+  };
   return {
+    readManuscriptIdentity: () => request("/v1/manuscript/identity"),
+    prepareCopy: (body) => request("/v1/manuscript/copies", body),
+    readExports: () => request("/v1/manuscript/exports"),
+    startExport: (requestBody) =>
+      request("/v1/manuscript/exports", requestBody),
+    exportJob: (id) =>
+      request(`/v1/manuscript/exports/${encodeURIComponent(id)}`),
+    cancelExport: (id, body) =>
+      request(`/v1/manuscript/exports/${encodeURIComponent(id)}/cancel`, body),
+    retryExport: (id, body) =>
+      request(`/v1/manuscript/exports/${encodeURIComponent(id)}/retry`, body),
+    exportBytes: async (id) => {
+      const response = await fetch(
+        `${baseUrl}/v1/manuscript/exports/${encodeURIComponent(id)}/artifact`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      if (!response.ok)
+        throw new ApiError(
+          (await response.json()).code ?? "DOWNLOAD_UNAVAILABLE",
+        );
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length > 32 * 1024 * 1024)
+        throw new ApiError("EXPORT_TOO_LARGE");
+      return bytes;
+    },
     reviewCandidate: (id, offset) =>
       request(
         `/v1/reviews/candidates/${encodeURIComponent(id)}${offset ? `?offset=${offset}` : ""}`,
@@ -258,13 +350,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       request(
         `/v1/source-extractions/${encodeURIComponent(id)}?offset=${offset}`,
       ),
-    subscribeEvents: (handler, resync) =>
-      subscribeProjectEvents(
-        `${baseUrl}/v1/project/events`,
-        {},
-        handler,
-        resync,
-      ),
+    subscribeEvents,
     openExternalLink: async (url) => {
       validateExternalLink(url);
       window.open(url, "_blank", "noopener,noreferrer");
@@ -283,6 +369,26 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  readManuscriptIdentity?(): Promise<BridgeResult<ManuscriptIdentity>>;
+  readExports(): Promise<BridgeResult<ExportJob[]>>;
+  prepareCopy(request: CopyRequest): Promise<BridgeResult<PreparedCopy>>;
+
+  startExport(request: ExportRequest): Promise<BridgeResult<ExportJob>>;
+  exportJob(id: string): Promise<BridgeResult<ExportJob>>;
+  cancelExport(
+    id: string,
+    request: ExportControl,
+  ): Promise<BridgeResult<ExportJob>>;
+  retryExport(
+    id: string,
+    request: ExportRetry,
+  ): Promise<BridgeResult<ExportJob>>;
+  exportBytes(id: string): Promise<BridgeResult<Uint8Array>>;
+  writePreparedClipboard(action: ClipboardAction): Promise<BridgeResult<null>>;
+  saveExport(
+    action: DeliveryAction,
+  ): Promise<BridgeResult<DeliveryReceipt | null>>;
+
   readFinalization(): Promise<BridgeResult<FinalizationState>>;
   readReviews(after?: string): Promise<BridgeResult<ReviewPage>>;
   reviewCandidate(
@@ -351,6 +457,9 @@ export interface DesktopBridge {
     command: ManuscriptCommand,
   ): Promise<BridgeResult<CommandReceipt>>;
   commandReceipt(requestId: string): Promise<BridgeResult<CommandReceipt>>;
+  pickProject(recover?: boolean): Promise<BridgeResult<null>>;
+  backupProject(): Promise<BridgeResult<{ id: string }>>;
+  onCloseAborted(handler: () => void): () => void;
   onCloseRequested(handler: () => Promise<boolean>): () => void;
 }
 export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
@@ -360,6 +469,23 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     return result.data;
   }
   return {
+    ...(bridge.readManuscriptIdentity
+      ? {
+          readManuscriptIdentity: () =>
+            unwrap(bridge.readManuscriptIdentity!()),
+        }
+      : {}),
+    prepareCopy: (body) => unwrap(bridge.prepareCopy(body)),
+    readExports: () => unwrap(bridge.readExports()),
+    startExport: (body) => unwrap(bridge.startExport(body)),
+    exportJob: (id) => unwrap(bridge.exportJob(id)),
+    cancelExport: (id, body) => unwrap(bridge.cancelExport(id, body)),
+    retryExport: (id, body) => unwrap(bridge.retryExport(id, body)),
+    exportBytes: (id) => unwrap(bridge.exportBytes(id)),
+    writePreparedClipboard: async (body) => {
+      await unwrap(bridge.writePreparedClipboard(body));
+    },
+    saveExport: (body) => unwrap(bridge.saveExport(body)),
     readFinalization: () => unwrap(bridge.readFinalization()),
     readReviews: (after) => unwrap(bridge.readReviews(after)),
     reviewCandidate: (id, offset) => unwrap(bridge.reviewCandidate(id, offset)),
@@ -422,6 +548,11 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     readManuscript: () => unwrap(bridge.readManuscript()),
     executeManuscript: (c) => unwrap(bridge.executeManuscript(c)),
     commandReceipt: (id) => unwrap(bridge.commandReceipt(id)),
+    pickProject: async (recover) => {
+      await unwrap(bridge.pickProject(recover));
+    },
+    backupProject: () => unwrap(bridge.backupProject()),
+    onCloseAborted: (handler) => bridge.onCloseAborted(handler),
     onCloseRequested: (handler) => bridge.onCloseRequested(handler),
   };
 }
@@ -457,51 +588,58 @@ export function subscribeProjectEvents(
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let pending = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          pending += decoder
-            .decode(value, { stream: true })
-            .replaceAll("\r\n", "\n");
-          if (pending.length > 1024 * 1024) throw new Error("INVALID_REQUEST");
-          let boundary;
-          while ((boundary = pending.indexOf("\n\n")) >= 0) {
-            const frame = pending.slice(0, boundary);
-            pending = pending.slice(boundary + 2);
-            const data = frame
-              .split("\n")
-              .filter((l) => l.startsWith("data:"))
-              .map((l) => l.slice(5).trimStart())
-              .join("\n");
-            if (frame.split("\n").some((l) => l === "event: resync_required")) {
-              after = Number(data) || 0;
-              resync();
-            } else if (data) {
-              const event = JSON.parse(data) as ProjectEvent;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            pending += decoder
+              .decode(value, { stream: true })
+              .replaceAll("\r\n", "\n");
+            if (pending.length > 1024 * 1024)
+              throw new Error("INVALID_REQUEST");
+            let boundary;
+            while ((boundary = pending.indexOf("\n\n")) >= 0) {
+              const frame = pending.slice(0, boundary);
+              pending = pending.slice(boundary + 2);
+              const data = frame
+                .split("\n")
+                .filter((l) => l.startsWith("data:"))
+                .map((l) => l.slice(5).trimStart())
+                .join("\n");
               if (
-                Number.isSafeInteger(event.sequence) &&
-                event.sequence > after
+                frame.split("\n").some((l) => l === "event: resync_required")
               ) {
-                after = event.sequence;
-                handler(event);
+                after = Number(data) || 0;
+                resync();
+              } else if (data) {
+                const event = JSON.parse(data) as ProjectEvent;
+                if (
+                  Number.isSafeInteger(event.sequence) &&
+                  event.sequence > after
+                ) {
+                  after = event.sequence;
+                  handler(event);
+                }
               }
             }
           }
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
         }
       } catch {
         /* Reconnect using the last delivered cursor, without replaying work. */
       }
       if (!abort.signal.aborted)
         await new Promise<void>((resolve) => {
-          const timer = setTimeout(resolve, 500);
-          abort.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(timer);
-              resolve();
-            },
-            { once: true },
-          );
+          const finish = () => {
+            clearTimeout(timer);
+            abort.signal.removeEventListener("abort", finish);
+            resolve();
+          };
+          const timer = setTimeout(finish, 500);
+          abort.signal.addEventListener("abort", finish, { once: true });
+          if (abort.signal.aborted) finish();
         });
     }
   })();

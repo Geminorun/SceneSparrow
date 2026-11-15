@@ -24,8 +24,11 @@ evidence, outline generation/adjustment and one complete initial draft.
 [Step 6](docs/validation/step-06.md) adds anchored questions/follow-ups, scoped
 revision candidates, comparisons and individual/batch decisions.
 [Step 7](docs/validation/step-07.md) adds production locks, derived finalization,
-approved baselines and validated review history rebinding. Export and final
-validation follow in step 8; the
+approved baselines and validated review history rebinding.
+[Step 8](docs/validation/step-08.md) adds clean copy/TXT/Markdown/DOCX export,
+scoped native delivery, verified backups/recovered copies, lifecycle guards and
+cross-stage evidence. The [acceptance matrix](docs/validation/acceptance-matrix.md)
+records all 130 cases and their remaining limits; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
@@ -33,8 +36,9 @@ to an authenticated Rust core and creates/reopens a SQLite project. Electron use
 the same UI through a restricted preload bridge. A Remotion sample validates the
 separate render pipeline. The render sample remains a framework example. Native
 Windows/macOS desktop validation and complete-stage acceptance remain open.
-Measured 500 KB/2 MB save and undo latency exceed the initial budgets; performance
-optimization and native document-worker RSS enforcement remain open for step 8.
+Large-document and attachment-heavy interaction budgets remain unmet after the
+measured optimizations. Release-build results and their causes are recorded in
+step 8. Native document/AI-worker RSS enforcement remains unverified.
 Real-provider interoperability, native credential stores and packaged workers also
 need separate acceptance; local fake endpoints establish the tested behavior only.
 

@@ -436,6 +436,9 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       return response.ok ? { ok: true, data } : { ok: false, code: data.code };
     };
     host.sceneSparrow = {
+      readExports: () => request("/manuscript/exports"),
+      prepareCopy: (body: unknown) => request("/manuscript/copies", body),
+      onCloseAborted: () => () => {},
       health: () => request("/health"),
       readProject: () => request("/project"),
       createProject: (command: unknown) => request("/project", command),
@@ -528,7 +531,17 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     page.getByRole("dialog", { name: "Recover local edits" }),
   ).toHaveCount(0);
   await saved(page);
-  await expect(input).not.toContainText("Invalid depth four");
+  const frozenEditor = page.locator(".tiptap");
+  await expect(frozenEditor).not.toContainText("Invalid depth four");
+  await expect(frozenEditor).toHaveAttribute("contenteditable", "false");
+  expect(
+    await page
+      .locator(".manuscript-freeze")
+      .evaluate((node: HTMLFieldSetElement) => node.disabled && node.inert),
+  ).toBe(true);
+  const before = await frozenEditor.textContent();
+  await page.keyboard.type("Late shutdown input");
+  expect(await frozenEditor.textContent()).toBe(before);
   await page.evaluate(() => {
     (window as any).__requestClose();
   });

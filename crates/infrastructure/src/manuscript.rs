@@ -25,6 +25,9 @@ impl SqliteProjectRepository {
         let digest = hash(bytes);
         let path = self.directory.join("objects").join(&digest);
         if path.exists() {
+            if !db(std::fs::symlink_metadata(&path))?.is_file() {
+                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
+            }
             if db(std::fs::read(&path))? != bytes {
                 return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
@@ -49,10 +52,7 @@ impl SqliteProjectRepository {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let row=db(c.query_row("SELECT id,workspace_stage,working_revision,snapshot_hash FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<String>>(3)?))).optional())?.ok_or(ManuscriptError("PROJECT_NOT_FOUND", None))?;
         let mut state = if let Some(digest) = row.3 {
-            let bytes = db(std::fs::read(self.directory.join("objects").join(&digest)))?;
-            if hash(&bytes) != digest {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-            }
+            let bytes = self.read_object(&digest)?;
             db(serde_json::from_slice::<ManuscriptState>(&bytes))?
         } else {
             ManuscriptState {
@@ -91,11 +91,10 @@ impl SqliteProjectRepository {
                 .blocks
                 .get(count)
                 .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
-            let bytes = db(std::fs::read(self.directory.join("objects").join(&digest)))?;
+            let bytes = self.read_object(&digest)?;
             if id != b.id
                 || position != count
                 || revision != b.revision
-                || hash(&bytes) != digest
                 || db(serde_json::from_slice::<Block>(&bytes))? != *b
             {
                 return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
@@ -109,6 +108,7 @@ impl SqliteProjectRepository {
     }
     pub(super) fn verify_manuscript(&self) -> std::result::Result<(), Error> {
         let c = storage(self.connection.lock())?;
+        self.verify_export_records(&c).map_err(|_| Error::Storage)?;
         if read_project(&c)?.is_some() {
             let state = self.load(&c).map_err(|_| Error::Storage)?;
             self.verify_finalization(&c, &state)
@@ -227,7 +227,14 @@ impl ManuscriptRepository for SqliteProjectRepository {
         Self::decode(&outcome)
     }
     fn execute_manuscript(&self, command: &ManuscriptCommand) -> Result<CommandReceipt> {
+        let waiting = std::time::Instant::now();
         let mut c = db(self.connection.lock())?;
+        if std::env::var_os("SCENESPARROW_PROFILE_WRITES").is_some() {
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"storage.writerWait","durationUs":waiting.elapsed().as_micros()})
+            );
+        }
         self.execute_manuscript_locked(&mut c, command)
     }
 }
@@ -263,7 +270,17 @@ impl SqliteProjectRepository {
             db(transaction.commit())?;
             return Err(ManuscriptError("PROJECT_NOT_FOUND", None));
         };
+        if matches!(command, ManuscriptCommand::CloseEditGroup { .. }) {
+            return self.close_group_fast(c, command, &digest);
+        }
+        let mut profile = crate::operation::Operation::begin(match command {
+            ManuscriptCommand::ApplyDocumentEdit { .. } => "edit",
+            ManuscriptCommand::UndoProject { .. } => "undo",
+            ManuscriptCommand::RedoProject { .. } => "redo",
+            _ => "metadata",
+        });
         let before = self.load(c)?;
+        profile.phase("load");
         let sources_before = Self::source_members(c)?;
         let mut identities = BTreeMap::new();
         {
@@ -286,7 +303,9 @@ impl SqliteProjectRepository {
                 {
                     return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
+                profile.phase("identities");
                 let mut transition = self.history_transition(c, command, &before, &identities)?;
+                profile.phase("domain-transition");
                 self.coordinate_planning(c, command, &before, &mut transition)?;
                 self.coordinate_reviews(c, command, &before, &mut transition)?;
                 if let Err(mut error) = Self::guard_finalization(c, &before, &transition) {
@@ -334,9 +353,13 @@ impl SqliteProjectRepository {
                             .insert(id.clone(), manuscript::next_revision(*previous)?);
                     }
                 }
+                profile.phase("guards-coordination");
                 let history = self.history_plan(c, command, &before, &transition)?;
+                profile.phase("history");
                 let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
+                profile.phase("review-projections");
                 let prepared_finalization = self.prepare_finalization(c, &transition)?;
+                profile.phase("finalization");
                 Ok((
                     transition,
                     tombstone_revisions,
@@ -361,6 +384,7 @@ impl SqliteProjectRepository {
                     return Err(error);
                 }
             };
+        profile.phase("transition-history-policy");
         let changed = transition.state.working_revision != before.working_revision;
         let mut revisions = vec![];
         // The repository mutex is the writer coordinator. Promote all immutable bytes
@@ -373,11 +397,28 @@ impl SqliteProjectRepository {
         };
         let mut payloads = BTreeMap::new();
         if changed {
+            let old: BTreeMap<_, _> = before.blocks.iter().map(|b| (&b.id, b)).collect();
+            let mut stmt = db(c.prepare("SELECT id,payload_hash FROM blocks"))?;
+            let verified: BTreeMap<String, String> =
+                db(stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))))?
+                    .map(db)
+                    .collect::<Result<_>>()?;
             for block in &transition.state.blocks {
-                payloads.insert(
-                    block.id.clone(),
-                    self.object(&db(serde_json::to_vec(block))?)?,
-                );
+                let payload = if old
+                    .get(&block.id)
+                    .is_some_and(|previous| **previous == *block)
+                {
+                    let digest = verified
+                        .get(&block.id)
+                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
+                    // load verified this exact payload in this writer operation. Never
+                    // recreate a vanished immutable reference from an in-memory copy.
+                    self.read_object(digest)?;
+                    digest.clone()
+                } else {
+                    self.object(&db(serde_json::to_vec(block))?)?
+                };
+                payloads.insert(block.id.clone(), payload);
             }
         }
         let import_metadata = if let ManuscriptCommand::CommitManuscriptImport { payload, .. } =
@@ -395,6 +436,7 @@ impl SqliteProjectRepository {
         } else {
             None
         };
+        profile.phase("immutable-objects");
         let review_checks = self.review_acceptance_checks(c, command)?;
         let cancellation_watermark =
             if matches!(command, ManuscriptCommand::CancelPlanningTask { .. })
@@ -639,7 +681,98 @@ impl SqliteProjectRepository {
             self.ai_commit_watermark(&transaction, watermark)
                 .map_err(|e| ManuscriptError(e.0, None))?;
         }
+        profile.phase("sql-before-commit");
         db(transaction.commit())?;
+        profile.phase("commit-fsync");
+        Ok(receipt)
+    }
+}
+
+impl SqliteProjectRepository {
+    /// Closing a group changes only compact grouping/history metadata. It neither
+    /// captures nor acknowledges a new body, and needs no body/source projection.
+    fn close_group_fast(
+        &self,
+        c: &mut Connection,
+        command: &ManuscriptCommand,
+        digest: &str,
+    ) -> Result<CommandReceipt> {
+        let (request, _, expected) = manuscript::envelope(command);
+        let prepared = (|| {
+            let (id, stage, schema, revision): (String, String, i64, i64) = db(c.query_row(
+                "SELECT id,workspace_stage,schema_version,working_revision FROM manuscripts",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            ))?;
+            if revision != expected {
+                return Err(ManuscriptError("REVISION_CONFLICT", None));
+            }
+            let before = ManuscriptState {
+                manuscript_id: id,
+                schema_version: schema,
+                workspace_stage: db(serde_json::from_value(serde_json::json!(stage)))?,
+                working_revision: revision,
+                blocks: vec![],
+            };
+            let transition = self.history_transition(c, command, &before, &BTreeMap::new())?;
+            let history = self.history_plan(c, command, &before, &transition)?;
+            Ok((revision, history))
+        })();
+        let (revision, history) = match prepared {
+            Ok(value) => value,
+            Err(error) => {
+                if error.0 == "STORAGE_UNAVAILABLE" {
+                    return Err(error);
+                }
+                let tx = db(c.transaction())?;
+                db(tx.execute(
+                    "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                    params![
+                        request,
+                        digest,
+                        serde_json::json!({"error":error.0,"details":error.1}).to_string()
+                    ],
+                ))?;
+                db(tx.commit())?;
+                return Err(error);
+            }
+        };
+        let tx = db(c.transaction())?;
+        let current: i64 =
+            db(tx.query_row("SELECT working_revision FROM manuscripts", [], |r| r.get(0)))?;
+        if current != revision {
+            return Err(ManuscriptError("REVISION_CONFLICT", None));
+        }
+        history.recheck(&tx)?;
+        history.commit(&tx)?;
+        if history.changed {
+            db(tx.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'history.changed',?2)",params![request,db(serde_json::to_string(&history.metadata))?]))?;
+        }
+        let sequence = db(tx.query_row(
+            "SELECT COALESCE(MAX(sequence),0) FROM project_events",
+            [],
+            |r| r.get(0),
+        ))?;
+        let receipt = CommandReceipt {
+            request_id: request.into(),
+            working_revision: revision,
+            block_revisions: vec![],
+            source_revisions: None,
+            history_revision: history.metadata.history_revision,
+            cursor: history.metadata.cursor,
+            undo_count: history.metadata.undo_count,
+            redo_count: history.metadata.redo_count,
+            undo_label: history.metadata.undo_label.clone(),
+            redo_label: history.metadata.redo_label.clone(),
+            event_sequence: sequence,
+            normalized: false,
+        };
+        db(tx.execute(
+            "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+            params![request, digest, db(serde_json::to_string(&receipt))?],
+        ))?;
+        db(tx.execute("DELETE FROM project_events WHERE sequence <= (SELECT COALESCE(MAX(sequence),0)-1000 FROM project_events)",[]))?;
+        db(tx.commit())?;
         Ok(receipt)
     }
 }

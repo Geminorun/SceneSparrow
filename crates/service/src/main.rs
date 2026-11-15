@@ -7,6 +7,18 @@ use std::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--inspect-project") && args.len() == 3 {
+        SqliteProjectRepository::inspect_available_project(std::path::Path::new(&args[2]))?;
+        return Ok(());
+    }
+    if args.get(1).map(String::as_str) == Some("--recover-project") && args.len() == 4 {
+        drop(SqliteProjectRepository::restore_verified_copy(
+            std::path::Path::new(&args[2]),
+            std::path::Path::new(&args[3]),
+        )?);
+        return Ok(());
+    }
     let token = env::var("SCENESPARROW_SESSION_TOKEN")
         .map_err(|_| "SCENESPARROW_SESSION_TOKEN is required")?;
     if token.len() < 32 || !token.bytes().all(|c| c.is_ascii_alphanumeric()) {

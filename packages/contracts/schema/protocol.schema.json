@@ -1634,7 +1634,8 @@
             "reviewTask.changed",
             "candidate.changed",
             "locks.changed",
-            "manuscript.readinessChanged"
+            "manuscript.readinessChanged",
+            "exportJob.changed"
           ]
         },
         "requestId": {
@@ -2888,6 +2889,276 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "ExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "expectedRevision", "format"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "md", "docx"]
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExportControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "attempt"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ExportRetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "attempt", "mode", "expectedRevision"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["retained", "recapture"]
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExportJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "format",
+        "status",
+        "attempt",
+        "snapshotHash",
+        "bodyHash",
+        "capturedRevision",
+        "serializerVersion",
+        "filename",
+        "artifactHash",
+        "size",
+        "error",
+        "inputRetained",
+        "capturedFinalized",
+        "capturedBaseline",
+        "delivery"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "md", "docx"]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "ready",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshotHash": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "capturedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "serializerVersion": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "inputRetained": {
+          "type": "boolean"
+        },
+        "capturedFinalized": {
+          "type": "boolean"
+        },
+        "capturedBaseline": {
+          "type": ["string", "null"]
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeliveryReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "PreparedCopy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bodyHash", "capturedRevision", "text", "expiresAt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "capturedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "integer"
+        }
+      }
+    },
+    "DeliveryAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "jobId", "artifactHash"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": "string"
+        }
+      }
+    },
+    "DeliveryReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "jobId", "artifactHash", "status", "error"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["intent", "saved", "unknown", "failed"]
+        },
+        "error": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CopyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "expectedRevision", "expectedBodyHash"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer"
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ClipboardAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "preparationId", "bodyHash"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "preparationId": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ManuscriptIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workingRevision", "bodyHash", "workspaceStage"],
+      "properties": {
+        "workingRevision": {
+          "type": "integer"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "workspaceStage": {
+          "type": "string",
+          "enum": ["outline", "draft"]
         }
       }
     }

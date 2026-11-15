@@ -835,6 +835,8 @@ pub enum ProjectEventType {
     Lockschanged,
     #[serde(rename = "manuscript.readinessChanged")]
     ManuscriptreadinessChanged,
+    #[serde(rename = "exportJob.changed")]
+    ExportJobchanged,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1552,6 +1554,212 @@ pub struct FinalizationState {
     pub finalized: bool,
     #[serde(rename = "baseline", deserialize_with = "required_nullable")]
     pub baseline: Option<ApprovedBaseline>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportRequestFormat {
+    #[serde(rename = "txt")]
+    Txt,
+    #[serde(rename = "md")]
+    Md,
+    #[serde(rename = "docx")]
+    Docx,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: i64,
+    #[serde(rename = "format")]
+    pub format: ExportRequestFormat,
+    #[serde(
+        rename = "expectedBodyHash",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub expected_body_hash: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportControl {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "attempt")]
+    pub attempt: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportRetryMode {
+    #[serde(rename = "retained")]
+    Retained,
+    #[serde(rename = "recapture")]
+    Recapture,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportRetry {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "attempt")]
+    pub attempt: i64,
+    #[serde(rename = "mode")]
+    pub mode: ExportRetryMode,
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: i64,
+    #[serde(
+        rename = "expectedBodyHash",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub expected_body_hash: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportJobFormat {
+    #[serde(rename = "txt")]
+    Txt,
+    #[serde(rename = "md")]
+    Md,
+    #[serde(rename = "docx")]
+    Docx,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExportJobStatus {
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExportJob {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "format")]
+    pub format: ExportJobFormat,
+    #[serde(rename = "status")]
+    pub status: ExportJobStatus,
+    #[serde(rename = "attempt")]
+    pub attempt: i64,
+    #[serde(rename = "snapshotHash")]
+    pub snapshot_hash: String,
+    #[serde(rename = "bodyHash")]
+    pub body_hash: String,
+    #[serde(rename = "capturedRevision")]
+    pub captured_revision: i64,
+    #[serde(rename = "serializerVersion")]
+    pub serializer_version: String,
+    #[serde(rename = "filename")]
+    pub filename: String,
+    #[serde(rename = "artifactHash", deserialize_with = "required_nullable")]
+    pub artifact_hash: Option<String>,
+    #[serde(rename = "size")]
+    pub size: i64,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "inputRetained")]
+    pub input_retained: bool,
+    #[serde(rename = "capturedFinalized")]
+    pub captured_finalized: bool,
+    #[serde(rename = "capturedBaseline", deserialize_with = "required_nullable")]
+    pub captured_baseline: Option<String>,
+    #[serde(rename = "delivery", deserialize_with = "required_nullable")]
+    pub delivery: Option<DeliveryReceipt>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreparedCopy {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "bodyHash")]
+    pub body_hash: String,
+    #[serde(rename = "capturedRevision")]
+    pub captured_revision: i64,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryAction {
+    #[serde(rename = "deliveryId")]
+    pub delivery_id: String,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+    #[serde(rename = "artifactHash")]
+    pub artifact_hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeliveryReceiptStatus {
+    #[serde(rename = "intent")]
+    Intent,
+    #[serde(rename = "saved")]
+    Saved,
+    #[serde(rename = "unknown")]
+    Unknown,
+    #[serde(rename = "failed")]
+    Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryReceipt {
+    #[serde(rename = "deliveryId")]
+    pub delivery_id: String,
+    #[serde(rename = "jobId")]
+    pub job_id: String,
+    #[serde(rename = "artifactHash")]
+    pub artifact_hash: String,
+    #[serde(rename = "status")]
+    pub status: DeliveryReceiptStatus,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CopyRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: i64,
+    #[serde(rename = "expectedBodyHash")]
+    pub expected_body_hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClipboardAction {
+    #[serde(rename = "deliveryId")]
+    pub delivery_id: String,
+    #[serde(rename = "preparationId")]
+    pub preparation_id: String,
+    #[serde(rename = "bodyHash")]
+    pub body_hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManuscriptIdentityWorkspaceStage {
+    #[serde(rename = "outline")]
+    Outline,
+    #[serde(rename = "draft")]
+    Draft,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManuscriptIdentity {
+    #[serde(rename = "workingRevision")]
+    pub working_revision: i64,
+    #[serde(rename = "bodyHash")]
+    pub body_hash: String,
+    #[serde(rename = "workspaceStage")]
+    pub workspace_stage: ManuscriptIdentityWorkspaceStage,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

@@ -6,7 +6,11 @@ export class CloseHandshake {
     private accept: () => void,
     private unresponsive: () => Promise<boolean>,
     private timeoutMs = 15000,
+    private cancelled: (nonce: string) => void = () => {},
   ) {}
+  get isPending() {
+    return this.pending !== null;
+  }
   request(nonce: string, send: (nonce: string) => void) {
     if (this.pending) return;
     this.pending = nonce;
@@ -21,6 +25,7 @@ export class CloseHandshake {
     if (this.pending === nonce) {
       this.pending = null;
       if (allowed) this.accept();
+      else this.cancelled(nonce);
     }
   }
   responsive(nonce: unknown) {
@@ -31,9 +36,11 @@ export class CloseHandshake {
   }
   reply(nonce: unknown, allowed: unknown) {
     if (nonce !== this.pending || !this.pending) return;
+    const completed = this.pending;
     clearTimeout(this.timer);
     this.pending = null;
     if (allowed === true) this.accept();
+    else this.cancelled(completed);
   }
   dispose() {
     clearTimeout(this.timer);

@@ -23,7 +23,14 @@ pub(super) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "ANCHOR_STALE"
+                "CAPABILITY_EXPIRED"
+                | "DELIVERY_STATUS_UNKNOWN"
+                | "DESTINATION_CHANGED"
+                | "EXPORT_INTERRUPTED"
+                | "COMMAND_UNRESOLVED"
+                | "INVALID_RETRY"
+                | "QUEUE_FULL"
+                | "ANCHOR_STALE"
                 | "REVIEW_VERSION_CONFLICT"
                 | "REVIEW_TASK_ACTIVE"
                 | "PENDING_CANDIDATE"
@@ -45,7 +52,10 @@ pub(super) fn result<T: serde::Serialize>(
                 | "PLANNING_TASK_ACTIVE"
                 | "PLANNING_RESULT_STALE"
                 | "HISTORY_DIVERGED" => StatusCode::CONFLICT,
-                "BRIEF_INVALID"
+                "NO_MANUSCRIPT_CONTENT"
+                | "EXPORT_INVALID"
+                | "EXPORT_FORMAT_UNSUPPORTED"
+                | "BRIEF_INVALID"
                 | "OUTLINE_INVALID"
                 | "OUTLINE_REQUIRED"
                 | "HISTORY_EMPTY"
@@ -54,7 +64,9 @@ pub(super) fn result<T: serde::Serialize>(
                 | "SOURCE_TEXT_UNAVAILABLE"
                 | "TEXT_ENCODING_UNSUPPORTED" => StatusCode::UNPROCESSABLE_ENTITY,
                 "STORAGE_UNAVAILABLE" => StatusCode::INTERNAL_SERVER_ERROR,
-                "DOCUMENT_TOO_LARGE" | "INPUT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
+                "EXPORT_TOO_LARGE" | "DOCUMENT_TOO_LARGE" | "INPUT_TOO_LARGE" => {
+                    StatusCode::PAYLOAD_TOO_LARGE
+                }
                 _ => StatusCode::BAD_REQUEST,
             };
             (

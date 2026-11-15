@@ -2167,3 +2167,85 @@ fn lock_and_readiness_events_decode_in_closed_event_pages_and_review_only_change
         1
     );
 }
+
+#[test]
+fn recovered_copy_preserves_pending_candidate_locks_middle_cursor_and_exact_business_roots() {
+    let (d, r, settings, p) = setup();
+    let first = r.read_manuscript().unwrap().blocks[0].id.clone();
+    let second = id();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"insertBlock","after":first,"block":{"id":second,"kind":"paragraph","attrs":{},"runs":[{"text":"Approved independent block","marks":[]}]}}]),
+    );
+    locks(&r, &p, vec![second], true, false).unwrap();
+    let thread = note(&r, &p, false, 0);
+    start(&r, &settings, &p, &thread);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let saved_candidate = candidate(&r, &thread);
+    let question = note(&r, &p, true, 1);
+    let undispatched = start(&r, &settings, &p, &question);
+    assert_eq!(
+        r.read_run(&undispatched).unwrap().status,
+        AiRunStatus::Queued
+    );
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "DeleteReviewThread",
+        json!({"threadId":thread,"requestVersion":1,"discardCandidate":true}),
+    ))
+    .unwrap();
+    history(&r, &p, false);
+    let expected_body = r.read_manuscript().unwrap();
+    let expected_history = r.read_history().unwrap();
+    let expected_locks = r.read_finalization().unwrap();
+    assert!(expected_history.redo_count > 0);
+    assert_eq!(candidate(&r, &thread).id, saved_candidate.id);
+    let saved_candidate = candidate(&r, &thread);
+    let roots = |repo: &SqliteProjectRepository| {
+        let c = repo.connection.lock().unwrap();
+        let mut stmt = c
+            .prepare(
+                "SELECT i.entry_id,e.before_hash,e.after_hash FROM history_entries e JOIN history_entry_identities i USING(position) ORDER BY position",
+            )
+            .unwrap();
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap()
+    };
+    let before_roots = roots(&r);
+    let backup = r.verified_backup().unwrap();
+    let copy = SqliteProjectRepository::restore_verified_copy(
+        &backup,
+        &d.path().join("recovered-combined"),
+    )
+    .unwrap();
+    assert_eq!(
+        copy.read_run(&undispatched).unwrap().status,
+        AiRunStatus::Interrupted
+    );
+    assert_eq!(
+        r.read_run(&undispatched).unwrap().status,
+        AiRunStatus::Queued
+    );
+    assert_eq!(copy.read_manuscript().unwrap(), expected_body);
+    assert_eq!(copy.read_history().unwrap(), expected_history);
+    assert_eq!(copy.read_finalization().unwrap(), expected_locks);
+    assert_eq!(candidate(&copy, &thread), saved_candidate);
+    assert_eq!(roots(&copy), before_roots);
+    assert_eq!(r.read_manuscript().unwrap(), expected_body);
+
+    copy.execute_manuscript(&accept(&copy, &p, &[candidate(&copy, &thread)]))
+        .unwrap();
+    assert_ne!(copy.read_manuscript().unwrap().blocks, expected_body.blocks);
+    assert_eq!(r.read_manuscript().unwrap(), expected_body);
+}
