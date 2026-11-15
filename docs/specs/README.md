@@ -9,6 +9,8 @@ The [technical designs](../design/README.md) define the product and architectura
 boundaries. These specs make the next implementation slice concrete. The user's
 confirmed product decisions remain authoritative; a spec may refine engineering
 details but must identify changes to confirmed behavior explicitly.
+The [eight-step execution workflow](../implementation-execution.md) maps these
+tasks to the approved implementation sequence and review/commit/push gates.
 
 | Document                                                         | Scope                                                                              | Status                          |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------- |

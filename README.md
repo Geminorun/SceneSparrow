@@ -41,6 +41,7 @@ workflow here and validate desktop behavior on Windows/macOS.
 - [Agent and contributor rules](AGENTS.md)
 - [Setup, commands, and current implementation](docs/development.md)
 - [Branch, commit, and review workflow](docs/development-workflow.md)
+- [Eight-step implementation, subagent dispatch, and root review](docs/implementation-execution.md)
 - [Manuscript workbench, shared AI, and implementation plan](docs/design/README.md)
 - [Stage specifications and shared AI integration](docs/specs/README.md)
 - [Decision: manuscript first and reusable AI execution](docs/decisions/0001-script-workbench-and-shared-ai.md)

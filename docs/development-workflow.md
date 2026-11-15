@@ -80,6 +80,11 @@ evidence that its implementation or tests have passed.
 
 ## Commits and pull requests
 
+The user-selected [eight-step implementation workflow](implementation-execution.md)
+defines subagent settings, root review, correction loops and the per-step
+commit/push gate. It supplements this branch/PR policy. Implementation agents
+deliver uncommitted changes; only root stages and pushes reviewed commits.
+
 Use `type(scope): summary`, with an optional scope and an imperative English
 summary. Types are `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`,
 and `perf`. Useful scopes include `web`, `desktop`, `editor`, `contracts`, `core`,
