@@ -441,6 +441,7 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       createProject: (command: unknown) => request("/project", command),
       readManuscript: () => request("/manuscript"),
       readPlanning: () => request("/planning"),
+      readReviews: () => request("/reviews"),
       readHistory: () => request("/history"),
       executeManuscript: (command: unknown) =>
         request("/manuscript/commands", command),

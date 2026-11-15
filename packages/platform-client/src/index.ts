@@ -1,4 +1,8 @@
 import type {
+  ReviewPage,
+  ReviewCandidate,
+  ReviewComparison,
+  ReviewMessagePage,
   PlanningState,
   PlanningPreparation,
   PlanningPreparationRequest,
@@ -31,6 +35,10 @@ import type {
 } from "@scenesparrow/contracts";
 
 export interface PlatformClient {
+  readReviews(after?: string): Promise<ReviewPage>;
+  reviewCandidate(id: string, offset?: number): Promise<ReviewCandidate>;
+  reviewMessages(id: string, before?: number): Promise<ReviewMessagePage>;
+  reviewSourceComparison(id: string): Promise<ReviewComparison>;
   readPlanning(): Promise<PlanningState>;
   preparePlanning(
     request: PlanningPreparationRequest,
@@ -128,6 +136,20 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     return (await response.json()) as T;
   }
   return {
+    reviewCandidate: (id, offset) =>
+      request(
+        `/v1/reviews/candidates/${encodeURIComponent(id)}${offset ? `?offset=${offset}` : ""}`,
+      ),
+    reviewSourceComparison: (id) =>
+      request(`/v1/reviews/comparisons/${encodeURIComponent(id)}`),
+    reviewMessages: (id, before) =>
+      request(
+        `/v1/reviews/${encodeURIComponent(id)}/messages${before ? `?before=${before}` : ""}`,
+      ),
+    readReviews: (after) =>
+      request(
+        `/v1/reviews${after ? `?after=${encodeURIComponent(after)}` : ""}`,
+      ),
     readPlanning: () => request("/v1/planning"),
     preparePlanning: (body) => request("/v1/planning/preparations", body),
     planningTask: (id) =>
@@ -258,6 +280,16 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  readReviews(after?: string): Promise<BridgeResult<ReviewPage>>;
+  reviewCandidate(
+    id: string,
+    offset?: number,
+  ): Promise<BridgeResult<ReviewCandidate>>;
+  reviewMessages(
+    id: string,
+    before?: number,
+  ): Promise<BridgeResult<ReviewMessagePage>>;
+  reviewSourceComparison(id: string): Promise<BridgeResult<ReviewComparison>>;
   readPlanning(): Promise<BridgeResult<PlanningState>>;
   preparePlanning(
     request: PlanningPreparationRequest,
@@ -324,6 +356,10 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     return result.data;
   }
   return {
+    readReviews: (after) => unwrap(bridge.readReviews(after)),
+    reviewCandidate: (id, offset) => unwrap(bridge.reviewCandidate(id, offset)),
+    reviewSourceComparison: (id) => unwrap(bridge.reviewSourceComparison(id)),
+    reviewMessages: (id, before) => unwrap(bridge.reviewMessages(id, before)),
     readPlanning: () => unwrap(bridge.readPlanning()),
     preparePlanning: (body) => unwrap(bridge.preparePlanning(body)),
     planningTask: (id) => unwrap(bridge.planningTask(id)),

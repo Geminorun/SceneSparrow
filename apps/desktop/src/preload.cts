@@ -13,6 +13,13 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  reviewCandidate: (id: string, offset?: number) =>
+    ipcRenderer.invoke("reviews:candidate", id, offset),
+  reviewSourceComparison: (id: string) =>
+    ipcRenderer.invoke("reviews:comparison", id),
+  reviewMessages: (id: string, before?: number) =>
+    ipcRenderer.invoke("reviews:messages", id, before),
+  readReviews: (after?: string) => ipcRenderer.invoke("reviews:read", after),
   readPlanning: () => ipcRenderer.invoke("planning:read"),
   preparePlanning: (body: unknown) =>
     ipcRenderer.invoke("planning:prepare", body),

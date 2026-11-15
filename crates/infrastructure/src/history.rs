@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone)]
 struct Entry {
+    id: String,
     before: String,
     after: String,
     affected: BTreeSet<String>,
@@ -52,9 +53,20 @@ impl SqliteProjectRepository {
         for row in db(planning_roots.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
         }
+        let mut review_roots = db(c.prepare("SELECT context_hash FROM review_tasks WHERE context_hash!='' UNION SELECT payload_hash FROM review_candidates WHERE payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_comparisons WHERE payload_hash IS NOT NULL"))?;
+        for row in db(review_roots.query_map([], |r| r.get::<_, String>(0)))? {
+            roots.insert(db(row)?);
+        }
         let mut ai = db(c.prepare("SELECT object_hash FROM ai_artifacts UNION SELECT object_hash FROM ai_input_snapshots WHERE payload_retained=1"))?;
         for row in db(ai.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
+        }
+        for thread in Self::review_threads(c)? {
+            for range in thread.anchor.ranges {
+                if let Some(h) = range.quote_hash {
+                    roots.insert(h);
+                }
+            }
         }
         let mut source_ids = BTreeSet::new();
         let mut block_ids = BTreeSet::new();
@@ -63,6 +75,13 @@ impl SqliteProjectRepository {
         ))?;
         for row in db(histories.query_map([], |r| r.get::<_, String>(0)))? {
             let root = self.read_business(&db(row)?)?;
+            for thread in &root.reviews {
+                for range in &thread.anchor.ranges {
+                    if let Some(h) = &range.quote_hash {
+                        roots.insert(h.clone());
+                    }
+                }
+            }
             for source in root.sources {
                 source_ids.insert(source.id);
                 if let Some(h) = source.object_hash {
@@ -129,6 +148,10 @@ impl SqliteProjectRepository {
     }
     pub(super) fn verify_history(&self, c: &Connection, state: &ManuscriptState) -> Result<()> {
         let metadata = Self::history_metadata(c)?;
+        let missing:i64=db(c.query_row("SELECT COUNT(*) FROM history_entries h LEFT JOIN history_entry_identities i ON i.position=h.position WHERE i.entry_id IS NULL",[],|r|r.get(0)))?;
+        if missing != 0 {
+            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
+        }
         let mut stmt =
             db(c.prepare("SELECT before_hash,after_hash FROM history_entries ORDER BY position"))?;
         let mut snapshots = vec![];
@@ -244,6 +267,7 @@ impl SqliteProjectRepository {
                     return Err(ManuscriptError("INVALID_REQUEST", None));
                 }
                 return Ok(Transition {
+                    reviews: None,
                     state: before.clone(),
                     affected: BTreeSet::new(),
                     normalized: false,
@@ -257,6 +281,15 @@ impl SqliteProjectRepository {
             | ManuscriptCommand::RemoveSource { .. }
             | ManuscriptCommand::CommitManuscriptImport { .. } => {
                 return self.source_transition(c, command, before, identities);
+            }
+            ManuscriptCommand::SaveReview { .. }
+            | ManuscriptCommand::SetReviewHandled { .. }
+            | ManuscriptCommand::DeleteReviewThread { .. }
+            | ManuscriptCommand::CancelReviewTask { .. }
+            | ManuscriptCommand::AcceptReviewCandidates { .. }
+            | ManuscriptCommand::DiscardReviewCandidate { .. }
+            | ManuscriptCommand::StartReviewTask { .. } => {
+                return self.review_transition(c, command, before, identities);
             }
             ManuscriptCommand::SavePlanning { .. }
             | ManuscriptCommand::UsePlanningResult { .. }
@@ -300,6 +333,7 @@ impl SqliteProjectRepository {
         )?;
         self.restore_sources(c, before, &mut transition, &target, identities)?;
         self.restore_planning(c, &mut transition, &target)?;
+        self.restore_reviews(c, &mut transition, &target)?;
         Ok(transition)
     }
 
@@ -312,7 +346,7 @@ impl SqliteProjectRepository {
     ) -> Result<Plan> {
         let metadata = Self::history_metadata(c)?;
         let mut entries = vec![];
-        let mut stmt=db(c.prepare("SELECT before_hash,after_hash,affected_json,label,group_id FROM history_entries ORDER BY position"))?;
+        let mut stmt=db(c.prepare("SELECT h.before_hash,h.after_hash,h.affected_json,h.label,h.group_id,i.entry_id FROM history_entries h JOIN history_entry_identities i ON i.position=h.position ORDER BY h.position"))?;
         let rows = db(stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -320,11 +354,13 @@ impl SqliteProjectRepository {
                 r.get::<_, String>(2)?,
                 r.get::<_, String>(3)?,
                 r.get::<_, Option<String>>(4)?,
+                r.get::<_, String>(5)?,
             ))
         }))?;
         for row in rows {
-            let (before, after, affected, label, group) = db(row)?;
+            let (before, after, affected, label, group, id) = db(row)?;
             entries.push(Entry {
+                id,
                 before,
                 after,
                 affected: db(serde_json::from_str(&affected))?,
@@ -420,6 +456,7 @@ impl SqliteProjectRepository {
                 } else {
                     plan.entries.truncate(plan.metadata.cursor as usize);
                     plan.entries.push(Entry {
+                        id: uuid::Uuid::new_v4().to_string(),
                         before: before_hash,
                         after: after_hash,
                         affected: transition.affected.clone(),
@@ -446,6 +483,7 @@ impl SqliteProjectRepository {
                 _ => {
                     plan.entries.truncate(plan.metadata.cursor as usize);
                     plan.entries.push(Entry {
+                        id: uuid::Uuid::new_v4().to_string(),
                         before: retained_before
                             .clone()
                             .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?,
@@ -458,6 +496,11 @@ impl SqliteProjectRepository {
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
                             ManuscriptCommand::SavePlanning { .. } => "planning",
+                            ManuscriptCommand::SaveReview { .. }
+                            | ManuscriptCommand::SetReviewHandled { .. }
+                            | ManuscriptCommand::DeleteReviewThread { .. } => "review",
+                            ManuscriptCommand::AcceptReviewCandidates { .. } => "acceptReview",
+                            ManuscriptCommand::DiscardReviewCandidate { .. } => "discardReview",
                             ManuscriptCommand::UsePlanningResult { .. } => "generation",
                             ManuscriptCommand::CommitManuscriptImport { .. } => "import",
                             _ => "startDraft",
@@ -535,6 +578,11 @@ fn typing_scope(before: &ManuscriptState, t: &Transition, kind: &str) -> Option<
     Some(id.clone())
 }
 impl Plan {
+    pub(super) fn current_entry_id(&self) -> Option<&str> {
+        self.entries
+            .get(self.metadata.cursor.checked_sub(1)? as usize)
+            .map(|e| e.id.as_str())
+    }
     pub(super) fn recheck(&self, c: &Connection) -> Result<()> {
         let current = SqliteProjectRepository::history_metadata(c)?;
         if current.history_revision != self.base_history_revision
@@ -563,6 +611,10 @@ impl Plan {
                     e.label,
                     e.group
                 ],
+            ))?;
+            db(c.execute(
+                "INSERT INTO history_entry_identities VALUES(?1,?2)",
+                params![i + 1, e.id],
             ))?;
         }
         db(c.execute(

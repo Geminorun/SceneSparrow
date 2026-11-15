@@ -20,8 +20,10 @@ bounded TXT/Markdown/DOCX/PDF extraction, import previews, events and recovery a
 implemented. [Step 4](docs/validation/step-04.md) adds global AI settings,
 credentials, an independent compatible text runtime and durable execution ports.
 [Step 5](docs/validation/step-05.md) adds saved planning, explicit text/visual
-evidence, outline generation/adjustment and one complete initial draft. Review,
-production locks and export follow in steps 6–8; the
+evidence, outline generation/adjustment and one complete initial draft.
+[Step 6](docs/validation/step-06.md) adds anchored questions/follow-ups, scoped
+revision candidates, comparisons and individual/batch decisions. Production locks,
+full review history rebinding and export follow in steps 7–8; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects

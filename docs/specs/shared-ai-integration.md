@@ -602,3 +602,18 @@ No manuscript models or SDK imports enter the generic runtime. See
 [step 5 evidence](../validation/step-05.md) for counted SDK/image requests,
 configuration freeze, script applicability, cancellation and retention coverage.
 Native/provider readiness remains independently open.
+
+## 16. S3 consumer integration (execution step 6)
+
+The script-owned review adapter reuses `accept_ai_module` and the registered
+`script-review` coordinator. It prepares immutable prompt/schema/context/evidence
+before start, then rechecks compact SQL dependency tokens while atomically staging
+run/binding/claim/reservation/receipt. Generic result persistence precedes local
+idempotent answer/candidate projection. Questions acquire no body reservation.
+Cancellation/deletion/request fencing shares the execution-origin watermark;
+manual retries carry validated lineage and current global configuration.
+
+The generic runtime, SDK adapter and worker remain independent of editor types.
+No read/status query starts inference. The localhost counted SDK and restart/race
+coverage is described in [step 6 evidence](../validation/step-06.md); this is partial
+SAI-T14/15 integration, not real-provider/native or full S3 acceptance.

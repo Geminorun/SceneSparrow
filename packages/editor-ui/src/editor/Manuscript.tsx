@@ -8,6 +8,8 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
+import { Review } from "./Review";
+import { ReviewDecorations } from "./review-decorations";
 import { Planning, GeneratedDraftEvidence } from "./Planning";
 import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
@@ -110,6 +112,7 @@ function Draft({
     useMemo<UseEditorOptions>(
       () => ({
         extensions: [
+          ReviewDecorations,
           StarterKit.configure({
             undoRedo: false,
             code: false,
@@ -587,6 +590,13 @@ function Draft({
               )}
             </nav>
             <EditorContent editor={editor} />
+            <Review
+              client={client}
+              save={save}
+              editor={editor}
+              projectId={projectId}
+              t={t}
+            />
           </div>
         </>
       )}
@@ -598,6 +608,14 @@ function Draft({
         />
       )}
       <Sources client={client} save={save} projectId={projectId} t={t} />
+      {save.operationError && (
+        <p role="status">
+          {t.historyBlocked}{" "}
+          <code>
+            {save.operationError.details?.reason ?? save.operationError.code}
+          </code>
+        </p>
+      )}
       {(save.status === "error" || save.status === "conflict") && (
         <div role="alert" className="error">
           <p>

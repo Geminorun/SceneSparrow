@@ -131,6 +131,16 @@ impl SqliteProjectRepository {
         let value: serde_json::Value = db(serde_json::from_str(outcome))?;
         if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
             const CODES: &[&str] = &[
+                "ANCHOR_INVALID",
+                "ANCHOR_STALE",
+                "REVIEW_VERSION_CONFLICT",
+                "REVIEW_TASK_ACTIVE",
+                "PENDING_CANDIDATE",
+                "CANDIDATE_STALE",
+                "CANDIDATE_CLAIMED",
+                "CANDIDATE_INVALID",
+                "CANDIDATE_OVERLAP",
+                "PATCH_OUT_OF_SCOPE",
                 "BRIEF_INVALID",
                 "OUTLINE_INVALID",
                 "OUTLINE_REQUIRED",
@@ -270,6 +280,8 @@ impl SqliteProjectRepository {
             }
             let mut transition = self.history_transition(c, command, &before, &identities)?;
             self.coordinate_planning(c, command, &before, &mut transition)?;
+            self.coordinate_reviews(c, command, &before, &mut transition)?;
+            self.guard_reviews(c, command, &before, &transition)?;
             self.guard_planning(c, command, &before, &transition)?;
             // Allocate deleted identities through the same recorded preflight path
             // as surviving block revisions, before any object or state writes.
@@ -341,8 +353,12 @@ impl SqliteProjectRepository {
         } else {
             None
         };
+        let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
+        let review_checks = self.review_acceptance_checks(c, command)?;
         let cancellation_watermark =
-            if matches!(command, ManuscriptCommand::CancelPlanningTask { .. }) {
+            if matches!(command, ManuscriptCommand::CancelPlanningTask { .. })
+                || Self::review_cancels_execution(c, command, &transition)?
+            {
                 Some(
                     self.ai_prepare_watermark(c)
                         .map_err(|e| ManuscriptError(e.0, None))?,
@@ -377,6 +393,8 @@ impl SqliteProjectRepository {
             return Err(error);
         }
         self.guard_planning(&transaction, command, &before, &transition)?;
+        self.guard_reviews(&transaction, command, &before, &transition)?;
+        Self::recheck_review_acceptance(&transaction, &review_checks)?;
         // Recheck the policy at the commit boundary, after object preparation.
         if let Err(mut error) =
             self.policy
@@ -387,6 +405,10 @@ impl SqliteProjectRepository {
                 ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
             ) {
                 error = ManuscriptError::history_blocked(error.0, &transition.affected);
+            } else if matches!(command, ManuscriptCommand::AcceptReviewCandidates { .. })
+                && error.1.is_none()
+            {
+                error.1 = Some(Self::review_acceptance_error(&review_checks, error.0));
             }
             db(transaction.execute(
                 "INSERT INTO command_receipts VALUES(?1,?2,?3)",
@@ -501,6 +523,14 @@ impl SqliteProjectRepository {
             db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'manuscript.changed',?2)",params![request,serde_json::json!({"projectId":project_id,"workingRevision":transition.state.working_revision,"affectedIds":transition.affected}).to_string()]))?;
         }
         self.commit_planning(&transaction, command, &before, &transition)?;
+        self.commit_reviews(
+            &transaction,
+            command,
+            &before,
+            &transition,
+            &prepared_reviews,
+            history.current_entry_id(),
+        )?;
         history.commit(&transaction)?;
         if history.changed {
             db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'history.changed',?2)",params![request,db(serde_json::to_string(&history.metadata))?]))?;

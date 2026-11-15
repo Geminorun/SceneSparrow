@@ -217,6 +217,7 @@ impl SqliteProjectRepository {
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                 }
                 Ok(Transition {
+                    reviews: None,
                     state,
                     affected: BTreeSet::new(),
                     sources: None,
@@ -243,6 +244,7 @@ impl SqliteProjectRepository {
                     "ALREADY_APPLIED",
                 )?;
                 Ok(Transition {
+                    reviews: None,
                     state: before.clone(),
                     affected: BTreeSet::new(),
                     sources: None,
@@ -352,6 +354,7 @@ impl SqliteProjectRepository {
                     let mut state = before.clone();
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                     Ok(Transition {
+                        reviews: None,
                         state,
                         affected: BTreeSet::new(),
                         sources: None,
@@ -572,7 +575,7 @@ impl SqliteProjectRepository {
     }
 }
 impl SqliteProjectRepository {
-    fn manifest(&self, c: &Connection, p: &PlanningContent) -> Result<PreparedEvidence> {
+    pub(crate) fn manifest(&self, c: &Connection, p: &PlanningContent) -> Result<PreparedEvidence> {
         let sources = Self::source_members(c)?;
         let mut entries = vec![];
         let mut visuals = vec![];
@@ -895,7 +898,10 @@ impl SqliteProjectRepository {
             configuration: config,
         })
     }
-    fn receipt_for(c: &Connection, command: &ManuscriptCommand) -> Result<Option<CommandReceipt>> {
+    pub(crate) fn receipt_for(
+        c: &Connection,
+        command: &ManuscriptCommand,
+    ) -> Result<Option<CommandReceipt>> {
         let id = manuscript::envelope(command).0;
         if let Some((digest, outcome)) = Self::outcome(c, id)? {
             ensure(
@@ -906,7 +912,10 @@ impl SqliteProjectRepository {
         }
         Ok(None)
     }
-    fn write_receipt(c: &Connection, command: &ManuscriptCommand) -> Result<CommandReceipt> {
+    pub(crate) fn write_receipt(
+        c: &Connection,
+        command: &ManuscriptCommand,
+    ) -> Result<CommandReceipt> {
         let h = Self::history_metadata(c)?;
         let request = manuscript::envelope(command).0;
         let receipt = CommandReceipt {
@@ -1393,6 +1402,13 @@ impl SqliteProjectRepository {
             .filter(|e| e.mode == PlanningEvidenceChoiceMode::Visualinput)
             .map(|e| e.visual_id)
             .collect::<BTreeSet<_>>();
+        for thread in Self::review_threads(&c)? {
+            for e in thread.evidence {
+                if e.mode == PlanningEvidenceChoiceMode::Visualinput {
+                    visual_roots.insert(e.visual_id);
+                }
+            }
+        }
         for block in self.load(&c)?.blocks {
             live_blocks.insert(block.id);
         }
@@ -1404,6 +1420,13 @@ impl SqliteProjectRepository {
         };
         for hash in histories {
             let root = self.read_business(&hash)?;
+            for thread in &root.reviews {
+                for e in &thread.evidence {
+                    if e.mode == PlanningEvidenceChoiceMode::Visualinput {
+                        visual_roots.insert(e.visual_id.clone());
+                    }
+                }
+            }
             if let Some(p) = root.planning {
                 for e in p.evidence {
                     if e.mode == PlanningEvidenceChoiceMode::Visualinput {

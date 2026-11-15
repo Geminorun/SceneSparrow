@@ -359,6 +359,83 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: UsePlanningResultPayload,
     },
+    #[serde(rename = "SaveReview")]
+    SaveReview {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: SaveReviewPayload,
+    },
+    #[serde(rename = "SetReviewHandled")]
+    SetReviewHandled {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: SetReviewHandledPayload,
+    },
+    #[serde(rename = "DeleteReviewThread")]
+    DeleteReviewThread {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: DeleteReviewThreadPayload,
+    },
+    #[serde(rename = "StartReviewTask")]
+    StartReviewTask {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: StartReviewTaskPayload,
+    },
+    #[serde(rename = "CancelReviewTask")]
+    CancelReviewTask {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: CancelReviewTaskPayload,
+    },
+    #[serde(rename = "AcceptReviewCandidates")]
+    AcceptReviewCandidates {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: AcceptReviewCandidatesPayload,
+    },
+    #[serde(rename = "DiscardReviewCandidate")]
+    DiscardReviewCandidate {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: DiscardReviewCandidatePayload,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -447,6 +524,13 @@ pub struct HistoryErrorDetails {
     pub reason: String,
     #[serde(rename = "affectedIds")]
     pub affected_ids: Vec<String>,
+    #[serde(
+        rename = "candidateConflicts",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub candidate_conflicts: Option<Vec<CandidateConflict>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceKind {
@@ -730,6 +814,12 @@ pub enum ProjectEventType {
     PlanningTaskchanged,
     #[serde(rename = "draft.created")]
     Draftcreated,
+    #[serde(rename = "review.changed")]
+    Reviewchanged,
+    #[serde(rename = "reviewTask.changed")]
+    ReviewTaskchanged,
+    #[serde(rename = "candidate.changed")]
+    Candidatechanged,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1105,6 +1195,304 @@ pub struct PlanningTaskMetadata {
     pub section_mapping: Vec<PlanningSectionMapping>,
     #[serde(rename = "evidence")]
     pub evidence: Vec<PlanningEvidence>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewRange {
+    #[serde(rename = "blockId")]
+    pub block_id: String,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+    #[serde(rename = "start")]
+    pub start: i64,
+    #[serde(rename = "end")]
+    pub end: i64,
+    #[serde(rename = "quote")]
+    pub quote: String,
+    #[serde(rename = "wholeBlock")]
+    pub whole_block: bool,
+    #[serde(
+        rename = "quoteHash",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub quote_hash: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSlot {
+    #[serde(rename = "headingId")]
+    pub heading_id: String,
+    #[serde(rename = "beforeId")]
+    pub before_id: String,
+    #[serde(rename = "afterId", deserialize_with = "required_nullable")]
+    pub after_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewAnchor {
+    #[serde(rename = "ranges")]
+    pub ranges: Vec<ReviewRange>,
+    #[serde(rename = "state")]
+    pub state: String,
+    #[serde(rename = "slot", deserialize_with = "required_nullable")]
+    pub slot: Option<ReviewSlot>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReviewThreadKind {
+    #[serde(rename = "question")]
+    Question,
+    #[serde(rename = "revision_note")]
+    Revisionnote,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewThread {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "kind")]
+    pub kind: ReviewThreadKind,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "anchor")]
+    pub anchor: ReviewAnchor,
+    #[serde(rename = "handled")]
+    pub handled: bool,
+    #[serde(rename = "deleted")]
+    pub deleted: bool,
+    #[serde(rename = "language")]
+    pub language: String,
+    #[serde(rename = "evidence")]
+    pub evidence: Vec<PlanningEvidenceChoice>,
+    #[serde(rename = "decision", deserialize_with = "required_nullable")]
+    pub decision: Option<ReviewUserDecision>,
+    #[serde(rename = "userMessageIds")]
+    pub user_message_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewCandidateRef {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "version")]
+    pub version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewCandidate {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "version")]
+    pub version: i64,
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "before")]
+    pub before: Vec<Block>,
+    #[serde(rename = "after")]
+    pub after: Vec<Block>,
+    #[serde(rename = "explanation")]
+    pub explanation: String,
+    #[serde(rename = "previewTruncated")]
+    pub preview_truncated: bool,
+    #[serde(rename = "detailNextCursor", deserialize_with = "required_nullable")]
+    pub detail_next_cursor: Option<i64>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewTask {
+    #[serde(rename = "run")]
+    pub run: AiRun,
+    #[serde(rename = "application")]
+    pub application: String,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "answer", deserialize_with = "required_nullable")]
+    pub answer: Option<String>,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewCard {
+    #[serde(rename = "thread")]
+    pub thread: ReviewThread,
+    #[serde(rename = "candidate", deserialize_with = "required_nullable")]
+    pub candidate: Option<ReviewCandidate>,
+    #[serde(rename = "task", deserialize_with = "required_nullable")]
+    pub task: Option<ReviewTask>,
+    #[serde(rename = "sourceComparisons")]
+    pub source_comparisons: Vec<ReviewComparison>,
+    #[serde(rename = "answer", deserialize_with = "required_nullable")]
+    pub answer: Option<ReviewAnswer>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewPage {
+    #[serde(rename = "cards")]
+    pub cards: Vec<ReviewCard>,
+    #[serde(rename = "nextCursor", deserialize_with = "required_nullable")]
+    pub next_cursor: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveReviewPayload {
+    #[serde(rename = "thread")]
+    pub thread: ReviewThread,
+    #[serde(rename = "expectedRequestVersion")]
+    pub expected_request_version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetReviewHandledPayload {
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(rename = "handled")]
+    pub handled: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteReviewThreadPayload {
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(rename = "discardCandidate")]
+    pub discard_candidate: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartReviewTaskPayload {
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(
+        rename = "messageIds",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub message_ids: Option<Vec<String>>,
+    #[serde(
+        rename = "retryOfRunId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub retry_of_run_id: Option<Option<String>>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CancelReviewTaskPayload {
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptReviewCandidatesPayload {
+    #[serde(rename = "candidates")]
+    pub candidates: Vec<ReviewCandidateRef>,
+    #[serde(rename = "expectedHistoryRevision")]
+    pub expected_history_revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscardReviewCandidatePayload {
+    #[serde(rename = "candidate")]
+    pub candidate: ReviewCandidateRef,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReviewUserDecisionDecision {
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "discarded")]
+    Discarded,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewUserDecision {
+    #[serde(rename = "candidateId")]
+    pub candidate_id: String,
+    #[serde(rename = "decision")]
+    pub decision: ReviewUserDecisionDecision,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewComparison {
+    #[serde(rename = "blockId")]
+    pub block_id: String,
+    #[serde(rename = "before")]
+    pub before: Block,
+    #[serde(rename = "after", deserialize_with = "required_nullable")]
+    pub after: Option<Block>,
+    #[serde(rename = "previewTruncated")]
+    pub preview_truncated: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReviewMessageAuthor {
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "ai")]
+    Ai,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewMessage {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sequence")]
+    pub sequence: i64,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
+    #[serde(rename = "author")]
+    pub author: ReviewMessageAuthor,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "requestUserId")]
+    pub request_user_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewMessagePage {
+    #[serde(rename = "messages")]
+    pub messages: Vec<ReviewMessage>,
+    #[serde(rename = "nextCursor", deserialize_with = "required_nullable")]
+    pub next_cursor: Option<i64>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CandidateConflict {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "version")]
+    pub version: i64,
+    #[serde(rename = "reason")]
+    pub reason: String,
+    #[serde(rename = "affectedIds")]
+    pub affected_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewAnswer {
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "requestVersion")]
+    pub request_version: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

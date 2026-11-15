@@ -23,7 +23,14 @@ pub(super) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "REVISION_CONFLICT"
+                "ANCHOR_STALE"
+                | "REVIEW_VERSION_CONFLICT"
+                | "REVIEW_TASK_ACTIVE"
+                | "PENDING_CANDIDATE"
+                | "CANDIDATE_STALE"
+                | "CANDIDATE_CLAIMED"
+                | "CANDIDATE_OVERLAP"
+                | "REVISION_CONFLICT"
                 | "CONTENT_LOCKED"
                 | "TASK_USING_CONTENT"
                 | "HISTORY_CONFLICT"
@@ -126,7 +133,10 @@ async fn command(
             );
         }
     };
-    let slots = if matches!(command, ManuscriptCommand::StartPlanningTask { .. }) {
+    let slots = if matches!(
+        command,
+        ManuscriptCommand::StartPlanningTask { .. } | ManuscriptCommand::StartReviewTask { .. }
+    ) {
         state.ai.blocking_slots.clone()
     } else {
         state.database_slots.clone()
@@ -140,13 +150,24 @@ async fn command(
     result(
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            if matches!(command, ManuscriptCommand::StartPlanningTask { .. }) {
+            if matches!(
+                command,
+                ManuscriptCommand::StartPlanningTask { .. }
+                    | ManuscriptCommand::StartReviewTask { .. }
+            ) {
                 if let Some(receipt) = state
                     .service
                     .repository()
                     .replay_planning_command(&command)?
                 {
                     return Ok(receipt);
+                }
+                let settings = state
+                    .ai
+                    .settings()
+                    .map_err(|e| ManuscriptError(e.0, None))?;
+                if matches!(command, ManuscriptCommand::StartReviewTask { .. }) {
+                    return state.service.repository().start_review(settings, &command);
                 }
                 state.service.repository().start_planning(
                     state

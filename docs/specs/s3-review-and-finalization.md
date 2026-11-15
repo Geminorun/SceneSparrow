@@ -1,7 +1,9 @@
 # S3 specification: review and finalization
 
-Status: specified for implementation; S1–S3 business functionality is not
-implemented by this document. Version: 0.1. This is the third slice of the
+Status: step 6 implements anchored review and candidate decisions; production
+locks, finalization and complete review rebinding remain step 7. The
+[validation report](../validation/step-06.md) records actual checks and limits.
+Version: 0.1. This is the third slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
 Read the [S1 spec](s1-manuscript-foundation.md),
@@ -559,7 +561,8 @@ Compact superseded unreferenced payloads, not the latest active evidence or user
 
 ## 11. Development tasks and dependencies
 
-All tasks below are pending. `Tnn`, `ACnn` and `DEPnn` mean `S3-Tnn`, `S3-ACnn` and
+Execution step 6 implements the review portion of T01–T08; its root gate is recorded
+in [step 6 evidence](../validation/step-06.md). T09–T15 remain pending. `Tnn`, `ACnn` and `DEPnn` mean `S3-Tnn`, `S3-ACnn` and
 `S3-DEPnn`. Keep tasks/tests in this one stage document. Implement with controlled
 fake tasks and barriers before deliberately initiated live-provider checks.
 
@@ -642,3 +645,34 @@ S4 receives one canonical current manuscript, derived readiness/baseline, review
 metadata stored outside spoken text, pending-candidate exclusion rules and durable
 history/locks. Export must read a consistent current-body snapshot and never
 include unaccepted proposals or review UI marks as manuscript content.
+
+## 14. Execution step 6 implementation interface
+
+Step 6 implements the review portion of T01–T08; independent root review/gate is
+recorded separately in [step 6 evidence](../validation/step-06.md). T09–T15,
+production user locks/finalization and full replay/rebinding remain pending.
+
+`SaveReview`, `SetReviewHandled`, `DeleteReviewThread`, `StartReviewTask`,
+`CancelReviewTask`, `DiscardReviewCandidate` and exact-set
+`AcceptReviewCandidates` use the existing manuscript command/receipt boundary.
+Named read routes provide paged `/v1/reviews`,
+`/v1/reviews/{id}/messages`, `/v1/reviews/candidates/{id}?offset=...` and per-block
+`/v1/reviews/comparisons/{id}`. Desktop exposes matching named operations.
+Optional candidate conflict details carry submitted IDs/versions, safe reasons and
+scope. Schema version 1 revision outputs include a bounded explanation outside the
+body. Both output modes reject unknown fields and arbitrary editor commands.
+
+Business snapshot v4 stores compact review user state, current decisions and user
+message membership; asynchronous answers/candidates/tasks remain outside it.
+Large quotes use immutable `quoteHash` references above 1 KiB, hydrated by bounded
+queries/preparation. Restored request tokens associate with their original user
+message instead of relabeling an old AI answer. A separate attributed current-answer
+projection can survive a later failed task. Engineering limits additionally cap
+retained messages at 200/thread and explicitly included conversation at 20 messages/
+64 KiB, rejecting overflow. Detail reads are paged/bounded; preview truncation is
+explicit and never affects acceptance payloads.
+
+Full-run edit mapping deliberately flags unproven repeated-text/multi-span cases
+instead of guessing identity. Basic user decisions participate in the existing
+five-step history; complete production lock-aware replay and candidate rebinding
+are step 7 work. See the evidence report for exact implemented cases and limits.

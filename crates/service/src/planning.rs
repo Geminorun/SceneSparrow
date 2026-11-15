@@ -31,12 +31,14 @@ pub fn drive(state: &AppState) {
             let _ = tokio::task::spawn_blocking(move || -> Result<(), ManuscriptError> {
                 let repository = service.repository();
                 repository.reconcile_planning()?;
+                repository.reconcile_reviews()?;
                 if run_maintenance
                     && scenesparrow_application::ProjectRepository::read(repository)
                         .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?
                         .is_some()
                 {
                     repository.prune_planning_payloads()?;
+                    repository.prune_review_payloads()?;
                 }
                 if repository.has_queued_ai()? {
                     let settings = ai.settings().map_err(|e| ManuscriptError(e.0, None))?;
@@ -44,6 +46,7 @@ pub fn drive(state: &AppState) {
                         .execute_next_ai(settings)
                         .map_err(|e| ManuscriptError(e.0, None))?;
                     repository.reconcile_planning()?;
+                    repository.reconcile_reviews()?;
                 }
                 Ok(())
             })

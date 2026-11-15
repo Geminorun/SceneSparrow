@@ -49,8 +49,11 @@
   AI runtime, durable execution/UOW ports and origin-aware recovery; see
   `docs/validation/step-04.md` and ADR 0002. Step 5 adds saved planning, explicit
   evidence/visual preparation and complete initial drafting through the shared
-  runtime; see `docs/validation/step-05.md`. Production locks/review and export
-  follow in later steps. Real providers/native credential
+  runtime; see `docs/validation/step-05.md`. Step 6 adds anchored review,
+  questions/follow-ups, scoped candidates and individual/batch decisions; see
+  `docs/validation/step-06.md`. Large quotes use immutable references and retained
+  decision evidence follows actual history entry identities. Production locks,
+  complete review rebinding and export follow in steps 7–8. Real providers/native credential
   stores remain unverified. Large-document performance budgets and native worker RSS
   enforcement remain open; do not claim full S1 acceptance. Applied migrations are
   immutable; append new versions using the shared ledger.

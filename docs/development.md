@@ -56,7 +56,7 @@ and runs coordinated object GC with a 60-second grace period. Backups own indepe
 pinned copies and are never traversed by the collector. See
 [step 3 evidence](validation/step-03.md) for parser behavior, fault/upgrade tests and
 measured performance-budget misses. Steps 4–5 below add shared AI and planning;
-production locks, review and export follow in steps 6–8. The procedural motion
+step 6 adds review, and production locks/export follow in steps 7–8. The procedural motion
 sample remains an independent collapsible example.
 
 ## Pinned tools and prerequisites
@@ -256,7 +256,7 @@ methods. Worker control frames stay bounded; artifact content streams in small
 chunks. Blocking settings/credential/project reads run in separate bounded blocking
 slots so a settings file lock does not occupy manual editing's database slots.
 See [step 4 evidence](validation/step-04.md) for dispatch, recovery, redaction and
-platform/provider limitations. Step 5 below connects S2; S3 review follows later.
+platform/provider limitations. Steps 5–6 below connect S2 and the S3 review consumer.
 
 ## Planning and initial drafting (execution step 5)
 
@@ -281,3 +281,25 @@ Completed drafts retain exact plan/source/visual provenance and supporting hints
 outside spoken text. No S3 review/production locks or S4 exports are introduced.
 See [step 5 validation](validation/step-05.md); real providers and native desktop
 capabilities still require explicit target-system validation.
+
+## Anchored review and candidate decisions (execution step 6)
+
+Drafts support Question/Revision note selection actions, adjacent cards, follow-up
+messages and scoped proposals. Saving user text makes no inference call. Explicit
+AI actions freeze selected conversation/evidence and the global text configuration;
+manual/imported drafts need no planning topic. Complete proposals remain separate
+from the body until individual or exact-set batch acceptance. Acceptance and
+discard use the existing five-transition project history and durable receipts.
+
+Migration 007 adds compact review state and asynchronous evidence. Quotes above
+1 KiB use immutable references; bounded list/detail reads hydrate them. Stable
+history-entry identities retain decision artifacts through cursor movement,
+branching and pruning. Source visual retention includes planning and review
+choices. Cancellation, known rejection and uncertain-command recovery preserve
+input and never issue an automatic paid retry.
+
+Named review reads cover `/v1/reviews`, per-thread messages, candidate detail pages
+and source comparisons. Browser and desktop adapters expose the same narrow
+operations. See [step 6 evidence](validation/step-06.md). Production user locks,
+full lock-aware history rebinding and finalization remain step 7; copy/export and
+large-document performance remain step 8. Native/real-provider acceptance is open.

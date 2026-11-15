@@ -857,6 +857,209 @@
             "type",
             "payload"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SaveReview"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/SaveReviewPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SetReviewHandled"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/SetReviewHandledPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["DeleteReviewThread"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/DeleteReviewThreadPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["StartReviewTask"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/StartReviewTaskPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CancelReviewTask"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/CancelReviewTaskPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AcceptReviewCandidates"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/AcceptReviewCandidatesPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["DiscardReviewCandidate"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/DiscardReviewCandidatePayload"
+            }
+          }
         }
       ]
     },
@@ -1011,6 +1214,12 @@
           "type": "array",
           "items": {
             "type": "string"
+          }
+        },
+        "candidateConflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CandidateConflict"
           }
         }
       }
@@ -1389,7 +1598,10 @@
             "aiRun.changed",
             "planning.changed",
             "planningTask.changed",
-            "draft.created"
+            "draft.created",
+            "review.changed",
+            "reviewTask.changed",
+            "candidate.changed"
           ]
         },
         "requestId": {
@@ -2016,6 +2228,543 @@
         "sectionMapping",
         "evidence"
       ]
+    },
+    "ReviewRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blockId",
+        "revision",
+        "start",
+        "end",
+        "quote",
+        "wholeBlock"
+      ],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "start": {
+          "type": "integer"
+        },
+        "end": {
+          "type": "integer"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "wholeBlock": {
+          "type": "boolean"
+        },
+        "quoteHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headingId", "beforeId", "afterId"],
+      "properties": {
+        "headingId": {
+          "type": "string"
+        },
+        "beforeId": {
+          "type": "string"
+        },
+        "afterId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "ReviewAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranges", "state", "slot"],
+      "properties": {
+        "ranges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewRange"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "slot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewSlot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReviewThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "requestVersion",
+        "text",
+        "anchor",
+        "handled",
+        "deleted",
+        "language",
+        "evidence",
+        "decision",
+        "userMessageIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["question", "revision_note"]
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/definitions/ReviewAnchor"
+        },
+        "handled": {
+          "type": "boolean"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidenceChoice"
+          }
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewUserDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "userMessageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReviewCandidateRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "ReviewCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "threadId",
+        "requestVersion",
+        "runId",
+        "status",
+        "before",
+        "after",
+        "explanation",
+        "previewTruncated",
+        "detailNextCursor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "previewTruncated": {
+          "type": "boolean"
+        },
+        "detailNextCursor": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "ReviewTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "application", "error", "answer", "requestVersion"],
+      "properties": {
+        "run": {
+          "$ref": "#/definitions/AiRun"
+        },
+        "application": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "answer": {
+          "type": ["string", "null"]
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "ReviewCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "thread",
+        "candidate",
+        "task",
+        "sourceComparisons",
+        "answer"
+      ],
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ReviewThread"
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewTask"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceComparisons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewComparison"
+          }
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReviewPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cards", "nextCursor"],
+      "properties": {
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewCard"
+          }
+        },
+        "nextCursor": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "SaveReviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thread", "expectedRequestVersion"],
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ReviewThread"
+        },
+        "expectedRequestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "SetReviewHandledPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion", "handled"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "handled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DeleteReviewThreadPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion", "discardCandidate"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "discardCandidate": {
+          "type": "boolean"
+        }
+      }
+    },
+    "StartReviewTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "messageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "retryOfRunId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CancelReviewTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "AcceptReviewCandidatesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates", "expectedHistoryRevision"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewCandidateRef"
+          }
+        },
+        "expectedHistoryRevision": {
+          "type": "integer"
+        }
+      }
+    },
+    "DiscardReviewCandidatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate"],
+      "properties": {
+        "candidate": {
+          "$ref": "#/definitions/ReviewCandidateRef"
+        }
+      }
+    },
+    "ReviewUserDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateId", "decision"],
+      "properties": {
+        "candidateId": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["accepted", "discarded"]
+        }
+      }
+    },
+    "ReviewComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockId", "before", "after", "previewTruncated"],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/definitions/Block"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Block"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "previewTruncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ReviewMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sequence",
+        "requestVersion",
+        "author",
+        "text",
+        "requestUserId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "author": {
+          "type": "string",
+          "enum": ["user", "ai"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "requestUserId": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewMessagePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "nextCursor"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewMessage"
+          }
+        },
+        "nextCursor": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "CandidateConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "reason", "affectedIds"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReviewAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "runId", "requestVersion"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
     }
   }
 }

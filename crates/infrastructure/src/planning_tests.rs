@@ -786,6 +786,7 @@ fn planning_migration_failure_is_atomic_and_s1_draft_can_reopen_without_an_outli
     drop(r);
     let dbpath = dir.path().join("project/project.sqlite");
     let c = Connection::open(&dbpath).unwrap();
+    c.execute_batch("DROP TABLE history_entry_identities;DROP TABLE review_messages;DROP TABLE review_decisions;DROP TABLE review_comparisons;DROP TABLE review_reservations;DROP TABLE review_claims;DROP TABLE review_candidates;DROP TABLE review_tasks;DROP TABLE review_threads;").unwrap();
     c.execute_batch("DROP TABLE planning_visuals;DROP TABLE draft_generation_manifests;DROP TABLE outline_confirmations;DROP TABLE script_ai_tasks;DROP TABLE planning_preparations;DROP TABLE planning_node_identities;DROP TABLE planning_state;DROP TABLE planning_history_epoch;PRAGMA user_version=5;CREATE TABLE planning_state(conflict INTEGER);").unwrap();
     assert!(SqliteProjectRepository::open(&dir.path().join("project")).is_err());
     assert_eq!(

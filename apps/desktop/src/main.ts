@@ -140,7 +140,40 @@ async function main() {
       );
     });
   }
+  ipcMain.handle("reviews:candidate", (event, id: unknown, offset: unknown) => {
+    checkSender(event);
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))
+      return { ok: false, code: "INVALID_REQUEST" };
+    if (
+      offset !== undefined &&
+      (!Number.isSafeInteger(offset) || Number(offset) < 0)
+    )
+      return { ok: false, code: "INVALID_REQUEST" };
+    return request(
+      `/reviews/candidates/${id}${offset ? `?offset=${offset}` : ""}`,
+    );
+  });
+  ipcMain.handle("reviews:comparison", (event, id: unknown) => {
+    checkSender(event);
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))
+      return { ok: false, code: "INVALID_REQUEST" };
+    return request(`/reviews/comparisons/${id}`);
+  });
+  ipcMain.handle("reviews:messages", (event, id: unknown, before: unknown) => {
+    checkSender(event);
+    if (
+      typeof id !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(id) ||
+      (before !== undefined &&
+        (!Number.isSafeInteger(before) || Number(before) < 1))
+    )
+      return { ok: false, code: "INVALID_REQUEST" };
+    return request(
+      `/reviews/${id}/messages${before ? `?before=${before}` : ""}`,
+    );
+  });
   for (const [channel, path, method] of [
+    ["reviews:read", "/reviews", "GET"],
     ["planning:read", "/planning", "GET"],
     ["planning:prepare", "/planning/preparations", "POST"],
     ["planning:task", "/planning/tasks", "GET"],
@@ -158,6 +191,18 @@ async function main() {
         if (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
           return { ok: false, code: "INVALID_REQUEST" };
         return request(`${path}/${value}`, undefined, method);
+      }
+      if (channel === "reviews:read") {
+        if (
+          value !== undefined &&
+          (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(
+          value ? `${path}?after=${encodeURIComponent(value as string)}` : path,
+          undefined,
+          method,
+        );
       }
       return request(path, method === "POST" ? value : undefined, method);
     });

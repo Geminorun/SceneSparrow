@@ -26,6 +26,14 @@ export class Autosave {
   local: NewBlock[];
   status: SaveStatus = "saved";
   error = "";
+  operationError: {
+    code: string;
+    details: import("@scenesparrow/contracts").HistoryErrorDetails | undefined;
+  } | null = null;
+  businessReceipt: { requestId: string; receipt: CommandReceipt } | undefined;
+  businessRejection: { requestId: string; code: string } | undefined;
+  businessErrorDetails:
+    import("@scenesparrow/contracts").HistoryErrorDetails | undefined;
   composing = false;
   recoveryText: string | null = null;
   private conversionError: string | null = null;
@@ -70,6 +78,7 @@ export class Autosave {
   private groupKind: "typing" | "discrete" = "typing";
   private controls: Promise<unknown> = Promise.resolve();
   private controlPending: ManuscriptCommand | null = null;
+  private controlVisible: string | null = null;
   get stageTransitionPending() {
     return (
       this.busy &&
@@ -213,17 +222,25 @@ export class Autosave {
   }
   business(
     build: (revision: number) => ManuscriptCommand,
-    options?: { signal?: AbortSignal; dispatched?: () => void },
+    options?: {
+      signal?: AbortSignal;
+      dispatched?: () => void;
+      validIntent?: () => boolean;
+      requestedVisible?: string;
+    },
   ) {
     if (!this.planningAdapter) return this.businessCore(build, options);
-    const requestedVisible = JSON.stringify(this.local);
+    const requestedVisible =
+      options?.requestedVisible ?? JSON.stringify(this.local);
     const intent = this.planningAdapter.identity();
     return this.settlePlanning(intent).then((ok) =>
       ok
         ? this.businessCore(build, {
             ...options,
             requestedVisible,
-            validIntent: () => this.planningAdapter?.identity() === intent,
+            validIntent: () =>
+              (!options?.validIntent || options.validIntent()) &&
+              this.planningAdapter?.identity() === intent,
           })
         : false,
     );
@@ -360,22 +377,42 @@ export class Autosave {
         payload: type === "CloseEditGroup" ? this.acknowledgedGroup! : {},
       } as ManuscriptCommand);
     this.controlPending = command;
-    const visible = JSON.stringify(this.local);
+    const visible = this.controlVisible ?? JSON.stringify(this.local);
+    this.controlVisible = visible;
+    this.businessRejection = undefined;
+    this.operationError = null;
     this.busy = true;
     this.notify();
     const task = (async () => {
+      let proven = false;
       try {
         const receipt = await this.resolve(command);
+        proven = true;
+        this.businessReceipt = { requestId: command.requestId, receipt };
         this.acceptHistory(receipt);
+        const reviewControl = [
+          "SaveReview",
+          "SetReviewHandled",
+          "DeleteReviewThread",
+          "DiscardReviewCandidate",
+          "AcceptReviewCandidates",
+          "StartReviewTask",
+          "CancelReviewTask",
+        ].includes(command.type);
         const taskControl = [
           "StartPlanningTask",
           "CancelPlanningTask",
+          "StartReviewTask",
+          "CancelReviewTask",
         ].includes(command.type);
         if (command.type !== "CloseEditGroup") {
           const canonical = await this.client.readManuscript();
           if (
             (!taskControl &&
+              !reviewControl &&
               canonical.workingRevision !== receipt.workingRevision) ||
+            (reviewControl &&
+              canonical.workingRevision < receipt.workingRevision) ||
             JSON.stringify(this.local) !== visible ||
             this.conversionError
           )
@@ -401,11 +438,14 @@ export class Autosave {
         const metadata = await this.client.readHistory();
         if (
           metadata.workingRevision !== this.state.workingRevision ||
-          (!taskControl && metadata.historyRevision !== receipt.historyRevision)
+          (!taskControl &&
+            !reviewControl &&
+            metadata.historyRevision !== receipt.historyRevision)
         )
           throw new ApiError("HISTORY_CONFLICT");
         this.history = metadata;
         this.controlPending = null;
+        this.controlVisible = null;
         if (this.conversionError) {
           this.status = "error";
           this.error = this.conversionError;
@@ -413,6 +453,8 @@ export class Autosave {
         }
         return true;
       } catch (error) {
+        this.businessErrorDetails =
+          error instanceof ApiError ? error.details : undefined;
         this.error =
           error instanceof Error ? error.message : "STORAGE_UNAVAILABLE";
         this.status =
@@ -422,8 +464,31 @@ export class Autosave {
           )
             ? "conflict"
             : "error";
-        if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE")
+        if (
+          !proven &&
+          error instanceof ApiError &&
+          error.code !== "STORAGE_UNAVAILABLE"
+        ) {
+          this.businessRejection = {
+            requestId: command.requestId,
+            code: error.code,
+          };
           this.controlPending = null;
+          this.controlVisible = null;
+        }
+        if (
+          !proven &&
+          error instanceof ApiError &&
+          error.code === "HISTORY_BLOCKED" &&
+          ["UndoProject", "RedoProject"].includes(command.type) &&
+          !this.unresolved &&
+          !this.conversionError &&
+          this.same()
+        ) {
+          this.operationError = { code: error.code, details: error.details };
+          this.status = "saved";
+          this.error = "";
+        }
         if (this.status === "conflict") {
           try {
             this.latest = await this.client.readManuscript();
@@ -762,6 +827,7 @@ export class Autosave {
       this.state = state;
       this.history = history;
       this.controlPending = null;
+      this.controlVisible = null;
       this.local = this.state.blocks.map(({ revision: _, ...b }) => b);
       this.unresolved = null;
       this.segments = [];

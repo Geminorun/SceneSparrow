@@ -72,6 +72,7 @@ impl SqliteProjectRepository {
         root.planning = Some(scenesparrow_domain::planning::content_snapshot(
             &Self::planning_content(c)?,
         ));
+        root.reviews = scenesparrow_domain::review::snapshot(&Self::review_threads(c)?);
         root.sources = Self::source_members(c)?;
         for s in &mut root.sources {
             s.revision = 0;
@@ -80,6 +81,9 @@ impl SqliteProjectRepository {
     }
     pub(super) fn business_after(c: &Connection, t: &Transition) -> Result<BusinessSnapshot> {
         let mut root = Self::business(c, &t.state)?;
+        if let Some(reviews) = &t.reviews {
+            root.reviews = scenesparrow_domain::review::snapshot(reviews);
+        }
         if let Some(planning) = &t.planning {
             root.planning = Some(scenesparrow_domain::planning::content_snapshot(planning));
         }
@@ -111,8 +115,23 @@ impl SqliteProjectRepository {
             root.version = 3;
             root.planning = Some(scenesparrow_domain::planning::empty());
         }
-        if root.version != 3 {
+        if root.version == 3 {
+            if !root.reviews.is_empty() {
+                return invalid();
+            }
+            root.version = 4;
+        }
+        if root.version != 4 {
             return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
+        }
+        for hash in root
+            .reviews
+            .iter()
+            .flat_map(|t| &t.anchor.ranges)
+            .filter_map(|r| r.quote_hash.as_ref())
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            self.read_object(hash)?;
         }
         scenesparrow_domain::planning::validate(
             root.planning
@@ -238,6 +257,7 @@ impl SqliteProjectRepository {
         state.working_revision = manuscript::next_revision(before.working_revision)?;
         self.policy.validate(before, &state, &affected)?;
         Ok(Transition {
+            reviews: None,
             state,
             affected,
             normalized: false,

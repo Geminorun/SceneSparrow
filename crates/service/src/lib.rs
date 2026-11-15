@@ -47,6 +47,7 @@ fn state_router(state: AppState) -> Router {
         .merge(documents::routes())
         .merge(ai::routes())
         .merge(planning::routes())
+        .merge(review::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -240,3 +241,5 @@ mod tests {
         assert_eq!(project.approved_baseline, None);
     }
 }
+
+mod review;

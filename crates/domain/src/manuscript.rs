@@ -18,6 +18,7 @@ impl ManuscriptError {
             "HISTORY_BLOCKED",
             Some(HistoryErrorDetails {
                 reason: reason.to_owned(),
+                candidate_conflicts: None,
                 affected_ids: affected.iter().cloned().collect(),
             }),
         )
@@ -189,6 +190,7 @@ impl MutationPolicy for Unrestricted {
     }
 }
 pub struct Transition {
+    pub reviews: Option<Vec<ReviewThread>>,
     pub state: ManuscriptState,
     pub affected: BTreeSet<String>,
     pub normalized: bool,
@@ -198,7 +200,49 @@ pub struct Transition {
 }
 pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
     match command {
-        ManuscriptCommand::StartManualDraft {
+        ManuscriptCommand::SaveReview {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::SetReviewHandled {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::DeleteReviewThread {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::StartReviewTask {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::CancelReviewTask {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::AcceptReviewCandidates {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::DiscardReviewCandidate {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::StartManualDraft {
             request_id,
             project_id,
             expected_working_revision,
@@ -354,7 +398,14 @@ pub fn apply(
             }
             state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
         }
-        ManuscriptCommand::SavePlanning { .. }
+        ManuscriptCommand::SaveReview { .. }
+        | ManuscriptCommand::SetReviewHandled { .. }
+        | ManuscriptCommand::DeleteReviewThread { .. }
+        | ManuscriptCommand::StartReviewTask { .. }
+        | ManuscriptCommand::CancelReviewTask { .. }
+        | ManuscriptCommand::AcceptReviewCandidates { .. }
+        | ManuscriptCommand::DiscardReviewCandidate { .. }
+        | ManuscriptCommand::SavePlanning { .. }
         | ManuscriptCommand::StartPlanningTask { .. }
         | ManuscriptCommand::CancelPlanningTask { .. }
         | ManuscriptCommand::UsePlanningResult { .. }
@@ -546,6 +597,7 @@ pub fn apply(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        reviews: None,
         state,
         affected,
         normalized,
@@ -561,6 +613,8 @@ pub fn apply(
 #[serde(deny_unknown_fields)]
 pub struct BusinessSnapshot {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<ReviewThread>,
     pub workspace_stage: ManuscriptStateWorkspaceStage,
     pub blocks: Vec<NewBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -571,7 +625,8 @@ pub struct BusinessSnapshot {
 impl BusinessSnapshot {
     pub fn capture(state: &ManuscriptState) -> Self {
         Self {
-            version: 3,
+            version: 4,
+            reviews: vec![],
             planning: None,
             sources: vec![],
             workspace_stage: state.workspace_stage.clone(),
@@ -596,7 +651,7 @@ pub fn restore(
     recorded: &BTreeSet<String>,
     policy: &dyn MutationPolicy,
 ) -> Result<Transition> {
-    if !(1..=3).contains(&target.version) {
+    if !(1..=4).contains(&target.version) {
         return Err(ManuscriptError::history_blocked(
             "SCHEMA_UNSUPPORTED",
             recorded,
@@ -663,6 +718,7 @@ pub fn restore(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        reviews: None,
         state,
         affected,
         normalized: false,
@@ -758,6 +814,7 @@ pub fn import_candidate(
     state.working_revision = next_revision(before.working_revision)?;
     normalize(&mut state)?;
     Ok(Transition {
+        reviews: None,
         state,
         affected,
         normalized,
