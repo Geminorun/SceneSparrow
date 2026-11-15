@@ -1,0 +1,12 @@
+{
+  "name": "@scenesparrow/document",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "mdast-util-from-markdown": "2.0.2",
+    "fast-xml-parser": "5.3.6",
+    "yauzl": "3.2.0",
+    "pdfjs-dist": "5.4.624"
+  }
+}

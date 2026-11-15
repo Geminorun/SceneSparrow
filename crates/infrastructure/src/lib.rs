@@ -54,7 +54,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 3 {
+        if version > 4 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -134,6 +134,56 @@ impl SqliteProjectRepository {
             storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
             storage(transaction.commit())?;
         }
+        if version < 4 {
+            let backup_directory =
+                directory.join(format!("pre-migration-004-{}", uuid::Uuid::new_v4()));
+            storage(std::fs::create_dir(&backup_directory))?;
+            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let objects = backup_directory.join("objects");
+            storage(std::fs::create_dir(&objects))?;
+            if directory.join("objects").exists() {
+                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
+                    let entry = storage(entry)?;
+                    if storage(entry.file_type())?.is_file() {
+                        let destination = objects.join(entry.file_name());
+                        storage(std::fs::copy(entry.path(), &destination))?;
+                        if storage(std::fs::read(entry.path()))?
+                            != storage(std::fs::read(&destination))?
+                        {
+                            return Err(Error::Storage);
+                        }
+                        storage(
+                            File::options()
+                                .read(true)
+                                .write(true)
+                                .open(destination)
+                                .and_then(|f| f.sync_all()),
+                        )?;
+                    }
+                }
+            }
+            storage(
+                File::options()
+                    .read(true)
+                    .write(true)
+                    .open(backup_directory.join("project.sqlite"))
+                    .and_then(|f| f.sync_all()),
+            )?;
+            #[cfg(unix)]
+            {
+                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
+                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
+                storage(File::open(directory).and_then(|f| f.sync_all()))?;
+            }
+            let transaction = storage(connection.transaction())?;
+            storage(
+                transaction.execute_batch(include_str!("../migrations/004_sources_import.sql")),
+            )?;
+            storage(transaction.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
@@ -142,7 +192,11 @@ impl SqliteProjectRepository {
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             _owner: owner,
         };
+        repository.recover_documents().map_err(|_| Error::Storage)?;
         repository.verify_manuscript()?;
+        repository
+            .collect_objects(Duration::from_secs(60))
+            .map_err(|_| Error::Storage)?;
         {
             let mut c = storage(repository.connection.lock())?;
             let tx = storage(c.transaction())?;
@@ -261,3 +315,5 @@ mod history;
 pub mod manuscript;
 #[cfg(test)]
 mod manuscript_tests;
+
+mod documents;

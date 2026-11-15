@@ -2,7 +2,7 @@ use super::manuscript::{Result, db};
 use super::*;
 use scenesparrow_domain::{
     contracts::*,
-    manuscript::{self, BusinessSnapshot, ManuscriptError, Transition},
+    manuscript::{self, ManuscriptError, Transition},
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,13 +40,82 @@ impl SqliteProjectRepository {
     /// pinned object copies and must be retained as complete directories.
     pub fn retained_object_roots(&self) -> Result<BTreeSet<String>> {
         let c = db(self.connection.lock())?;
-        Self::retention_roots(&c)
+        self.retention_roots(&c)
     }
-    fn retention_roots(c: &Connection) -> Result<BTreeSet<String>> {
+    pub(super) fn retention_roots(&self, c: &Connection) -> Result<BTreeSet<String>> {
         let mut roots = BTreeSet::new();
         let mut stmt=db(c.prepare("SELECT snapshot_hash FROM manuscripts WHERE snapshot_hash IS NOT NULL UNION SELECT payload_hash FROM blocks UNION SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries"))?;
         for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
+        }
+        let mut source_ids = BTreeSet::new();
+        let mut block_ids = BTreeSet::new();
+        let mut histories = db(c.prepare(
+            "SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries",
+        ))?;
+        for row in db(histories.query_map([], |r| r.get::<_, String>(0)))? {
+            let root = self.read_business(&db(row)?)?;
+            for source in root.sources {
+                source_ids.insert(source.id);
+                if let Some(h) = source.object_hash {
+                    roots.insert(h);
+                }
+            }
+            for block in root.blocks {
+                block_ids.insert(block.id);
+            }
+        }
+        for source in Self::source_members(c)? {
+            source_ids.insert(source.id);
+            if let Some(h) = source.object_hash {
+                roots.insert(h);
+            }
+        }
+        let mut current = db(c.prepare("SELECT id FROM blocks"))?;
+        for row in db(current.query_map([], |r| r.get::<_, String>(0)))? {
+            block_ids.insert(db(row)?);
+        }
+        let mut stmt=db(c.prepare("SELECT object_hash FROM intakes WHERE status='complete' UNION SELECT object_hash FROM external_object_pins"))?;
+        for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
+            roots.insert(db(row)?);
+        }
+        let mut stmt = db(c.prepare(
+            "SELECT input_hash,result_hash,source_id,status,purpose FROM document_attempts",
+        ))?;
+        for row in db(stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        }))? {
+            let (input, result, source, status, purpose) = db(row)?;
+            if matches!(status.as_str(), "queued" | "running")
+                || (purpose == "import" && status == "ready")
+                || source.as_ref().is_some_and(|s| source_ids.contains(s))
+            {
+                roots.insert(input);
+                if let Some(h) = result {
+                    roots.insert(h);
+                }
+            }
+        }
+        let mut stmt =
+            db(c.prepare("SELECT block_id,input_hash,result_hash FROM import_provenance"))?;
+        for row in db(stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        }))? {
+            let (id, input, result) = db(row)?;
+            if block_ids.contains(&id) {
+                roots.insert(input);
+                roots.insert(result);
+            }
         }
         Ok(roots)
     }
@@ -63,14 +132,7 @@ impl SqliteProjectRepository {
                 return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
             for digest in [&before, &after] {
-                let bytes = db(std::fs::read(self.directory.join("objects").join(digest)))?;
-                if super::manuscript::hash(&bytes) != *digest {
-                    return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-                }
-                let snapshot: BusinessSnapshot = db(serde_json::from_slice(&bytes))?;
-                if snapshot.version != 1 {
-                    return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-                }
+                let snapshot = self.read_business(digest)?;
                 let mut check = state.clone();
                 check.workspace_stage = snapshot.workspace_stage.clone();
                 check.blocks = snapshot
@@ -93,7 +155,7 @@ impl SqliteProjectRepository {
             previous = Some(after);
         }
         if !snapshots.is_empty()
-            && snapshots.get(metadata.cursor as usize) != Some(&BusinessSnapshot::capture(state))
+            && snapshots.get(metadata.cursor as usize) != Some(&Self::business(c, state)?)
         {
             return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
         }
@@ -177,7 +239,14 @@ impl SqliteProjectRepository {
                     state: before.clone(),
                     affected: BTreeSet::new(),
                     normalized: false,
+                    sources: None,
                 });
+            }
+            ManuscriptCommand::AddSourceLink { .. }
+            | ManuscriptCommand::AddSourceFile { .. }
+            | ManuscriptCommand::RemoveSource { .. }
+            | ManuscriptCommand::CommitManuscriptImport { .. } => {
+                return self.source_transition(c, command, before, identities);
             }
             _ => return manuscript::apply(before, command, identities, self.policy.as_ref()),
         };
@@ -194,32 +263,30 @@ impl SqliteProjectRepository {
             [position],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         ))?;
-        let read = |digest: &str| -> Result<BusinessSnapshot> {
-            let bytes = db(std::fs::read(self.directory.join("objects").join(digest)))?;
-            if super::manuscript::hash(&bytes) != digest {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-            }
-            db(serde_json::from_slice(&bytes))
-        };
+        let read = |digest: &str| self.read_business(digest);
         let (expected, target) = if redo {
             (&before_hash, &after_hash)
         } else {
             (&after_hash, &before_hash)
         };
-        if read(expected)? != BusinessSnapshot::capture(before) {
+        if read(expected)? != Self::business(c, before)? {
             return Err(ManuscriptError::history_blocked(
                 "REPLAY_CONFLICT",
                 &db(serde_json::from_str(&affected))?,
             ));
         }
-        manuscript::restore(
+        let target = read(target)?;
+        let mut transition = manuscript::restore(
             before,
-            &read(target)?,
+            &target,
             identities,
             &db(serde_json::from_str(&affected))?,
             self.policy.as_ref(),
-        )
+        )?;
+        self.restore_sources(c, before, &mut transition, &target, identities)?;
+        Ok(transition)
     }
+
     pub(super) fn history_plan(
         &self,
         c: &Connection,
@@ -267,6 +334,25 @@ impl SqliteProjectRepository {
         if business_changed {
             manuscript::next_revision(plan.metadata.history_revision)?;
         }
+        let retained_before = if business_changed {
+            let endpoint = if plan.metadata.cursor == 0 {
+                plan.entries.first().map(|e| e.before.clone())
+            } else {
+                plan.entries
+                    .get(plan.metadata.cursor as usize - 1)
+                    .map(|e| e.after.clone())
+            };
+            if let Some(endpoint) = endpoint {
+                if self.read_business(&endpoint)? != Self::business(c, before)? {
+                    return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
+                }
+                Some(endpoint)
+            } else {
+                Some(self.object(&db(serde_json::to_vec(&Self::business(c, before)?))?)?)
+            }
+        } else {
+            None
+        };
         if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command {
             let g = &payload.group;
             let previous=db(c.query_row("SELECT client_session_id,group_sequence,kind,closed,scope_block_id,last_commit_ms FROM edit_groups WHERE group_id=?1",[&g.group_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?))).optional())?;
@@ -293,11 +379,12 @@ impl SqliteProjectRepository {
                         .entries
                         .last()
                         .is_some_and(|e| e.group.as_ref() == Some(&g.group_id));
-                let before_hash =
-                    self.object(&db(serde_json::to_vec(&BusinessSnapshot::capture(before)))?)?;
-                let after_hash = self.object(&db(serde_json::to_vec(
-                    &BusinessSnapshot::capture(&transition.state),
-                ))?)?;
+                let before_hash = retained_before
+                    .clone()
+                    .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
+                let after_hash = self.object(&db(serde_json::to_vec(&Self::business_after(
+                    c, transition,
+                )?))?)?;
                 if merge {
                     let entry = plan
                         .entries
@@ -334,13 +421,21 @@ impl SqliteProjectRepository {
                 _ => {
                     plan.entries.truncate(plan.metadata.cursor as usize);
                     plan.entries.push(Entry {
-                        before: self
-                            .object(&db(serde_json::to_vec(&BusinessSnapshot::capture(before)))?)?,
-                        after: self.object(&db(serde_json::to_vec(
-                            &BusinessSnapshot::capture(&transition.state),
-                        ))?)?,
+                        before: retained_before
+                            .clone()
+                            .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?,
+                        after: self.object(&db(serde_json::to_vec(&Self::business_after(
+                            c, transition,
+                        )?))?)?,
                         affected: transition.affected.clone(),
-                        label: "startDraft".into(),
+                        label: match command {
+                            ManuscriptCommand::AddSourceLink { .. }
+                            | ManuscriptCommand::AddSourceFile { .. } => "addSource",
+                            ManuscriptCommand::RemoveSource { .. } => "removeSource",
+                            ManuscriptCommand::CommitManuscriptImport { .. } => "import",
+                            _ => "startDraft",
+                        }
+                        .into(),
                         group: None,
                     });
                     if plan.entries.len() > 5 {

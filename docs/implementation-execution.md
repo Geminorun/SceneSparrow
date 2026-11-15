@@ -1,9 +1,11 @@
 # Eight-step implementation and review workflow
 
 Status: execution policy selected by the user. The detailed designs/specs were
-committed as `11d36fa`. Steps 1–2 implement manual editing/save/reopen and
-persistent bounded history; steps 3–8 remain pending. See
-[step 1 evidence](validation/step-01.md) and [step 2 evidence](validation/step-02.md).
+committed as `11d36fa`. Steps 1–3 implement manual editing/save/reopen, persistent
+bounded history, sources/import and recovery; steps 4–8 remain pending. See
+[step 1](validation/step-01.md), [step 2](validation/step-02.md) and
+[step 3 evidence](validation/step-03.md). Native platform and large-document
+performance acceptance remains open, independently of these code checkpoints.
 This document
 formalizes dispatch/review/delivery and does not claim product implementation.
 

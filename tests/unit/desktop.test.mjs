@@ -102,6 +102,16 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
   assert.deepEqual(
     Object.keys(exposed).sort(),
     [
+      "readSources",
+      "pickFileIntake",
+      "cancelFileSelection",
+      "onFileIntakeProgress",
+      "cancelIntake",
+      "documentAction",
+      "documentJob",
+      "extractionPage",
+      "openExternalLink",
+      "subscribeEvents",
       "commandReceipt",
       "createProject",
       "executeManuscript",

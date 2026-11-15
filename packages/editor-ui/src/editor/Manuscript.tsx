@@ -8,6 +8,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
+import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
 import { fromEditor, toEditor } from "./canonical";
 export function Manuscript({
@@ -381,7 +382,13 @@ function Draft({
       ? t.historyTyping
       : label === "startDraft"
         ? t.historyStartDraft
-        : t.historyEdit;
+        : label === "addSource"
+          ? t.historyAddSource
+          : label === "removeSource"
+            ? t.historyRemoveSource
+            : label === "import"
+              ? t.historyImport
+              : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
   const toolbar = (action: () => unknown) => {
     void save.discrete(() => {
@@ -590,6 +597,7 @@ function Draft({
           </div>
         </>
       )}
+      <Sources client={client} save={save} projectId={projectId} t={t} />
       {(save.status === "error" || save.status === "conflict") && (
         <div role="alert" className="error">
           <p>

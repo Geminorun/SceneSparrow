@@ -39,11 +39,24 @@ do not decide typing inactivity. Controlled close drains later valid input that
 arrives while group closure is awaiting a receipt. Invalid structure can be
 corrected locally, with an explicit retry before dependent project operations.
 
-Sources/import, event subscriptions, physical object GC, production locks, review,
-AI and export remain planned; their controls are hidden. Snapshot roots are
-released when history branches/prunes or a group closes, while object bytes remain
-until the step 3 collector is implemented. The existing procedural motion sample
-remains an independent collapsible development example.
+Step 3 adds a shared reference panel and prepared manuscript import. Link references
+remain link-only metadata; file references retain copied original bytes and show
+extraction status/text/warnings. Importing TXT, Markdown, DOCX, PDF or pasted text
+prepares a preview before start/append/replace; imports do not add references.
+Sources and imports use the same serialized queue, mutation-policy seam and five-step
+history. Migration 004 extends business roots with backward-compatible source
+membership and adds intake, fenced document jobs, provenance and external object pins.
+
+The supervised non-AI Node utility has pinned parsers, bounded input/output, a
+60-second wall limit and sampled 512 MiB Linux RSS enforcement. Windows/macOS RSS
+budget enforcement remains open; the V8 heap setting is not full OS isolation.
+Authenticated SSE supports replay/resync and desktop subscriptions have scoped cleanup.
+Reopen verifies retained references, fences interrupted work, abandons active previews
+and runs coordinated object GC with a 60-second grace period. Backups own independent
+pinned copies and are never traversed by the collector. See
+[step 3 evidence](validation/step-03.md) for parser behavior, fault/upgrade tests and
+measured performance-budget misses. Production locks, review, AI and export remain
+planned. The procedural motion sample remains an independent collapsible example.
 
 ## Pinned tools and prerequisites
 
@@ -135,19 +148,20 @@ input; no local-storage keystroke replay is used.
 
 ## Commands and verification
 
-| Command                             | Purpose                                                                            |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `pnpm run env:check`                | Report tool versions and Electron binary presence; does not certify desktop launch |
-| `pnpm contracts:generate`           | Generate committed TypeScript and Rust protocol types from JSON Schema             |
-| `pnpm contracts:check`              | Detect stale generated protocol types                                              |
-| `pnpm typecheck`                    | Check all TypeScript packages                                                      |
-| `pnpm format` / `pnpm format:check` | Apply/check Prettier and rustfmt                                                   |
-| `pnpm test`                         | Run autosave/bridge/locale and Rust domain/storage/HTTP tests                      |
-| `pnpm check`                        | Run contract, format, type, unit, and Clippy checks                                |
-| `pnpm build`                        | Build the browser, Electron shell, and Rust workspaces                             |
-| `pnpm test:integration`             | Save a manuscript/receipts via HTTP and verify actual core restart recovery        |
-| `pnpm test:e2e`                     | Exercise structure, formatting, IME events, autosave and recovery in Chromium      |
-| `pnpm render:smoke`                 | Download the dedicated rendering browser if needed and render 30 H.264 frames      |
+| Command                             | Purpose                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pnpm run env:check`                | Report tool versions and Electron binary presence; does not certify desktop launch                           |
+| `pnpm contracts:generate`           | Generate committed TypeScript and Rust protocol types from JSON Schema                                       |
+| `pnpm contracts:check`              | Detect stale generated protocol types                                                                        |
+| `pnpm typecheck`                    | Check all TypeScript packages                                                                                |
+| `pnpm format` / `pnpm format:check` | Apply/check Prettier and rustfmt                                                                             |
+| `pnpm test`                         | Run autosave/bridge/locale and Rust domain/storage/HTTP tests                                                |
+| `pnpm check`                        | Run contract, format, type, unit, and Clippy checks                                                          |
+| `pnpm build`                        | Build the browser, Electron shell, and Rust workspaces                                                       |
+| `pnpm test:integration`             | Save a manuscript/receipts via HTTP and verify actual core restart recovery                                  |
+| `pnpm test:e2e`                     | Exercise structure, formatting, IME events, autosave and recovery in Chromium                                |
+| `pnpm perf:s1`                      | Measure explicit Linux/browser manuscript fixtures; reports budget misses without claiming native acceptance |
+| `pnpm render:smoke`                 | Download the dedicated rendering browser if needed and render 30 H.264 frames                                |
 
 For browser tests, use `pnpm exec playwright install chromium`, or point
 `SCENESPARROW_TEST_BROWSER` to a compatible installed Chromium. The cloud activation
@@ -176,6 +190,14 @@ The existing authenticated project/health routes remain compatible. New routes:
 - `GET /v1/history`: current working/history revisions, cursor, counts and operation labels.
 - `POST /v1/manuscript/commands`: the closed manual-edit/history command union.
 - `GET /v1/commands/{requestId}`: resolve an immutable success/rejection receipt.
+- `GET /v1/sources`: cursor-paginated membership/extraction summaries.
+- `POST /v1/intakes`: raw bounded upload with `x-intake-id` and URI-encoded
+  `x-file-name`; `GET`/`DELETE /v1/intakes/{id}` resolves/cancels that intake.
+- `POST /v1/document-jobs`, `GET /v1/document-jobs/{id}`: named preparation,
+  source extraction, retry/cancel and bounded result reads.
+- `GET /v1/source-extractions/{id}?offset=...`: scoped text pages.
+- `GET /v1/project/events?after=...`: authenticated SSE with replay/resync;
+  authentication never appears in the URL.
 
 Manuscript commands have an 8 MiB route limit; small routes retain 16 KiB. Identical
 requests replay their original outcomes before revision checks; changed payloads
@@ -187,7 +209,8 @@ receipts replay unchanged. History rejection details contain only stable reasons
 and affected IDs. Undo/redo never restores receipt/event/runtime rows or old
 revision tokens.
 
-See [step 1 evidence](validation/step-01.md) and [step 2 evidence](validation/step-02.md) for the acceptance mapping and
+See [step 1](validation/step-01.md), [step 2](validation/step-02.md) and
+[step 3 evidence](validation/step-03.md) for the acceptance mapping and
 remaining platform/fault/performance gaps.
 
 The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
@@ -195,6 +218,6 @@ orders upcoming work by usable manuscript slices. The preliminary M0/M1 media
 roadmap does not authorize further feature implementation. Treat the bootstrap's
 single-project API as an integration sample, not a substitute for the detailed
 domain, history, lock and execution contracts.
-All [stage and shared AI specs](specs/README.md) are documented. Only the manual editing/history subset above is implemented; follow the shared AI migration/port ledger when those slices
+All [stage and shared AI specs](specs/README.md) are documented. The manual editing/history/source/import paths above are implemented; follow the shared AI migration/port ledger when those slices
 are explicitly developed, without making provider access a prerequisite for
 manual editing/export.

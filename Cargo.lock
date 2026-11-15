@@ -652,6 +652,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "url",
  "uuid",
 ]
 
@@ -660,6 +661,7 @@ name = "scenesparrow-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures-util",
  "scenesparrow-application",
  "scenesparrow-domain",
  "scenesparrow-infrastructure",

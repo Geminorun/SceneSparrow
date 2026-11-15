@@ -442,6 +442,17 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       executeManuscript: (command: unknown) =>
         request("/manuscript/commands", command),
       commandReceipt: (id: string) => request(`/commands/${id}`),
+      readSources: () => request("/sources"),
+      subscribeEvents: () => () => {},
+      pickFileIntake: async () => ({ ok: true, data: null }),
+      cancelFileSelection: async () => ({ ok: true, data: null }),
+      onFileIntakeProgress: () => () => {},
+      cancelIntake: async () => ({ ok: true, data: null }),
+      documentAction: (action: unknown) => request("/document-jobs", action),
+      documentJob: (id: string) => request(`/document-jobs/${id}`),
+      extractionPage: (id: string, offset: number) =>
+        request(`/source-extractions/${id}?offset=${offset}`),
+      openExternalLink: async () => ({ ok: true, data: null }),
       onCloseRequested: (handler: () => Promise<boolean>) => {
         host.__requestClose = () => {
           void handler().then((result) => host.__closeResults.push(result));

@@ -609,6 +609,130 @@
               "$ref": "#/definitions/CloseGroupPayload"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AddSourceLink"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/AddSourceLinkPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AddSourceFile"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/AddSourceFilePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RemoveSource"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/RemoveSourcePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CommitManuscriptImport"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/CommitManuscriptImportPayload"
+            }
+          }
         }
       ]
     },
@@ -674,6 +798,12 @@
         },
         "redoLabel": {
           "type": "string"
+        },
+        "sourceRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
         }
       }
     },
@@ -758,6 +888,522 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "kind", "title", "evidence"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["link", "file"]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "objectHash": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "evidence": {
+          "type": "string",
+          "enum": ["link_only", "file_bytes"]
+        },
+        "intakeId": {
+          "type": "string"
+        }
+      }
+    },
+    "SourceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "status", "warnings", "hasImages"],
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/Source"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "link_only",
+            "interrupted",
+            "queued",
+            "running",
+            "ready",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SourcePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "next"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SourceSummary"
+          }
+        },
+        "next": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "Intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash", "size", "displayName", "mimeType"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "intakeId", "expectedWorkingRevision"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["prepareFile"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "intakeId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "text", "expectedWorkingRevision"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["preparePaste"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "sourceId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["extractSource"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "sourceId": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["cancel"]
+            },
+            "jobId": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "DocumentResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parser",
+        "text",
+        "blocks",
+        "warnings",
+        "hasImages",
+        "references"
+      ],
+      "properties": {
+        "parser": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NewBlock"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DocumentJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attempt",
+        "status",
+        "purpose",
+        "inputHash",
+        "baseRevision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "ready",
+            "failed",
+            "interrupted",
+            "cancelled"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "enum": ["import", "source"]
+        },
+        "inputHash": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/definitions/DocumentResult"
+        },
+        "error": {
+          "type": "string"
+        },
+        "candidateHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExtractionPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "text",
+        "offset",
+        "next",
+        "warnings",
+        "references",
+        "hasImages",
+        "parser"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "next": {
+          "type": ["integer", "null"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        },
+        "parser": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "projectId",
+        "type",
+        "workingRevision",
+        "affectedIds"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "manuscript.changed",
+            "history.changed",
+            "sources.changed",
+            "documentJob.changed",
+            "resync_required"
+          ]
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "EventPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "latest", "resyncRequired"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectEvent"
+          }
+        },
+        "latest": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resyncRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AddSourceLinkPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "url", "title"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "AddSourceFilePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "intakeId", "hash"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "intakeId": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      }
+    },
+    "RemoveSourcePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "expectedSourceRevision"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "CommitManuscriptImportPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preparedId", "candidateHash", "mode"],
+      "properties": {
+        "preparedId": {
+          "type": "string"
+        },
+        "candidateHash": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["start", "append", "replace"]
+        }
+      }
+    },
+    "DocumentWorkerInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "attempt", "path", "name"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentWorkerOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "result": {
+          "$ref": "#/definitions/DocumentResult"
+        },
+        "error": {
+          "type": "string"
         }
       }
     }

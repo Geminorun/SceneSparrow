@@ -192,6 +192,7 @@ pub struct Transition {
     pub state: ManuscriptState,
     pub affected: BTreeSet<String>,
     pub normalized: bool,
+    pub sources: Option<Vec<Source>>,
 }
 pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
     match command {
@@ -214,6 +215,30 @@ pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
             ..
         }
         | ManuscriptCommand::CloseEditGroup {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::AddSourceLink {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::AddSourceFile {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::RemoveSource {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::CommitManuscriptImport {
             request_id,
             project_id,
             expected_working_revision,
@@ -303,7 +328,11 @@ pub fn apply(
             }
             state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
         }
-        ManuscriptCommand::UndoProject { .. }
+        ManuscriptCommand::AddSourceLink { .. }
+        | ManuscriptCommand::AddSourceFile { .. }
+        | ManuscriptCommand::RemoveSource { .. }
+        | ManuscriptCommand::CommitManuscriptImport { .. }
+        | ManuscriptCommand::UndoProject { .. }
         | ManuscriptCommand::RedoProject { .. }
         | ManuscriptCommand::CloseEditGroup { .. } => {
             return Err(ManuscriptError("INVALID_REQUEST", None));
@@ -490,6 +519,7 @@ pub fn apply(
         state,
         affected,
         normalized,
+        sources: None,
     })
 }
 
@@ -501,11 +531,14 @@ pub struct BusinessSnapshot {
     pub version: u32,
     pub workspace_stage: ManuscriptStateWorkspaceStage,
     pub blocks: Vec<NewBlock>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<Source>,
 }
 impl BusinessSnapshot {
     pub fn capture(state: &ManuscriptState) -> Self {
         Self {
-            version: 1,
+            version: 2,
+            sources: vec![],
             workspace_stage: state.workspace_stage.clone(),
             blocks: state
                 .blocks
@@ -528,7 +561,7 @@ pub fn restore(
     recorded: &BTreeSet<String>,
     policy: &dyn MutationPolicy,
 ) -> Result<Transition> {
-    if target.version != 1 {
+    if target.version != 1 && target.version != 2 {
         return Err(ManuscriptError::history_blocked(
             "SCHEMA_UNSUPPORTED",
             recorded,
@@ -598,6 +631,7 @@ pub fn restore(
         state,
         affected,
         normalized: false,
+        sources: None,
     })
 }
 
@@ -656,4 +690,75 @@ mod tests {
         let request = serde_json::json!({"op":"moveBlocks","ids":[],"after":null,"runs":[]});
         assert!(serde_json::from_value::<Primitive>(request).is_err());
     }
+}
+
+/// Import is one canonical mutation even when replacement deletes and inserts
+/// 10,000 blocks each; the edit-envelope primitive count does not limit imports.
+pub fn import_candidate(
+    before: &ManuscriptState,
+    mut blocks: Vec<Block>,
+    append: bool,
+    identities: &BTreeMap<String, i64>,
+    policy: &dyn MutationPolicy,
+) -> Result<Transition> {
+    let mut affected = BTreeSet::new();
+    for block in &mut blocks {
+        if identities.contains_key(&block.id) || !affected.insert(block.id.clone()) {
+            return invalid();
+        }
+        block.revision = 1;
+    }
+    let mut state = before.clone();
+    state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
+    if append {
+        state.blocks.extend(blocks);
+    } else {
+        affected.extend(before.blocks.iter().map(|b| b.id.clone()));
+        state.blocks = blocks;
+    }
+    let normalized = normalize(&mut state)?;
+    policy.validate(before, &state, &affected)?;
+    state.working_revision = next_revision(before.working_revision)?;
+    normalize(&mut state)?;
+    Ok(Transition {
+        state,
+        affected,
+        normalized,
+        sources: None,
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn import_replacement_supports_two_valid_max_block_documents_as_one_mutation() {
+    let blocks = || {
+        (0..MAX_BLOCKS)
+            .map(|_| Block {
+                id: uuid::Uuid::new_v4().to_string(),
+                revision: 1,
+                kind: BlockKind::Paragraph,
+                attrs: BlockAttrs {
+                    level: None,
+                    list_kind: None,
+                    depth: None,
+                },
+                runs: vec![],
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = ManuscriptState {
+        manuscript_id: uuid::Uuid::new_v4().to_string(),
+        schema_version: 1,
+        workspace_stage: ManuscriptStateWorkspaceStage::Draft,
+        working_revision: 1,
+        blocks: blocks(),
+    };
+    let identities = before
+        .blocks
+        .iter()
+        .map(|b| (b.id.clone(), b.revision))
+        .collect();
+    let result = import_candidate(&before, blocks(), false, &identities, &Unrestricted).unwrap();
+    assert_eq!(result.state.blocks.len(), MAX_BLOCKS);
+    assert_eq!(result.affected.len(), 2 * MAX_BLOCKS);
 }

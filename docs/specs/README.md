@@ -12,13 +12,13 @@ details but must identify changes to confirmed behavior explicitly.
 The [eight-step execution workflow](../implementation-execution.md) maps these
 tasks to the approved implementation sequence and review/commit/push gates.
 
-| Document                                                         | Scope                                                                              | Status                                              |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------- |
-| [S1: manuscript editing foundation](s1-manuscript-foundation.md) | Document model, persistence, editor, autosave, bounded history, sources and import | Editing/history implemented; sources/import pending |
-| [S2: outline and initial draft](s2-outline-and-initial-draft.md) | Planning UI and manuscript-specific AI orchestration                               | Written; implementation pending                     |
-| [Shared AI](shared-ai-integration.md)                            | Global settings, credentials, adapters, generic task execution and lifecycle       | Written; implementation pending                     |
-| [S3: review and finalization](s3-review-and-finalization.md)     | Anchors, questions/notes, candidates, comparison, acceptance and locks             | Written; implementation pending                     |
-| [S4: delivery and validation](s4-delivery-and-validation.md)     | Copy/export, desktop integration, recovery and complete-workflow acceptance        | Written; implementation pending                     |
+| Document                                                         | Scope                                                                              | Status                                                       |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| [S1: manuscript editing foundation](s1-manuscript-foundation.md) | Document model, persistence, editor, autosave, bounded history, sources and import | Core/browser implemented; native/performance acceptance open |
+| [S2: outline and initial draft](s2-outline-and-initial-draft.md) | Planning UI and manuscript-specific AI orchestration                               | Written; implementation pending                              |
+| [Shared AI](shared-ai-integration.md)                            | Global settings, credentials, adapters, generic task execution and lifecycle       | Written; implementation pending                              |
+| [S3: review and finalization](s3-review-and-finalization.md)     | Anchors, questions/notes, candidates, comparison, acceptance and locks             | Written; implementation pending                              |
+| [S4: delivery and validation](s4-delivery-and-validation.md)     | Copy/export, desktop integration, recovery and complete-workflow acceptance        | Written; implementation pending                              |
 
 S2 and S3 reference the [independent shared AI spec](shared-ai-integration.md) instead of duplicating provider,
 credential or execution rules. Shared AI must remain usable without manuscript
@@ -27,6 +27,8 @@ architecture; the implementation spec fixes its ports, dispatch/recovery behavio
 and acceptance cases. All four stage specs and shared AI are written; step 1
 implements the manual S1 subset with [evidence](../validation/step-01.md), step 2
 adds [bounded history](../validation/step-02.md), and
+step 3 adds [sources/import and recovery](../validation/step-03.md). Native and
+performance acceptance remains open;
 later implementation and complete-stage validation remain pending. Its migration ledger reserves the sequence
 from bootstrap through S4.
 

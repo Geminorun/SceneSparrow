@@ -1,8 +1,10 @@
 # S1 specification: manuscript editing foundation
 
-Status: execution step 1 implements the manual editing/save/reopen subset.
-History, sources/import and full S1 validation remain pending. See
-[step 1 evidence](../validation/step-01.md). Version: 0.1. Scope: the first slice of the
+Status: execution steps 1–3 implement manual editing, bounded project history,
+source intake/extraction and prepared manuscript import. See
+[step 1](../validation/step-01.md), [step 2](../validation/step-02.md) and
+[step 3 evidence](../validation/step-03.md). Full target-platform and performance
+acceptance remains open. Version: 0.1. Scope: the first slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
 Read the [workbench design](../design/script-workbench-v0.1.md),
@@ -546,8 +548,10 @@ private document content in diagnostics, or an arbitrary worker stack trace.
 
 ## 10. Development tasks and dependencies
 
-T01–T06 have a manual-slice implementation (T05 import entry/commit remains in
-step 3); see the linked evidence for coverage and gaps. T07–T13 remain pending.
+T01–T12 have implementation evidence across steps 1–3, including T05 import entry
+and T07–T08 history. T13 has Linux/browser/fault and measured performance evidence;
+native target-platform and performance-budget acceptance remains open. See the
+linked reports for concrete coverage and limitations.
 Deliver small vertical changes with tests; task IDs
 are units within this single stage spec, not separate documents or branches that
 the current instruction asks to create. Tests/localization belong to each task.
@@ -629,3 +633,17 @@ ports through a common application unit of work without importing script models.
 Its migration ledger follows S1's schema versions 2–4 with shared AI at version 5.
 S1 editing/import/history must remain usable without any provider configuration,
 even after later project migrations add AI execution tables.
+
+## 13. Step 3 implementation limits
+
+The document utility protocol is version 1 with pinned portable Node parsers.
+One utility runs at a time, at most 16 jobs are queued/running, output is bounded,
+and Linux supervision samples RSS against 512 MiB in addition to the 60-second
+wall limit and V8 old-space setting. Windows/macOS still need actual working-memory
+budget enforcement and native evidence; process separation/V8 settings are not full
+OS isolation. Recovery abandons active previews and incomplete intakes, fences
+attempts and collects unreferenced objects with a 60-second grace period on reopen.
+Explicit artifact pins and prepared/import/source roots share the promotion writer
+coordinator. Applied migration 004 and old immutable business roots remain immutable.
+The [step 3 report](../validation/step-03.md) records supported format fallbacks,
+measured budget misses and the exact remaining acceptance gaps.

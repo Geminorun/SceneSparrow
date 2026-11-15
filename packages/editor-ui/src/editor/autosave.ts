@@ -57,6 +57,14 @@ export class Autosave {
   private groupKind: "typing" | "discrete" = "typing";
   private controls: Promise<unknown> = Promise.resolve();
   private controlPending: ManuscriptCommand | null = null;
+  get hasUnresolvedBusiness() {
+    return (
+      !!this.controlPending &&
+      !["CloseEditGroup", "UndoProject", "RedoProject"].includes(
+        this.controlPending.type,
+      )
+    );
+  }
   history: HistoryState;
   busy = false;
   canonicalVersion = 0;
@@ -116,6 +124,7 @@ export class Autosave {
   navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
     const requestedVisible = JSON.stringify(this.local);
     return this.enqueue(async () => {
+      if (this.disposed) return false;
       if (this.controlPending) {
         const type = this.controlPending.type as
           "UndoProject" | "RedoProject" | "CloseEditGroup";
@@ -142,6 +151,74 @@ export class Autosave {
       return ok;
     });
   }
+  prepareInput() {
+    return this.enqueue(async () => (this.composing ? false : this.settle()));
+  }
+  business(
+    build: (revision: number) => ManuscriptCommand,
+    options?: { signal?: AbortSignal; dispatched?: () => void },
+  ) {
+    const requestedVisible = JSON.stringify(this.local);
+    return this.enqueue(async () => {
+      if (options?.signal?.aborted || this.disposed) return false;
+      if (this.controlPending) {
+        await this.control("CloseEditGroup");
+        return false;
+      }
+      if (this.composing || !(await this.settle())) return false;
+      if (JSON.stringify(this.local) !== requestedVisible) {
+        this.error = "REVISION_CONFLICT";
+        this.status = "conflict";
+        this.notify();
+        return false;
+      }
+      if (options?.signal?.aborted || this.disposed) return false;
+      const command = build(this.state.workingRevision);
+      options?.dispatched?.();
+      return this.control("CloseEditGroup", command);
+    });
+  }
+  resync() {
+    return this.enqueue(async () => {
+      if (this.disposed || this.controlPending || this.unresolved) return false;
+      const generation = this.generation;
+      try {
+        const current = await this.client.readManuscript();
+        if (this.disposed) return false;
+        const history = await this.client.readHistory();
+        if (
+          this.disposed ||
+          history.workingRevision !== current.workingRevision
+        )
+          return false;
+        if (current.workingRevision === this.state.workingRevision) {
+          this.history = history;
+          this.notify();
+          return true;
+        }
+        if (
+          generation !== this.generation ||
+          !this.same() ||
+          this.conversionError ||
+          this.composing
+        ) {
+          this.latest = current;
+          this.status = this.conversionError ? "error" : "conflict";
+          this.error = this.conversionError ?? "REVISION_CONFLICT";
+          this.notify();
+          return false;
+        }
+        this.state = current;
+        this.local = current.blocks.map(({ revision: _, ...b }) => b);
+        this.history = history;
+        this.canonicalVersion++;
+        this.notify();
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
   controlledClose(retry = false) {
     clearTimeout(this.idleTimer);
     return this.enqueue(() => this.settle(retry));
@@ -158,10 +235,12 @@ export class Autosave {
   }
   private async control(
     type: "UndoProject" | "RedoProject" | "CloseEditGroup",
+    override?: ManuscriptCommand,
   ): Promise<boolean> {
     if (this.disposed || this.composing || this.conversionError) return false;
     const command =
       this.controlPending ??
+      override ??
       ({
         type,
         requestId: crypto.randomUUID(),
@@ -224,7 +303,9 @@ export class Autosave {
           error instanceof Error ? error.message : "STORAGE_UNAVAILABLE";
         this.status =
           error instanceof ApiError &&
-          ["REVISION_CONFLICT", "HISTORY_CONFLICT"].includes(error.code)
+          ["REVISION_CONFLICT", "HISTORY_CONFLICT", "IMPORT_STALE"].includes(
+            error.code,
+          )
             ? "conflict"
             : "error";
         if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE")

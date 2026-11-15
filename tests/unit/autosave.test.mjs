@@ -533,3 +533,135 @@ test("input after an undo gesture while an earlier save drains is retained witho
   assert.equal(calls.filter((c) => c.type === "UndoProject").length, 0);
   save.dispose();
 });
+test("event resync rechecks visible input after delayed metadata and refreshes metadata-only changes", async () => {
+  const { save, state, client } = setup();
+  let release;
+  const remote = { ...state, workingRevision: 2, blocks: [block("Remote")] };
+  client.readManuscript = async () => remote;
+  client.readHistory = () =>
+    new Promise((r) => {
+      release = () =>
+        r({ ...save.history, workingRevision: 2, historyRevision: 9 });
+    });
+  const pending = save.resync();
+  await settle();
+  save.update(local(save, "Newer visible input"));
+  release();
+  assert.equal(await pending, false);
+  assert.equal(save.local[0].runs[0].text, "Newer visible input");
+  assert.equal(save.status, "conflict");
+  assert.equal(save.canonicalVersion, 0);
+  save.dispose();
+  const second = setup();
+  second.client.readHistory = async () => ({
+    ...second.save.history,
+    historyRevision: 12,
+  });
+  assert.equal(await second.save.resync(), true);
+  assert.equal(second.save.history.historyRevision, 12);
+  second.save.dispose();
+});
+test("a new source action cannot claim success from reconciling an earlier uncertain command", async () => {
+  const { save, state, client, calls } = setup();
+  let first = true;
+  let stored;
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    stored ??= receipt(c);
+    if (first) {
+      first = false;
+      throw Error("transport lost");
+    }
+    return stored;
+  };
+  client.commandReceipt = async () => {
+    throw Error("receipt unavailable");
+  };
+  client.readManuscript = async () => ({ ...state, workingRevision: 2 });
+  client.readHistory = async () => ({ ...save.history, workingRevision: 2 });
+  const source = () => ({
+    type: "AddSourceLink",
+    requestId: id(),
+    projectId: id(),
+    expectedWorkingRevision: 1,
+    payload: { sourceId: id(), url: "https://example.com", title: "Reference" },
+  });
+  assert.equal(await save.business(source), false);
+  assert.equal(save.hasUnresolvedBusiness, true);
+  let built = 0;
+  assert.equal(
+    await save.business(() => {
+      built++;
+      return source();
+    }),
+    false,
+  );
+  assert.equal(built, 0);
+  assert.equal(save.hasUnresolvedBusiness, false);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].requestId, calls[1].requestId);
+  assert.equal(save.status, "saved");
+  save.dispose();
+});
+test("source receipt retains newer invalid visible input and never reloads over it", async () => {
+  const { save, state, client } = setup();
+  let release;
+  client.executeManuscript = (c) =>
+    new Promise((r) => {
+      release = () => r(receipt(c));
+    });
+  client.readManuscript = async () => ({ ...state, workingRevision: 2 });
+  const pending = save.business(() => ({
+    type: "AddSourceLink",
+    requestId: id(),
+    projectId: id(),
+    expectedWorkingRevision: 1,
+    payload: { sourceId: id(), url: "https://example.com", title: "Reference" },
+  }));
+  await settle();
+  save.invalidate("DOCUMENT_INVALID", "visible invalid source-time input");
+  release();
+  assert.equal(await pending, false);
+  assert.equal(save.recoveryText, "visible invalid source-time input");
+  assert.equal(save.status, "error");
+  assert.equal(save.canonicalVersion, 0);
+  save.dispose();
+});
+test("cancelling a queued file or import intent while autosave drains never dispatches its business command", async () => {
+  const { save, client, calls } = setup();
+  let release;
+  let built = 0,
+    dispatched = 0;
+  client.executeManuscript = (c) => {
+    calls.push(c);
+    if (c.type === "ApplyDocumentEdit")
+      return new Promise((r) => {
+        release = () => r(receipt(c));
+      });
+    return Promise.resolve(receipt(c));
+  };
+  save.update(local(save, "Visible input before reference"));
+  const abort = new AbortController();
+  const pending = save.business(
+    () => {
+      built++;
+      return {
+        type: "AddSourceFile",
+        requestId: id(),
+        projectId: id(),
+        expectedWorkingRevision: 1,
+        payload: { sourceId: id(), intakeId: id(), hash: "verified" },
+      };
+    },
+    { signal: abort.signal, dispatched: () => dispatched++ },
+  );
+  await settle();
+  abort.abort();
+  release();
+  assert.equal(await pending, false);
+  assert.equal(built, 0);
+  assert.equal(dispatched, 0);
+  assert.ok(calls.every((c) => c.type !== "AddSourceFile"));
+  assert.equal(save.local[0].runs[0].text, "Visible input before reference");
+  save.dispose();
+});

@@ -43,8 +43,11 @@
   editing, monotonic revisions, immutable objects, receipts, autosave and recovery;
   evidence is in `docs/validation/step-01.md`. Step 2 adds persistent five-step
   project history, grouped input and shared toolbar/keyboard routing; see
-  `docs/validation/step-02.md`. Sources/import, production locks/review, AI and
-  export follow in later steps. Applied migrations are
+  `docs/validation/step-02.md`. Step 3 adds reference intake, a non-AI document
+  utility, prepared imports, event resync and reference-safe collection; see
+  `docs/validation/step-03.md`. Production locks/review, AI and export follow in
+  later steps. Large-document performance budgets and native worker RSS
+  enforcement remain open; do not claim full S1 acceptance. Applied migrations are
   immutable; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;

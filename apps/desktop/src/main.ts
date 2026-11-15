@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, session, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, session, dialog, shell } from "electron";
+import { intakeSelectedFile } from "./file-intake.js";
 import { CloseHandshake } from "./close-handshake.js";
 import en from "../../../packages/editor-ui/src/locales/en.json" with { type: "json" };
 import zhCN from "../../../packages/editor-ui/src/locales/zh-CN.json" with { type: "json" };
@@ -37,9 +38,9 @@ async function main() {
     app.quit();
   });
   core.on("exit", () => app.quit());
-  async function request(path: string, body?: unknown) {
+  async function request(path: string, body?: unknown, method?: string) {
     const response = await fetch(`${baseUrl}${path}`, {
-      method: body === undefined ? "GET" : "POST",
+      method: method ?? (body === undefined ? "GET" : "POST"),
       headers: {
         Authorization: `Bearer ${token}`,
         "content-type": "application/json",
@@ -96,6 +97,220 @@ async function main() {
       );
     });
   }
+  const checkSender = (event: Electron.IpcMainInvokeEvent) => {
+    if (event.senderFrame?.url !== entryUrl) throw Error("ORIGIN_DENIED");
+  };
+  for (const [channel, path] of [
+    ["sources:read", "/sources"],
+    ["document:action", "/document-jobs"],
+    ["document:job", "/document-jobs"],
+    ["source:extraction", "/source-extractions"],
+    ["intake:cancel", "/intakes"],
+  ] as const) {
+    ipcMain.handle(channel, (event, value: unknown, offset: unknown) => {
+      checkSender(event);
+      if (channel === "document:action") return request(path, value);
+      if (channel === "sources:read") {
+        if (
+          value !== undefined &&
+          (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(path + (value ? `?after=${value}` : ""));
+      }
+      if (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
+        return { ok: false, code: "INVALID_REQUEST" };
+      if (
+        channel === "source:extraction" &&
+        (!Number.isSafeInteger(offset) || Number(offset) < 0)
+      )
+        return { ok: false, code: "INVALID_REQUEST" };
+      return request(
+        `${path}/${value}${channel === "source:extraction" ? `?offset=${offset}` : ""}`,
+        undefined,
+        channel === "intake:cancel" ? "DELETE" : undefined,
+      );
+    });
+  }
+  const fileSelections = new Map<
+    string,
+    { abort: AbortController; sender: number }
+  >();
+  ipcMain.handle("intake:pick-cancel", (event, id: unknown) => {
+    checkSender(event);
+    if (typeof id !== "string") return { ok: false, code: "INVALID_REQUEST" };
+    const selection = fileSelections.get(id);
+    if (selection?.sender === event.sender.id) selection.abort.abort();
+    return { ok: true, data: null };
+  });
+  ipcMain.handle("intake:pick", async (event, id: unknown) => {
+    checkSender(event);
+    if (!primaryWindow) return { ok: false, code: "SERVICE_UNAVAILABLE" };
+    if (
+      typeof id !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(id) ||
+      fileSelections.has(id) ||
+      fileSelections.size > 0
+    )
+      return { ok: false, code: "INVALID_REQUEST" };
+    const abort = new AbortController();
+    fileSelections.set(id, { abort, sender: event.sender.id });
+    try {
+      const dialogText = app.getLocale().startsWith("zh") ? zhCN : en;
+      const selected = await dialog.showOpenDialog(primaryWindow, {
+        properties: ["openFile"],
+        filters: [
+          {
+            name: dialogText.documentFiles,
+            extensions: ["txt", "md", "markdown", "docx", "pdf"],
+          },
+        ],
+      });
+      if (abort.signal.aborted || selected.canceled || !selected.filePaths[0])
+        return { ok: true, data: null };
+      const data = await intakeSelectedFile(
+        selected.filePaths[0],
+        baseUrl,
+        token,
+        abort.signal,
+        (loaded, total) => {
+          if (!event.sender.isDestroyed())
+            event.sender.send("intake:progress", id, loaded, total);
+        },
+      );
+      return { ok: true, data };
+    } catch (error) {
+      const code = abort.signal.aborted
+        ? "DOCUMENT_JOB_INTERRUPTED"
+        : error instanceof Error &&
+            [
+              "INPUT_TOO_LARGE",
+              "INVALID_REQUEST",
+              "STORAGE_UNAVAILABLE",
+            ].includes(error.message)
+          ? error.message
+          : "STORAGE_UNAVAILABLE";
+      return { ok: false, code };
+    } finally {
+      fileSelections.delete(id);
+    }
+  });
+  ipcMain.handle("source:open-link", async (event, value: unknown) => {
+    checkSender(event);
+    try {
+      if (
+        typeof value !== "string" ||
+        value.length > 8192 ||
+        /[\u0000-\u001f\u007f]/u.test(value)
+      )
+        throw Error();
+      const url = new URL(value);
+      if (
+        !["http:", "https:"].includes(url.protocol) ||
+        url.username ||
+        url.password
+      )
+        throw Error();
+      await shell.openExternal(url.href);
+      return { ok: true, data: null };
+    } catch {
+      return { ok: false, code: "INVALID_URL" };
+    }
+  });
+  const subscriptions = new Map<string, AbortController>();
+  ipcMain.on("project:events-start", (event, nonce: unknown) => {
+    if (
+      event.senderFrame?.url !== entryUrl ||
+      typeof nonce !== "string" ||
+      !/^[0-9a-f-]{36}$/.test(nonce) ||
+      subscriptions.size >= 8
+    )
+      return;
+    const abort = new AbortController();
+    subscriptions.set(nonce, abort);
+    let after = 0;
+    const send = (kind: string, data: unknown) => {
+      if (!event.sender.isDestroyed())
+        event.sender.send("project:event", nonce, kind, data);
+    };
+    void (async () => {
+      try {
+        while (!abort.signal.aborted) {
+          try {
+            const response = await fetch(
+              `${baseUrl}/project/events?after=${after}`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+                signal: abort.signal,
+              },
+            );
+            if (!response.ok || !response.body) throw Error();
+            const decoder = new TextDecoder();
+            let pending = "";
+            const reader = response.body.getReader();
+            for (;;) {
+              const { done, value: chunk } = await reader.read();
+              if (done) break;
+              pending += decoder
+                .decode(chunk, { stream: true })
+                .replaceAll("\r\n", "\n");
+              if (pending.length > 1024 * 1024) throw Error();
+              let at;
+              while ((at = pending.indexOf("\n\n")) >= 0) {
+                const frame = pending.slice(0, at);
+                pending = pending.slice(at + 2);
+                const data = frame
+                  .split("\n")
+                  .filter((l) => l.startsWith("data:"))
+                  .map((l) => l.slice(5).trimStart())
+                  .join("\n");
+                if (frame.includes("event: resync_required")) {
+                  after = Number(data) || 0;
+                  send("resync", null);
+                } else if (data) {
+                  const item = JSON.parse(data);
+                  if (
+                    Number.isSafeInteger(item.sequence) &&
+                    item.sequence > after
+                  ) {
+                    after = item.sequence;
+                    send("event", item);
+                  }
+                }
+              }
+            }
+          } catch {}
+          if (!abort.signal.aborted)
+            await new Promise<void>((done) => {
+              const timer = setTimeout(done, 500);
+              abort.signal.addEventListener(
+                "abort",
+                () => {
+                  clearTimeout(timer);
+                  done();
+                },
+                { once: true },
+              );
+            });
+        }
+      } finally {
+        subscriptions.delete(nonce);
+      }
+    })();
+    const destroyed = () => abort.abort();
+    event.sender.once("destroyed", destroyed);
+    abort.signal.addEventListener(
+      "abort",
+      () => event.sender.removeListener("destroyed", destroyed),
+      { once: true },
+    );
+  });
+  ipcMain.on("project:events-stop", (event, nonce: unknown) => {
+    if (event.senderFrame?.url === entryUrl && typeof nonce === "string") {
+      subscriptions.get(nonce)?.abort();
+      subscriptions.delete(nonce);
+    }
+  });
   session.defaultSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => callback(false),
   );

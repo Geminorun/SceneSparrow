@@ -43,7 +43,7 @@ impl SqliteProjectRepository {
         db(File::open(self.directory.join("objects")).and_then(|f| f.sync_all()))?;
         Ok(digest)
     }
-    fn load(&self, c: &Connection) -> Result<ManuscriptState> {
+    pub(super) fn load(&self, c: &Connection) -> Result<ManuscriptState> {
         let row=db(c.query_row("SELECT id,workspace_stage,working_revision,snapshot_hash FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<String>>(3)?))).optional())?.ok_or(ManuscriptError("PROJECT_NOT_FOUND", None))?;
         let mut state = if let Some(digest) = row.3 {
             let bytes = db(std::fs::read(self.directory.join("objects").join(&digest)))?;
@@ -140,6 +140,9 @@ impl SqliteProjectRepository {
                 "DOCUMENT_TOO_LARGE",
                 "INVALID_REQUEST",
                 "DOCUMENT_INVALID",
+                "INVALID_URL",
+                "IMPORT_STALE",
+                "SOURCE_TEXT_UNAVAILABLE",
             ];
             return Err(ManuscriptError(
                 CODES
@@ -203,6 +206,7 @@ impl ManuscriptRepository for SqliteProjectRepository {
             return Err(ManuscriptError("PROJECT_NOT_FOUND", None));
         };
         let before = self.load(&c)?;
+        let sources_before = Self::source_members(&c)?;
         let mut identities = BTreeMap::new();
         {
             let mut stmt = db(c.prepare("SELECT id,high_water FROM object_identities"))?;
@@ -222,7 +226,14 @@ impl ManuscriptRepository for SqliteProjectRepository {
             // as surviving block revisions, before any object or state writes.
             let mut tombstone_revisions = BTreeMap::new();
             for id in &transition.affected {
-                if !transition.state.blocks.iter().any(|block| &block.id == id) {
+                if !transition.state.blocks.iter().any(|block| &block.id == id)
+                    && !transition
+                        .sources
+                        .as_ref()
+                        .unwrap_or(&sources_before)
+                        .iter()
+                        .any(|source| &source.id == id)
+                {
                     let previous = identities
                         .get(id)
                         .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
@@ -266,6 +277,21 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 );
             }
         }
+        let import_metadata = if let ManuscriptCommand::CommitManuscriptImport { payload, .. } =
+            command
+        {
+            let (input,result,attempt):(String,String,i64)=db(c.query_row("SELECT input_hash,result_hash,attempt FROM document_attempts WHERE id=?1 AND status='ready'",[&payload.prepared_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))))?;
+            let parsed: DocumentResult = db(serde_json::from_slice(&self.read_object(&result)?))?;
+            Some((
+                payload.prepared_id.clone(),
+                input,
+                result,
+                attempt,
+                parsed.parser,
+            ))
+        } else {
+            None
+        };
         let transaction = db(c.transaction())?;
         let current_revision: i64 = db(transaction.query_row(
             "SELECT working_revision FROM manuscripts WHERE singleton=1",
@@ -343,6 +369,14 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 let revision = if let Some(b) = transition.state.blocks.iter().find(|b| &b.id == id)
                 {
                     b.revision
+                } else if let Some(s) = transition
+                    .sources
+                    .as_ref()
+                    .unwrap_or(&sources_before)
+                    .iter()
+                    .find(|s| &s.id == id)
+                {
+                    s.revision
                 } else {
                     let revision = *tombstone_revisions
                         .get(id)
@@ -363,6 +397,34 @@ impl ManuscriptRepository for SqliteProjectRepository {
                     id: id.clone(),
                     revision,
                 });
+            }
+            self.commit_sources(&transaction, &sources_before, &transition)?;
+            if let ManuscriptCommand::AddSourceFile { payload, .. } = command {
+                db(transaction.execute(
+                    "UPDATE intakes SET status='cancelled',object_hash=NULL WHERE id=?1",
+                    [&payload.intake_id],
+                ))?;
+            }
+            if let Some((prepared, input, result, attempt, parser)) = &import_metadata {
+                let matches=db(transaction.query_row("SELECT 1 FROM document_attempts WHERE id=?1 AND attempt=?2 AND status='ready' AND input_hash=?3 AND result_hash=?4",params![prepared,attempt,input,result],|_|Ok(())).optional())?.is_some();
+                if !matches {
+                    return Err(ManuscriptError("IMPORT_STALE", None));
+                }
+                for block in &transition.state.blocks {
+                    if !before.blocks.iter().any(|b| b.id == block.id) {
+                        db(transaction.execute(
+                            "INSERT INTO import_provenance VALUES(?1,?2,?3,?4)",
+                            params![block.id, input, result, parser],
+                        ))?;
+                    }
+                }
+                db(transaction.execute(
+                    "UPDATE document_attempts SET status='cancelled',attempt=attempt+1 WHERE id=?1",
+                    [prepared],
+                ))?;
+            }
+            if transition.sources.is_some() {
+                db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'sources.changed',?2)",params![request,serde_json::json!({"workingRevision":transition.state.working_revision,"affectedIds":transition.affected}).to_string()]))?;
             }
             db(transaction.execute("UPDATE manuscripts SET snapshot_hash=?1,workspace_stage=?2,working_revision=?3 WHERE singleton=1",params![snapshot,match transition.state.workspace_stage{ManuscriptStateWorkspaceStage::Draft=>"draft",_=>"outline"},transition.state.working_revision]))?;
             db(transaction.execute(
@@ -391,7 +453,30 @@ impl ManuscriptRepository for SqliteProjectRepository {
         let receipt = CommandReceipt {
             request_id: request.to_owned(),
             working_revision: transition.state.working_revision,
-            block_revisions: revisions,
+            source_revisions: if transition.sources.is_some() {
+                Some(
+                    revisions
+                        .iter()
+                        .filter(|r| {
+                            sources_before.iter().any(|s| s.id == r.id)
+                                || transition
+                                    .sources
+                                    .as_ref()
+                                    .is_some_and(|ss| ss.iter().any(|s| s.id == r.id))
+                        })
+                        .cloned()
+                        .collect(),
+                )
+            } else {
+                None
+            },
+            block_revisions: revisions
+                .into_iter()
+                .filter(|r| {
+                    before.blocks.iter().any(|b| b.id == r.id)
+                        || transition.state.blocks.iter().any(|b| b.id == r.id)
+                })
+                .collect(),
             history_revision: history.metadata.history_revision,
             cursor: history.metadata.cursor,
             undo_count: history.metadata.undo_count,
@@ -405,6 +490,7 @@ impl ManuscriptRepository for SqliteProjectRepository {
             "INSERT INTO command_receipts VALUES(?1,?2,?3)",
             params![request, digest, db(serde_json::to_string(&receipt))?],
         ))?;
+        db(transaction.execute("DELETE FROM project_events WHERE sequence <= (SELECT COALESCE(MAX(sequence),0)-1000 FROM project_events)",[]))?;
         db(transaction.commit())?;
         Ok(receipt)
     }

@@ -12,7 +12,7 @@ pub(super) fn routes() -> Router<AppState> {
         )
         .route("/v1/commands/{request_id}", get(receipt))
 }
-fn result<T: serde::Serialize>(
+pub(super) fn result<T: serde::Serialize>(
     value: Result<T, ManuscriptError>,
     request_id: Option<String>,
 ) -> Response {
@@ -24,10 +24,14 @@ fn result<T: serde::Serialize>(
                     StatusCode::NOT_FOUND
                 }
                 "REVISION_CONFLICT" | "CONTENT_LOCKED" | "TASK_USING_CONTENT"
-                | "HISTORY_CONFLICT" | "HISTORY_BLOCKED" => StatusCode::CONFLICT,
-                "HISTORY_EMPTY" => StatusCode::UNPROCESSABLE_ENTITY,
+                | "HISTORY_CONFLICT" | "HISTORY_BLOCKED" | "IMPORT_STALE" => StatusCode::CONFLICT,
+                "HISTORY_EMPTY"
+                | "SOURCE_UNSUPPORTED"
+                | "SOURCE_ENCRYPTED"
+                | "SOURCE_TEXT_UNAVAILABLE"
+                | "TEXT_ENCODING_UNSUPPORTED" => StatusCode::UNPROCESSABLE_ENTITY,
                 "STORAGE_UNAVAILABLE" => StatusCode::INTERNAL_SERVER_ERROR,
-                "DOCUMENT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
+                "DOCUMENT_TOO_LARGE" | "INPUT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
                 _ => StatusCode::BAD_REQUEST,
             };
             (

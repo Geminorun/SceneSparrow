@@ -113,7 +113,7 @@ function rust(s, name) {
     return `Option<${rust({ ...s, type: s.type.find((t) => t !== "null"), enum: s.enum?.filter((v) => v !== null) }, name)}>`;
   if (s.enum && s.type === "string") {
     declarations.push(
-      `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub enum ${name} { ${s.enum.map((v) => `#[serde(rename = ${JSON.stringify(v)})] ${pascal(v).replaceAll("_", "")}`).join(",")} }`,
+      `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub enum ${name} { ${s.enum.map((v) => `#[serde(rename = ${JSON.stringify(v)})] ${pascal(v).replaceAll("_", "").replaceAll(".", "")}`).join(",")} }`,
     );
     return name;
   }
