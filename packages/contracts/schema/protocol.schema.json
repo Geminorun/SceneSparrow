@@ -120,6 +120,9 @@
         },
         "requestId": {
           "type": "string"
+        },
+        "details": {
+          "$ref": "#/definitions/HistoryErrorDetails"
         }
       }
     },
@@ -477,6 +480,135 @@
               "$ref": "#/definitions/EditPayload"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["UndoProject"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RedoProject"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CloseEditGroup"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/CloseGroupPayload"
+            }
+          }
         }
       ]
     },
@@ -536,12 +668,98 @@
         },
         "normalized": {
           "type": "boolean"
+        },
+        "undoLabel": {
+          "type": "string"
+        },
+        "redoLabel": {
+          "type": "string"
         }
       }
     },
     "BlockKind": {
       "type": "string",
       "enum": ["paragraph", "heading", "list_item"]
+    },
+    "HistoryState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workingRevision",
+        "historyRevision",
+        "cursor",
+        "undoCount",
+        "redoCount",
+        "undoLabel",
+        "redoLabel"
+      ],
+      "properties": {
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "historyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "redoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoLabel": {
+          "type": ["string", "null"]
+        },
+        "redoLabel": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CloseGroupPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientSessionId", "groupId", "groupSequence"],
+      "properties": {
+        "clientSessionId": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "groupSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "HistoryErrorDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "affectedIds"],
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

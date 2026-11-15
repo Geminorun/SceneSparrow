@@ -54,7 +54,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 2 {
+        if version > 3 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -83,6 +83,57 @@ impl SqliteProjectRepository {
             }
             storage(transaction.commit())?;
         }
+        if version < 3 {
+            // Backup API pins committed WAL pages. Preserve object bytes alongside the
+            // database so future GC cannot invalidate a pre-migration restore point.
+            let backup_directory =
+                directory.join(format!("pre-migration-003-{}", uuid::Uuid::new_v4()));
+            storage(std::fs::create_dir(&backup_directory))?;
+            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let objects = backup_directory.join("objects");
+            storage(std::fs::create_dir(&objects))?;
+            if directory.join("objects").exists() {
+                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
+                    let entry = storage(entry)?;
+                    if storage(entry.file_type())?.is_file() {
+                        let destination = objects.join(entry.file_name());
+                        storage(std::fs::copy(entry.path(), &destination))?;
+                        if storage(std::fs::read(entry.path()))?
+                            != storage(std::fs::read(&destination))?
+                        {
+                            return Err(Error::Storage);
+                        }
+                        // Windows FlushFileBuffers requires a writable file handle.
+                        storage(
+                            File::options()
+                                .read(true)
+                                .write(true)
+                                .open(destination)
+                                .and_then(|file| file.sync_all()),
+                        )?;
+                    }
+                }
+            }
+            storage(
+                File::options()
+                    .read(true)
+                    .write(true)
+                    .open(backup_directory.join("project.sqlite"))
+                    .and_then(|file| file.sync_all()),
+            )?;
+            #[cfg(unix)]
+            {
+                storage(File::open(&objects).and_then(|file| file.sync_all()))?;
+                storage(File::open(&backup_directory).and_then(|file| file.sync_all()))?;
+                storage(File::open(directory).and_then(|file| file.sync_all()))?;
+            }
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
+            storage(transaction.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
@@ -92,10 +143,25 @@ impl SqliteProjectRepository {
             _owner: owner,
         };
         repository.verify_manuscript()?;
-        storage(
-            storage(repository.connection.lock())?
-                .execute("UPDATE edit_groups SET closed=1 WHERE closed=0", []),
-        )?;
+        {
+            let mut c = storage(repository.connection.lock())?;
+            let tx = storage(c.transaction())?;
+            let closed = storage(tx.execute(
+                "UPDATE edit_groups SET closed=1,before_hash=NULL,after_hash='' WHERE closed=0",
+                [],
+            ))?;
+            if closed > 0 {
+                let revision: i64 = storage(tx.query_row(
+                    "SELECT history_revision FROM history_cursor",
+                    [],
+                    |r| r.get(0),
+                ))?;
+                let next =
+                    scenesparrow_domain::manuscript::next_revision(revision).unwrap_or(revision);
+                storage(tx.execute("UPDATE history_cursor SET history_revision=?1", [next]))?;
+            }
+            storage(tx.commit())?;
+        }
         Ok(repository)
     }
     pub fn with_policy(
@@ -191,6 +257,7 @@ mod tests {
     }
 }
 
+mod history;
 pub mod manuscript;
 #[cfg(test)]
 mod manuscript_tests;

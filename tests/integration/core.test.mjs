@@ -175,6 +175,84 @@ test("a real core process restores the same project after restart", async () => 
       })
     ).json();
     assert.deepEqual(repeated, original);
+    assert.equal((await fetch(`${base}/history`)).status, 401);
+    const second = {
+      ...edit,
+      requestId: randomUUID(),
+      expectedWorkingRevision: 2,
+      payload: {
+        ...edit.payload,
+        operations: [
+          {
+            op: "setBlockContent",
+            id: blockId,
+            runs: [{ text: "Later body", marks: [] }],
+          },
+        ],
+        expectedBlockRevisions: [{ id: blockId, revision: 1 }],
+        group: {
+          ...edit.payload.group,
+          clientSessionId: randomUUID(),
+          groupId: randomUUID(),
+          kind: "discrete",
+        },
+      },
+    };
+    assert.equal((await send(second)).status, 200);
+    const history = await (await fetch(`${base}/history`, { headers })).json();
+    const undo = {
+      type: "UndoProject",
+      requestId: randomUUID(),
+      projectId: original.project.id,
+      expectedWorkingRevision: history.workingRevision,
+      expectedHistoryRevision: history.historyRevision,
+      expectedCursor: history.cursor,
+      payload: {},
+    };
+    const undoResponse = await send(undo);
+    assert.equal(undoResponse.status, 200);
+    const undoReceipt = await undoResponse.json();
+    const middle = await (
+      await fetch(`${base}/manuscript`, { headers })
+    ).json();
+    const middleHistory = await (
+      await fetch(`${base}/history`, { headers })
+    ).json();
+    assert.equal(
+      middle.blocks[0].runs[0].text,
+      manuscript.blocks[0].runs[0].text,
+    );
+    assert.ok(middle.blocks[0].revision > manuscript.blocks[0].revision);
+    assert.equal(middleHistory.redoCount, 1);
+    await stop();
+    await launch();
+    assert.deepEqual(
+      await (await fetch(`${base}/manuscript`, { headers })).json(),
+      middle,
+    );
+    assert.deepEqual(
+      await (await fetch(`${base}/history`, { headers })).json(),
+      middleHistory,
+    );
+    assert.deepEqual(await (await send(undo)).json(), undoReceipt);
+    const changed = await send({
+      ...undo,
+      expectedWorkingRevision: middle.workingRevision,
+    });
+    assert.equal(changed.status, 400);
+    assert.equal((await changed.json()).code, "REQUEST_ID_CONFLICT");
+    const redo = {
+      ...undo,
+      type: "RedoProject",
+      requestId: randomUUID(),
+      expectedWorkingRevision: middle.workingRevision,
+      expectedHistoryRevision: middleHistory.historyRevision,
+      expectedCursor: middleHistory.cursor,
+    };
+    assert.equal((await send(redo)).status, 200);
+    const final = await (await fetch(`${base}/manuscript`, { headers })).json();
+    assert.equal(final.blocks[0].runs[0].text, "Later body");
+    assert.ok(final.blocks[0].revision > middle.blocks[0].revision);
   } finally {
     await stop();
     await rm(directory, { recursive: true, force: true });

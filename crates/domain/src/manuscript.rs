@@ -11,10 +11,21 @@ pub const MAX_OPERATIONS: usize = 10_000;
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 #[error("{0}")]
-pub struct ManuscriptError(pub &'static str);
+pub struct ManuscriptError(pub &'static str, pub Option<HistoryErrorDetails>);
+impl ManuscriptError {
+    pub fn history_blocked(reason: &str, affected: &BTreeSet<String>) -> Self {
+        Self(
+            "HISTORY_BLOCKED",
+            Some(HistoryErrorDetails {
+                reason: reason.to_owned(),
+                affected_ids: affected.iter().cloned().collect(),
+            }),
+        )
+    }
+}
 type Result<T> = std::result::Result<T, ManuscriptError>;
 fn invalid<T>() -> Result<T> {
-    Err(ManuscriptError("DOCUMENT_INVALID"))
+    Err(ManuscriptError("DOCUMENT_INVALID", None))
 }
 pub fn uuid4(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok_and(|v| {
@@ -23,7 +34,7 @@ pub fn uuid4(id: &str) -> bool {
 }
 pub fn next_revision(v: i64) -> Result<i64> {
     if !(0..MAX_REVISION).contains(&v) {
-        return Err(ManuscriptError("REVISION_EXHAUSTED"));
+        return Err(ManuscriptError("REVISION_EXHAUSTED", None));
     }
     Ok(v + 1)
 }
@@ -38,7 +49,7 @@ pub fn normalize(state: &mut ManuscriptState) -> Result<bool> {
         return invalid();
     }
     if state.blocks.len() > MAX_BLOCKS {
-        return Err(ManuscriptError("DOCUMENT_TOO_LARGE"));
+        return Err(ManuscriptError("DOCUMENT_TOO_LARGE", None));
     }
     if state.workspace_stage == ManuscriptStateWorkspaceStage::Outline && !state.blocks.is_empty() {
         return invalid();
@@ -76,7 +87,7 @@ pub fn normalize(state: &mut ManuscriptState) -> Result<bool> {
                 let depth = block
                     .attrs
                     .depth
-                    .ok_or(ManuscriptError("DOCUMENT_INVALID"))?;
+                    .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
                 if block.attrs.level.is_some()
                     || block.attrs.list_kind.is_none()
                     || !(0..=3).contains(&depth)
@@ -114,9 +125,9 @@ pub fn normalize(state: &mut ManuscriptState) -> Result<bool> {
                         let href = mark
                             .href
                             .as_ref()
-                            .ok_or(ManuscriptError("DOCUMENT_INVALID"))?;
+                            .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
                         let url = url::Url::parse(href)
-                            .map_err(|_| ManuscriptError("DOCUMENT_INVALID"))?;
+                            .map_err(|_| ManuscriptError("DOCUMENT_INVALID", None))?;
                         if !["http", "https", "mailto"].contains(&url.scheme())
                             || href.chars().any(char::is_control)
                         {
@@ -143,17 +154,17 @@ pub fn normalize(state: &mut ManuscriptState) -> Result<bool> {
         }
         block.runs = runs;
         if bytes > MAX_BLOCK_BYTES {
-            return Err(ManuscriptError("DOCUMENT_TOO_LARGE"));
+            return Err(ManuscriptError("DOCUMENT_TOO_LARGE", None));
         }
         total += bytes;
     }
     if total > MAX_TEXT_BYTES
         || serde_json::to_vec(state)
-            .map_err(|_| ManuscriptError("DOCUMENT_INVALID"))?
+            .map_err(|_| ManuscriptError("DOCUMENT_INVALID", None))?
             .len()
             > MAX_DOCUMENT_BYTES
     {
-        return Err(ManuscriptError("DOCUMENT_TOO_LARGE"));
+        return Err(ManuscriptError("DOCUMENT_TOO_LARGE", None));
     }
     Ok(*state != before)
 }
@@ -190,6 +201,24 @@ pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
             expected_working_revision,
             ..
         }
+        | ManuscriptCommand::UndoProject {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::RedoProject {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::CloseEditGroup {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
         | ManuscriptCommand::ApplyDocumentEdit {
             request_id,
             project_id,
@@ -202,7 +231,7 @@ fn index(blocks: &[Block], id: &str) -> Result<usize> {
     blocks
         .iter()
         .position(|b| b.id == id)
-        .ok_or(ManuscriptError("OBJECT_NOT_FOUND"))
+        .ok_or(ManuscriptError("OBJECT_NOT_FOUND", None))
 }
 fn destination(blocks: &[Block], after: &Option<String>) -> Result<usize> {
     after
@@ -258,10 +287,10 @@ pub fn apply(
 ) -> Result<Transition> {
     let (request, project, expected) = envelope(command);
     if !uuid4(request) || !uuid4(project) {
-        return Err(ManuscriptError("INVALID_REQUEST"));
+        return Err(ManuscriptError("INVALID_REQUEST", None));
     }
     if expected != before.working_revision {
-        return Err(ManuscriptError("REVISION_CONFLICT"));
+        return Err(ManuscriptError("REVISION_CONFLICT", None));
     }
     let mut state = before.clone();
     let mut structural = BTreeSet::new();
@@ -270,9 +299,14 @@ pub fn apply(
     match command {
         ManuscriptCommand::StartManualDraft { .. } => {
             if state.workspace_stage != ManuscriptStateWorkspaceStage::Outline {
-                return Err(ManuscriptError("REVISION_CONFLICT"));
+                return Err(ManuscriptError("REVISION_CONFLICT", None));
             }
             state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
+        }
+        ManuscriptCommand::UndoProject { .. }
+        | ManuscriptCommand::RedoProject { .. }
+        | ManuscriptCommand::CloseEditGroup { .. } => {
+            return Err(ManuscriptError("INVALID_REQUEST", None));
         }
         ManuscriptCommand::ApplyDocumentEdit { payload, .. } => {
             if state.workspace_stage != ManuscriptStateWorkspaceStage::Draft
@@ -281,7 +315,7 @@ pub fn apply(
                 || !uuid4(&payload.group.client_session_id)
                 || payload.group.group_sequence < 1
             {
-                return Err(ManuscriptError("INVALID_REQUEST"));
+                return Err(ManuscriptError("INVALID_REQUEST", None));
             }
             for op in &payload.operations {
                 match op {
@@ -355,14 +389,14 @@ pub fn apply(
             for id in referenced.iter().filter(|id| !inserted.contains(*id)) {
                 let old = &before.blocks[index(&before.blocks, id)?];
                 if expected.get(id) != Some(&old.revision) {
-                    return Err(ManuscriptError("REVISION_CONFLICT"));
+                    return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
             }
             // A caller may supply a revision precondition superset; it never
             // expands mutation-policy scope or authorizes changes to those IDs.
             for (id, revision) in &expected {
                 if before.blocks[index(&before.blocks, id)?].revision != *revision {
-                    return Err(ManuscriptError("REVISION_CONFLICT"));
+                    return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
             }
         }
@@ -437,7 +471,7 @@ pub fn apply(
                     .iter()
                     .any(|r| r.id == *id && r.revision == old.revision)
             {
-                return Err(ManuscriptError("REVISION_CONFLICT"));
+                return Err(ManuscriptError("REVISION_CONFLICT", None));
             }
         }
     }
@@ -456,6 +490,114 @@ pub fn apply(
         state,
         affected,
         normalized,
+    })
+}
+
+/// Business-only roots deliberately exclude tokens, receipts, events and runtime rows.
+/// Later source/review/lock fields extend this versioned project root and the same cursor.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BusinessSnapshot {
+    pub version: u32,
+    pub workspace_stage: ManuscriptStateWorkspaceStage,
+    pub blocks: Vec<NewBlock>,
+}
+impl BusinessSnapshot {
+    pub fn capture(state: &ManuscriptState) -> Self {
+        Self {
+            version: 1,
+            workspace_stage: state.workspace_stage.clone(),
+            blocks: state
+                .blocks
+                .iter()
+                .map(|b| NewBlock {
+                    id: b.id.clone(),
+                    kind: b.kind.clone(),
+                    attrs: b.attrs.clone(),
+                    runs: b.runs.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+/// Restore business fields only; every actual affected identity receives a fresh token.
+pub fn restore(
+    before: &ManuscriptState,
+    target: &BusinessSnapshot,
+    identities: &BTreeMap<String, i64>,
+    recorded: &BTreeSet<String>,
+    policy: &dyn MutationPolicy,
+) -> Result<Transition> {
+    if target.version != 1 {
+        return Err(ManuscriptError::history_blocked(
+            "SCHEMA_UNSUPPORTED",
+            recorded,
+        ));
+    }
+    let mut state = before.clone();
+    state.workspace_stage = target.workspace_stage.clone();
+    state.blocks = target
+        .blocks
+        .iter()
+        .map(|b| Block {
+            id: b.id.clone(),
+            kind: b.kind.clone(),
+            attrs: b.attrs.clone(),
+            runs: b.runs.clone(),
+            revision: before
+                .blocks
+                .iter()
+                .find(|old| old.id == b.id)
+                .map_or(1, |old| old.revision),
+        })
+        .collect();
+    normalize(&mut state)?;
+    let mut affected = BTreeSet::new();
+    let old_ancestry = ancestry(&before.blocks);
+    let new_ancestry = ancestry(&state.blocks);
+    let old_order: Vec<_> = before
+        .blocks
+        .iter()
+        .filter(|b| state.blocks.iter().any(|v| v.id == b.id))
+        .map(|b| &b.id)
+        .collect();
+    let new_order: Vec<_> = state
+        .blocks
+        .iter()
+        .filter(|b| before.blocks.iter().any(|v| v.id == b.id))
+        .map(|b| &b.id)
+        .collect();
+    for b in before.blocks.iter().chain(state.blocks.iter()) {
+        let old = before.blocks.iter().position(|v| v.id == b.id);
+        let new = state.blocks.iter().position(|v| v.id == b.id);
+        if old.is_none()
+            || new.is_none()
+            || (old_order != new_order && recorded.contains(&b.id))
+            || old
+                .zip(new)
+                .is_some_and(|(i, j)| before.blocks[i] != state.blocks[j])
+            || old_ancestry.get(&b.id) != new_ancestry.get(&b.id)
+        {
+            affected.insert(b.id.clone());
+        }
+    }
+    policy
+        .validate(before, &state, &affected)
+        .map_err(|error| ManuscriptError::history_blocked(error.0, &affected))?;
+    state.working_revision = next_revision(before.working_revision)?;
+    for b in &mut state.blocks {
+        if affected.contains(&b.id) {
+            b.revision =
+                next_revision(*identities.get(&b.id).ok_or_else(|| {
+                    ManuscriptError::history_blocked("IDENTITY_MISSING", recorded)
+                })?)?;
+        }
+    }
+    normalize(&mut state)?;
+    Ok(Transition {
+        state,
+        affected,
+        normalized: false,
     })
 }
 

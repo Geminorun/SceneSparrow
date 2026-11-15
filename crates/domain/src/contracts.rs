@@ -226,6 +226,51 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: EditPayload,
     },
+    #[serde(rename = "UndoProject")]
+    UndoProject {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "expectedHistoryRevision")]
+        expected_history_revision: i64,
+        #[serde(rename = "expectedCursor")]
+        expected_cursor: i64,
+        #[serde(rename = "payload")]
+        payload: EmptyPayload,
+    },
+    #[serde(rename = "RedoProject")]
+    RedoProject {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "expectedHistoryRevision")]
+        expected_history_revision: i64,
+        #[serde(rename = "expectedCursor")]
+        expected_cursor: i64,
+        #[serde(rename = "payload")]
+        payload: EmptyPayload,
+    },
+    #[serde(rename = "CloseEditGroup")]
+    CloseEditGroup {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "expectedHistoryRevision")]
+        expected_history_revision: i64,
+        #[serde(rename = "expectedCursor")]
+        expected_cursor: i64,
+        #[serde(rename = "payload")]
+        payload: CloseGroupPayload,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -248,6 +293,20 @@ pub struct CommandReceipt {
     pub event_sequence: i64,
     #[serde(rename = "normalized")]
     pub normalized: bool,
+    #[serde(
+        rename = "undoLabel",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub undo_label: Option<String>,
+    #[serde(
+        rename = "redoLabel",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub redo_label: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockKind {
@@ -257,4 +316,40 @@ pub enum BlockKind {
     Heading,
     #[serde(rename = "list_item")]
     Listitem,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryState {
+    #[serde(rename = "workingRevision")]
+    pub working_revision: i64,
+    #[serde(rename = "historyRevision")]
+    pub history_revision: i64,
+    #[serde(rename = "cursor")]
+    pub cursor: i64,
+    #[serde(rename = "undoCount")]
+    pub undo_count: i64,
+    #[serde(rename = "redoCount")]
+    pub redo_count: i64,
+    #[serde(rename = "undoLabel", deserialize_with = "required_nullable")]
+    pub undo_label: Option<String>,
+    #[serde(rename = "redoLabel", deserialize_with = "required_nullable")]
+    pub redo_label: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloseGroupPayload {
+    #[serde(rename = "clientSessionId")]
+    pub client_session_id: String,
+    #[serde(rename = "groupId")]
+    pub group_id: String,
+    #[serde(rename = "groupSequence")]
+    pub group_sequence: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HistoryErrorDetails {
+    #[serde(rename = "reason")]
+    pub reason: String,
+    #[serde(rename = "affectedIds")]
+    pub affected_ids: Vec<String>,
 }

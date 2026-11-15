@@ -3,6 +3,7 @@ import type {
   ManuscriptState,
   NewBlock,
   CommandReceipt,
+  HistoryState,
 } from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import { edits } from "./canonical";
@@ -29,19 +30,250 @@ export class Autosave {
   } | null = null;
   private session = crypto.randomUUID();
   private group = crypto.randomUUID();
-  private sequence = 0;
+  private segments: {
+    blocks: NewBlock[];
+    group: string;
+    kind: "typing" | "discrete";
+  }[] = [];
+  private sequences = new Map<string, number>();
+  private acknowledgedGroup: {
+    clientSessionId: string;
+    groupId: string;
+    groupSequence: number;
+  } | null = null;
+  private generation = 0;
+  private capturedGeneration = -1;
+  private capture() {
+    if (this.capturedGeneration === this.generation) return;
+    this.capturedGeneration = this.generation;
+    if (this.same()) return;
+    this.segments.push({
+      blocks: structuredClone(this.local),
+      group: this.group,
+      kind: this.groupKind,
+    });
+  }
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private groupKind: "typing" | "discrete" = "typing";
+  private controls: Promise<unknown> = Promise.resolve();
+  private controlPending: ManuscriptCommand | null = null;
+  history: HistoryState;
+  busy = false;
+  canonicalVersion = 0;
+  acting = false;
+  private freshGroup() {
+    this.group = crypto.randomUUID();
+    this.groupKind = "typing";
+  }
+  private acceptHistory(receipt: CommandReceipt) {
+    this.history = {
+      ...this.history,
+      workingRevision: receipt.workingRevision,
+      historyRevision: receipt.historyRevision,
+      cursor: receipt.cursor,
+      undoCount: receipt.undoCount,
+      redoCount: receipt.redoCount,
+      undoLabel: receipt.undoLabel ?? null,
+      redoLabel: receipt.redoLabel ?? null,
+    };
+  }
+  private enqueue<T>(action: () => Promise<T>): Promise<T> {
+    const task = this.controls.then(action);
+    this.controls = task.catch(() => {});
+    return task;
+  }
+  boundary() {
+    if (this.disposed || this.composing) return Promise.resolve(false);
+    clearTimeout(this.idleTimer);
+    this.capture();
+    this.freshGroup();
+    return this.enqueue(() => this.settle());
+  }
+  private async closeGroup(): Promise<boolean> {
+    if (!this.acknowledgedGroup && !this.controlPending) return true;
+    return this.control("CloseEditGroup");
+  }
+  discrete(action: () => unknown) {
+    if (this.disposed || this.composing) return Promise.resolve(false);
+    const blocked =
+      !!this.conversionError || ["error", "conflict"].includes(this.status);
+    clearTimeout(this.idleTimer);
+    if (!this.conversionError) this.capture();
+    this.freshGroup();
+    this.groupKind = "discrete";
+    this.acting = true;
+    try {
+      action();
+    } finally {
+      this.acting = false;
+    }
+    if (!this.conversionError) this.capture();
+    this.freshGroup();
+    return blocked
+      ? Promise.resolve(false)
+      : this.enqueue(async () => this.drain());
+  }
+  navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
+    const requestedVisible = JSON.stringify(this.local);
+    return this.enqueue(async () => {
+      if (this.controlPending) {
+        const type = this.controlPending.type as
+          "UndoProject" | "RedoProject" | "CloseEditGroup";
+        const ok = await this.control(type);
+        if (ok && type !== "CloseEditGroup" && !this.disposed) apply();
+        return ok;
+      }
+      if (this.composing || !(await this.settle())) return false;
+      if (JSON.stringify(this.local) !== requestedVisible) {
+        this.error = "REVISION_CONFLICT";
+        this.status = "conflict";
+        this.latest = this.state;
+        this.notify();
+        return false;
+      }
+      if (
+        (direction === "UndoProject"
+          ? this.history.undoCount
+          : this.history.redoCount) === 0
+      )
+        return true;
+      const ok = await this.control(direction);
+      if (ok && !this.disposed) apply();
+      return ok;
+    });
+  }
+  controlledClose(retry = false) {
+    clearTimeout(this.idleTimer);
+    return this.enqueue(() => this.settle(retry));
+  }
+  private async settle(retry = false): Promise<boolean> {
+    for (;;) {
+      if (!(await this.drain(retry)) || !(await this.closeGroup()))
+        return false;
+      if (this.disposed || this.composing || this.conversionError) return false;
+      if (this.same() && !this.acknowledgedGroup && !this.controlPending)
+        return true;
+      retry = false;
+    }
+  }
+  private async control(
+    type: "UndoProject" | "RedoProject" | "CloseEditGroup",
+  ): Promise<boolean> {
+    if (this.disposed || this.composing || this.conversionError) return false;
+    const command =
+      this.controlPending ??
+      ({
+        type,
+        requestId: crypto.randomUUID(),
+        projectId: this.projectId,
+        expectedWorkingRevision: this.state.workingRevision,
+        expectedHistoryRevision: this.history.historyRevision,
+        expectedCursor: this.history.cursor,
+        payload: type === "CloseEditGroup" ? this.acknowledgedGroup! : {},
+      } as ManuscriptCommand);
+    this.controlPending = command;
+    const visible = JSON.stringify(this.local);
+    this.busy = true;
+    this.notify();
+    const task = (async () => {
+      try {
+        const receipt = await this.resolve(command);
+        this.acceptHistory(receipt);
+        if (command.type !== "CloseEditGroup") {
+          const canonical = await this.client.readManuscript();
+          if (
+            canonical.workingRevision !== receipt.workingRevision ||
+            JSON.stringify(this.local) !== visible ||
+            this.conversionError
+          )
+            throw new ApiError("REVISION_CONFLICT");
+          this.state = canonical;
+          this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
+          this.canonicalVersion++;
+        }
+        if (command.type === "CloseEditGroup") {
+          this.acknowledgedGroup = null;
+          if (this.group === command.payload.groupId) this.freshGroup();
+          for (const segment of this.segments)
+            if (segment.group === command.payload.groupId)
+              segment.group = this.group;
+        } else {
+          this.acknowledgedGroup = null;
+          this.segments = [];
+          this.freshGroup();
+        }
+        this.error = "";
+        this.status = this.same() ? "saved" : "pending";
+        // Read operation labels from the same authenticated project boundary.
+        const metadata = await this.client.readHistory();
+        if (
+          metadata.workingRevision !== this.state.workingRevision ||
+          metadata.historyRevision !== receipt.historyRevision
+        )
+          throw new ApiError("HISTORY_CONFLICT");
+        this.history = metadata;
+        this.controlPending = null;
+        if (this.conversionError) {
+          this.status = "error";
+          this.error = this.conversionError;
+          return false;
+        }
+        return true;
+      } catch (error) {
+        this.error =
+          error instanceof Error ? error.message : "STORAGE_UNAVAILABLE";
+        this.status =
+          error instanceof ApiError &&
+          ["REVISION_CONFLICT", "HISTORY_CONFLICT"].includes(error.code)
+            ? "conflict"
+            : "error";
+        if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE")
+          this.controlPending = null;
+        if (this.status === "conflict") {
+          try {
+            this.latest = await this.client.readManuscript();
+          } catch {
+            /* Recovery remains available. */
+          }
+        }
+        return false;
+      } finally {
+        this.inFlight = null;
+        this.busy = false;
+        if (this.conversionError) {
+          this.status = "error";
+          this.error = this.conversionError;
+        }
+        this.notify();
+        if (this.status === "pending") this.schedule();
+      }
+    })();
+    this.inFlight = task;
+    return task;
+  }
   constructor(
     public state: ManuscriptState,
     private projectId: string,
     private client: PlatformClient,
     private changed: () => void,
+    history?: HistoryState,
   ) {
+    this.history = history ?? {
+      workingRevision: state.workingRevision,
+      historyRevision: 0,
+      cursor: 0,
+      undoCount: 0,
+      redoCount: 0,
+      undoLabel: null,
+      redoLabel: null,
+    };
     this.local = state.blocks.map(({ revision: _, ...b }) => b);
   }
   private same() {
     return (
+      this.segments.length === 0 &&
       JSON.stringify(this.local) ===
-      JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b))
+        JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b))
     );
   }
   invalidate(error: string, rawText: string) {
@@ -56,6 +288,11 @@ export class Autosave {
     this.conversionError = null;
     this.recoveryText = null;
     this.local = blocks;
+    this.generation++;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (!this.composing && !this.disposed) void this.boundary();
+    }, 750);
     if (this.status === "error" || this.status === "conflict") {
       this.notify();
       return;
@@ -69,6 +306,7 @@ export class Autosave {
     this.composing = active;
     if (active) clearTimeout(this.timer);
     else this.schedule();
+    this.notify();
   }
   private schedule() {
     if (this.disposed) return;
@@ -105,24 +343,41 @@ export class Autosave {
     }
   }
   async start() {
-    if (this.inFlight || this.unresolved) return false;
-    const command: ManuscriptCommand = {
-      type: "StartManualDraft",
-      requestId: crypto.randomUUID(),
-      projectId: this.projectId,
-      expectedWorkingRevision: this.state.workingRevision,
-      payload: {},
-    };
-    this.unresolved = { command, blocks: [] };
-    return this.flush(true);
+    return this.enqueue(async () => {
+      if (this.inFlight || this.unresolved || this.controlPending) return false;
+      const command: ManuscriptCommand = {
+        type: "StartManualDraft",
+        requestId: crypto.randomUUID(),
+        projectId: this.projectId,
+        expectedWorkingRevision: this.state.workingRevision,
+        payload: {},
+      };
+      this.unresolved = { command, blocks: [] };
+      return this.drain(true);
+    });
   }
-  async flush(retry = false): Promise<boolean> {
+  flush(retry = false): Promise<boolean> {
+    if (this.disposed || this.composing || this.conversionError)
+      return Promise.resolve(false);
+    return this.enqueue(() => this.drain(retry));
+  }
+  private async drain(retry = false): Promise<boolean> {
     if (this.disposed) return false;
     clearTimeout(this.timer);
     if (this.composing || this.conversionError) return false;
+    if (this.controlPending && !this.inFlight) {
+      if (
+        !retry ||
+        !(await this.control(
+          this.controlPending.type as
+            "UndoProject" | "RedoProject" | "CloseEditGroup",
+        ))
+      )
+        return false;
+    }
     if (this.inFlight) {
       const ok = await this.inFlight;
-      return ok ? this.flush() : false;
+      return ok ? this.drain() : false;
     }
     if (!retry && ["error", "conflict"].includes(this.status)) return false;
     if (this.status === "conflict") return false;
@@ -133,9 +388,39 @@ export class Autosave {
         this.notify();
         return true;
       }
+      while (
+        this.segments.length &&
+        JSON.stringify(this.segments[0]!.blocks) ===
+          JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b))
+      )
+        this.segments.shift();
+      if (this.same()) {
+        this.status = "saved";
+        this.firstPending = 0;
+        this.notify();
+        return true;
+      }
+      const segment = this.segments.shift() ?? {
+        blocks: structuredClone(this.local),
+        group: this.group,
+        kind: this.groupKind,
+      };
+      if (
+        this.acknowledgedGroup &&
+        this.acknowledgedGroup.groupId !== segment.group
+      ) {
+        if (!(await this.closeGroup())) {
+          this.segments.unshift(segment);
+          return false;
+        }
+        if (this.disposed || this.conversionError || this.composing) {
+          this.segments.unshift(segment);
+          return false;
+        }
+      }
       let payload;
       try {
-        payload = edits(this.state.blocks, this.local);
+        payload = edits(this.state.blocks, segment.blocks);
       } catch (error) {
         this.status = "error";
         this.error =
@@ -152,13 +437,14 @@ export class Autosave {
           ...payload,
           group: {
             clientSessionId: this.session,
-            groupId: this.group,
-            groupSequence: ++this.sequence,
-            kind: "typing",
+            groupId: segment.group,
+            groupSequence: (this.sequences.get(segment.group) ?? 0) + 1,
+            kind: segment.kind,
           },
         },
       };
-      this.unresolved = { command, blocks: structuredClone(this.local) };
+      this.sequences.set(segment.group, command.payload.group.groupSequence);
+      this.unresolved = { command, blocks: segment.blocks };
     }
     const sent = this.unresolved;
     this.status = "saving";
@@ -167,6 +453,13 @@ export class Autosave {
       try {
         // A retry always resolves/replays the original identity before any newer edit.
         const receipt = await this.resolve(sent.command);
+        this.acceptHistory(receipt);
+        if (sent.command.type === "ApplyDocumentEdit")
+          this.acknowledgedGroup = {
+            clientSessionId: sent.command.payload.group.clientSessionId,
+            groupId: sent.command.payload.group.groupId,
+            groupSequence: sent.command.payload.group.groupSequence,
+          };
         if (receipt.normalized) {
           const canonical = await this.client.readManuscript();
           if (canonical.workingRevision !== receipt.workingRevision)
@@ -221,8 +514,9 @@ export class Autosave {
         if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE") {
           this.unresolved = null;
           if (sent.command.type === "ApplyDocumentEdit") {
-            this.group = crypto.randomUUID();
-            this.sequence = 0;
+            this.segments = [];
+            this.acknowledgedGroup = null;
+            this.freshGroup();
           }
         }
         return false;
@@ -243,17 +537,27 @@ export class Autosave {
     const ok = await this.inFlight;
     if (this.conversionError) return false;
     return ok && !this.disposed && !this.composing && !this.same()
-      ? this.flush()
+      ? this.drain()
       : ok;
   }
-  async reload() {
+  reload() {
+    return this.enqueue(() => this.reloadSaved());
+  }
+  private async reloadSaved() {
     if (this.inFlight) return false;
     try {
-      this.state = await this.client.readManuscript();
+      const state = await this.client.readManuscript();
+      const history = await this.client.readHistory();
+      if (history.workingRevision !== state.workingRevision)
+        throw new ApiError("REVISION_CONFLICT");
+      this.state = state;
+      this.history = history;
+      this.controlPending = null;
       this.local = this.state.blocks.map(({ revision: _, ...b }) => b);
       this.unresolved = null;
+      this.segments = [];
+      this.acknowledgedGroup = null;
       this.group = crypto.randomUUID();
-      this.sequence = 0;
       this.conversionError = null;
       this.recoveryText = null;
       this.status = "saved";
@@ -269,5 +573,6 @@ export class Autosave {
   dispose() {
     this.disposed = true;
     clearTimeout(this.timer);
+    clearTimeout(this.idleTimer);
   }
 }

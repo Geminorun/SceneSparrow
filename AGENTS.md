@@ -41,8 +41,10 @@
   authenticated local API, SQLite storage, and a procedural render sample. Read
   `docs/development.md` for setup and limitations. Step 1 adds canonical manuscript
   editing, monotonic revisions, immutable objects, receipts, autosave and recovery;
-  evidence is in `docs/validation/step-01.md`. History, sources/import, production
-  locks/review, AI and export follow in later steps. Applied migrations are
+  evidence is in `docs/validation/step-01.md`. Step 2 adds persistent five-step
+  project history, grouped input and shared toolbar/keyboard routing; see
+  `docs/validation/step-02.md`. Sources/import, production locks/review, AI and
+  export follow in later steps. Applied migrations are
   immutable; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;

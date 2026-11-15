@@ -6,11 +6,11 @@ use scenesparrow_domain::{
 };
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Write};
-type Result<T> = std::result::Result<T, ManuscriptError>;
-fn db<T>(r: std::result::Result<T, impl std::fmt::Debug>) -> Result<T> {
-    r.map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE"))
+pub(super) type Result<T> = std::result::Result<T, ManuscriptError>;
+pub(super) fn db<T>(r: std::result::Result<T, impl std::fmt::Debug>) -> Result<T> {
+    r.map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))
 }
-fn hash(bytes: &[u8]) -> String {
+pub(super) fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 pub(super) fn initialize(c: &Connection) -> std::result::Result<(), Error> {
@@ -21,12 +21,12 @@ pub(super) fn initialize(c: &Connection) -> std::result::Result<(), Error> {
     Ok(())
 }
 impl SqliteProjectRepository {
-    fn object(&self, bytes: &[u8]) -> Result<String> {
+    pub(super) fn object(&self, bytes: &[u8]) -> Result<String> {
         let digest = hash(bytes);
         let path = self.directory.join("objects").join(&digest);
         if path.exists() {
             if db(std::fs::read(&path))? != bytes {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
             return Ok(digest);
         }
@@ -44,11 +44,11 @@ impl SqliteProjectRepository {
         Ok(digest)
     }
     fn load(&self, c: &Connection) -> Result<ManuscriptState> {
-        let row=db(c.query_row("SELECT id,workspace_stage,working_revision,snapshot_hash FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<String>>(3)?))).optional())?.ok_or(ManuscriptError("PROJECT_NOT_FOUND"))?;
+        let row=db(c.query_row("SELECT id,workspace_stage,working_revision,snapshot_hash FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<String>>(3)?))).optional())?.ok_or(ManuscriptError("PROJECT_NOT_FOUND", None))?;
         let mut state = if let Some(digest) = row.3 {
             let bytes = db(std::fs::read(self.directory.join("objects").join(&digest)))?;
             if hash(&bytes) != digest {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
             db(serde_json::from_slice::<ManuscriptState>(&bytes))?
         } else {
@@ -67,7 +67,7 @@ impl SqliteProjectRepository {
                 .and_then(|v| v.as_str().map(str::to_owned))
                 != Some(row.1)
         {
-            return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
         }
         manuscript::normalize(&mut state)?;
         let mut stmt = db(
@@ -87,7 +87,7 @@ impl SqliteProjectRepository {
             let b = state
                 .blocks
                 .get(count)
-                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
+                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
             let bytes = db(std::fs::read(self.directory.join("objects").join(&digest)))?;
             if id != b.id
                 || position != count
@@ -95,12 +95,12 @@ impl SqliteProjectRepository {
                 || hash(&bytes) != digest
                 || db(serde_json::from_slice::<Block>(&bytes))? != *b
             {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
             count += 1;
         }
         if count != state.blocks.len() {
-            return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
         }
         Ok(state)
     }
@@ -108,6 +108,8 @@ impl SqliteProjectRepository {
         let c = storage(self.connection.lock())?;
         if read_project(&c)?.is_some() {
             let state = self.load(&c).map_err(|_| Error::Storage)?;
+            self.verify_history(&c, &state)
+                .map_err(|_| Error::Storage)?;
             if read_project(&c)?.is_some_and(|p| p.working_revision != state.working_revision) {
                 return Err(Error::Storage);
             }
@@ -126,6 +128,9 @@ impl SqliteProjectRepository {
         let value: serde_json::Value = db(serde_json::from_str(outcome))?;
         if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
             const CODES: &[&str] = &[
+                "HISTORY_EMPTY",
+                "HISTORY_CONFLICT",
+                "HISTORY_BLOCKED",
                 "REVISION_EXHAUSTED",
                 "PROJECT_NOT_FOUND",
                 "REVISION_CONFLICT",
@@ -142,38 +147,48 @@ impl SqliteProjectRepository {
                     .copied()
                     .find(|known| *known == code)
                     .unwrap_or("STORAGE_UNAVAILABLE"),
+                value
+                    .get("details")
+                    .filter(|v| !v.is_null())
+                    .map(|v| db(serde_json::from_value(v.clone())))
+                    .transpose()?,
             ));
         }
         db(serde_json::from_value(value))
     }
 }
 impl ManuscriptRepository for SqliteProjectRepository {
+    fn read_history(&self) -> Result<HistoryState> {
+        let c = db(self.connection.lock())?;
+        Self::history_metadata(&c)
+    }
     fn read_manuscript(&self) -> Result<ManuscriptState> {
         let c = db(self.connection.lock())?;
         self.load(&c)
     }
     fn command_receipt(&self, id: &str) -> Result<CommandReceipt> {
         if !manuscript::uuid4(id) {
-            return Err(ManuscriptError("INVALID_REQUEST"));
+            return Err(ManuscriptError("INVALID_REQUEST", None));
         }
         let c = db(self.connection.lock())?;
-        let (_, outcome) = Self::outcome(&c, id)?.ok_or(ManuscriptError("COMMAND_NOT_FOUND"))?;
+        let (_, outcome) =
+            Self::outcome(&c, id)?.ok_or(ManuscriptError("COMMAND_NOT_FOUND", None))?;
         Self::decode(&outcome)
     }
     fn execute_manuscript(&self, command: &ManuscriptCommand) -> Result<CommandReceipt> {
         let (request, project_id, _) = manuscript::envelope(command);
         if !manuscript::uuid4(request) {
-            return Err(ManuscriptError("INVALID_REQUEST"));
+            return Err(ManuscriptError("INVALID_REQUEST", None));
         }
         let digest = hash(&db(serde_json::to_vec(command))?);
         let mut c = db(self.connection.lock())?;
         if let Some((previous, outcome)) = Self::outcome(&c, request)? {
             if previous != digest {
-                return Err(ManuscriptError("REQUEST_ID_CONFLICT"));
+                return Err(ManuscriptError("REQUEST_ID_CONFLICT", None));
             }
             return Self::decode(&outcome);
         }
-        let project = read_project(&c).map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE"))?;
+        let project = read_project(&c).map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         let Some(_project) = project.filter(|p| p.id == project_id) else {
             let transaction = db(c.transaction())?;
             db(transaction.execute(
@@ -185,7 +200,7 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 ],
             ))?;
             db(transaction.commit())?;
-            return Err(ManuscriptError("PROJECT_NOT_FOUND"));
+            return Err(ManuscriptError("PROJECT_NOT_FOUND", None));
         };
         let before = self.load(&c)?;
         let mut identities = BTreeMap::new();
@@ -198,32 +213,11 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 identities.insert(id, rev);
             }
         }
-        let (transition, tombstone_revisions) = match (|| {
+        let (transition, tombstone_revisions, history) = match (|| {
             if manuscript::envelope(command).2 != before.working_revision {
-                return Err(ManuscriptError("REVISION_CONFLICT"));
+                return Err(ManuscriptError("REVISION_CONFLICT", None));
             }
-            if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command {
-                let g = &payload.group;
-                let previous=db(c.query_row("SELECT client_session_id,group_sequence,kind,closed FROM edit_groups WHERE group_id=?1",[&g.group_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?))).optional())?;
-                let kind = match g.kind {
-                    EditGroupKind::Typing => "typing",
-                    _ => "discrete",
-                };
-                if previous
-                    .as_ref()
-                    .is_some_and(|(session, sequence, old_kind, closed)| {
-                        *closed
-                            || session != &g.client_session_id
-                            || sequence.checked_add(1) != Some(g.group_sequence)
-                            || old_kind != kind
-                    })
-                    || (previous.is_none() && g.group_sequence != 1)
-                {
-                    return Err(ManuscriptError("INVALID_REQUEST"));
-                }
-            }
-            let transition =
-                manuscript::apply(&before, command, &identities, self.policy.as_ref())?;
+            let transition = self.history_transition(&c, command, &before, &identities)?;
             // Allocate deleted identities through the same recorded preflight path
             // as surviving block revisions, before any object or state writes.
             let mut tombstone_revisions = BTreeMap::new();
@@ -231,15 +225,19 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 if !transition.state.blocks.iter().any(|block| &block.id == id) {
                     let previous = identities
                         .get(id)
-                        .ok_or(ManuscriptError("DOCUMENT_INVALID"))?;
+                        .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
                     tombstone_revisions.insert(id.clone(), manuscript::next_revision(*previous)?);
                 }
             }
-            Ok((transition, tombstone_revisions))
+            let history = self.history_plan(&c, command, &before, &transition)?;
+            Ok((transition, tombstone_revisions, history))
         })() {
             Ok(v) => v,
             Err(error) => {
-                let outcome = serde_json::json!({"error":error.0}).to_string();
+                if error.0 == "STORAGE_UNAVAILABLE" {
+                    return Err(error);
+                }
+                let outcome = serde_json::json!({"error":error.0,"details":error.1}).to_string();
                 let transaction = db(c.transaction())?;
                 db(transaction.execute(
                     "INSERT INTO command_receipts VALUES(?1,?2,?3)",
@@ -259,12 +257,6 @@ impl ManuscriptRepository for SqliteProjectRepository {
         } else {
             None
         };
-        let before_hash =
-            if changed || matches!(command, ManuscriptCommand::ApplyDocumentEdit { .. }) {
-                Some(self.object(&db(serde_json::to_vec(&before))?)?)
-            } else {
-                None
-            };
         let mut payloads = BTreeMap::new();
         if changed {
             for block in &transition.state.blocks {
@@ -280,20 +272,43 @@ impl ManuscriptRepository for SqliteProjectRepository {
             [],
             |r| r.get(0),
         ))?;
-        if current_revision != before.working_revision {
-            return Err(ManuscriptError("REVISION_CONFLICT"));
-        }
-        // Recheck the policy at the commit boundary, after object preparation.
-        if let Err(error) = self
-            .policy
-            .validate(&before, &transition.state, &transition.affected)
-        {
+        let precondition = if current_revision != before.working_revision {
+            Err(ManuscriptError("REVISION_CONFLICT", None))
+        } else {
+            history.recheck(&transaction)
+        };
+        if let Err(error) = precondition {
+            if error.0 == "STORAGE_UNAVAILABLE" {
+                return Err(error);
+            }
             db(transaction.execute(
                 "INSERT INTO command_receipts VALUES(?1,?2,?3)",
                 params![
                     request,
                     digest,
-                    serde_json::json!({"error":error.0}).to_string()
+                    serde_json::json!({"error":error.0,"details":error.1}).to_string()
+                ],
+            ))?;
+            db(transaction.commit())?;
+            return Err(error);
+        }
+        // Recheck the policy at the commit boundary, after object preparation.
+        if let Err(mut error) =
+            self.policy
+                .validate(&before, &transition.state, &transition.affected)
+        {
+            if matches!(
+                command,
+                ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
+            ) {
+                error = ManuscriptError::history_blocked(error.0, &transition.affected);
+            }
+            db(transaction.execute(
+                "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                params![
+                    request,
+                    digest,
+                    serde_json::json!({"error":error.0,"details":error.1}).to_string()
                 ],
             ))?;
             db(transaction.commit())?;
@@ -302,12 +317,12 @@ impl ManuscriptRepository for SqliteProjectRepository {
         if changed {
             let snapshot = snapshot
                 .as_ref()
-                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
+                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
             db(transaction.execute("DELETE FROM blocks", []))?;
             for (position, block) in transition.state.blocks.iter().enumerate() {
                 let payload = payloads
                     .get(&block.id)
-                    .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
+                    .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
                 db(transaction.execute("INSERT INTO object_identities VALUES(?1,'block',?2,0) ON CONFLICT(id) DO UPDATE SET high_water=excluded.high_water,tombstoned=0",params![block.id,block.revision]))?;
                 db(transaction.execute(
                     "INSERT OR IGNORE INTO content_revisions VALUES(?1,?2,?3)",
@@ -331,16 +346,16 @@ impl ManuscriptRepository for SqliteProjectRepository {
                 } else {
                     let revision = *tombstone_revisions
                         .get(id)
-                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
+                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
                     let previous = identities
                         .get(id)
-                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
+                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
                     let updated=db(transaction.execute(
                         "UPDATE object_identities SET high_water=?2,tombstoned=1 WHERE id=?1 AND high_water=?3 AND tombstoned=0",
                         params![id, revision,previous],
                     ))?;
                     if updated != 1 {
-                        return Err(ManuscriptError("STORAGE_UNAVAILABLE"));
+                        return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
                     }
                     revision
                 };
@@ -364,12 +379,9 @@ impl ManuscriptRepository for SqliteProjectRepository {
 
             db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'manuscript.changed',?2)",params![request,serde_json::json!({"projectId":project_id,"workingRevision":transition.state.working_revision,"affectedIds":transition.affected}).to_string()]))?;
         }
-        if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command {
-            let g = &payload.group;
-            let before_hash = before_hash
-                .as_ref()
-                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?;
-            db(transaction.execute("INSERT INTO edit_groups VALUES(?1,?2,?3,?4,?5,?6,0) ON CONFLICT(group_id) DO UPDATE SET group_sequence=excluded.group_sequence,after_hash=excluded.after_hash",params![g.group_id,g.client_session_id,g.group_sequence,match g.kind{EditGroupKind::Typing=>"typing",_=>"discrete"},before_hash,snapshot.as_ref().ok_or(ManuscriptError("STORAGE_UNAVAILABLE"))?]))?;
+        history.commit(&transaction)?;
+        if history.changed {
+            db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'history.changed',?2)",params![request,db(serde_json::to_string(&history.metadata))?]))?;
         }
         let sequence = db(transaction.query_row(
             "SELECT COALESCE(MAX(sequence),0) FROM project_events",
@@ -380,10 +392,12 @@ impl ManuscriptRepository for SqliteProjectRepository {
             request_id: request.to_owned(),
             working_revision: transition.state.working_revision,
             block_revisions: revisions,
-            history_revision: 0,
-            cursor: 0,
-            undo_count: 0,
-            redo_count: 0,
+            history_revision: history.metadata.history_revision,
+            cursor: history.metadata.cursor,
+            undo_count: history.metadata.undo_count,
+            redo_count: history.metadata.redo_count,
+            undo_label: history.metadata.undo_label.clone(),
+            redo_label: history.metadata.redo_label.clone(),
             event_sequence: sequence,
             normalized: transition.normalized,
         };

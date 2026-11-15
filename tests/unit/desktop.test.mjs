@@ -107,10 +107,13 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "executeManuscript",
       "health",
       "onCloseRequested",
+      "readHistory",
       "readManuscript",
       "readProject",
     ].sort(),
   );
+  await exposed.readHistory();
+  assert.deepEqual(calls.pop(), ["manuscript:history"]);
   await exposed.commandReceipt("request-id");
   assert.deepEqual(calls.pop(), ["manuscript:receipt", "request-id"]);
   await listeners.get("manuscript:close-request")({}, "initial");

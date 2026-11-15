@@ -101,7 +101,7 @@ impl MutationPolicy for Protected {
         affected: &BTreeSet<String>,
     ) -> std::result::Result<(), ManuscriptError> {
         if affected.contains(&self.0) {
-            Err(ManuscriptError("CONTENT_LOCKED"))
+            Err(ManuscriptError("CONTENT_LOCKED", None))
         } else {
             Ok(())
         }
@@ -633,7 +633,7 @@ fn policy_is_rechecked_after_object_preparation_before_commit() {
             if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
                 Ok(())
             } else {
-                Err(ManuscriptError("TASK_USING_CONTENT"))
+                Err(ManuscriptError("TASK_USING_CONTENT", None))
             }
         }
     }
@@ -715,9 +715,12 @@ fn exhausted_tombstone_rejection_has_an_immutable_receipt() {
         0
     );
     assert_eq!(
-        c.query_row("SELECT COUNT(*) FROM project_events", [], |r| r
-            .get::<_, i64>(0))
-            .unwrap(),
+        c.query_row(
+            "SELECT COUNT(*) FROM project_events WHERE event_type='manuscript.changed'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
         2
     );
 }
@@ -762,4 +765,619 @@ fn direct_group_validation_rejection_is_receipted_before_revision_changes() {
         "INVALID_REQUEST"
     );
     assert_eq!(repo.read_manuscript().unwrap().blocks.len(), 1);
+}
+
+fn history_command(repo: &SqliteProjectRepository, project: &str, kind: &str) -> ManuscriptCommand {
+    let h = repo.read_history().unwrap();
+    serde_json::from_value(json!({"type":kind,"requestId":id(),"projectId":project,"expectedWorkingRevision":h.working_revision,"expectedHistoryRevision":h.history_revision,"expectedCursor":h.cursor,"payload":{}})).unwrap()
+}
+fn replace_text(repo: &SqliteProjectRepository, project: &str, text: &str) -> ManuscriptCommand {
+    let s = repo.read_manuscript().unwrap();
+    let b = &s.blocks[0];
+    command(
+        project,
+        s.working_revision,
+        json!([{"op":"setBlockContent","id":b.id,"runs":[{"text":text,"marks":[]}]}]),
+        json!([{"id":b.id,"revision":b.revision}]),
+    )
+}
+#[test]
+fn bounded_history_prunes_shares_six_roots_and_reopens_midcursor() {
+    let (dir, repo, project) = setup();
+    let b = id();
+    repo.execute_manuscript(&command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"0"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    for n in 1..=7 {
+        repo.execute_manuscript(&replace_text(&repo, &project, &n.to_string()))
+            .unwrap();
+    }
+    let h = repo.read_history().unwrap();
+    assert_eq!((h.cursor, h.undo_count, h.redo_count), (5, 5, 0));
+    {
+        let c = repo.connection.lock().unwrap();
+        let count:i64=c.query_row("SELECT COUNT(*) FROM (SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries)",[],|r|r.get(0)).unwrap();
+        assert_eq!(count, 6);
+        let count:i64=c.query_row("SELECT COUNT(*) FROM edit_groups WHERE closed=1 AND (before_hash IS NOT NULL OR after_hash<>'')",[],|r|r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+    assert!(repo.retained_object_roots().unwrap().len() <= 8);
+    let mut previous_revision = repo.read_manuscript().unwrap().blocks[0].revision;
+    for n in (2..=6).rev() {
+        let receipt = repo
+            .execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+            .unwrap();
+        let s = repo.read_manuscript().unwrap();
+        assert_eq!(s.blocks[0].runs[0].text, n.to_string());
+        assert!(s.blocks[0].revision > previous_revision);
+        previous_revision = s.blocks[0].revision;
+        assert_eq!(receipt.undo_count, n - 2);
+    }
+    assert_eq!(
+        repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+            .unwrap_err()
+            .0,
+        "HISTORY_EMPTY"
+    );
+    for _ in 0..3 {
+        repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+            .unwrap();
+    }
+    let mid = repo.read_manuscript().unwrap();
+    let h = repo.read_history().unwrap();
+    assert_eq!((h.cursor, h.redo_count), (3, 2));
+    drop(repo);
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap(), mid);
+    assert_eq!(repo.read_history().unwrap(), h);
+    for _ in 0..2 {
+        repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+            .unwrap();
+    }
+    assert_eq!(repo.read_manuscript().unwrap().blocks[0].runs[0].text, "7");
+    assert_eq!(
+        repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+            .unwrap_err()
+            .0,
+        "HISTORY_EMPTY"
+    );
+}
+#[test]
+fn stage_history_and_deleted_identity_restore_preserve_high_water() {
+    let (_dir, repo, project) = setup();
+    repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+        .unwrap();
+    assert_eq!(
+        repo.read_manuscript().unwrap().workspace_stage,
+        ManuscriptStateWorkspaceStage::Outline
+    );
+    repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+        .unwrap();
+    let b = id();
+    let s = repo.read_manuscript().unwrap();
+    repo.execute_manuscript(&command(
+        &project,
+        s.working_revision,
+        json!([{"op":"insertBlock","block":block(&b,"Original"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    let s = repo.read_manuscript().unwrap();
+    repo.execute_manuscript(&command(
+        &project,
+        s.working_revision,
+        json!([{"op":"deleteBlock","id":b}]),
+        json!([{"id":b,"revision":s.blocks[0].revision}]),
+    ))
+    .unwrap();
+    let deleted = repo.read_manuscript().unwrap();
+    repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+        .unwrap();
+    let restored = repo.read_manuscript().unwrap();
+    assert_eq!(restored.blocks[0].id, b);
+    assert!(restored.blocks[0].revision > 2);
+    repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+        .unwrap();
+    let s = repo.read_manuscript().unwrap();
+    assert!(s.working_revision > deleted.working_revision);
+    let reuse = command(
+        &project,
+        s.working_revision,
+        json!([{"op":"insertBlock","block":block(&b,"Recycled"),"after":null}]),
+        json!([]),
+    );
+    assert_eq!(
+        repo.execute_manuscript(&reuse).unwrap_err().0,
+        "DOCUMENT_INVALID"
+    );
+}
+#[test]
+fn grouped_saved_batches_noop_sequence_tail_and_closed_session_rules() {
+    let (_dir, repo, project) = setup();
+    let b = id();
+    let mut edit = serde_json::to_value(command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"a"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    edit["payload"]["group"]["kind"] = json!("typing");
+    let group = edit["payload"]["group"].clone();
+    let first: ManuscriptCommand = serde_json::from_value(edit).unwrap();
+    let initial = repo.execute_manuscript(&first).unwrap();
+    for (n, text) in [(2, "ab"), (3, "abc")] {
+        let mut next = serde_json::to_value(replace_text(&repo, &project, text)).unwrap();
+        next["payload"]["group"] = group.clone();
+        next["payload"]["group"]["groupSequence"] = json!(n);
+        repo.execute_manuscript(&serde_json::from_value(next).unwrap())
+            .unwrap();
+    }
+    assert_eq!(repo.read_history().unwrap().undo_count, 2);
+    assert_eq!(repo.execute_manuscript(&first).unwrap(), initial);
+    let mut noop = serde_json::to_value(replace_text(&repo, &project, "abc")).unwrap();
+    noop["payload"]["group"] = group.clone();
+    noop["payload"]["group"]["groupSequence"] = json!(4);
+    let before = repo.read_history().unwrap();
+    repo.execute_manuscript(&serde_json::from_value(noop).unwrap())
+        .unwrap();
+    assert_eq!(repo.read_history().unwrap(), before);
+    let mut next = serde_json::to_value(replace_text(&repo, &project, "abcd")).unwrap();
+    next["payload"]["group"] = group.clone();
+    next["payload"]["group"]["groupSequence"] = json!(5);
+    repo.execute_manuscript(&serde_json::from_value(next).unwrap())
+        .unwrap();
+    assert_eq!(repo.read_history().unwrap().undo_count, 2);
+    let stale = history_command(&repo, &project, "UndoProject");
+    let h = repo.read_history().unwrap();
+    let close:ManuscriptCommand=serde_json::from_value(json!({"type":"CloseEditGroup","requestId":id(),"projectId":project,"expectedWorkingRevision":h.working_revision,"expectedHistoryRevision":h.history_revision,"expectedCursor":h.cursor,"payload":{"clientSessionId":group["clientSessionId"],"groupId":group["groupId"],"groupSequence":5}})).unwrap();
+    let receipt = repo.execute_manuscript(&close).unwrap();
+    assert_eq!(receipt.working_revision, h.working_revision);
+    assert_eq!(receipt.history_revision, h.history_revision + 1);
+    assert_eq!(
+        repo.execute_manuscript(&stale).unwrap_err().0,
+        "HISTORY_CONFLICT"
+    );
+    assert_eq!(repo.execute_manuscript(&close).unwrap(), receipt);
+    let mut again = serde_json::to_value(close).unwrap();
+    again["requestId"] = json!(id());
+    again["expectedHistoryRevision"] = json!(receipt.history_revision);
+    repo.execute_manuscript(&serde_json::from_value(again).unwrap())
+        .unwrap();
+    assert_eq!(
+        repo.read_history().unwrap().history_revision,
+        receipt.history_revision
+    );
+    repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+        .unwrap();
+    let h = repo.read_history().unwrap();
+    repo.execute_manuscript(&command(&project, h.working_revision, json!([]), json!([])))
+        .unwrap();
+    assert_eq!(repo.read_history().unwrap(), h);
+    let s = repo.read_manuscript().unwrap();
+    let fresh = id();
+    repo.execute_manuscript(&command(
+        &project,
+        s.working_revision,
+        json!([{"op":"insertBlock","block":block(&fresh,"branch"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    assert_eq!(repo.read_history().unwrap().redo_count, 0);
+    let mut closed = serde_json::to_value(replace_text(&repo, &project, "bad session")).unwrap();
+    closed["payload"]["group"] = group;
+    closed["payload"]["group"]["groupSequence"] = json!(6);
+    assert_eq!(
+        repo.execute_manuscript(&serde_json::from_value(closed).unwrap())
+            .unwrap_err()
+            .0,
+        "INVALID_REQUEST"
+    );
+}
+#[test]
+fn history_policy_blocks_descendants_but_not_independent_stationary_siblings() {
+    let (_dir, repo, project) = setup();
+    let protected = id();
+    let sibling = id();
+    repo.execute_manuscript(&command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&protected,"Protected"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    repo.execute_manuscript(&command(
+        &project,
+        2,
+        json!([{"op":"insertBlock","block":block(&sibling,"Independent"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    let repo = repo.with_policy(Arc::new(Protected(protected.clone())));
+    repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+        .unwrap();
+    repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+        .unwrap();
+    assert_eq!(repo.read_manuscript().unwrap().blocks[1].revision, 1);
+    let repo = repo.with_policy(Arc::new(scenesparrow_domain::manuscript::Unrestricted));
+    let mut heading = block(&id(), "Heading");
+    heading["kind"] = json!("heading");
+    heading["attrs"] = json!({"level":1});
+    let s = repo.read_manuscript().unwrap();
+    repo.execute_manuscript(&command(
+        &project,
+        s.working_revision,
+        json!([{"op":"insertBlock","block":heading,"after":null}]),
+        json!(
+            s.blocks
+                .iter()
+                .map(|b| json!({"id":b.id,"revision":b.revision}))
+                .collect::<Vec<_>>()
+        ),
+    ))
+    .unwrap();
+    let repo = repo.with_policy(Arc::new(Protected(protected.clone())));
+    let h = repo.read_history().unwrap();
+    let s = repo.read_manuscript().unwrap();
+    let undo = history_command(&repo, &project, "UndoProject");
+    let rejected = repo.execute_manuscript(&undo).unwrap_err();
+    assert_eq!(rejected.0, "HISTORY_BLOCKED");
+    assert_eq!(rejected.1.as_ref().unwrap().reason, "CONTENT_LOCKED");
+    assert!(
+        rejected
+            .1
+            .as_ref()
+            .unwrap()
+            .affected_ids
+            .contains(&protected)
+    );
+    assert_eq!(
+        repo.command_receipt(scenesparrow_domain::manuscript::envelope(&undo).0)
+            .unwrap_err(),
+        rejected
+    );
+    assert_eq!(
+        repo.execute_manuscript(&undo).unwrap_err().0,
+        "HISTORY_BLOCKED"
+    );
+    assert_eq!(repo.read_history().unwrap(), h);
+    assert_eq!(repo.read_manuscript().unwrap(), s);
+    let repo = repo.with_policy(Arc::new(scenesparrow_domain::manuscript::Unrestricted));
+    repo.execute_manuscript(&history_command(&repo, &project, "UndoProject"))
+        .unwrap();
+    let repo = repo.with_policy(Arc::new(Protected(protected)));
+    let h = repo.read_history().unwrap();
+    assert_eq!(
+        repo.execute_manuscript(&history_command(&repo, &project, "RedoProject"))
+            .unwrap_err()
+            .0,
+        "HISTORY_BLOCKED"
+    );
+    assert_eq!(repo.read_history().unwrap(), h);
+}
+#[test]
+fn missing_retained_history_prevents_reopen_and_exhausted_group_can_be_fenced() {
+    let (dir, repo, project) = setup();
+    let b = id();
+    repo.connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE history_cursor SET history_revision=9007199254740990",
+            [],
+        )
+        .unwrap();
+    let c = command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"Latest"),"after":null}]),
+        json!([]),
+    );
+    repo.execute_manuscript(&c).unwrap();
+    let state = repo.read_manuscript().unwrap();
+    drop(repo);
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(
+        repo.read_history().unwrap().history_revision,
+        9007199254740991
+    );
+    let digest: String = repo
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT before_hash FROM history_entries ORDER BY position LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    drop(repo);
+    std::fs::remove_file(dir.path().join("objects").join(digest)).unwrap();
+    assert!(SqliteProjectRepository::open(dir.path()).is_err());
+}
+
+#[test]
+fn history_faults_leave_body_cursor_and_receipt_atomic_and_retryable() {
+    let (dir, repo, project) = setup();
+    let b = id();
+    repo.execute_manuscript(&command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"Durable"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    let undo = history_command(&repo, &project, "UndoProject");
+    let state = repo.read_manuscript().unwrap();
+    let history = repo.read_history().unwrap();
+    let request = scenesparrow_domain::manuscript::envelope(&undo).0;
+    std::fs::remove_dir(dir.path().join("staging")).unwrap();
+    std::fs::write(dir.path().join("staging"), "blocked").unwrap();
+    assert_eq!(
+        repo.execute_manuscript(&undo).unwrap_err().0,
+        "STORAGE_UNAVAILABLE"
+    );
+    assert_eq!(
+        repo.command_receipt(request).unwrap_err().0,
+        "COMMAND_NOT_FOUND"
+    );
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(repo.read_history().unwrap(), history);
+    std::fs::remove_file(dir.path().join("staging")).unwrap();
+    std::fs::create_dir(dir.path().join("staging")).unwrap();
+    repo.connection.lock().unwrap().execute_batch("CREATE TRIGGER history_receipt_fault BEFORE INSERT ON command_receipts BEGIN SELECT RAISE(ABORT,'fault'); END;").unwrap();
+    assert_eq!(
+        repo.execute_manuscript(&undo).unwrap_err().0,
+        "STORAGE_UNAVAILABLE"
+    );
+    assert_eq!(
+        repo.command_receipt(request).unwrap_err().0,
+        "COMMAND_NOT_FOUND"
+    );
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(repo.read_history().unwrap(), history);
+    repo.connection
+        .lock()
+        .unwrap()
+        .execute_batch("DROP TRIGGER history_receipt_fault")
+        .unwrap();
+    let receipt = repo.execute_manuscript(&undo).unwrap();
+    assert_eq!(repo.execute_manuscript(&undo).unwrap(), receipt);
+    assert_eq!(receipt.cursor, history.cursor - 1);
+}
+#[test]
+fn history_policy_is_rechecked_after_preparation_and_rejection_is_durable() {
+    struct AtCommit(std::sync::atomic::AtomicUsize);
+    impl MutationPolicy for AtCommit {
+        fn validate(
+            &self,
+            _: &ManuscriptState,
+            _: &ManuscriptState,
+            _: &BTreeSet<String>,
+        ) -> std::result::Result<(), ManuscriptError> {
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Ok(())
+            } else {
+                Err(ManuscriptError("TASK_USING_CONTENT", None))
+            }
+        }
+    }
+    let (_dir, repo, project) = setup();
+    let b = id();
+    repo.execute_manuscript(&command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"Keep"),"after":null}]),
+        json!([]),
+    ))
+    .unwrap();
+    let state = repo.read_manuscript().unwrap();
+    let history = repo.read_history().unwrap();
+    let repo = repo.with_policy(Arc::new(AtCommit(std::sync::atomic::AtomicUsize::new(0))));
+    let undo = history_command(&repo, &project, "UndoProject");
+    assert_eq!(
+        repo.execute_manuscript(&undo).unwrap_err().0,
+        "HISTORY_BLOCKED"
+    );
+    assert_eq!(
+        repo.execute_manuscript(&undo).unwrap_err().0,
+        "HISTORY_BLOCKED"
+    );
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(repo.read_history().unwrap(), history);
+}
+#[test]
+fn migrate_acknowledged_v2_draft_with_pinned_backup_and_transactional_retry() {
+    let (dir, repo, project) = setup();
+    let b = id();
+    let edit = command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"Existing acknowledged draft"),"after":null}]),
+        json!([]),
+    );
+    let mut receipt = serde_json::to_value(repo.execute_manuscript(&edit).unwrap()).unwrap();
+    let state = repo.read_manuscript().unwrap();
+    receipt["historyRevision"] = json!(0);
+    receipt["cursor"] = json!(0);
+    receipt["undoCount"] = json!(0);
+    receipt["redoCount"] = json!(0);
+    receipt.as_object_mut().unwrap().remove("undoLabel");
+    receipt.as_object_mut().unwrap().remove("redoLabel");
+    drop(repo);
+    let c = Connection::open(dir.path().join("project.sqlite")).unwrap();
+    c.pragma_update(None, "journal_mode", "WAL").unwrap();
+    c.execute_batch("DROP TABLE history_entries; DROP TABLE history_cursor; ALTER TABLE edit_groups DROP COLUMN scope_block_id; ALTER TABLE edit_groups DROP COLUMN last_commit_ms; UPDATE edit_groups SET closed=0; PRAGMA user_version=2;").unwrap();
+    c.execute(
+        "UPDATE command_receipts SET outcome_json=?1 WHERE request_id=?2",
+        params![
+            receipt.to_string(),
+            scenesparrow_domain::manuscript::envelope(&edit).0
+        ],
+    )
+    .unwrap();
+    c.execute_batch("CREATE TABLE history_cursor (conflict INTEGER)")
+        .unwrap();
+    let backups = || {
+        std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("pre-migration-003-")
+            })
+            .collect::<BTreeSet<_>>()
+    };
+    let previous = backups();
+    assert!(SqliteProjectRepository::open(dir.path()).is_err());
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    let backup = backups().difference(&previous).next().unwrap().clone();
+    let original = std::fs::read(backup.join("project.sqlite")).unwrap();
+    let digest: String = c
+        .query_row("SELECT snapshot_hash FROM manuscripts", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        std::fs::read(backup.join("objects").join(&digest)).unwrap(),
+        std::fs::read(dir.path().join("objects").join(&digest)).unwrap()
+    );
+    c.execute_batch("DROP TABLE history_cursor").unwrap();
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(repo.read_history().unwrap().undo_count, 0);
+    assert_eq!(repo.read_history().unwrap().redo_count, 0);
+    assert_eq!(
+        serde_json::to_value(repo.execute_manuscript(&edit).unwrap()).unwrap(),
+        receipt
+    );
+    assert_eq!(
+        std::fs::read(backup.join("project.sqlite")).unwrap(),
+        original
+    );
+    let c = repo.connection.lock().unwrap();
+    assert_eq!(
+        c.query_row("SELECT COUNT(*) FROM edit_groups WHERE closed=0", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn server_derives_typing_scope_and_separates_moves_formatting_and_other_blocks() {
+    let (_dir, repo, project) = setup();
+    let a = id();
+    let b = id();
+    repo.execute_manuscript(&command(&project,1,json!([{"op":"insertBlock","block":block(&a,"A"),"after":null},{"op":"insertBlock","block":block(&b,"B"),"after":a}]),json!([]))).unwrap();
+    let group = json!({"clientSessionId":id(),"groupId":id(),"groupSequence":1,"kind":"typing"});
+    let send = |sequence: i64, operations: Value| {
+        let s = repo.read_manuscript().unwrap();
+        let mut c = serde_json::to_value(command(
+            &project,
+            s.working_revision,
+            operations,
+            json!(
+                s.blocks
+                    .iter()
+                    .map(|b| json!({"id":b.id,"revision":b.revision}))
+                    .collect::<Vec<_>>()
+            ),
+        ))
+        .unwrap();
+        c["payload"]["group"] = group.clone();
+        c["payload"]["group"]["groupSequence"] = json!(sequence);
+        repo.execute_manuscript(&serde_json::from_value(c).unwrap())
+            .unwrap()
+    };
+    send(
+        1,
+        json!([{"op":"setBlockContent","id":a,"runs":[{"text":"Typed A","marks":[]}]}]),
+    );
+    assert_eq!(repo.read_history().unwrap().cursor, 3);
+    send(2, json!([{"op":"moveBlocks","ids":[a],"after":b}]));
+    assert_eq!(repo.read_history().unwrap().cursor, 4);
+    send(
+        3,
+        json!([{"op":"setBlockContent","id":b,"runs":[{"text":"Typed B","marks":[]}]}]),
+    );
+    assert_eq!(repo.read_history().unwrap().cursor, 5);
+    let first_after: String = repo
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT after_hash FROM history_entries WHERE position=5",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    send(
+        4,
+        json!([{"op":"setBlockContent","id":b,"runs":[{"text":"Typed B","marks":[{"type":"bold"}]}]}]),
+    );
+    let c = repo.connection.lock().unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT before_hash FROM history_entries WHERE position=5",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        first_after
+    );
+    assert_eq!(
+        c.query_row(
+            "SELECT label FROM history_entries WHERE position=5",
+            [],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        "edit"
+    );
+}
+
+#[test]
+fn reopened_session_cannot_resume_an_interrupted_group_but_old_receipt_replays() {
+    let (dir, repo, project) = setup();
+    let b = id();
+    let edit = command(
+        &project,
+        1,
+        json!([{"op":"insertBlock","block":block(&b,"Acknowledged"),"after":null}]),
+        json!([]),
+    );
+    let receipt = repo.execute_manuscript(&edit).unwrap();
+    let state = repo.read_manuscript().unwrap();
+    drop(repo);
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap(), state);
+    assert_eq!(
+        repo.read_history().unwrap().history_revision,
+        receipt.history_revision + 1
+    );
+    assert_eq!(repo.execute_manuscript(&edit).unwrap(), receipt);
+    let mut continuation = serde_json::to_value(edit).unwrap();
+    continuation["requestId"] = json!(id());
+    continuation["expectedWorkingRevision"] = json!(state.working_revision);
+    continuation["payload"]["operations"] = json!([]);
+    continuation["payload"]["expectedBlockRevisions"] = json!([]);
+    continuation["payload"]["group"]["groupSequence"] = json!(2);
+    let before = repo.read_history().unwrap();
+    assert_eq!(
+        repo.execute_manuscript(&serde_json::from_value(continuation).unwrap())
+            .unwrap_err()
+            .0,
+        "INVALID_REQUEST"
+    );
+    assert_eq!(repo.read_history().unwrap(), before);
 }

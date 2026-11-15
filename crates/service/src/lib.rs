@@ -44,6 +44,7 @@ fn api_error(status: StatusCode, code: &str) -> Response {
         status,
         Json(contracts::ApiError {
             code: code.to_owned(),
+            details: None,
             request_id: None,
         }),
     )

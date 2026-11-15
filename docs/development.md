@@ -23,13 +23,27 @@ input and offer retry or explicit copy/discard recovery.
 
 Migration 002 adds immutable content-addressed objects, canonical block identities
 and revisions, request receipts, edit-group metadata and a transactional outbox.
-Bootstrap upgrades use SQLite's consistent backup API. The existing project owner
-lock remains. Only `StartManualDraft` and atomic `ApplyDocumentEdit` commands are
-implemented. Project history, sources/import, event subscriptions, retention/GC,
-production locks, review, AI and export remain planned; their controls are hidden.
-Editor undo shortcuts are reserved for step 2's project history and currently do
-not perform local-only undo. The existing procedural motion sample remains an
-independent collapsible development example.
+Bootstrap upgrades use SQLite's consistent backup API. Migration 003 adds a
+persistent project history with five transitions and at most six shared business
+snapshot roots. Its backup directory contains a consistent SQLite database and
+pinned copies of immutable objects. Keep each backup directory intact; copying
+only the live main SQLite file or deleting its objects cannot restore a project.
+The existing project owner lock remains.
+
+The manual command union includes `StartManualDraft`, atomic `ApplyDocumentEdit`,
+`UndoProject`, `RedoProject`, and metadata-only `CloseEditGroup`. Document and
+history-toolbar shortcuts use the same serialized project queue; native dialog
+text inputs retain local undo. Typing batches share one group until 750 ms of
+actual input inactivity or a selection/focus/discrete boundary. Save delivery gaps
+do not decide typing inactivity. Controlled close drains later valid input that
+arrives while group closure is awaiting a receipt. Invalid structure can be
+corrected locally, with an explicit retry before dependent project operations.
+
+Sources/import, event subscriptions, physical object GC, production locks, review,
+AI and export remain planned; their controls are hidden. Snapshot roots are
+released when history branches/prunes or a group closes, while object bytes remain
+until the step 3 collector is implemented. The existing procedural motion sample
+remains an independent collapsible development example.
 
 ## Pinned tools and prerequisites
 
@@ -110,7 +124,8 @@ files, run commands, or call arbitrary core endpoints. Electron uses an applicat
 data directory by default; set `SCENESPARROW_PROJECT_DIR` to share a particular
 development project with the browser, one core instance at a time.
 
-Controlled desktop close waits for a flush. Failure keeps the window open for
+Controlled desktop close waits for a flush and group closure, repeating the drain
+if newer valid input arrives while closure is in flight. Failure keeps the window open for
 retry, cancellation or an explicit discard decision; an unresponsive renderer has
 a separate confirmation path. The handshake/preload lifecycle is unit-tested and
 compiled in the cloud. Actual Windows/macOS launch, IME and close behavior remain
@@ -158,17 +173,21 @@ drift. Core validation separately enforces canonical invariants and named limits
 The existing authenticated project/health routes remain compatible. New routes:
 
 - `GET /v1/manuscript`: current canonical manuscript and working revision.
-- `POST /v1/manuscript/commands`: the closed manual-start/edit command union.
+- `GET /v1/history`: current working/history revisions, cursor, counts and operation labels.
+- `POST /v1/manuscript/commands`: the closed manual-edit/history command union.
 - `GET /v1/commands/{requestId}`: resolve an immutable success/rejection receipt.
 
 Manuscript commands have an 8 MiB route limit; small routes retain 16 KiB. Identical
 requests replay their original outcomes before revision checks; changed payloads
 with a reused request ID fail. Successful responses follow object verification and
 an atomic SQLite commit of state, revisions, receipt and outbox metadata. No-op
-edits preserve working/block revisions. History metadata in receipts is reserved
-at zero until step 2. Edit groups are foundations, without bounded undo behavior.
+edits preserve working/block revisions. History receipts report committed history revision, cursor and undo/redo counts,
+with optional operation-label codes. Label fields remain optional so step 1 success
+receipts replay unchanged. History rejection details contain only stable reasons
+and affected IDs. Undo/redo never restores receipt/event/runtime rows or old
+revision tokens.
 
-See [step 1 evidence](validation/step-01.md) for the acceptance mapping and
+See [step 1 evidence](validation/step-01.md) and [step 2 evidence](validation/step-02.md) for the acceptance mapping and
 remaining platform/fault/performance gaps.
 
 The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
@@ -176,7 +195,6 @@ orders upcoming work by usable manuscript slices. The preliminary M0/M1 media
 roadmap does not authorize further feature implementation. Treat the bootstrap's
 single-project API as an integration sample, not a substitute for the detailed
 domain, history, lock and execution contracts.
-All [stage and shared AI specs](specs/README.md) are documented. Only the manual
-step 1 subset above is implemented; follow the shared AI migration/port ledger when those slices
+All [stage and shared AI specs](specs/README.md) are documented. Only the manual editing/history subset above is implemented; follow the shared AI migration/port ledger when those slices
 are explicitly developed, without making provider access a prerequisite for
 manual editing/export.

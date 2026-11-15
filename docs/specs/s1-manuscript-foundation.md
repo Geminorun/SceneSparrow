@@ -318,6 +318,14 @@ not yet been explicitly closed. An interrupted session cannot reopen an old grou
 entry or redo-tail change. Closing an open group advances `historyRevision`; a
 repeated close is an idempotent no-op. This invalidates stale history requests.
 
+The implemented manual client tracks idle gaps from input events and captures
+separate local action boundaries before transport. The core does not infer an idle
+gap from receipt/commit arrival times: delayed transport and the two-second save
+window can legitimately separate batches of continuous typing. Core grouping
+still verifies session, sequence, actual single-block content scope, open status
+and the current history endpoint. A no-op can acknowledge group sequence metadata
+without closing any group, advancing history, or removing redo.
+
 ### 6.2 Snapshot and replay rules
 
 Business snapshots contain workspace stage, current ordered document content and
@@ -484,7 +492,8 @@ the proposed S1 transport mapping:
 
 | HTTP mapping                                | Purpose                                                                 |
 | ------------------------------------------- | ----------------------------------------------------------------------- |
-| `GET /v1/manuscript`                        | Current canonical document, revisions, history counts/cursor            |
+| `GET /v1/manuscript`                        | Current canonical document and working revision                         |
+| `GET /v1/history`                           | Current working/history revisions, cursor, counts and operation labels  |
 | `POST /v1/manuscript/commands`              | Closed union of user business commands                                  |
 | `GET /v1/commands/{requestId}`              | Resolve an uncertain command by its receipt                             |
 | `GET /v1/sources`                           | Source metadata and extraction summaries, cursor-paginated              |

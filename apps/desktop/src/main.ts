@@ -47,9 +47,16 @@ async function main() {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(10_000),
     });
-    const data = (await response.json()) as { code?: string };
+    const data = (await response.json()) as {
+      code?: string;
+      details?: unknown;
+    };
     if (!response.ok)
-      return { ok: false, code: data.code ?? "SERVICE_UNAVAILABLE" };
+      return {
+        ok: false,
+        code: data.code ?? "SERVICE_UNAVAILABLE",
+        ...(data.details ? { details: data.details } : {}),
+      };
     return { ok: true, data };
   }
   let ready = false;
@@ -69,6 +76,7 @@ async function main() {
     ["project:health", "/health"],
     ["project:read", "/project"],
     ["project:create", "/project"],
+    ["manuscript:history", "/history"],
     ["manuscript:read", "/manuscript"],
     ["manuscript:command", "/manuscript/commands"],
     ["manuscript:receipt", "/commands"],

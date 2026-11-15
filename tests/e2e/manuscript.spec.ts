@@ -34,6 +34,12 @@ test("writes Unicode, formatting, headings and nested lists and reopens without 
 }) => {
   await draft(page);
   const input = editor(page);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Start writing", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await expect(input).toBeVisible();
   await input.fill("中文 English 🐦");
   await input.press("ControlOrMeta+a");
   await page.getByRole("button", { name: "Bold", exact: true }).click();
@@ -138,6 +144,8 @@ test("uncertain commit resolves original receipt once", async ({ page }) => {
   let writes = 0;
   let receipts = 0;
   await page.route("**/api/v1/manuscript/commands", async (route) => {
+    if (route.request().postDataJSON().type !== "ApplyDocumentEdit")
+      return route.continue();
     writes++;
     await route.fetch();
     await route.abort("failed");
@@ -430,6 +438,7 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       readProject: () => request("/project"),
       createProject: (command: unknown) => request("/project", command),
       readManuscript: () => request("/manuscript"),
+      readHistory: () => request("/history"),
       executeManuscript: (command: unknown) =>
         request("/manuscript/commands", command),
       commandReceipt: (id: string) => request(`/commands/${id}`),
@@ -510,4 +519,197 @@ test("invalid visible structure blocks retry/close and discard reload completes 
   await expect
     .poll(() => page.evaluate(() => (window as any).__closeResults))
     .toEqual([true, true]);
+});
+
+test("five retained operations share toolbar and shortcuts, preserve redo on navigation, and branch on a real edit", async ({
+  page,
+}) => {
+  await draft(page);
+  const input = editor(page);
+  await input.fill("History 0");
+  await page.getByLabel("Block style").selectOption("paragraph");
+  await saved(page);
+  await page.waitForTimeout(800);
+  for (let n = 1; n <= 6; n++) {
+    await input.fill(`History ${n}`);
+    await saved(page);
+    await page.waitForTimeout(800);
+  }
+  const history = async () =>
+    (await page.request.get("/api/v1/history")).json();
+  expect((await history()).undoCount).toBe(5);
+  let documentWrites = 0;
+  page.on("request", (r) => {
+    if (
+      r.url().endsWith("/manuscript/commands") &&
+      r.postDataJSON().type === "ApplyDocumentEdit"
+    )
+      documentWrites++;
+  });
+  for (let n = 5; n >= 1; n--) {
+    if (n % 2)
+      await page.getByRole("button", { name: "Undo", exact: true }).click();
+    else await input.press("ControlOrMeta+z");
+    await expect(input).toHaveText(`History ${n}`);
+  }
+  await expect(
+    page.getByRole("button", { name: "Undo", exact: true }),
+  ).toBeDisabled();
+  for (let n = 2; n <= 6; n++) {
+    if (n % 2) await input.press("Control+y");
+    else await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await expect(input).toHaveText(`History ${n}`);
+  }
+  expect(documentWrites).toBe(0);
+  await input.press("ControlOrMeta+z");
+  await expect(input).toHaveText("History 5");
+  await input.press("ControlOrMeta+z");
+  await expect(input).toHaveText("History 4");
+  const before = await history();
+  await input.press("Home");
+  await input.press("ArrowRight");
+  await page.getByRole("heading", { name: "Manuscript", exact: true }).click();
+  await page.waitForTimeout(850);
+  expect(await history()).toEqual(before);
+  expect(documentWrites).toBe(0);
+  await input.fill("Branched history");
+  await saved(page);
+  expect((await history()).redoCount).toBe(0);
+  await expect(
+    page.getByRole("button", { name: "Redo", exact: true }),
+  ).toBeDisabled();
+  await page.reload();
+  await expect(input).toHaveText("Branched history");
+  expect((await history()).redoCount).toBe(0);
+});
+test("continuous typing spans saved batches while selection and idle create new groups", async ({
+  page,
+}) => {
+  await draft(page);
+  const input = editor(page);
+  await input.fill("Typing base");
+  await page.getByLabel("Block style").selectOption("paragraph");
+  await saved(page);
+  await page.waitForTimeout(800);
+  const groups: any[] = [];
+  page.on("request", (r) => {
+    if (
+      r.url().endsWith("/manuscript/commands") &&
+      r.postDataJSON().type === "ApplyDocumentEdit"
+    )
+      groups.push(r.postDataJSON().payload.group);
+  });
+  await input.press("End");
+  await input.pressSequentially(" continuous typing batches", { delay: 180 });
+  await saved(page);
+  expect(groups.length).toBeGreaterThanOrEqual(2);
+  expect(new Set(groups.map((g) => g.groupId)).size).toBe(1);
+  await input.press("ControlOrMeta+z");
+  await expect(input).toHaveText("Typing base");
+  await input.press("ControlOrMeta+Shift+z");
+  await expect(input).toHaveText("Typing base continuous typing batches");
+  await input.press("End");
+  await input.pressSequentially(" selected tail");
+  await saved(page);
+  await input.press("Home");
+  await input.pressSequentially("prefix ");
+  await saved(page);
+  await input.press("ControlOrMeta+z");
+  await expect(input).toHaveText(
+    "Typing base continuous typing batches selected tail",
+  );
+  await input.press("End");
+  await input.pressSequentially(" idle first");
+  await saved(page);
+  await page.waitForTimeout(800);
+  await input.pressSequentially(" idle second");
+  await saved(page);
+  await input.press("ControlOrMeta+z");
+  await expect(input).toHaveText(
+    "Typing base continuous typing batches selected tail idle first",
+  );
+});
+test("native unsubmitted dialog input keeps local undo and IME shortcuts issue no project history", async ({
+  page,
+}) => {
+  await draft(page);
+  const input = editor(page);
+  let historyWrites = 0;
+  page.on("request", (r) => {
+    if (
+      r.url().endsWith("/manuscript/commands") &&
+      ["UndoProject", "RedoProject"].includes(r.postDataJSON().type)
+    )
+      historyWrites++;
+  });
+  const before = await (await page.request.get("/api/v1/manuscript")).json();
+  await page.getByRole("button", { name: "Link", exact: true }).click();
+  const url = page.getByLabel("Link URL");
+  await url.fill("");
+  await url.pressSequentially("https://example.com/local-input");
+  await url.press("ControlOrMeta+z");
+  await expect(url).not.toHaveValue("https://example.com/local-input");
+  expect(historyWrites).toBe(0);
+  expect(await (await page.request.get("/api/v1/manuscript")).json()).toEqual(
+    before,
+  );
+  await page.getByRole("button", { name: "Link", exact: true }).click();
+  await input.click();
+  await input.dispatchEvent("compositionstart", { data: "中" });
+  await input.pressSequentially(" composition text");
+  await input.dispatchEvent("keydown", {
+    key: "z",
+    code: "KeyZ",
+    ctrlKey: true,
+    isComposing: true,
+  });
+  await input.dispatchEvent("keydown", {
+    key: "y",
+    code: "KeyY",
+    ctrlKey: true,
+    isComposing: true,
+  });
+  await page.waitForTimeout(850);
+  expect(historyWrites).toBe(0);
+  expect(await (await page.request.get("/api/v1/manuscript")).json()).toEqual(
+    before,
+  );
+  await input.dispatchEvent("compositionend", { data: "输入" });
+  await saved(page);
+  await input.press("Tab");
+  await expect(input).not.toBeFocused();
+});
+test("invalid list depth can be corrected locally with ShiftTab before explicit retry", async ({
+  page,
+}) => {
+  await draft(page);
+  const input = editor(page);
+  await input.fill("Correctable parent");
+  await page.getByLabel("Block style").selectOption("paragraph");
+  await saved(page);
+  await input.press("ControlOrMeta+End");
+  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  for (let depth = 1; depth <= 4; depth++) {
+    await input.press("Enter");
+    await input.press("Tab");
+    await input.pressSequentially(`Preserved child ${depth}`);
+  }
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "data-state",
+    "error",
+  );
+  await expect(input).toContainText("Preserved child 4");
+  await input.press("Shift+Tab");
+  await expect(input).toContainText("Preserved child 4");
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "data-state",
+    "error",
+  );
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await saved(page);
+  const state = await (await page.request.get("/api/v1/manuscript")).json();
+  expect(state.blocks.at(-1).attrs.depth).toBe(3);
+  await page.reload();
+  await expect(input).toContainText("Preserved child 4");
+  await saved(page);
 });

@@ -26,6 +26,10 @@ function setup() {
       return receipt(c);
     },
     readManuscript: async () => state,
+    readHistory: async () => ({
+      ...save.history,
+      workingRevision: save.state.workingRevision,
+    }),
     commandReceipt: async () => {
       throw new ApiError("COMMAND_NOT_FOUND");
     },
@@ -36,12 +40,14 @@ function setup() {
 function receipt(c) {
   return {
     requestId: c.requestId,
-    workingRevision: c.expectedWorkingRevision + 1,
-    blockRevisions: c.payload.expectedBlockRevisions.map((b) => ({
+    workingRevision:
+      c.expectedWorkingRevision + (c.type === "CloseEditGroup" ? 0 : 1),
+    blockRevisions: (c.payload.expectedBlockRevisions ?? []).map((b) => ({
       ...b,
       revision: b.revision + 1,
     })),
-    historyRevision: 0,
+    historyRevision:
+      c.type === "CloseEditGroup" ? c.expectedHistoryRevision + 1 : 0,
     cursor: 0,
     undoCount: 0,
     redoCount: 0,
@@ -53,6 +59,9 @@ function local(save, text) {
   return save.local.map((b) => ({ ...b, runs: [{ text, marks: [] }] }));
 }
 const tick = () => new Promise((r) => setTimeout(r, 20));
+const settle = async () => {
+  for (let n = 0; n < 12; n++) await Promise.resolve();
+};
 test("reopened editor flush without typing sends no command", async () => {
   const { save, calls } = setup();
   assert.equal(await save.flush(), true);
@@ -72,6 +81,7 @@ test("serialized delayed receipt preserves later input and disposed controller s
   };
   save.update(local(save, "first"));
   const pending = save.flush();
+  await settle();
   save.update(local(save, "second"));
   assert.equal(calls.length, 1);
   assert.equal(save.status, "saving");
@@ -141,6 +151,7 @@ test("continuous local typing flushes by two seconds even without a debounce gap
     save.update(local(save, `typing ${n}`));
     context.mock.timers.tick(200);
   }
+  await settle();
   assert.equal(calls.length, 1);
   await Promise.resolve();
   await Promise.resolve();
@@ -203,6 +214,7 @@ test("late acknowledgment advances the valid base but cannot save invalid visibl
   };
   save.update(local(save, "valid in flight"));
   const pending = save.flush();
+  await settle();
   save.invalidate("DOCUMENT_INVALID", "unconvertible visible buffer");
   assert.equal(await save.flush(true), false);
   release();
@@ -238,6 +250,7 @@ test("normalized late receipt cannot replace recovery for unconvertible visible 
   });
   save.update(valid);
   const pending = save.flush();
+  await settle();
   save.invalidate("DOCUMENT_TOO_LARGE", "oversized current buffer");
   release();
   assert.equal(await pending, false);
@@ -245,5 +258,278 @@ test("normalized late receipt cannot replace recovery for unconvertible visible 
   assert.equal(save.status, "error");
   assert.equal(save.recoveryText, "oversized current buffer");
   assert.equal(await save.flush(true), false);
+  save.dispose();
+});
+
+function historySetup() {
+  const fixture = setup();
+  const { save, client, calls } = fixture;
+  let h = {
+    workingRevision: 1,
+    historyRevision: 2,
+    cursor: 2,
+    undoCount: 2,
+    redoCount: 0,
+    undoLabel: "typing",
+    redoLabel: null,
+  };
+  let canonical = structuredClone(save.state);
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    if (c.type === "ApplyDocumentEdit") {
+      const r = receipt(c);
+      h = {
+        ...h,
+        workingRevision: r.workingRevision,
+        historyRevision: h.historyRevision + 1,
+      };
+      canonical = {
+        ...canonical,
+        workingRevision: r.workingRevision,
+        blocks: save.local.map((b) => ({
+          ...b,
+          revision: r.blockRevisions.find((v) => v.id === b.id)?.revision ?? 1,
+        })),
+      };
+      return { ...r, ...h, requestId: c.requestId };
+    }
+    const close = c.type === "CloseEditGroup";
+    h = {
+      ...h,
+      workingRevision: h.workingRevision + (close ? 0 : 1),
+      historyRevision: h.historyRevision + 1,
+      cursor: h.cursor + (close ? 0 : c.type === "UndoProject" ? -1 : 1),
+    };
+    h.undoCount = h.cursor;
+    h.redoCount = 2 - h.cursor;
+    if (!close)
+      canonical = {
+        ...canonical,
+        workingRevision: h.workingRevision,
+        blocks: canonical.blocks.map((b) => ({
+          ...b,
+          revision: b.revision + 1,
+          runs: [{ text: "history result", marks: [] }],
+        })),
+      };
+    return {
+      requestId: c.requestId,
+      ...h,
+      blockRevisions: [],
+      eventSequence: 1,
+      normalized: false,
+    };
+  };
+  client.readHistory = async () => structuredClone(h);
+  client.readManuscript = async () => structuredClone(canonical);
+  save.history = structuredClone(h);
+  return fixture;
+}
+test("continuous typing across two-second saved batches uses one group until actual idle", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const { save, calls } = setup();
+  for (let n = 0; n < 25; n++) {
+    save.update(local(save, `continuous ${n}`));
+    context.mock.timers.tick(200);
+    for (let k = 0; k < 8; k++) await Promise.resolve();
+  }
+  const edits = calls.filter((c) => c.type === "ApplyDocumentEdit");
+  assert.ok(edits.length >= 2);
+  assert.equal(new Set(edits.map((c) => c.payload.group.groupId)).size, 1);
+  assert.deepEqual(
+    edits.map((c) => c.payload.group.groupSequence),
+    edits.map((_, n) => n + 1),
+  );
+  save.dispose();
+  context.mock.timers.reset();
+});
+test("discrete actions preserve typing before, structure at action, and later visible input while writes are delayed", async () => {
+  const { save, client, calls } = setup();
+  let release;
+  client.executeManuscript = (c) => {
+    calls.push(c);
+    if (calls.length === 1)
+      return new Promise((r) => (release = () => r(receipt(c))));
+    return Promise.resolve(receipt(c));
+  };
+  save.update(local(save, "before"));
+  const first = save.flush();
+  await settle();
+  const action = save.discrete(() => save.update(local(save, "structure")));
+  save.update(local(save, "later"));
+  assert.equal(save.local[0].runs[0].text, "later");
+  release();
+  assert.equal(await first, true);
+  assert.equal(await action, true);
+  const edits = calls.filter((c) => c.type === "ApplyDocumentEdit");
+  assert.deepEqual(
+    edits.map(
+      (c) =>
+        c.payload.operations.find((o) => o.op === "setBlockContent").runs[0]
+          .text,
+    ),
+    ["before", "structure", "later"],
+  );
+  assert.deepEqual(
+    edits.map((c) => c.payload.group.kind),
+    ["typing", "discrete", "typing"],
+  );
+  assert.equal(calls.filter((c) => c.type === "CloseEditGroup").length, 2);
+  assert.equal(new Set(edits.map((c) => c.payload.group.groupId)).size, 3);
+  assert.equal(save.local[0].runs[0].text, "later");
+  save.dispose();
+});
+test("ambiguous committed undo retries the original identity once without a second undo", async () => {
+  const { save, client, calls } = historySetup();
+  const execute = client.executeManuscript;
+  let outcome;
+  let first = true;
+  client.executeManuscript = async (c) => {
+    if (first) {
+      first = false;
+      outcome = await execute(c);
+      throw new TypeError("lost committed undo");
+    }
+    calls.push(c);
+    return outcome;
+  };
+  client.commandReceipt = async () => {
+    throw new ApiError("SERVICE_UNAVAILABLE");
+  };
+  assert.equal(await save.navigate("UndoProject", () => {}), false);
+  assert.equal(save.status, "error");
+  assert.equal(await save.flush(), false);
+  assert.equal(await save.flush(true), true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(save.history.cursor, 1);
+  assert.equal(save.canonicalVersion, 1);
+  assert.equal(save.local[0].runs[0].text, "history result");
+  save.dispose();
+});
+test("delayed metadata-only group close cannot acknowledge invalid visible input or authorize close", async () => {
+  const { save, client, calls } = historySetup();
+  save.update(local(save, "acknowledged"));
+  assert.equal(await save.flush(), true);
+  const execute = client.executeManuscript;
+  let release;
+  client.executeManuscript = (c) =>
+    c.type === "CloseEditGroup"
+      ? new Promise((r) => (release = async () => r(await execute(c))))
+      : execute(c);
+  const closing = save.controlledClose();
+  for (let n = 0; n < 8; n++) await Promise.resolve();
+  assert.ok(release);
+  save.invalidate("DOCUMENT_INVALID", "unsupported visible during close");
+  await release();
+  assert.equal(await closing, false);
+  assert.equal(save.status, "error");
+  assert.equal(save.recoveryText, "unsupported visible during close");
+  assert.equal(await save.controlledClose(true), false);
+  assert.equal(calls.filter((c) => c.type === "CloseEditGroup").length, 1);
+  save.dispose();
+});
+test("project history preserves later visible input by entering conflict instead of replacing it", async () => {
+  const { save, client } = historySetup();
+  const execute = client.executeManuscript;
+  let release;
+  client.executeManuscript = (c) =>
+    new Promise((r) => (release = async () => r(await execute(c))));
+  const navigation = save.navigate("UndoProject", () =>
+    assert.fail("must not reload editor"),
+  );
+  for (let n = 0; n < 8; n++) await Promise.resolve();
+  save.update(local(save, "later visible input"));
+  await release();
+  assert.equal(await navigation, false);
+  assert.equal(save.status, "conflict");
+  assert.equal(save.local[0].runs[0].text, "later visible input");
+  save.dispose();
+});
+test("controlled close drains newer valid input arriving during a delayed group close before authorizing exit", async () => {
+  const { save, client, calls } = historySetup();
+  save.update(local(save, "first acknowledged"));
+  assert.equal(await save.flush(), true);
+  const execute = client.executeManuscript;
+  let release;
+  let held = false;
+  client.executeManuscript = (c) => {
+    if (c.type === "CloseEditGroup" && !held) {
+      held = true;
+      return new Promise((r) => (release = async () => r(await execute(c))));
+    }
+    return execute(c);
+  };
+  let completed = false;
+  const closing = save.controlledClose().then((ok) => {
+    completed = true;
+    return ok;
+  });
+  await settle();
+  assert.ok(release);
+  save.update(local(save, "newer visible during close"));
+  assert.equal(completed, false);
+  await release();
+  assert.equal(await closing, true);
+  assert.equal(save.status, "saved");
+  assert.equal(save.local[0].runs[0].text, "newer visible during close");
+  assert.equal(calls.filter((c) => c.type === "ApplyDocumentEdit").length, 2);
+  assert.equal(calls.filter((c) => c.type === "CloseEditGroup").length, 2);
+  save.dispose();
+});
+test("repeated selection boundaries coalesce unchanged large pending captures", async (context) => {
+  const { save, client } = setup();
+  let release;
+  const execute = client.executeManuscript;
+  let first = true;
+  client.executeManuscript = (c) => {
+    if (first) {
+      first = false;
+      return new Promise((r) => (release = () => r(receipt(c))));
+    }
+    return execute(c);
+  };
+  save.update(local(save, "x".repeat(500000)));
+  const writing = save.flush();
+  await settle();
+  const clone = globalThis.structuredClone;
+  let captures = 0;
+  context.mock.method(globalThis, "structuredClone", (...args) => {
+    captures++;
+    return clone(...args);
+  });
+  const boundaries = Array.from({ length: 100 }, () => save.boundary());
+  assert.ok(captures <= 1);
+  release();
+  assert.equal(await writing, true);
+  await Promise.all(boundaries);
+  assert.equal(save.status, "saved");
+  save.dispose();
+});
+test("input after an undo gesture while an earlier save drains is retained without dispatching history", async () => {
+  const { save, client, calls } = historySetup();
+  const execute = client.executeManuscript;
+  let release;
+  let held = false;
+  client.executeManuscript = (c) => {
+    if (c.type === "ApplyDocumentEdit" && !held) {
+      held = true;
+      return new Promise((r) => (release = async () => r(await execute(c))));
+    }
+    return execute(c);
+  };
+  save.update(local(save, "before undo gesture"));
+  const writing = save.flush();
+  await settle();
+  const undo = save.navigate("UndoProject", () =>
+    assert.fail("cannot replace newer visible input"),
+  );
+  save.update(local(save, "after undo gesture"));
+  await release();
+  await writing;
+  assert.equal(await undo, false);
+  assert.equal(save.local[0].runs[0].text, "after undo gesture");
+  assert.equal(save.status, "conflict");
+  assert.equal(calls.filter((c) => c.type === "UndoProject").length, 0);
   save.dispose();
 });

@@ -11,10 +11,11 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The manuscript workbench is being implemented in eight reviewed steps. Step 1
-provides manual manuscript editing, autosave, recovery and reopening acknowledged
-content. [Step 1 evidence](docs/validation/step-01.md) records its checks and limits.
-History, sources/import, AI, review/locks and export follow in later steps; the
+The manuscript workbench is being implemented in eight reviewed steps. Steps 1–2
+provide manual manuscript editing, autosave, recovery and persistent five-step
+undo/redo, including reopening at the current history position.
+[Step 1](docs/validation/step-01.md) and [step 2 evidence](docs/validation/step-02.md)
+record checks and limits. Sources/import, AI, review/locks and export follow in later steps; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects

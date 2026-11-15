@@ -53,5 +53,14 @@
   "closeUnsaved": "Close and discard unsaved edits",
   "unresponsiveClose": "The editor did not respond. Closing may discard unsaved edits.",
   "documentTooLarge": "The document exceeds the supported size or block limit.",
-  "documentInvalid": "This edit contains unsupported structure, characters or links."
+  "documentInvalid": "This edit contains unsupported structure, characters or links.",
+  "history": "Project history",
+  "undo": "Undo",
+  "redo": "Redo",
+  "historyTyping": "Typing",
+  "historyStartDraft": "Start draft",
+  "historyEdit": "Edit manuscript",
+  "historyBlocked": "This operation affects protected content.",
+  "historyEmpty": "No history operation is available.",
+  "historyConflict": "History changed. Reload the saved document to continue."
 }

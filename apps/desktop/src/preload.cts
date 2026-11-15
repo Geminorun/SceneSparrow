@@ -13,6 +13,7 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readHistory: () => ipcRenderer.invoke("manuscript:history"),
   readManuscript: () => ipcRenderer.invoke("manuscript:read"),
   executeManuscript: (command: unknown) =>
     ipcRenderer.invoke("manuscript:command", command),

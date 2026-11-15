@@ -58,4 +58,11 @@ pub struct ApiError {
         deserialize_with = "present_nonnull"
     )]
     pub request_id: Option<String>,
+    #[serde(
+        rename = "details",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub details: Option<HistoryErrorDetails>,
 }

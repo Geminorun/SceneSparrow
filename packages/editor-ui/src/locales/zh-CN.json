@@ -53,5 +53,14 @@
   "closeUnsaved": "关闭并放弃未保存的编辑",
   "unresponsiveClose": "编辑器未响应。关闭可能会放弃未保存的编辑。",
   "documentTooLarge": "文稿超出支持的大小或段落数量限制。",
-  "documentInvalid": "此次编辑包含不支持的结构、字符或链接。"
+  "documentInvalid": "此次编辑包含不支持的结构、字符或链接。",
+  "history": "项目历史",
+  "undo": "撤销",
+  "redo": "重做",
+  "historyTyping": "输入文字",
+  "historyStartDraft": "开始草稿",
+  "historyEdit": "编辑文稿",
+  "historyBlocked": "此操作影响受保护的内容。",
+  "historyEmpty": "没有可用的历史操作。",
+  "historyConflict": "历史已更改，请重新加载已保存的文稿后继续。"
 }
