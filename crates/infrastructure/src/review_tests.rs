@@ -1,6 +1,9 @@
 use super::*;
 use crate::ai::settings::SettingsStore;
-use scenesparrow_application::{ProjectRepository, manuscript::ManuscriptRepository};
+use scenesparrow_application::{
+    ProjectRepository,
+    manuscript::{DocumentRepository, ManuscriptRepository},
+};
 use serde_json::{Value, json};
 fn id() -> String {
     uuid::Uuid::new_v4().to_string()
@@ -668,6 +671,27 @@ fn fill_slot_has_structural_reservation_and_closed_depth_validation() {
     let state = r.read_manuscript().unwrap();
     assert_eq!(state.blocks[2].id, fresh);
     assert_eq!(state.blocks[3].id, boundary);
+    let first_revision = state.blocks[2].revision;
+    history(&r, &p, false);
+    let tombstone = {
+        let c = r.connection.lock().unwrap();
+        c.query_row(
+            "SELECT high_water FROM object_identities WHERE id=?1",
+            [&fresh],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap()
+    };
+    assert!(tombstone > first_revision);
+    assert_eq!(try_edit(&r,&p,json!([{"op":"insertBlock","after":heading,"block":{"id":fresh,"kind":"paragraph","attrs":{},"runs":[{"text":"manual reuse","marks":[]}]}}])).unwrap_err().0,"DOCUMENT_INVALID");
+    let restored = candidate(&r, &t);
+    assert_eq!(restored.status, "pending");
+    let command = accept(&r, &p, &[restored]);
+    let receipt = r.execute_manuscript(&command).unwrap();
+    assert_eq!(r.execute_manuscript(&command).unwrap(), receipt);
+    let state = r.read_manuscript().unwrap();
+    assert_eq!(state.blocks[2].id, fresh);
+    assert!(state.blocks[2].revision > tombstone);
     assert!(SelfThread::get(&r, &t).handled);
 }
 #[test]
@@ -1093,6 +1117,7 @@ fn migration007_failure_keeps_verified_unique_backup_then_retries_without_rewrit
     drop(r);
     let path = d.path().join("project");
     let c = Connection::open(path.join("project.sqlite")).unwrap();
+    crate::drop_finalization_schema_for_legacy_fixture(&c);
     c.execute_batch("DROP TABLE history_entry_identities;DROP TABLE review_messages;DROP TABLE review_decisions;DROP TABLE review_comparisons;DROP TABLE review_reservations;DROP TABLE review_claims;DROP TABLE review_candidates;DROP TABLE review_tasks;DROP TABLE review_threads;PRAGMA user_version=6;CREATE TABLE review_threads(conflict INTEGER);").unwrap();
     drop(c);
     assert!(SqliteProjectRepository::open(&path).is_err());
@@ -1343,4 +1368,802 @@ fn current_and_historical_review_choices_prevent_shared_visual_preview_expiry() 
     .unwrap();
     r.prune_planning_payloads().unwrap();
     assert_eq!(r.planning_visual(&visual).unwrap().status, "ready");
+}
+
+fn locks(
+    r: &SqliteProjectRepository,
+    p: &str,
+    ids: Vec<String>,
+    locked: bool,
+    all: bool,
+) -> Result<CommandReceipt> {
+    r.execute_manuscript(&cmd(
+        r,
+        p,
+        "SetUserLocks",
+        json!({"blockIds":ids,"locked":locked,"all":all}),
+    ))
+}
+fn try_edit(r: &SqliteProjectRepository, p: &str, ops: Value) -> Result<CommandReceipt> {
+    let revs = r
+        .read_manuscript()
+        .unwrap()
+        .blocks
+        .iter()
+        .map(|b| json!({"id":b.id,"revision":b.revision}))
+        .collect::<Vec<_>>();
+    r.execute_manuscript(&cmd(r,p,"ApplyDocumentEdit",json!({"operations":ops,"expectedBlockRevisions":revs,"group":{"groupId":id(),"clientSessionId":id(),"groupSequence":1,"kind":"discrete"}})))
+}
+fn try_history(r: &SqliteProjectRepository, p: &str, redo: bool) -> Result<CommandReceipt> {
+    let h = r.read_history().unwrap();
+    let c=serde_json::from_value(json!({"type":if redo{"RedoProject"}else{"UndoProject"},"requestId":id(),"projectId":p,"expectedWorkingRevision":h.working_revision,"expectedHistoryRevision":h.history_revision,"expectedCursor":h.cursor,"payload":{}})).unwrap();
+    r.execute_manuscript(&c)
+}
+#[test]
+fn production_locks_guard_content_marks_structure_import_and_history_without_body_tokens() {
+    let (_d, r, _s, p) = setup();
+    let before = r.read_manuscript().unwrap();
+    let block = before.blocks[0].id.clone();
+    let locked = locks(&r, &p, vec![], true, true).unwrap();
+    assert!(locked.block_revisions.is_empty());
+    assert_eq!(r.read_manuscript().unwrap().blocks, before.blocks);
+    let baseline = r.read_finalization().unwrap().baseline.unwrap();
+    for ops in [
+        json!([{"op":"setBlockContent","id":block,"runs":[{"text":"changed","marks":[]}]}]),
+        json!([{"op":"setBlockContent","id":block,"runs":[{"text":"hello 🐦 é 中文","marks":[]}]}]),
+        json!([{"op":"deleteBlock","id":block}]),
+        json!([{"op":"setBlockAttributes","id":block,"kind":"heading","attrs":{"level":1}}]),
+    ] {
+        let h = r.read_history().unwrap();
+        assert_eq!(try_edit(&r, &p, ops).unwrap_err().0, "CONTENT_LOCKED");
+        assert_eq!(r.read_history().unwrap(), h);
+    }
+    let action: String = {
+        let c = r.connection.lock().unwrap();
+        c.query_row("SELECT action_id FROM user_locks", [], |r| r.get(0))
+            .unwrap()
+    };
+    note(&r, &p, true, 0);
+    assert_eq!(
+        r.read_finalization().unwrap().baseline,
+        Some(baseline.clone())
+    );
+    {
+        let c = r.connection.lock().unwrap();
+        assert_eq!(
+            c.query_row("SELECT action_id FROM user_locks", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            action
+        );
+    }
+    let sibling = id();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"insertBlock","after":block,"block":{"id":sibling,"kind":"paragraph","attrs":{},"runs":[]}}]),
+    );
+    assert!(!r.read_finalization().unwrap().finalized);
+    assert_eq!(r.read_finalization().unwrap().locks.len(), 1);
+    history(&r, &p, false);
+    assert_eq!(r.read_finalization().unwrap().baseline, Some(baseline));
+    // Body undo cannot cross a lock, but a lock decision itself remains undoable.
+    history(&r, &p, false);
+    history(&r, &p, false);
+    assert!(r.read_finalization().unwrap().locks.is_empty());
+}
+#[test]
+fn pending_and_using_block_new_locks_but_existing_approval_and_unlock_are_independent() {
+    let (_d, r, s, p) = setup();
+    let block = r.read_manuscript().unwrap().blocks[0].id.clone();
+    let t = note(&r, &p, false, 0);
+    locks(&r, &p, vec![], true, true).unwrap();
+    let approved = r.read_finalization().unwrap().baseline;
+    start(&r, &s, &p, &t);
+    assert_eq!(
+        r.read_finalization().unwrap().reserved_block_ids,
+        vec![block.clone()]
+    );
+    assert!(locks(&r, &p, vec![block.clone()], true, false).is_ok()); // exact existing lock is a no-op
+    locks(&r, &p, vec![block.clone()], false, false).unwrap();
+    assert_eq!(
+        locks(&r, &p, vec![block.clone()], true, false)
+            .unwrap_err()
+            .0,
+        "TASK_USING_CONTENT"
+    );
+    assert_eq!(
+        try_edit(
+            &r,
+            &p,
+            json!([{"op":"setBlockContent","id":block,"runs":[]}])
+        )
+        .unwrap_err()
+        .0,
+        "TASK_USING_CONTENT"
+    );
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    assert_eq!(
+        locks(&r, &p, vec![], true, true).unwrap_err().0,
+        "PENDING_CANDIDATE"
+    );
+    r.execute_manuscript(&accept(&r, &p, &[candidate(&r, &t)]))
+        .unwrap();
+    assert!(!r.read_finalization().unwrap().finalized);
+    locks(&r, &p, vec![], true, true).unwrap();
+    assert_ne!(r.read_finalization().unwrap().baseline, approved);
+}
+#[test]
+fn proposal_arrival_on_locked_body_preserves_baseline_and_accept_requires_explicit_unlock() {
+    let (_d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    locks(&r, &p, vec![], true, true).unwrap();
+    let before = r.read_manuscript().unwrap().blocks;
+    let baseline = r.read_finalization().unwrap().baseline;
+    start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    assert_eq!(r.read_finalization().unwrap().baseline, baseline);
+    assert_eq!(r.read_manuscript().unwrap().blocks, before);
+    assert_eq!(
+        r.execute_manuscript(&accept(&r, &p, &[candidate(&r, &t)]))
+            .unwrap_err()
+            .0,
+        "CONTENT_LOCKED"
+    );
+    locks(&r, &p, vec![before[0].id.clone()], false, false).unwrap();
+    assert_eq!(r.read_manuscript().unwrap().blocks, before);
+    assert_eq!(candidate(&r, &t).status, "pending");
+    r.execute_manuscript(&accept(&r, &p, &[candidate(&r, &t)]))
+        .unwrap();
+    assert!(r.read_finalization().unwrap().locks.is_empty());
+}
+#[test]
+fn explicit_decision_undo_rebinds_immutable_candidate_but_manual_edit_undo_does_not() {
+    let (_d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let original = candidate(&r, &t);
+    let original_object = {
+        let c = r.connection.lock().unwrap();
+        c.query_row(
+            "SELECT payload_hash FROM review_candidates WHERE id=?1",
+            [&original.id],
+            |r| r.get::<_, String>(0),
+        )
+        .unwrap()
+    };
+    r.execute_manuscript(&accept(&r, &p, std::slice::from_ref(&original)))
+        .unwrap();
+    history(&r, &p, false);
+    let restored = candidate(&r, &t);
+    assert_eq!(restored.status, "pending");
+    assert_ne!(restored.before[0].revision, original.before[0].revision);
+    assert_eq!(restored.id, original.id);
+    r.execute_manuscript(&accept(&r, &p, &[restored])).unwrap();
+    history(&r, &p, false);
+    let block = r.read_manuscript().unwrap().blocks[0].id.clone();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockContent","id":block,"runs":[{"text":"manual words","marks":[]}]}]),
+    );
+    history(&r, &p, false);
+    assert_eq!(candidate(&r, &t).status, "stale");
+    assert_eq!(
+        r.execute_manuscript(&accept(&r, &p, &[candidate(&r, &t)]))
+            .unwrap_err()
+            .0,
+        "CANDIDATE_STALE"
+    );
+    let c = r.connection.lock().unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT payload_hash FROM review_candidates WHERE id=?1",
+            [&original.id],
+            |r| r.get::<_, String>(0)
+        )
+        .unwrap(),
+        original_object
+    );
+}
+#[test]
+fn undo_discard_and_acceptance_cannot_steal_new_same_thread_candidate() {
+    for accept_first in [false, true] {
+        let (_d, r, s, p) = setup();
+        let t = note(&r, &p, false, 0);
+        start(&r, &s, &p, &t);
+        complete(&r, proposal());
+        r.reconcile_reviews().unwrap();
+        let a = candidate(&r, &t);
+        if accept_first {
+            r.execute_manuscript(&accept(&r, &p, std::slice::from_ref(&a)))
+                .unwrap();
+            history(&r, &p, false);
+        } else {
+            r.execute_manuscript(&cmd(
+                &r,
+                &p,
+                "DiscardReviewCandidate",
+                json!({"candidate":{"id":a.id,"version":a.version}}),
+            ))
+            .unwrap();
+        }
+        let current = SelfThread::get(&r, &t);
+        let c = cmd(
+            &r,
+            &p,
+            "StartReviewTask",
+            json!({"threadId":t,"requestVersion":current.request_version}),
+        );
+        r.start_review(&s, &c).unwrap();
+        let mut next = proposal();
+        next["replacements"][0]["runs"][0]["text"] = json!("New candidate B");
+        complete(&r, next);
+        r.reconcile_reviews().unwrap();
+        let b = candidate(&r, &t);
+        assert_ne!(a.id, b.id);
+        let h = r.read_history().unwrap();
+        let state = r.read_manuscript().unwrap();
+        let reviews = r.read_reviews(None).unwrap();
+        assert_eq!(
+            try_history(&r, &p, accept_first).unwrap_err().0,
+            "HISTORY_BLOCKED"
+        );
+        assert_eq!(r.read_history().unwrap(), h);
+        assert_eq!(r.read_manuscript().unwrap(), state);
+        assert_eq!(r.read_reviews(None).unwrap(), reviews);
+    }
+}
+#[test]
+fn undo_thread_creation_fences_queued_revision_and_redo_uses_fresh_request_without_run() {
+    let (d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    let run = start(&r, &s, &p, &t);
+    let old = SelfThread::get(&r, &t);
+    history(&r, &p, false);
+    assert!(r.read_reviews(None).unwrap().cards.is_empty());
+    assert!(r.read_finalization().unwrap().reserved_block_ids.is_empty());
+    assert_eq!(r.read_run(&run).unwrap().status, AiRunStatus::Cancelled);
+    history(&r, &p, true);
+    let fresh = SelfThread::get(&r, &t);
+    assert!(fresh.request_version > old.request_version);
+    assert_eq!(fresh.user_message_ids, old.user_message_ids);
+    assert!(!r.has_queued_ai().unwrap());
+    drop(r);
+    let r = SqliteProjectRepository::open(&d.path().join("project")).unwrap();
+    assert!(!r.has_queued_ai().unwrap());
+    assert_eq!(
+        SelfThread::get(&r, &t).request_version,
+        fresh.request_version
+    );
+}
+#[test]
+fn undo_delete_restores_valid_candidate_and_reopen_at_middle_keeps_binding() {
+    let (d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let a = candidate(&r, &t);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "DeleteReviewThread",
+        json!({"threadId":t,"requestVersion":1,"discardCandidate":true}),
+    ))
+    .unwrap();
+    history(&r, &p, false);
+    assert_eq!(candidate(&r, &t).id, a.id);
+    assert_eq!(candidate(&r, &t).status, "pending");
+    r.prune_review_payloads().unwrap();
+    let h = r.read_history().unwrap();
+    drop(r);
+    let r = SqliteProjectRepository::open(&d.path().join("project")).unwrap();
+    assert_eq!(r.read_history().unwrap(), h);
+    r.execute_manuscript(&accept(&r, &p, &[candidate(&r, &t)]))
+        .unwrap();
+}
+#[test]
+fn downstream_scoped_use_fences_expiry_restart_and_pins_original_approved_inputs() {
+    let (d, r, _s, p) = setup();
+    let a = r.read_manuscript().unwrap().blocks[0].id.clone();
+    let b = id();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"insertBlock","after":a,"block":{"id":b,"kind":"paragraph","attrs":{},"runs":[{"text":"Independent","marks":[]}]}}]),
+    );
+    locks(&r, &p, vec![], true, true).unwrap();
+    let baseline = r.read_finalization().unwrap().baseline.unwrap();
+    let use_id = id();
+    let fence = r
+        .start_downstream_fixture(&use_id, std::slice::from_ref(&a))
+        .unwrap();
+    assert_eq!(
+        r.start_downstream_fixture(&use_id, std::slice::from_ref(&a))
+            .unwrap(),
+        fence
+    );
+    locks(&r, &p, vec![a.clone(), b.clone()], false, false).unwrap();
+    assert!(!r.downstream_fixture_outdated(&use_id).unwrap());
+    assert_eq!(
+        try_edit(&r, &p, json!([{"op":"setBlockContent","id":a,"runs":[]}]))
+            .unwrap_err()
+            .0,
+        "TASK_USING_CONTENT"
+    );
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockContent","id":b,"runs":[{"text":"Unrelated edit","marks":[]}]}]),
+    );
+    assert!(!r.downstream_fixture_outdated(&use_id).unwrap());
+    assert!(!r.finish_downstream_fixture(&use_id, &id(), false).unwrap());
+    assert!(r.finish_downstream_fixture(&use_id, &fence, false).unwrap());
+    for n in 0..7 {
+        edit(
+            &r,
+            &p,
+            json!([{"op":"setBlockContent","id":b,"runs":[{"text":format!("prune {n}"),"marks":[]}]}]),
+        );
+    }
+    assert!(
+        r.retained_object_roots()
+            .unwrap()
+            .contains(&baseline.manifest_hash)
+    );
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockContent","id":a,"runs":[{"text":"dependent edit","marks":[]}]}]),
+    );
+    assert!(r.downstream_fixture_outdated(&use_id).unwrap());
+    locks(&r, &p, vec![], true, true).unwrap();
+    let exp = id();
+    let token = r
+        .start_downstream_fixture(&exp, std::slice::from_ref(&a))
+        .unwrap();
+    r.expire_downstream_fixtures(i64::MAX).unwrap();
+    assert!(!r.finish_downstream_fixture(&exp, &token, false).unwrap());
+    let restarted = id();
+    let token = r.start_downstream_fixture(&restarted, &[a]).unwrap();
+    drop(r);
+    let r = SqliteProjectRepository::open(&d.path().join("project")).unwrap();
+    assert!(r.read_finalization().unwrap().reserved_block_ids.is_empty());
+    assert!(
+        !r.finish_downstream_fixture(&restarted, &token, false)
+            .unwrap()
+    );
+}
+
+#[test]
+fn candidate_arriving_after_thread_creation_survives_undo_prune_reopen_and_redo_without_call() {
+    let (d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    let run = start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let original = candidate(&r, &t);
+    history(&r, &p, false);
+    r.prune_review_payloads().unwrap();
+    assert!(r.read_result(&run).unwrap().is_some());
+    assert!(r.review_candidate(&original.id, 0).is_ok());
+    drop(r);
+    let r = SqliteProjectRepository::open(&d.path().join("project")).unwrap();
+    history(&r, &p, true);
+    let restored = candidate(&r, &t);
+    assert_eq!(restored.id, original.id);
+    assert_eq!(restored.status, "pending");
+    assert!(!r.has_queued_ai().unwrap());
+    r.execute_manuscript(&accept(&r, &p, &[restored])).unwrap();
+}
+#[test]
+fn stale_evidence_restores_decision_and_body_but_never_revalidates_candidate() {
+    let (_d, r, s, p) = setup();
+    let intake = id();
+    r.begin_intake(&intake, "source.txt", "text/plain").unwrap();
+    r.append_intake(&intake, b"source words").unwrap();
+    let input = r.complete_intake(&intake).unwrap();
+    let source = id();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceFile",
+        json!({"sourceId":source,"intakeId":intake,"hash":input.hash}),
+    ))
+    .unwrap();
+    let extract = |text: &str| {
+        let job = id();
+        r.document_action(&DocumentAction::ExtractSource {
+            job_id: job.clone(),
+            source_id: source.clone(),
+        })
+        .unwrap();
+        r.finish_document_fixture(
+            &job,
+            1,
+            Ok(DocumentResult {
+                parser: "controlled/1".into(),
+                text: text.into(),
+                blocks: vec![],
+                warnings: vec![],
+                has_images: false,
+                references: vec![],
+            }),
+        )
+        .unwrap();
+    };
+    extract("original evidence");
+    let t = note(&r, &p, false, 0);
+    let mut thread = SelfThread::get(&r, &t);
+    thread.evidence=serde_json::from_value(json!([{"sourceId":source,"mode":"extracted_text","start":0,"end":8,"visualId":"","allowUnknownImages":false}])).unwrap();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "SaveReview",
+        json!({"thread":thread,"expectedRequestVersion":1}),
+    ))
+    .unwrap();
+    let current = SelfThread::get(&r, &t);
+    r.start_review(
+        &s,
+        &cmd(
+            &r,
+            &p,
+            "StartReviewTask",
+            json!({"threadId":t,"requestVersion":current.request_version}),
+        ),
+    )
+    .unwrap();
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let a = candidate(&r, &t);
+    let original = r.read_manuscript().unwrap().blocks[0].runs.clone();
+    r.execute_manuscript(&accept(&r, &p, &[a])).unwrap();
+    extract("new evidence facts");
+    history(&r, &p, false);
+    assert_eq!(r.read_manuscript().unwrap().blocks[0].runs, original);
+    assert_eq!(candidate(&r, &t).status, "stale");
+    assert!(!SelfThread::get(&r, &t).handled);
+    assert!(!r.has_queued_ai().unwrap());
+}
+#[test]
+fn finalization_requires_nonempty_body_and_lock_all_is_atomic_with_locked_descendant_impact() {
+    let (_d, r, s, p) = setup();
+    let paragraph = r.read_manuscript().unwrap().blocks[0].id.clone();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockAttributes","id":paragraph,"kind":"heading","attrs":{"level":1}}]),
+    );
+    locks(&r, &p, vec![], true, true).unwrap();
+    assert!(!r.read_finalization().unwrap().finalized);
+    locks(&r, &p, vec![paragraph.clone()], false, false).unwrap();
+    let child = id();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"insertBlock","after":paragraph,"block":{"id":child,"kind":"paragraph","attrs":{},"runs":[]}}]),
+    );
+    locks(&r, &p, vec![], true, true).unwrap();
+    assert!(!r.read_finalization().unwrap().finalized);
+    locks(&r, &p, vec![child.clone(), paragraph.clone()], false, false).unwrap();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockContent","id":child,"runs":[{"text":"Body","marks":[]}]}]),
+    );
+    locks(&r, &p, vec![child.clone()], true, false).unwrap();
+    assert_eq!(
+        try_edit(&r, &p, json!([{"op":"deleteBlock","id":paragraph}]))
+            .unwrap_err()
+            .0,
+        "CONTENT_LOCKED"
+    );
+    let new_heading = id();
+    assert_eq!(try_edit(&r,&p,json!([{"op":"insertBlock","after":paragraph,"block":{"id":new_heading,"kind":"heading","attrs":{"level":2},"runs":[{"text":"New ancestry","marks":[]}]}}])).unwrap_err().0,"CONTENT_LOCKED");
+    let t = note(&r, &p, false, 0);
+    start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let before = r.read_finalization().unwrap();
+    assert_eq!(
+        locks(&r, &p, vec![], true, true).unwrap_err().0,
+        "PENDING_CANDIDATE"
+    );
+    assert_eq!(r.read_finalization().unwrap(), before);
+}
+#[test]
+fn prepared_replace_import_enforces_current_locks_and_append_keeps_existing_lock() {
+    let (_d, r, _s, p) = setup();
+    locks(&r, &p, vec![], true, true).unwrap();
+    let job = id();
+    r.document_action(&DocumentAction::PreparePaste {
+        job_id: job.clone(),
+        text: "new import".into(),
+        expected_working_revision: r.read_manuscript().unwrap().working_revision,
+    })
+    .unwrap();
+    r.run_document(&job).unwrap();
+    let prepared = r.document_job(&job).unwrap();
+    let body = r.read_manuscript().unwrap();
+    assert_eq!(
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "CommitManuscriptImport",
+            json!({"preparedId":job,"candidateHash":prepared.candidate_hash,"mode":"replace"})
+        ))
+        .unwrap_err()
+        .0,
+        "CONTENT_LOCKED"
+    );
+    assert_eq!(r.read_manuscript().unwrap(), body);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "CommitManuscriptImport",
+        json!({"preparedId":job,"candidateHash":prepared.candidate_hash,"mode":"append"}),
+    ))
+    .unwrap();
+    assert_eq!(r.read_finalization().unwrap().locks.len(), 1);
+    assert!(!r.read_finalization().unwrap().finalized);
+}
+#[test]
+fn migration008_failure_rolls_back_and_verified_backup_preserves_v7_history_objects() {
+    let (d, r, _s, p) = setup();
+    note(&r, &p, true, 0);
+    let before = r.read_manuscript().unwrap();
+    let h = r.read_history().unwrap();
+    let bytes = r
+        .retained_object_roots()
+        .unwrap()
+        .into_iter()
+        .map(|h| {
+            let b = r.read_object(&h).unwrap();
+            (h, b)
+        })
+        .collect::<BTreeMap<_, _>>();
+    drop(r);
+    let path = d.path().join("project");
+    let c = Connection::open(path.join("project.sqlite")).unwrap();
+    crate::drop_finalization_schema_for_legacy_fixture(&c);
+    c.execute_batch("PRAGMA user_version=7;CREATE TABLE user_locks(conflict INTEGER);")
+        .unwrap();
+    drop(c);
+    assert!(SqliteProjectRepository::open(&path).is_err());
+    let c = Connection::open(path.join("project.sqlite")).unwrap();
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+    c.execute_batch("DROP TABLE user_locks;").unwrap();
+    drop(c);
+    let r = SqliteProjectRepository::open(&path).unwrap();
+    assert_eq!(r.read_manuscript().unwrap(), before);
+    assert_eq!(r.read_history().unwrap(), h);
+    assert!(r.read_finalization().unwrap().locks.is_empty());
+    for (h, b) in &bytes {
+        assert_eq!(&r.read_object(h).unwrap(), b);
+    }
+    let backups = std::fs::read_dir(&path)
+        .unwrap()
+        .map(|v| v.unwrap().path())
+        .filter(|v| {
+            v.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("pre-migration-008-")
+        })
+        .collect::<Vec<_>>();
+    assert!(backups.len() >= 3);
+    for backup in backups {
+        let c = Connection::open(backup.join("project.sqlite")).unwrap();
+        let version = c
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(version, 7);
+        if c.query_row("SELECT COUNT(*) FROM project", [], |r| r.get::<_, i64>(0))
+            .unwrap()
+            > 0
+        {
+            for (h, b) in &bytes {
+                assert_eq!(&std::fs::read(backup.join("objects").join(h)).unwrap(), b);
+            }
+        }
+    }
+}
+
+#[test]
+fn approved_baseline_retention_is_bounded_by_exact_history_entries_and_downstream_roots() {
+    let (_d, r, _s, p) = setup();
+    let block = r.read_manuscript().unwrap().blocks[0].id.clone();
+    locks(&r, &p, vec![], true, true).unwrap();
+    let pinned = r.read_finalization().unwrap().baseline.unwrap();
+    let consumer = id();
+    let fence = r
+        .start_downstream_fixture(&consumer, std::slice::from_ref(&block))
+        .unwrap();
+    r.finish_downstream_fixture(&consumer, &fence, false)
+        .unwrap();
+    locks(&r, &p, vec![block.clone()], false, false).unwrap();
+    edit(
+        &r,
+        &p,
+        json!([{"op":"setBlockContent","id":block,"runs":[{"text":"unreferenced old baseline","marks":[]}]}]),
+    );
+    locks(&r, &p, vec![], true, true).unwrap();
+    let old = r.read_finalization().unwrap().baseline.unwrap();
+    for n in 0..8 {
+        locks(&r, &p, vec![block.clone()], false, false).unwrap();
+        edit(
+            &r,
+            &p,
+            json!([{"op":"setBlockContent","id":block,"runs":[{"text":format!("baseline {n}"),"marks":[]}]}]),
+        );
+        locks(&r, &p, vec![], true, true).unwrap();
+    }
+    let current = r.read_finalization().unwrap().baseline.unwrap();
+    let roots = r.retained_object_roots().unwrap();
+    assert!(roots.contains(&pinned.manifest_hash));
+    assert!(roots.contains(&current.manifest_hash));
+    assert!(!roots.contains(&old.manifest_hash));
+    let c = r.connection.lock().unwrap();
+    assert!(
+        c.query_row("SELECT COUNT(*) FROM approved_manifests", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap()
+            <= 5
+    );
+    assert_eq!(c.query_row("SELECT COUNT(*) FROM approved_manifest_history h JOIN history_entry_identities i ON i.entry_id=h.history_entry_id",[],|r|r.get::<_,i64>(0)).unwrap(),c.query_row("SELECT COUNT(*) FROM approved_manifest_history",[],|r|r.get::<_,i64>(0)).unwrap());
+}
+#[test]
+fn reopen_rejects_corrupt_user_lock_and_current_approval_graph_without_repair() {
+    for tamper in [
+        "UPDATE user_locks SET revision=revision+1",
+        "UPDATE project SET approved_baseline=9999",
+        "UPDATE manuscript_baseline SET baseline_id=NULL",
+    ] {
+        let (d, r, _s, p) = setup();
+        locks(&r, &p, vec![], true, true).unwrap();
+        drop(r);
+        let path = d.path().join("project");
+        let c = Connection::open(path.join("project.sqlite")).unwrap();
+        c.execute(tamper, []).unwrap();
+        drop(c);
+        assert!(SqliteProjectRepository::open(&path).is_err());
+    }
+    let (d, r, _s, p) = setup();
+    locks(&r, &p, vec![], true, true).unwrap();
+    let h = r
+        .read_finalization()
+        .unwrap()
+        .baseline
+        .unwrap()
+        .manifest_hash;
+    drop(r);
+    std::fs::remove_file(d.path().join("project/objects").join(h)).unwrap();
+    assert!(SqliteProjectRepository::open(&d.path().join("project")).is_err());
+}
+#[test]
+fn active_question_handled_undo_redo_preserves_request_and_run_identity() {
+    let (_d, r, s, p) = setup();
+    let t = note(&r, &p, true, 0);
+    let run = start(&r, &s, &p, &t);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "SetReviewHandled",
+        json!({"threadId":t,"requestVersion":1,"handled":true}),
+    ))
+    .unwrap();
+    history(&r, &p, false);
+    assert!(!SelfThread::get(&r, &t).handled);
+    assert_eq!(SelfThread::get(&r, &t).request_version, 1);
+    history(&r, &p, true);
+    assert!(SelfThread::get(&r, &t).handled);
+    assert_eq!(r.read_run(&run).unwrap().status, AiRunStatus::Queued);
+    complete(
+        &r,
+        json!({"schemaVersion":1,"answer":"Handled is user state","evidenceReferences":[]}),
+    );
+    r.reconcile_reviews().unwrap();
+    assert!(SelfThread::get(&r, &t).handled);
+    assert!(!r.has_queued_ai().unwrap());
+}
+
+#[test]
+fn undo_acceptance_cannot_steal_same_thread_new_candidate_after_request_restore() {
+    let (_d, r, s, p) = setup();
+    let t = note(&r, &p, false, 0);
+    start(&r, &s, &p, &t);
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    let a = candidate(&r, &t);
+    r.execute_manuscript(&accept(&r, &p, std::slice::from_ref(&a)))
+        .unwrap();
+    let mut request = SelfThread::get(&r, &t);
+    let body = r.read_manuscript().unwrap();
+    request.handled = false;
+    request.anchor.ranges[0].revision = body.blocks[0].revision;
+    request.anchor.ranges[0].quote = review::text(&body.blocks[0]);
+    request.anchor.ranges[0].end = request.anchor.ranges[0].quote.encode_utf16().count() as i64;
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "SaveReview",
+        json!({"thread":request,"expectedRequestVersion":1}),
+    ))
+    .unwrap();
+    let request = SelfThread::get(&r, &t);
+    r.start_review(
+        &s,
+        &cmd(
+            &r,
+            &p,
+            "StartReviewTask",
+            json!({"threadId":t,"requestVersion":request.request_version}),
+        ),
+    )
+    .unwrap();
+    let mut output = proposal();
+    output["replacements"][0]["runs"][0]["text"] = json!("new candidate B");
+    complete(&r, output);
+    r.reconcile_reviews().unwrap();
+    let b = candidate(&r, &t);
+    assert_ne!(a.id, b.id);
+    history(&r, &p, false);
+    let h = r.read_history().unwrap();
+    let body = r.read_manuscript().unwrap();
+    assert_eq!(try_history(&r, &p, false).unwrap_err().0, "HISTORY_BLOCKED");
+    assert_eq!(r.read_history().unwrap(), h);
+    assert_eq!(r.read_manuscript().unwrap(), body);
+    assert_eq!(candidate(&r, &t).id, b.id);
+}
+
+#[test]
+fn lock_and_readiness_events_decode_in_closed_event_pages_and_review_only_changes_do_not_reemit_readiness()
+ {
+    let (_d, r, _s, p) = setup();
+    let before = r.events(0).unwrap().latest;
+    locks(&r, &p, vec![], true, true).unwrap();
+    let page = r.events(before).unwrap();
+    assert!(
+        page.events
+            .iter()
+            .any(|e| e.r#type == ProjectEventType::Lockschanged)
+    );
+    assert_eq!(
+        page.events
+            .iter()
+            .filter(|e| e.r#type == ProjectEventType::ManuscriptreadinessChanged)
+            .count(),
+        1
+    );
+    let after = page.latest;
+    note(&r, &p, true, 0);
+    assert!(
+        !r.events(after)
+            .unwrap()
+            .events
+            .iter()
+            .any(|e| e.r#type == ProjectEventType::ManuscriptreadinessChanged)
+    );
+    let after = r.events(0).unwrap().latest;
+    let block = r.read_manuscript().unwrap().blocks[0].id.clone();
+    locks(&r, &p, vec![block], false, false).unwrap();
+    assert_eq!(
+        r.events(after)
+            .unwrap()
+            .events
+            .iter()
+            .filter(|e| e.r#type == ProjectEventType::ManuscriptreadinessChanged)
+            .count(),
+        1
+    );
 }

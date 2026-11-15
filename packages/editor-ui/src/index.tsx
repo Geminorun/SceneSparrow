@@ -54,6 +54,53 @@ export function App({ client }: { client: PlatformClient }) {
     void load();
   }, [client]);
 
+  useEffect(() => {
+    if (!project) return;
+    const projectId = project.id;
+    let active = true,
+      generation = 0;
+    const refresh = async () => {
+      const ticket = ++generation;
+      try {
+        const response = await client.readProject();
+        if (
+          active &&
+          ticket === generation &&
+          response.project?.id === projectId
+        ) {
+          const next = response.project;
+          setProject((current) =>
+            current?.id === projectId &&
+            next.workingRevision >= current.workingRevision
+              ? next
+              : current,
+          );
+        }
+      } catch {
+        /* A later event/resync retries the current project projection. */
+      }
+    };
+    void refresh();
+    const stop = client.subscribeEvents(
+      (event) => {
+        if (
+          [
+            "manuscript.readinessChanged",
+            "locks.changed",
+            "manuscript.changed",
+          ].includes(event.type)
+        )
+          void refresh();
+      },
+      () => void refresh(),
+    );
+    return () => {
+      active = false;
+      generation++;
+      stop();
+    };
+  }, [client, project?.id]);
+
   async function create(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -124,7 +171,11 @@ export function App({ client }: { client: PlatformClient }) {
               </div>
               <div>
                 <dt>{t.baseline}</dt>
-                <dd>{t.notApproved}</dd>
+                <dd data-testid="approval-status">
+                  {project.approvedBaseline !== null
+                    ? t.finalized
+                    : t.notApproved}
+                </dd>
               </div>
             </dl>
           </div>
@@ -134,7 +185,7 @@ export function App({ client }: { client: PlatformClient }) {
             t={t}
             onRevision={(workingRevision) =>
               setProject((p) =>
-                p && p.workingRevision !== workingRevision
+                p && workingRevision > p.workingRevision
                   ? { ...p, workingRevision }
                   : p,
               )

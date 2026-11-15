@@ -69,6 +69,7 @@ impl SqliteProjectRepository {
 
     pub(super) fn business(c: &Connection, state: &ManuscriptState) -> Result<BusinessSnapshot> {
         let mut root = BusinessSnapshot::capture(state);
+        root.locks = Self::user_lock_ids(c)?;
         root.planning = Some(scenesparrow_domain::planning::content_snapshot(
             &Self::planning_content(c)?,
         ));
@@ -81,6 +82,9 @@ impl SqliteProjectRepository {
     }
     pub(super) fn business_after(c: &Connection, t: &Transition) -> Result<BusinessSnapshot> {
         let mut root = Self::business(c, &t.state)?;
+        if let Some(locks) = &t.locks {
+            root.locks = locks.clone();
+        }
         if let Some(reviews) = &t.reviews {
             root.reviews = scenesparrow_domain::review::snapshot(reviews);
         }
@@ -257,6 +261,7 @@ impl SqliteProjectRepository {
         state.working_revision = manuscript::next_revision(before.working_revision)?;
         self.policy.validate(before, &state, &affected)?;
         Ok(Transition {
+            locks: None,
             reviews: None,
             state,
             affected,
@@ -1119,3 +1124,19 @@ impl DocumentRepository for SqliteProjectRepository {
 #[cfg(test)]
 #[path = "documents_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+impl SqliteProjectRepository {
+    pub(crate) fn finish_document_fixture(
+        &self,
+        id: &str,
+        attempt: i64,
+        result: std::result::Result<DocumentResult, &'static str>,
+    ) -> Result<()> {
+        {
+            let c = db(self.connection.lock())?;
+            db(c.execute("UPDATE document_attempts SET status='running' WHERE id=?1 AND status='queued' AND attempt=?2",params![id,attempt]))?;
+        }
+        self.finish_job(id, attempt, result)
+    }
+}

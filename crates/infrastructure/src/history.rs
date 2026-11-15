@@ -53,9 +53,19 @@ impl SqliteProjectRepository {
         for row in db(planning_roots.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
         }
-        let mut review_roots = db(c.prepare("SELECT context_hash FROM review_tasks WHERE context_hash!='' UNION SELECT payload_hash FROM review_candidates WHERE payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_comparisons WHERE payload_hash IS NOT NULL"))?;
+        let mut review_roots = db(c.prepare("SELECT context_hash FROM review_tasks WHERE context_hash!='' UNION SELECT b.context_hash FROM review_candidate_bindings b JOIN review_candidates c ON c.id=b.candidate_id WHERE c.payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_candidates WHERE payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_comparisons WHERE payload_hash IS NOT NULL"))?;
         for row in db(review_roots.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
+        }
+        let mut approval = db(c.prepare("SELECT manifest_hash FROM approved_manifests UNION SELECT manifest_hash FROM downstream_inputs UNION SELECT content_hash FROM downstream_dependencies UNION SELECT content_hash FROM user_locks"))?;
+        for row in db(approval.query_map([], |r| r.get::<_, String>(0)))? {
+            roots.insert(db(row)?);
+        }
+        let mut manifests = db(c.prepare("SELECT manifest_hash FROM approved_manifests"))?;
+        for row in db(manifests.query_map([], |r| r.get::<_, String>(0)))? {
+            let manifest: crate::finalization::ApprovedManifest =
+                db(serde_json::from_slice(&self.read_object(&db(row)?)?))?;
+            roots.extend(manifest.blocks.into_iter().map(|l| l.content_hash));
         }
         let mut ai = db(c.prepare("SELECT object_hash FROM ai_artifacts UNION SELECT object_hash FROM ai_input_snapshots WHERE payload_retained=1"))?;
         for row in db(ai.query_map([], |r| r.get::<_, String>(0)))? {
@@ -267,6 +277,7 @@ impl SqliteProjectRepository {
                     return Err(ManuscriptError("INVALID_REQUEST", None));
                 }
                 return Ok(Transition {
+                    locks: None,
                     reviews: None,
                     state: before.clone(),
                     affected: BTreeSet::new(),
@@ -295,6 +306,9 @@ impl SqliteProjectRepository {
             | ManuscriptCommand::UsePlanningResult { .. }
             | ManuscriptCommand::CancelPlanningTask { .. } => {
                 return self.planning_transition(c, command, before, identities);
+            }
+            ManuscriptCommand::SetUserLocks { .. } => {
+                return self.lock_transition(c, command, before);
             }
             _ => return manuscript::apply(before, command, identities, self.policy.as_ref()),
         };
@@ -334,6 +348,7 @@ impl SqliteProjectRepository {
         self.restore_sources(c, before, &mut transition, &target, identities)?;
         self.restore_planning(c, &mut transition, &target)?;
         self.restore_reviews(c, &mut transition, &target)?;
+        transition.locks = Some(target.locks.clone());
         Ok(transition)
     }
 
@@ -496,6 +511,7 @@ impl SqliteProjectRepository {
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
                             ManuscriptCommand::SavePlanning { .. } => "planning",
+                            ManuscriptCommand::SetUserLocks { .. } => "locks",
                             ManuscriptCommand::SaveReview { .. }
                             | ManuscriptCommand::SetReviewHandled { .. }
                             | ManuscriptCommand::DeleteReviewThread { .. } => "review",

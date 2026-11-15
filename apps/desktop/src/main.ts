@@ -173,6 +173,7 @@ async function main() {
     );
   });
   for (const [channel, path, method] of [
+    ["manuscript:finalization", "/manuscript/finalization", "GET"],
     ["reviews:read", "/reviews", "GET"],
     ["planning:read", "/planning", "GET"],
     ["planning:prepare", "/planning/preparations", "POST"],

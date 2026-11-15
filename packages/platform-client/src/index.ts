@@ -1,4 +1,5 @@
 import type {
+  FinalizationState,
   ReviewPage,
   ReviewCandidate,
   ReviewComparison,
@@ -35,6 +36,7 @@ import type {
 } from "@scenesparrow/contracts";
 
 export interface PlatformClient {
+  readFinalization(): Promise<FinalizationState>;
   readReviews(after?: string): Promise<ReviewPage>;
   reviewCandidate(id: string, offset?: number): Promise<ReviewCandidate>;
   reviewMessages(id: string, before?: number): Promise<ReviewMessagePage>;
@@ -146,6 +148,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       request(
         `/v1/reviews/${encodeURIComponent(id)}/messages${before ? `?before=${before}` : ""}`,
       ),
+    readFinalization: () => request("/v1/manuscript/finalization"),
     readReviews: (after) =>
       request(
         `/v1/reviews${after ? `?after=${encodeURIComponent(after)}` : ""}`,
@@ -280,6 +283,7 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  readFinalization(): Promise<BridgeResult<FinalizationState>>;
   readReviews(after?: string): Promise<BridgeResult<ReviewPage>>;
   reviewCandidate(
     id: string,
@@ -356,6 +360,7 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     return result.data;
   }
   return {
+    readFinalization: () => unwrap(bridge.readFinalization()),
     readReviews: (after) => unwrap(bridge.readReviews(after)),
     reviewCandidate: (id, offset) => unwrap(bridge.reviewCandidate(id, offset)),
     reviewSourceComparison: (id) => unwrap(bridge.reviewSourceComparison(id)),

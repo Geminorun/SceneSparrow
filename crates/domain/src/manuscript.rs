@@ -190,6 +190,7 @@ impl MutationPolicy for Unrestricted {
     }
 }
 pub struct Transition {
+    pub locks: Option<Vec<String>>,
     pub reviews: Option<Vec<ReviewThread>>,
     pub state: ManuscriptState,
     pub affected: BTreeSet<String>,
@@ -200,7 +201,13 @@ pub struct Transition {
 }
 pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
     match command {
-        ManuscriptCommand::SaveReview {
+        ManuscriptCommand::SetUserLocks {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::SaveReview {
             request_id,
             project_id,
             expected_working_revision,
@@ -398,7 +405,8 @@ pub fn apply(
             }
             state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
         }
-        ManuscriptCommand::SaveReview { .. }
+        ManuscriptCommand::SetUserLocks { .. }
+        | ManuscriptCommand::SaveReview { .. }
         | ManuscriptCommand::SetReviewHandled { .. }
         | ManuscriptCommand::DeleteReviewThread { .. }
         | ManuscriptCommand::StartReviewTask { .. }
@@ -597,6 +605,7 @@ pub fn apply(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        locks: None,
         reviews: None,
         state,
         affected,
@@ -612,6 +621,8 @@ pub fn apply(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BusinessSnapshot {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locks: Vec<String>,
     pub version: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviews: Vec<ReviewThread>,
@@ -626,6 +637,7 @@ impl BusinessSnapshot {
     pub fn capture(state: &ManuscriptState) -> Self {
         Self {
             version: 4,
+            locks: vec![],
             reviews: vec![],
             planning: None,
             sources: vec![],
@@ -718,6 +730,7 @@ pub fn restore(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        locks: None,
         reviews: None,
         state,
         affected,
@@ -814,6 +827,7 @@ pub fn import_candidate(
     state.working_revision = next_revision(before.working_revision)?;
     normalize(&mut state)?;
     Ok(Transition {
+        locks: None,
         reviews: None,
         state,
         affected,

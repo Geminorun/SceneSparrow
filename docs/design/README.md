@@ -3,9 +3,9 @@
 These documents specify the first usable **SceneSparrow / 幕雀** manuscript
 workbench. They translate the product interview into an implementation plan.
 They describe intended behavior. The repository now implements execution steps
-1–6: manual editing/history, sources/import, shared AI, outline-to-draft generation
-and anchored review/candidate decisions. Production locks/full review rebinding
-and export remain subsequent work. The [execution workflow](../implementation-execution.md) and linked
+1–7: manual editing/history, sources/import, shared AI, outline-to-draft generation,
+anchored review/candidate decisions, production locks, derived finalization and
+validated review rebinding. Export remains subsequent work. The [execution workflow](../implementation-execution.md) and linked
 validation reports record actual scope and limits; remaining design prose is not
 proof of implementation or platform readiness.
 

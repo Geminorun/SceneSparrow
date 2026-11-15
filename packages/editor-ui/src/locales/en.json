@@ -324,5 +324,14 @@
   "reviewOtherComments": "Offscreen, handled and orphaned comments",
   "reviewComparisonPaged": "This is a comparison excerpt. Inspect each page to see all content.",
   "reviewNextComparison": "Next comparison page",
-  "reviewNoChange": "AI produced no new change. A prior applicable proposal stays available."
+  "reviewNoChange": "AI produced no new change. A prior applicable proposal stays available.",
+  "lock": "Lock block",
+  "unlock": "Unlock block",
+  "lockAll": "Lock entire manuscript",
+  "finalized": "Finalized",
+  "notFinalized": "Editing",
+  "lockPending": "Resolve the candidate or wait for the task before locking.",
+  "reviewUnsent": "Save or clear your unsent review before leaving the draft.",
+  "lockUnavailable": "Lock status unavailable. Refresh to continue editing.",
+  "taskUsingContent": "Task is using this block"
 }

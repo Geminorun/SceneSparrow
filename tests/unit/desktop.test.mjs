@@ -114,6 +114,7 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "readAiResult",
       "cancelAiRun",
       "readSources",
+      "readFinalization",
       "readReviews",
       "reviewMessages",
       "reviewCandidate",

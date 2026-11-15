@@ -217,6 +217,7 @@ impl SqliteProjectRepository {
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                 }
                 Ok(Transition {
+                    locks: None,
                     reviews: None,
                     state,
                     affected: BTreeSet::new(),
@@ -244,6 +245,7 @@ impl SqliteProjectRepository {
                     "ALREADY_APPLIED",
                 )?;
                 Ok(Transition {
+                    locks: None,
                     reviews: None,
                     state: before.clone(),
                     affected: BTreeSet::new(),
@@ -354,6 +356,7 @@ impl SqliteProjectRepository {
                     let mut state = before.clone();
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                     Ok(Transition {
+                        locks: None,
                         reviews: None,
                         state,
                         affected: BTreeSet::new(),

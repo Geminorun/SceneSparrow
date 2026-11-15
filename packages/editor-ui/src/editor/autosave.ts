@@ -10,6 +10,7 @@ import { edits } from "./canonical";
 export type SaveStatus = "saved" | "pending" | "saving" | "error" | "conflict";
 class UncertainCommit extends Error {}
 export class Autosave {
+  reviewDirty: (() => boolean) | undefined;
   planningAdapter?: {
     flush: (retry?: boolean) => Promise<boolean>;
     identity: () => string;
@@ -63,6 +64,8 @@ export class Autosave {
     groupSequence: number;
   } | null = null;
   private generation = 0;
+  private compositionGeneration = 0;
+  private metadataPending: ManuscriptCommand | null = null;
   private capturedGeneration = -1;
   private capture() {
     if (this.capturedGeneration === this.generation) return;
@@ -90,10 +93,11 @@ export class Autosave {
   }
   get hasUnresolvedBusiness() {
     return (
-      !!this.controlPending &&
-      !["CloseEditGroup", "UndoProject", "RedoProject"].includes(
-        this.controlPending.type,
-      )
+      !!this.metadataPending ||
+      (!!this.controlPending &&
+        !["CloseEditGroup", "UndoProject", "RedoProject"].includes(
+          this.controlPending.type,
+        ))
     );
   }
   history: HistoryState;
@@ -153,6 +157,11 @@ export class Autosave {
       : this.enqueue(async () => this.drain());
   }
   navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
+    if (this.reviewDirty?.()) {
+      this.operationError = { code: "UNSENT_REVIEW", details: undefined };
+      this.notify();
+      return Promise.resolve(false);
+    }
     if (!this.planningAdapter) return this.navigateCore(direction, apply);
     const requestedVisible = JSON.stringify(this.local);
     const intent = this.planningAdapter.identity();
@@ -174,7 +183,7 @@ export class Autosave {
     requestedVisible = JSON.stringify(this.local),
   ) {
     return this.enqueue(async () => {
-      if (this.disposed) return false;
+      if (this.disposed || this.metadataPending) return false;
       if (this.controlPending) {
         const type = this.controlPending.type as
           "UndoProject" | "RedoProject" | "CloseEditGroup";
@@ -192,6 +201,11 @@ export class Autosave {
         this.error = "REVISION_CONFLICT";
         this.status = "conflict";
         this.latest = this.state;
+        this.notify();
+        return false;
+      }
+      if (this.reviewDirty?.()) {
+        this.operationError = { code: "UNSENT_REVIEW", details: undefined };
         this.notify();
         return false;
       }
@@ -245,6 +259,79 @@ export class Autosave {
         : false,
     );
   }
+  async reconcileMetadataReceipt(command: ManuscriptCommand) {
+    if (
+      command.type !== "SetUserLocks" ||
+      this.businessReceipt?.requestId !== command.requestId
+    )
+      return false;
+    try {
+      const canonical = await this.client.readManuscript();
+      if (
+        JSON.stringify(canonical.blocks) !==
+          JSON.stringify(this.state.blocks) ||
+        canonical.workspaceStage !== this.state.workspaceStage
+      )
+        return false;
+      this.state = canonical;
+      if (this.controlPending?.requestId === command.requestId) {
+        this.controlPending = null;
+        this.controlVisible = null;
+      }
+      if (!this.conversionError) {
+        this.error = "";
+        this.status = this.same() ? "saved" : "pending";
+      }
+      this.notify();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  cancelReviewCommand(command: ManuscriptCommand) {
+    if (
+      (command.type !== "CancelReviewTask" &&
+        !(command.type === "SetUserLocks" && !command.payload.locked)) ||
+      this.disposed ||
+      this.controlPending ||
+      this.unresolved ||
+      (this.metadataPending &&
+        this.metadataPending.requestId !== command.requestId)
+    )
+      return Promise.resolve(false);
+    this.metadataPending = command;
+    return this.enqueue(async () => {
+      try {
+        const receipt = await this.resolve(command);
+        this.businessReceipt = { requestId: command.requestId, receipt };
+        this.acceptHistory(receipt);
+        this.metadataPending = null;
+        try {
+          const canonical = await this.client.readManuscript();
+          if (
+            JSON.stringify(canonical.blocks) ===
+              JSON.stringify(this.state.blocks) &&
+            canonical.workspaceStage === this.state.workspaceStage
+          )
+            this.state = canonical;
+        } catch {
+          /* The proven metadata receipt is final; a later explicit resync can refresh tokens. */
+        }
+        this.notify();
+        return true;
+      } catch (error) {
+        if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE") {
+          this.businessRejection = {
+            requestId: command.requestId,
+            code: error.code,
+          };
+          this.metadataPending = null;
+        }
+        this.notify();
+        return false;
+      }
+    });
+  }
   businessCore(
     build: (revision: number) => ManuscriptCommand,
     options?: {
@@ -258,7 +345,8 @@ export class Autosave {
     const requestedVisible =
       options?.requestedVisible ?? JSON.stringify(this.local);
     return this.enqueue(async () => {
-      if (options?.signal?.aborted || this.disposed) return false;
+      if (options?.signal?.aborted || this.disposed || this.metadataPending)
+        return false;
       if (this.controlPending) {
         const candidate = options?.replayCommand?.();
         if (
@@ -289,7 +377,13 @@ export class Autosave {
   }
   resync() {
     return this.enqueue(async () => {
-      if (this.disposed || this.controlPending || this.unresolved) return false;
+      if (
+        this.disposed ||
+        this.controlPending ||
+        this.unresolved ||
+        this.metadataPending
+      )
+        return false;
       const generation = this.generation;
       try {
         const current = await this.client.readManuscript();
@@ -309,6 +403,8 @@ export class Autosave {
           generation !== this.generation ||
           !this.same() ||
           this.planningAdapter?.dirty() ||
+          (current.workspaceStage !== this.state.workspaceStage &&
+            this.reviewDirty?.()) ||
           this.conversionError ||
           this.composing
         ) {
@@ -330,6 +426,7 @@ export class Autosave {
     });
   }
   async controlledClose(retry = false): Promise<boolean> {
+    if (this.reviewDirty?.() || this.metadataPending) return false;
     clearTimeout(this.idleTimer);
     for (;;) {
       const intent = this.planningAdapter?.identity();
@@ -346,7 +443,13 @@ export class Autosave {
           ? null
           : true;
       });
-      if (result !== null) return result;
+      if (result !== null)
+        return (
+          result &&
+          !this.reviewDirty?.() &&
+          !this.metadataPending &&
+          !this.composing
+        );
     }
   }
   private async settle(retry = false): Promise<boolean> {
@@ -377,6 +480,7 @@ export class Autosave {
         payload: type === "CloseEditGroup" ? this.acknowledgedGroup! : {},
       } as ManuscriptCommand);
     this.controlPending = command;
+    const compositionGeneration = this.compositionGeneration;
     const visible = this.controlVisible ?? JSON.stringify(this.local);
     this.controlVisible = visible;
     this.businessRejection = undefined;
@@ -391,6 +495,7 @@ export class Autosave {
         this.businessReceipt = { requestId: command.requestId, receipt };
         this.acceptHistory(receipt);
         const reviewControl = [
+          "SetUserLocks",
           "SaveReview",
           "SetReviewHandled",
           "DeleteReviewThread",
@@ -407,6 +512,10 @@ export class Autosave {
         ].includes(command.type);
         if (command.type !== "CloseEditGroup") {
           const canonical = await this.client.readManuscript();
+          const sameBody =
+            JSON.stringify(canonical.blocks) ===
+              JSON.stringify(this.state.blocks) &&
+            canonical.workspaceStage === this.state.workspaceStage;
           if (
             (!taskControl &&
               !reviewControl &&
@@ -414,12 +523,17 @@ export class Autosave {
             (reviewControl &&
               canonical.workingRevision < receipt.workingRevision) ||
             JSON.stringify(this.local) !== visible ||
-            this.conversionError
+            this.conversionError ||
+            (canonical.workspaceStage !== this.state.workspaceStage &&
+              this.reviewDirty?.()) ||
+            (!sameBody &&
+              (this.composing ||
+                this.compositionGeneration !== compositionGeneration))
           )
             throw new ApiError("REVISION_CONFLICT");
           this.state = canonical;
           this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
-          this.canonicalVersion++;
+          if (!sameBody) this.canonicalVersion++;
         }
         if (command.type === "CloseEditGroup") {
           this.acknowledgedGroup = null;
@@ -577,6 +691,7 @@ export class Autosave {
     this.schedule();
   }
   composition(active: boolean) {
+    if (active) this.compositionGeneration++;
     this.composing = active;
     if (active) clearTimeout(this.timer);
     else this.schedule();
@@ -636,6 +751,7 @@ export class Autosave {
     return this.enqueue(() => this.drain(retry));
   }
   private async drain(retry = false): Promise<boolean> {
+    if (this.metadataPending) return false;
     if (this.disposed) return false;
     clearTimeout(this.timer);
     if (this.composing || this.conversionError) return false;

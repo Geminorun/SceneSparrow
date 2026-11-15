@@ -10,6 +10,7 @@ struct Page {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/v1/reviews", get(read))
+        .route("/v1/manuscript/finalization", get(finalization))
         .route("/v1/reviews/{id}/messages", get(messages))
         .route("/v1/reviews/candidates/{id}", get(candidate))
         .route("/v1/reviews/comparisons/{id}", get(comparison))
@@ -80,6 +81,21 @@ async fn comparison(State(state): State<AppState>, Path(id): Path<String>) -> Re
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
             state.service.repository().review_source_comparison(&id)
+        })
+        .await
+        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
+        None,
+    )
+}
+
+async fn finalization(State(state): State<AppState>) -> Response {
+    let Ok(slot) = state.database_slots.acquire_owned().await else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
+    };
+    manuscript::result(
+        tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            state.service.repository().read_finalization()
         })
         .await
         .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),

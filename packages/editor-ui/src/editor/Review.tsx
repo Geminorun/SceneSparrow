@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Editor } from "@tiptap/core";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type {
@@ -56,6 +63,17 @@ export function Review({
       top: number;
       left: number;
     } | null>(null);
+  const floating = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!selectionToolbar || !floating.current) return;
+    const width = floating.current.getBoundingClientRect().width,
+      left = Math.max(
+        4,
+        Math.min(selectionToolbar.left, window.innerWidth - width - 4),
+      );
+    if (left !== selectionToolbar.left)
+      setSelectionToolbar((prior) => (prior ? { ...prior, left } : prior));
+  }, [selectionToolbar, t.reviewQuestion, t.reviewNote]);
   const [commands] = useState(() => new ReviewCommands(save));
   const submitFlight = useRef<{
     intent: number;
@@ -67,6 +85,13 @@ export function Review({
     composing = useRef(false),
     composerIntent = useRef(0);
   input.current = text;
+  useEffect(() => {
+    const dirty = () => !!input.current.trim() || composing.current;
+    save.reviewDirty = dirty;
+    return () => {
+      if (save.reviewDirty === dirty) save.reviewDirty = undefined;
+    };
+  }, [save]);
   const refresh = useCallback(async () => {
     const n = ++generation.current;
     try {
@@ -154,27 +179,12 @@ export function Review({
       }
     };
     let active = true;
-    let queued = false;
-    const transaction = ({
-      transaction: tr,
-    }: {
-      transaction: import("@tiptap/pm/state").Transaction;
-    }) => {
-      if (!tr.docChanged || queued) return;
-      queued = true;
-      queueMicrotask(() => {
-        queued = false;
-        if (active) update();
-      });
-    };
     update();
-    editor.on("transaction", transaction);
     queueMicrotask(() => {
       if (active) update();
     });
     return () => {
       active = false;
-      editor.off("transaction", transaction);
     };
   }, [editor, cards, save.canonicalVersion]);
   useEffect(() => {
@@ -187,6 +197,13 @@ export function Review({
       try {
         const start = editor.view.coordsAtPos(editor.state.selection.from),
           end = editor.view.coordsAtPos(editor.state.selection.to);
+        if (
+          Math.max(start.bottom, end.bottom) < 0 ||
+          Math.min(start.top, end.top) > window.innerHeight
+        ) {
+          setSelectionToolbar(null);
+          return;
+        }
         setSelectionToolbar({
           top: Math.max(4, Math.min(start.top, end.top) - 40),
           left: Math.max(4, Math.min(window.innerWidth - 240, start.left)),
@@ -196,8 +213,12 @@ export function Review({
       }
     };
     editor.on("selectionUpdate", changed);
+    window.addEventListener("resize", changed);
+    window.addEventListener("scroll", changed, true);
     return () => {
       editor.off("selectionUpdate", changed);
+      window.removeEventListener("resize", changed);
+      window.removeEventListener("scroll", changed, true);
     };
   }, [editor, save]);
   const action = async (
@@ -416,6 +437,7 @@ export function Review({
       <h2>{t.reviewPanel}</h2>
       {selectionToolbar && !save.composing && (
         <div
+          ref={floating}
           className="review-floating-selection"
           role="toolbar"
           aria-label={t.reviewSelection}

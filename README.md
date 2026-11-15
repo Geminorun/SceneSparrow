@@ -22,8 +22,10 @@ credentials, an independent compatible text runtime and durable execution ports.
 [Step 5](docs/validation/step-05.md) adds saved planning, explicit text/visual
 evidence, outline generation/adjustment and one complete initial draft.
 [Step 6](docs/validation/step-06.md) adds anchored questions/follow-ups, scoped
-revision candidates, comparisons and individual/batch decisions. Production locks,
-full review history rebinding and export follow in steps 7–8; the
+revision candidates, comparisons and individual/batch decisions.
+[Step 7](docs/validation/step-07.md) adds production locks, derived finalization,
+approved baselines and validated review history rebinding. Export and final
+validation follow in step 8; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects

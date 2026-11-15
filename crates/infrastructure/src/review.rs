@@ -49,7 +49,7 @@ pub(crate) struct PreparedReviewRecord {
     prior: Option<ReviewThread>,
     json: String,
     request_hash: String,
-    rebound: Option<ReviewCandidate>,
+    rebound: Option<(ReviewCandidate, String, Option<Context>)>,
 }
 pub(crate) struct PreparedReviews {
     records: Vec<PreparedReviewRecord>,
@@ -92,6 +92,18 @@ impl SqliteProjectRepository {
             &self.read_object(&payload.ok_or(ManuscriptError("CANDIDATE_STALE", None))?)?,
         ))?;
         candidate.status = status;
+        let binding: Option<String> = db(c
+            .query_row(
+                "SELECT context_hash FROM review_candidate_bindings WHERE candidate_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if let Some(h) = binding {
+            let ctx: Context = db(serde_json::from_slice(&self.read_object(&h)?))?;
+            candidate.before = ctx.base.blocks;
+            candidate.request_version = ctx.thread.request_version;
+        }
         Ok(candidate)
     }
     fn current_candidate(&self, c: &Connection, id: &str) -> Result<Option<ReviewCandidate>> {
@@ -459,7 +471,7 @@ impl SqliteProjectRepository {
                             !Self::active(c, &candidate.thread_id)?,
                             "REVIEW_TASK_ACTIVE",
                         )?;
-                        let ctx = self.load_context(c, &candidate.run_id)?;
+                        let ctx = self.candidate_context(c, &candidate)?;
                         conflict_scope = Self::scope(&ctx.thread).into_iter().collect();
                         self.review_dependencies(c, &ctx)?;
                         ensure(
@@ -531,6 +543,7 @@ impl SqliteProjectRepository {
                             after = Some(block.id.clone());
                         }
                         let single = self.apply_review_operations(
+                            c,
                             before,
                             command,
                             &operations[operation_start..],
@@ -575,11 +588,14 @@ impl SqliteProjectRepository {
                         }),
                     ));
                 }
-                let synthetic: ManuscriptCommand = db(serde_json::from_value(
-                    serde_json::json!({"type":"ApplyDocumentEdit","requestId":manuscript::envelope(command).0,"projectId":manuscript::envelope(command).1,"expectedWorkingRevision":before.working_revision,"payload":{"operations":operations,"expectedBlockRevisions":revisions,"group":{"groupId":uuid::Uuid::new_v4().to_string(),"clientSessionId":uuid::Uuid::new_v4().to_string(),"groupSequence":1,"kind":"discrete"}}}),
-                ))?;
-                let transition =
-                    manuscript::apply(before, &synthetic, identities, self.policy.as_ref())?;
+                let transition = self.apply_review_operations(
+                    c,
+                    before,
+                    command,
+                    &operations,
+                    &revisions,
+                    identities,
+                )?;
                 state = transition.state;
                 affected = transition.affected;
             }
@@ -597,6 +613,7 @@ impl SqliteProjectRepository {
             state.working_revision = manuscript::next_revision(before.working_revision)?;
         }
         Ok(Transition {
+            locks: None,
             state,
             affected,
             reviews: changed.then_some(threads),
@@ -671,48 +688,21 @@ impl SqliteProjectRepository {
                 if matches!(
                     command,
                     ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
-                ) && let Some(prior) = &prior
+                ) && let Some(prior) = prior
                     && prior.decision != thread.decision
+                    && let Some(decision) = &thread.decision
                 {
-                    if prior.decision.is_some() {
-                        let candidate = record
-                            .rebound
-                            .as_ref()
-                            .ok_or(ManuscriptError("HISTORY_BLOCKED", None))?;
-                        db(c.execute(
-                            "UPDATE review_candidates SET status='stale' WHERE id=?1",
-                            [&candidate.id],
-                        ))?;
-                        for block in &candidate.before {
-                            let owner: Option<String> = db(c
-                                .query_row(
-                                    "SELECT thread_id FROM review_claims WHERE block_id=?1",
-                                    [&block.id],
-                                    |r| r.get(0),
-                                )
-                                .optional())?;
-                            ensure(owner.is_none_or(|id| id == thread.id), "HISTORY_BLOCKED")?;
-                            db(c.execute(
-                                "INSERT OR IGNORE INTO review_claims VALUES(?1,?2)",
-                                params![block.id, thread.id],
-                            ))?;
-                            db(c.execute(
-                                "INSERT OR REPLACE INTO review_comparisons VALUES(?1,?2,?3,NULL)",
-                                params![block.id, thread.id, candidate.id],
-                            ))?;
-                        }
-                    }
-                    if let Some(decision) = &thread.decision {
-                        self.decide(
-                            c,
-                            &decision.candidate_id,
-                            if decision.decision == ReviewUserDecisionDecision::Accepted {
-                                "accepted"
-                            } else {
-                                "discarded"
-                            },
-                        )?;
-                    }
+                    // A redo may decide only the exact restored candidate; newer evidence wins a conflict.
+                    self.check_candidate_identity(c, &thread.id, &decision.candidate_id)?;
+                    self.decide(
+                        c,
+                        &decision.candidate_id,
+                        if decision.decision == ReviewUserDecisionDecision::Accepted {
+                            "accepted"
+                        } else {
+                            "discarded"
+                        },
+                    )?;
                 }
                 db(c.execute("INSERT INTO review_threads VALUES(?1,?2,?3,?2,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET high_water=MAX(high_water,excluded.high_water),user_json=excluded.user_json,request_version=excluded.request_version,request_hash=excluded.request_hash,deleted=excluded.deleted,handled=excluded.handled",params![thread.id,thread.request_version,record.json,record.request_hash,thread.deleted,thread.handled]))?;
                 if prior.as_ref().is_some_and(|p| {
@@ -736,6 +726,29 @@ impl SqliteProjectRepository {
         // Actual changed dependencies stale candidates while retaining their claim.
         for id in &t.affected {
             db(c.execute("UPDATE review_candidates SET status='stale' WHERE status='pending' AND thread_id IN (SELECT thread_id FROM review_claims WHERE block_id=?1)",[id]))?;
+        }
+        for record in &prepared.records {
+            if let Some((candidate, h, ctx)) = &record.rebound {
+                self.check_candidate_identity(c, &record.thread.id, &candidate.id)?;
+                if let Some(ctx) = ctx {
+                    Self::review_sql_dependencies(c, ctx)
+                        .map_err(|_| ManuscriptError("HISTORY_BLOCKED", None))?;
+                    db(c.execute("INSERT INTO review_candidate_bindings VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(candidate_id) DO UPDATE SET request_version=excluded.request_version,request_hash=excluded.request_hash,tokens=excluded.tokens,context_hash=excluded.context_hash,history_entry_id=excluded.history_entry_id",params![candidate.id,ctx.thread.request_version,ctx.request_hash,ctx.tokens,h,Self::replay_review_entry(c,command)?]))?;
+                    db(c.execute("UPDATE review_candidates SET status='pending',request_version=?2 WHERE id=?1",params![candidate.id,ctx.thread.request_version]))?;
+                } else {
+                    db(c.execute(
+                        "UPDATE review_candidates SET status='stale' WHERE id=?1",
+                        [&candidate.id],
+                    ))?;
+                }
+                for id in candidate.before.iter().map(|b| &b.id) {
+                    db(c.execute(
+                        "INSERT OR IGNORE INTO review_claims VALUES(?1,?2)",
+                        params![id, record.thread.id],
+                    ))?;
+                    db(c.execute("INSERT INTO review_comparisons VALUES(?1,?2,?3,NULL) ON CONFLICT(block_id) DO UPDATE SET thread_id=excluded.thread_id,candidate_id=excluded.candidate_id",params![id,record.thread.id,candidate.id]))?;
+                }
+            }
         }
         if let ManuscriptCommand::AcceptReviewCandidates { payload, .. } = command {
             for r in &payload.candidates {
@@ -761,15 +774,32 @@ impl SqliteProjectRepository {
                 ],
             ))?;
         }
-        let fence_id = match command {
-            ManuscriptCommand::CancelReviewTask { payload, .. } => Some(&payload.thread_id),
-            ManuscriptCommand::DeleteReviewThread { payload, .. } => Some(&payload.thread_id),
-            ManuscriptCommand::SaveReview { payload, .. } if t.reviews.is_some() => {
-                Some(&payload.thread.id)
+        let mut fence_ids = vec![];
+        match command {
+            ManuscriptCommand::CancelReviewTask { payload, .. } => {
+                fence_ids.push(payload.thread_id.clone())
             }
-            _ => None,
-        };
-        if let Some(id) = fence_id {
+            ManuscriptCommand::DeleteReviewThread { payload, .. } => {
+                fence_ids.push(payload.thread_id.clone())
+            }
+            ManuscriptCommand::SaveReview { payload, .. } if t.reviews.is_some() => {
+                fence_ids.push(payload.thread.id.clone())
+            }
+            _ => {}
+        }
+        for record in &prepared.records {
+            if record.thread.deleted
+                || record
+                    .prior
+                    .as_ref()
+                    .is_some_and(|p| p.request_version != record.thread.request_version)
+            {
+                fence_ids.push(record.thread.id.clone());
+            }
+        }
+        fence_ids.sort();
+        fence_ids.dedup();
+        for id in &fence_ids {
             // An instruction edit fences applicability; it does not implicitly
             // start a replacement call or transfer another thread's claim.
             let mut s = db(c.prepare(
@@ -790,7 +820,11 @@ impl SqliteProjectRepository {
                 db(c.execute("UPDATE review_tasks SET application='cancelled',error='CANCELLED' WHERE run_id=?1",[&run_id]))?;
                 db(c.execute("DELETE FROM review_reservations WHERE run_id=?1", [&run_id]))?;
             }
-            if matches!(command, ManuscriptCommand::DeleteReviewThread { .. }) {
+            if prepared
+                .records
+                .iter()
+                .any(|r| r.thread.id == *id && r.thread.deleted)
+            {
                 let mut stmt=db(c.prepare("SELECT id,version FROM review_candidates WHERE thread_id=?1 AND status IN ('pending','stale')"))?;
                 let decided = db(stmt.query_map([id], |r| {
                     Ok(ReviewCandidateRef {
@@ -800,7 +834,21 @@ impl SqliteProjectRepository {
                 }))?
                 .map(db)
                 .collect::<Result<Vec<_>>>()?;
-                if !decided.is_empty() {
+                if matches!(
+                    command,
+                    ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
+                ) {
+                    for candidate in &decided {
+                        db(c.execute("INSERT INTO review_history_evidence VALUES(?1,?2,?3) ON CONFLICT(history_entry_id,thread_id) DO UPDATE SET candidate_id=excluded.candidate_id",params![Self::replay_review_entry(c,command)?,id,candidate.id]))?;
+                    }
+                }
+                if !decided.is_empty()
+                    && !matches!(
+                        command,
+                        ManuscriptCommand::UndoProject { .. }
+                            | ManuscriptCommand::RedoProject { .. }
+                    )
+                {
                     db(c.execute(
                         "INSERT INTO review_decisions VALUES(?1,?2,'deleted',?3)",
                         params![
@@ -1209,9 +1257,11 @@ impl SqliteProjectRepository {
         let mut restored = target.reviews.clone();
         for thread in &mut restored {
             let previous = current.iter().find(|t| t.id == thread.id);
-            if let Some(old) =
-                previous.filter(|old| review::snapshot(&[(*old).clone()]) == vec![thread.clone()])
-            {
+            if let Some(old) = previous.filter(|old| {
+                let mut status_only = (*old).clone();
+                status_only.handled = thread.handled;
+                !old.deleted && review::snapshot(&[status_only]) == vec![thread.clone()]
+            }) {
                 thread.request_version = old.request_version;
             } else {
                 let high: Option<i64> = db(c
@@ -1221,7 +1271,9 @@ impl SqliteProjectRepository {
                         |r| r.get(0),
                     )
                     .optional())?;
-                ensure(!Self::active(c, &thread.id)?, "HISTORY_BLOCKED")?;
+                if !thread.deleted {
+                    ensure(!Self::active(c, &thread.id)?, "HISTORY_BLOCKED")?;
+                }
                 if let Some(candidate) = self.current_candidate(c, &thread.id)? {
                     ensure(
                         previous
@@ -1251,10 +1303,7 @@ impl SqliteProjectRepository {
                     restored.push(old);
                     continue;
                 }
-                ensure(
-                    !Self::active(c, &old.id)? && self.current_candidate(c, &old.id)?.is_none(),
-                    "HISTORY_BLOCKED",
-                )?;
+
                 let mut old = old;
                 old.deleted = true;
                 old.request_version = manuscript::next_revision(old.request_version)?;
@@ -1287,33 +1336,55 @@ impl SqliteProjectRepository {
                 if prior.as_ref() == Some(thread) {
                     continue;
                 }
-                let rebound = if matches!(
+                let replay = matches!(
                     command,
                     ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
-                ) && prior
-                    .as_ref()
-                    .is_some_and(|p| p.decision != thread.decision)
-                {
-                    prior
-                        .as_ref()
-                        .and_then(|p| p.decision.as_ref())
-                        .map(|d| self.candidate_at(c, &d.candidate_id))
-                        .transpose()?
+                );
+                let entry = if replay {
+                    Some(Self::replay_review_entry(c, command)?)
                 } else {
                     None
                 };
-                if let Some(candidate) = &rebound {
-                    for block in &candidate.before {
-                        let owner: Option<String> = db(c
-                            .query_row(
-                                "SELECT thread_id FROM review_claims WHERE block_id=?1",
-                                [&block.id],
-                                |r| r.get(0),
-                            )
-                            .optional())?;
-                        ensure(owner.is_none_or(|id| id == thread.id), "HISTORY_BLOCKED")?;
+                let restore_id = if replay && !thread.deleted {
+                    if prior
+                        .as_ref()
+                        .is_some_and(|p| p.decision != thread.decision)
+                    {
+                        prior
+                            .as_ref()
+                            .and_then(|p| p.decision.as_ref())
+                            .map(|d| d.candidate_id.clone())
+                    } else if prior.as_ref().is_some_and(|p| p.deleted) {
+                        let json:Option<String>=db(c.query_row("SELECT candidate_ids_json FROM review_decisions WHERE history_entry_id=?1 AND decision='deleted'",[entry.as_ref().unwrap()],|r|r.get(0)).optional())?;
+                        json.map(|j| db(serde_json::from_str::<Vec<ReviewCandidateRef>>(&j)))
+                            .transpose()?
+                            .and_then(|v| v.first().map(|r| r.id.clone()))
+                    } else {
+                        None
                     }
-                }
+                } else {
+                    None
+                };
+                let restore_id = if restore_id.is_none()
+                    && replay
+                    && !thread.deleted
+                    && prior.as_ref().is_some_and(|p| p.deleted)
+                {
+                    db(c.query_row("SELECT candidate_id FROM review_history_evidence WHERE history_entry_id=?1 AND thread_id=?2",params![entry.as_ref().unwrap(),thread.id],|r|r.get(0)).optional())?
+                } else {
+                    restore_id
+                };
+                let rebound = restore_id
+                    .map(|id| {
+                        self.prepare_candidate_rebind(
+                            c,
+                            &id,
+                            thread,
+                            &t.state,
+                            entry.as_ref().unwrap(),
+                        )
+                    })
+                    .transpose()?;
                 records.push(PreparedReviewRecord {
                     thread: thread.clone(),
                     prior,
@@ -1417,6 +1488,13 @@ impl SqliteProjectRepository {
         )))?))
     }
     fn review_tokens(c: &Connection, thread: &ReviewThread) -> Result<String> {
+        Self::review_tokens_for(c, thread, None)
+    }
+    fn review_tokens_for(
+        c: &Connection,
+        thread: &ReviewThread,
+        state: Option<&ManuscriptState>,
+    ) -> Result<String> {
         let mut tokens = vec![];
         for id in Self::scope(thread) {
             let token: Option<(i64, String)> = db(c
@@ -1426,10 +1504,30 @@ impl SqliteProjectRepository {
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
                 .optional())?;
+            let token = if let Some(state) = state {
+                state
+                    .blocks
+                    .iter()
+                    .find(|b| b.id == id)
+                    .map(|b| Ok((b.revision, hash(&db(serde_json::to_vec(b))?))))
+                    .transpose()?
+            } else {
+                token
+            };
             tokens.push(serde_json::json!([id, token]));
         }
         for pair in thread.anchor.ranges.windows(2) {
             let next:Option<String>=db(c.query_row("SELECT id FROM blocks WHERE position=(SELECT position+1 FROM blocks WHERE id=?1)",[&pair[0].block_id],|r|r.get(0)).optional())?;
+            let next = if let Some(state) = state {
+                state
+                    .blocks
+                    .iter()
+                    .position(|b| b.id == pair[0].block_id)
+                    .and_then(|i| state.blocks.get(i + 1))
+                    .map(|b| b.id.clone())
+            } else {
+                next
+            };
             tokens.push(serde_json::json!([
                 "range-adjacency",
                 pair[0].block_id,
@@ -1438,6 +1536,16 @@ impl SqliteProjectRepository {
         }
         if let Some(slot) = &thread.anchor.slot {
             let next:Option<String>=db(c.query_row("SELECT id FROM blocks WHERE position=(SELECT position+1 FROM blocks WHERE id=?1)",[&slot.heading_id],|r|r.get(0)).optional())?;
+            let next = if let Some(state) = state {
+                state
+                    .blocks
+                    .iter()
+                    .position(|b| b.id == slot.heading_id)
+                    .and_then(|i| state.blocks.get(i + 1))
+                    .map(|b| b.id.clone())
+            } else {
+                next
+            };
             tokens.push(serde_json::json!(["slot", next]));
         }
         for e in &thread.evidence {
@@ -1500,7 +1608,7 @@ impl SqliteProjectRepository {
                 .iter()
                 .map(|r| {
                     let candidate = self.candidate_at(c, &r.id)?;
-                    let ctx = self.load_context(c, &candidate.run_id)?;
+                    let ctx = self.candidate_context(c, &candidate)?;
                     Ok((candidate, ctx))
                 })
                 .collect()
@@ -1541,6 +1649,20 @@ impl SqliteProjectRepository {
         command: &ManuscriptCommand,
         t: &Transition,
     ) -> Result<bool> {
+        if matches!(
+            command,
+            ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
+        ) && let Some(threads) = &t.reviews
+        {
+            for thread in threads {
+                if Self::active(c, &thread.id)?
+                    && (thread.deleted
+                        || Self::thread(c, &thread.id)?.request_version != thread.request_version)
+                {
+                    return Ok(true);
+                }
+            }
+        }
         let id = match command {
             ManuscriptCommand::CancelReviewTask { payload, .. } => Some(&payload.thread_id),
             ManuscriptCommand::DeleteReviewThread { payload, .. } => Some(&payload.thread_id),
@@ -1746,6 +1868,11 @@ impl SqliteProjectRepository {
                 }
             }
         }
+        let mut linked=db(c.prepare("SELECT e.candidate_id FROM review_history_evidence e JOIN history_entry_identities h ON h.entry_id=e.history_entry_id"))?;
+        for row in db(linked.query_map([], |r| r.get::<_, String>(0)))? {
+            candidate_ids.insert(db(row)?);
+        }
+        drop(linked);
         // Actual retained entry identities include cursor/redo branches. Content
         // hashes or chronological decisions cannot establish history membership.
         let mut decisions = db(c.prepare(
@@ -1857,6 +1984,7 @@ impl SqliteProjectRepository {
 impl SqliteProjectRepository {
     fn apply_review_operations(
         &self,
+        c: &Connection,
         before: &ManuscriptState,
         command: &ManuscriptCommand,
         operations: &[Primitive],
@@ -1866,7 +1994,57 @@ impl SqliteProjectRepository {
         let synthetic: ManuscriptCommand = db(serde_json::from_value(
             serde_json::json!({"type":"ApplyDocumentEdit","requestId":manuscript::envelope(command).0,"projectId":manuscript::envelope(command).1,"expectedWorkingRevision":before.working_revision,"payload":{"operations":operations,"expectedBlockRevisions":revisions,"group":{"groupId":uuid::Uuid::new_v4().to_string(),"clientSessionId":uuid::Uuid::new_v4().to_string(),"groupSequence":1,"kind":"discrete"}}}),
         ))?;
-        manuscript::apply(before, &synthetic, identities, self.policy.as_ref())
+        let mut available = identities.clone();
+        let mut resurrected = BTreeMap::new();
+        let inserted = operations
+            .iter()
+            .filter_map(|op| {
+                if let Primitive::InsertBlock { block, .. } = op {
+                    Some(block.id.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<BTreeSet<_>>();
+        if !inserted.is_empty()
+            && let ManuscriptCommand::AcceptReviewCandidates { payload, .. } = command
+        {
+            for reference in &payload.candidates {
+                let bound: bool = db(c.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM review_candidate_bindings WHERE candidate_id=?1)",
+                    [&reference.id],
+                    |r| r.get(0),
+                ))?;
+                if !bound {
+                    continue;
+                }
+                let candidate = self.candidate_at(c, &reference.id)?;
+                for block in &candidate.after {
+                    if inserted.contains(block.id.as_str())
+                        && !candidate.before.iter().any(|b| b.id == block.id)
+                        && let Some(high) = identities.get(&block.id)
+                    {
+                        let tombstoned: bool = db(c.query_row(
+                            "SELECT tombstoned FROM object_identities WHERE id=?1",
+                            [&block.id],
+                            |r| r.get(0),
+                        ))?;
+                        ensure(tombstoned, "CANDIDATE_INVALID")?;
+                        available.remove(&block.id);
+                        resurrected.insert(block.id.clone(), manuscript::next_revision(*high)?);
+                    }
+                }
+            }
+        }
+        let mut transition =
+            manuscript::apply(before, &synthetic, &available, self.policy.as_ref())?;
+        for block in &mut transition.state.blocks {
+            if let Some(revision) = resurrected.get(&block.id) {
+                block.revision = *revision;
+            }
+        }
+        manuscript::normalize(&mut transition.state)?;
+        Ok(transition)
     }
 }
 impl SqliteProjectRepository {
@@ -1939,5 +2117,139 @@ impl SqliteProjectRepository {
             [id],
         ))?;
         Ok(())
+    }
+}
+impl SqliteProjectRepository {
+    fn replay_review_entry(c: &Connection, command: &ManuscriptCommand) -> Result<String> {
+        let h = Self::history_metadata(c)?;
+        let position =
+            h.cursor + i64::from(matches!(command, ManuscriptCommand::RedoProject { .. }));
+        db(c.query_row(
+            "SELECT entry_id FROM history_entry_identities WHERE position=?1",
+            [position],
+            |r| r.get(0),
+        ))
+    }
+    fn check_candidate_identity(
+        &self,
+        c: &Connection,
+        thread: &str,
+        candidate: &str,
+    ) -> Result<()> {
+        let mut q = db(c.prepare(
+            "SELECT id FROM review_candidates WHERE thread_id=?1 AND status IN ('pending','stale')",
+        ))?;
+        for row in db(q.query_map([thread], |r| r.get::<_, String>(0)))? {
+            ensure(db(row)? == candidate, "HISTORY_BLOCKED")?;
+        }
+        Ok(())
+    }
+    fn candidate_context(&self, c: &Connection, candidate: &ReviewCandidate) -> Result<Context> {
+        let h: Option<String> = db(c
+            .query_row(
+                "SELECT context_hash FROM review_candidate_bindings WHERE candidate_id=?1",
+                [&candidate.id],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if let Some(h) = h {
+            db(serde_json::from_slice(&self.read_object(&h)?))
+        } else {
+            self.load_context(c, &candidate.run_id)
+        }
+    }
+    fn prepare_candidate_rebind(
+        &self,
+        c: &Connection,
+        id: &str,
+        thread: &ReviewThread,
+        state: &ManuscriptState,
+        entry: &str,
+    ) -> Result<(ReviewCandidate, String, Option<Context>)> {
+        ensure(!Self::active(c, &thread.id)?, "HISTORY_BLOCKED")?;
+        self.check_candidate_identity(c, &thread.id, id)?;
+        let candidate = self.candidate_at(c, id)?;
+        let original = self.load_context(c, &candidate.run_id)?;
+        let ids = Self::scope(&original.thread);
+        for id in &ids {
+            let owner: Option<String> = db(c
+                .query_row(
+                    "SELECT thread_id FROM review_claims WHERE block_id=?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional())?;
+            ensure(
+                owner.is_none_or(|owner| owner == thread.id),
+                "HISTORY_BLOCKED",
+            )?;
+            let occupied:Option<String>=db(c.query_row("SELECT candidate_id FROM review_comparisons WHERE block_id=?1 AND candidate_id IS NOT NULL",[id],|r|r.get(0)).optional())?;
+            ensure(
+                occupied.is_none_or(|other| other == candidate.id),
+                "HISTORY_BLOCKED",
+            )?;
+            let using: bool = db(c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM review_reservations WHERE block_id=?1)",
+                [id],
+                |r| r.get(0),
+            ))?;
+            ensure(!using, "HISTORY_BLOCKED")?;
+        }
+        let validate = (|| -> Result<Context> {
+            let mut fresh = thread.clone();
+            self.hydrate_review_thread(&mut fresh)?;
+            let mut request = original.thread.clone();
+            // Ignore monotonic tokens only; quote identity, scope, offsets, evidence and instruction must match.
+            for t in [&mut fresh, &mut request] {
+                for r in &mut t.anchor.ranges {
+                    r.revision = 0;
+                }
+            }
+            ensure(
+                Self::request_hash(&fresh)? == Self::request_hash(&request)?,
+                "HISTORY_BLOCKED",
+            )?;
+            let mut base = state.clone();
+            base.blocks.retain(|b| ids.contains(&b.id));
+            ensure(
+                base.blocks.len() == original.base.blocks.len()
+                    && base.blocks.iter().zip(&original.base.blocks).all(|(a, b)| {
+                        a.id == b.id && a.kind == b.kind && a.attrs == b.attrs && a.runs == b.runs
+                    }),
+                "HISTORY_BLOCKED",
+            )?;
+            let mut fresh = thread.clone();
+            self.hydrate_review_thread(&mut fresh)?;
+            review::validate_anchor(state, &fresh.anchor)
+                .map_err(|_| ManuscriptError("HISTORY_BLOCKED", None))?;
+            if let Some(slot) = &fresh.anchor.slot {
+                review::validate_slot(state, slot)
+                    .map_err(|_| ManuscriptError("HISTORY_BLOCKED", None))?;
+            }
+            let mut p = planning::empty();
+            p.evidence = thread.evidence.clone();
+            ensure(
+                self.manifest(c, &p)?.0 == original.evidence,
+                "HISTORY_BLOCKED",
+            )?;
+            let ctx = Context {
+                request_hash: Self::request_hash(&fresh)?,
+                tokens: Self::review_tokens_for(c, &fresh, Some(state))?,
+                thread: fresh,
+                base,
+                evidence: original.evidence,
+                conversation: original.conversation,
+            };
+            Ok(ctx)
+        })();
+        match validate {
+            Ok(ctx) => {
+                let h = self.object(&db(serde_json::to_vec(&ctx))?)?;
+                let _ = entry;
+                Ok((candidate, h, Some(ctx)))
+            }
+            Err(e) if e.0 == "STORAGE_UNAVAILABLE" => Err(e),
+            Err(_) => Ok((candidate, String::new(), None)),
+        }
     }
 }

@@ -9,6 +9,8 @@ import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Review } from "./Review";
+import { Locks } from "./Locks";
+import { ContentProtection } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
 import { Planning, GeneratedDraftEvidence } from "./Planning";
 import { Sources } from "./Sources";
@@ -94,6 +96,8 @@ function Draft({
 }) {
   const [, render] = useState(0);
   const [recovery, setRecovery] = useState(false);
+  const [protectionReady, setProtectionReady] = useState(false);
+  const [lockHeader, setLockHeader] = useState<HTMLDivElement | null>(null);
   const [link, setLink] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
   const [save] = useState(
@@ -111,8 +115,10 @@ function Draft({
   const editor = useEditor(
     useMemo<UseEditorOptions>(
       () => ({
+        editable: protectionReady,
         extensions: [
           ReviewDecorations,
+          ContentProtection,
           StarterKit.configure({
             undoRedo: false,
             code: false,
@@ -244,7 +250,8 @@ function Draft({
             return false;
           },
           attributes: {
-            role: "textbox",
+            role: protectionReady ? "textbox" : "presentation",
+            "aria-busy": protectionReady ? "false" : "true",
             "aria-multiline": "true",
             "aria-label": t.manuscript,
           },
@@ -303,7 +310,7 @@ function Draft({
           }
         },
       }),
-      [save, t.manuscript],
+      [save, t.manuscript, protectionReady],
     ),
   );
   liveEditor.current = editor;
@@ -346,7 +353,11 @@ function Draft({
   }, [save.state.workingRevision, onRevision]);
   useEffect(() => {
     const warning = (event: BeforeUnloadEvent) => {
-      if (save.status !== "saved" || save.planningAdapter?.dirty()) {
+      if (
+        save.status !== "saved" ||
+        save.planningAdapter?.dirty() ||
+        save.reviewDirty?.()
+      ) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -408,6 +419,7 @@ function Draft({
         <span role="status" data-testid="save-status" data-state={save.status}>
           {t[`save_${save.status}`]}
         </span>
+        <div ref={setLockHeader} className="lock-header-target" />
       </div>
       <div role="toolbar" aria-label={t.history}>
         <button
@@ -597,6 +609,15 @@ function Draft({
               projectId={projectId}
               t={t}
             />
+            <Locks
+              client={client}
+              save={save}
+              editor={editor}
+              projectId={projectId}
+              t={t}
+              headerTarget={lockHeader}
+              onReady={setProtectionReady}
+            />
           </div>
         </>
       )}
@@ -610,7 +631,9 @@ function Draft({
       <Sources client={client} save={save} projectId={projectId} t={t} />
       {save.operationError && (
         <p role="status">
-          {t.historyBlocked}{" "}
+          {save.operationError.code === "UNSENT_REVIEW"
+            ? t.reviewUnsent
+            : t.historyBlocked}{" "}
           <code>
             {save.operationError.details?.reason ?? save.operationError.code}
           </code>

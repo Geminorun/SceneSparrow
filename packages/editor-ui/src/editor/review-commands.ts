@@ -51,6 +51,19 @@ export class ReviewCommands {
   ) {
     const prior = this.pending;
     if (
+      prior?.command.type === "SetUserLocks" &&
+      this.save.businessReceipt?.requestId === prior.command.requestId &&
+      (await this.save.reconcileMetadataReceipt(prior.command))
+    ) {
+      this.pending = null;
+      return {
+        ok: prior.identity === identity,
+        completed: prior.command,
+        error: "",
+        details: undefined,
+      };
+    }
+    if (
       prior &&
       this.save.businessReceipt?.requestId === prior.command.requestId &&
       this.save.status === "saved" &&
@@ -72,22 +85,35 @@ export class ReviewCommands {
       prior?.visible ??
       options?.requestedVisible ??
       JSON.stringify(this.save.local);
-    const ok = await this.save.businessCore(
-      (revision) => {
-        attempted = prior?.command ?? build(revision);
-        return attempted;
-      },
-      {
-        ...options,
-        requestedVisible: visible,
-        replayCommand: () => prior?.command ?? null,
-        dispatched: () => {
-          if (attempted)
-            this.pending = { command: attempted, identity, visible };
-          options?.dispatched?.();
-        },
-      },
-    );
+    const requestedMetadata =
+      identity.startsWith("CancelReviewTask:") ||
+      (identity.startsWith("lock:") && identity.endsWith(":false"));
+    if (!attempted && requestedMetadata)
+      attempted = build(this.save.state.workingRevision);
+    const cancellation =
+      attempted?.type === "CancelReviewTask" ||
+      (attempted?.type === "SetUserLocks" && !attempted.payload.locked);
+    if (cancellation) {
+      this.pending = { command: attempted!, identity, visible };
+    }
+    const ok = cancellation
+      ? await this.save.cancelReviewCommand(attempted!)
+      : await this.save.businessCore(
+          (revision) => {
+            attempted = prior?.command ?? build(revision);
+            return attempted;
+          },
+          {
+            ...options,
+            requestedVisible: visible,
+            replayCommand: () => prior?.command ?? null,
+            dispatched: () => {
+              if (attempted)
+                this.pending = { command: attempted!, identity, visible };
+              options?.dispatched?.();
+            },
+          },
+        );
     const owned =
       attempted &&
       this.save.businessRejection?.requestId === attempted.requestId;

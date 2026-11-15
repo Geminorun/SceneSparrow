@@ -1060,6 +1060,37 @@
               "$ref": "#/definitions/DiscardReviewCandidatePayload"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SetUserLocks"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/UserLocksPayload"
+            }
+          }
         }
       ]
     },
@@ -1601,7 +1632,9 @@
             "draft.created",
             "review.changed",
             "reviewTask.changed",
-            "candidate.changed"
+            "candidate.changed",
+            "locks.changed",
+            "manuscript.readinessChanged"
           ]
         },
         "requestId": {
@@ -2763,6 +2796,98 @@
         },
         "requestVersion": {
           "type": "integer"
+        }
+      }
+    },
+    "UserLocksPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockIds", "locked", "all"],
+      "properties": {
+        "blockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "all": {
+          "type": "boolean"
+        }
+      }
+    },
+    "UserLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockId", "revision", "contentHash"],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "contentHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovedBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sequence", "manifestHash"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "manifestHash": {
+          "type": "string"
+        }
+      }
+    },
+    "FinalizationState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workingRevision",
+        "locks",
+        "reservedBlockIds",
+        "finalized",
+        "baseline"
+      ],
+      "properties": {
+        "workingRevision": {
+          "type": "integer"
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserLock"
+          }
+        },
+        "reservedBlockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "finalized": {
+          "type": "boolean"
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovedBaseline"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     }

@@ -1,8 +1,10 @@
 # S3 specification: review and finalization
 
-Status: step 6 implements anchored review and candidate decisions; production
-locks, finalization and complete review rebinding remain step 7. The
-[validation report](../validation/step-06.md) records actual checks and limits.
+Status: steps 6–7 implement anchored review, candidate decisions, production locks,
+derived finalization and validated review replay. The
+[step 6](../validation/step-06.md) and [step 7 validation](../validation/step-07.md)
+record actual checks and limits. Native/provider and large-document performance
+acceptance remains open; S4/export follows in step 8.
 Version: 0.1. This is the third slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
@@ -676,3 +678,22 @@ Full-run edit mapping deliberately flags unproven repeated-text/multi-span cases
 instead of guessing identity. Basic user decisions participate in the existing
 five-step history; complete production lock-aware replay and candidate rebinding
 are step 7 work. See the evidence report for exact implemented cases and limits.
+
+## 15. Execution step 7 implementation interface
+
+The implementation consolidates lock/unlock/lock-all into `SetUserLocks`, with
+explicit `blockIds`, `locked` and `all` fields and the existing expected working
+revision. That revision freezes the current block tokens; lock-all computes only
+new targets. `GET /v1/manuscript/finalization` and the named desktop read expose
+current exact locks, temporary use, derived readiness and the opaque baseline.
+The closed event contract includes `locks.changed` and
+`manuscript.readinessChanged`; event-page decoding and projection resync are tested.
+
+Migration 008 keeps compatible version-4 business roots with optional lock IDs.
+Validated candidate bindings and exact history-entry evidence remain separate from
+immutable AI artifacts. Retained-entry identities also bound historical baseline
+roots, while current approval/downstream references preserve required payloads.
+Reopen verifies the approval graph. The Rust-only future-consumer fixture tests
+scoped fences and dependency retention without adding a media workflow. See
+[step 7 validation](../validation/step-07.md) for the complete replay/race mapping,
+measured performance misses and native/provider checks that remain unrun.

@@ -52,8 +52,11 @@
   runtime; see `docs/validation/step-05.md`. Step 6 adds anchored review,
   questions/follow-ups, scoped candidates and individual/batch decisions; see
   `docs/validation/step-06.md`. Large quotes use immutable references and retained
-  decision evidence follows actual history entry identities. Production locks,
-  complete review rebinding and export follow in steps 7–8. Real providers/native credential
+  decision evidence follows actual history entry identities. Step 7 installs
+  production locks, derived finalization, exact approved baselines and validated
+  review history rebinding; see `docs/validation/step-07.md`. Approval retention
+  follows actual history/downstream references and reopen verifies the approval
+  graph. Copy/export and final validation follow in step 8. Real providers/native credential
   stores remain unverified. Large-document performance budgets and native worker RSS
   enforcement remain open; do not claim full S1 acceptance. Applied migrations are
   immutable; append new versions using the shared ledger.

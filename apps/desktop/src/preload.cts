@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
     ipcRenderer.invoke("reviews:comparison", id),
   reviewMessages: (id: string, before?: number) =>
     ipcRenderer.invoke("reviews:messages", id, before),
+  readFinalization: () => ipcRenderer.invoke("manuscript:finalization"),
   readReviews: (after?: string) => ipcRenderer.invoke("reviews:read", after),
   readPlanning: () => ipcRenderer.invoke("planning:read"),
   preparePlanning: (body: unknown) =>

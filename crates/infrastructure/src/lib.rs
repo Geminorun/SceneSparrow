@@ -62,7 +62,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 7 {
+        if version > 8 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -337,8 +337,59 @@ impl SqliteProjectRepository {
             storage(tx.execute_batch(include_str!("../migrations/007_review.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 8 {
+            let backup_directory =
+                directory.join(format!("pre-migration-008-{}", uuid::Uuid::new_v4()));
+            storage(std::fs::create_dir(&backup_directory))?;
+            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let objects = backup_directory.join("objects");
+            storage(std::fs::create_dir(&objects))?;
+            if directory.join("objects").exists() {
+                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
+                    let entry = storage(entry)?;
+                    if storage(entry.file_type())?.is_file() {
+                        let target = objects.join(entry.file_name());
+                        storage(std::fs::copy(entry.path(), &target))?;
+                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
+                        {
+                            return Err(Error::Storage);
+                        }
+                        storage(
+                            File::options()
+                                .read(true)
+                                .write(true)
+                                .open(target)
+                                .and_then(|f| f.sync_all()),
+                        )?;
+                    }
+                }
+            }
+            storage(
+                File::options()
+                    .read(true)
+                    .write(true)
+                    .open(backup_directory.join("project.sqlite"))
+                    .and_then(|f| f.sync_all()),
+            )?;
+            #[cfg(unix)]
+            {
+                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
+                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
+                storage(File::open(directory).and_then(|f| f.sync_all()))?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/008_finalization.sql")))?;
+            storage(tx.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
+        storage(connection.execute(
+            "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
+            [],
+        ))?;
         let repository = Self {
             #[cfg(test)]
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
@@ -477,6 +528,7 @@ mod tests {
     }
 }
 
+mod finalization;
 mod history;
 pub mod manuscript;
 #[cfg(test)]
@@ -488,7 +540,12 @@ pub mod ai;
 pub mod credentials;
 
 #[cfg(test)]
+fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE downstream_dependencies;DROP TABLE downstream_inputs;DROP TABLE review_candidate_bindings;DROP TABLE review_history_evidence;DROP TABLE manuscript_baseline;DROP TABLE approved_manifest_history;DROP TABLE approved_manifests;DROP TABLE user_locks;").unwrap();
+}
+#[cfg(test)]
 fn drop_ai_schema_for_legacy_fixture(c: &Connection) {
+    drop_finalization_schema_for_legacy_fixture(c);
     c.execute_batch("DROP TABLE history_entry_identities;DROP TABLE review_messages;DROP TABLE review_decisions;DROP TABLE review_comparisons;DROP TABLE review_reservations;DROP TABLE review_claims;DROP TABLE review_candidates;DROP TABLE review_tasks;DROP TABLE review_threads;").unwrap();
     c.execute_batch("DROP TABLE planning_visuals; DROP TABLE draft_generation_manifests; DROP TABLE outline_confirmations; DROP TABLE script_ai_tasks; DROP TABLE planning_preparations; DROP TABLE planning_node_identities; DROP TABLE planning_state; DROP TABLE planning_history_epoch; DROP TABLE ai_preparations; DROP TABLE ai_consumer_cleanup; DROP TABLE application_execution_bindings; DROP TABLE ai_events; DROP TABLE ai_artifacts; DROP TABLE ai_dispatches; DROP TABLE ai_attempts; DROP TABLE ai_runs; DROP TABLE ai_input_snapshots; DROP TABLE ai_execution_origin;").unwrap();
 }

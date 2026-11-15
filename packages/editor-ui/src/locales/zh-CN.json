@@ -324,5 +324,14 @@
   "reviewOtherComments": "屏外、已处理与失去定位的评论",
   "reviewComparisonPaged": "当前显示部分对比，请逐页查看全部内容。",
   "reviewNextComparison": "下一页对比",
-  "reviewNoChange": "AI 未生成新的修改，之前仍适用的建议将被保留。"
+  "reviewNoChange": "AI 未生成新的修改，之前仍适用的建议将被保留。",
+  "lock": "锁定内容块",
+  "unlock": "解锁内容块",
+  "lockAll": "锁定全文",
+  "finalized": "已定稿",
+  "notFinalized": "编辑中",
+  "lockPending": "请先处理候选修改或等待任务结束，再锁定内容。",
+  "reviewUnsent": "请先保存或清空未发送的审阅内容，再离开正文。",
+  "lockUnavailable": "无法获取锁定状态。请刷新后继续编辑。",
+  "taskUsingContent": "任务正在使用此内容块"
 }

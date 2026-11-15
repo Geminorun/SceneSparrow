@@ -665,3 +665,256 @@ test("cancelling a queued file or import intent while autosave drains never disp
   assert.equal(save.local[0].runs[0].text, "Visible input before reference");
   save.dispose();
 });
+test("task cancellation preserves a private rejected body buffer and exact cancellation receipt", async () => {
+  const { save, client, calls } = setup();
+  save.update(local(save, "Private unsaved text"));
+  client.executeManuscript = async (command) => {
+    calls.push(command);
+    if (command.type === "ApplyDocumentEdit")
+      throw new ApiError("TASK_USING_CONTENT");
+    return { ...receipt(command), workingRevision: save.state.workingRevision };
+  };
+  assert.equal(await save.flush(), false);
+  assert.equal(save.error, "TASK_USING_CONTENT");
+  const before = JSON.stringify(save.local),
+    state = JSON.stringify(save.state),
+    command = {
+      type: "CancelReviewTask",
+      requestId: id(),
+      projectId: id(),
+      expectedWorkingRevision: save.state.workingRevision,
+      payload: { threadId: id(), requestVersion: 1 },
+    };
+  assert.equal(await save.cancelReviewCommand(command), true);
+  assert.equal(JSON.stringify(save.local), before);
+  assert.equal(JSON.stringify(save.state), state);
+  assert.equal(save.error, "TASK_USING_CONTENT");
+  assert.equal(save.status, "error");
+  assert.equal(calls.at(-1).type, "CancelReviewTask");
+  assert.equal(save.businessReceipt.requestId, command.requestId);
+  save.dispose();
+});
+test("unsent review guards stage-changing history and controlled close without clearing text", async () => {
+  const { save, calls } = setup();
+  let dirty = true;
+  save.reviewDirty = () => dirty;
+  assert.equal(await save.navigate("UndoProject", () => assert.fail()), false);
+  assert.equal(save.operationError.code, "UNSENT_REVIEW");
+  assert.equal(await save.controlledClose(), false);
+  assert.equal(calls.length, 0);
+  dirty = false;
+  assert.equal(await save.controlledClose(), true);
+  save.dispose();
+});
+test("new review input during delayed body settlement blocks queued history and close", async () => {
+  for (const action of ["history", "close"]) {
+    const { save, client, calls } = setup();
+    let dirty = false,
+      release;
+    save.reviewDirty = () => dirty;
+    save.update(local(save, "body"));
+    client.executeManuscript = async (command) => {
+      calls.push(command);
+      if (command.type === "ApplyDocumentEdit")
+        await new Promise((r) => (release = r));
+      return receipt(command);
+    };
+    const pending =
+      action === "history"
+        ? save.navigate("UndoProject", () => assert.fail())
+        : save.controlledClose();
+    await settle();
+    dirty = true;
+    release();
+    assert.equal(await pending, false);
+    assert(!calls.some((c) => c.type === "UndoProject"));
+    save.dispose();
+  }
+});
+test("uncertain cancellation blocks other controllers until the exact identity resolves", async () => {
+  const { save, client, calls } = setup();
+  const command = {
+    type: "CancelReviewTask",
+    requestId: id(),
+    projectId: id(),
+    expectedWorkingRevision: 1,
+    payload: { threadId: id(), requestVersion: 1 },
+  };
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    throw new Error("connection lost");
+  };
+  client.commandReceipt = async () => {
+    throw new Error("connection lost");
+  };
+  assert.equal(await save.cancelReviewCommand(command), false);
+  assert.equal(save.hasUnresolvedBusiness, true);
+  assert.equal(await save.navigate("UndoProject", () => assert.fail()), false);
+  assert.equal(await save.controlledClose(), false);
+  assert.equal(await save.businessCore(() => assert.fail()), false);
+  assert.equal(calls.length, 1);
+  client.commandReceipt = async () => ({
+    ...receipt(command),
+    workingRevision: 1,
+  });
+  assert.equal(await save.cancelReviewCommand(command), true);
+  assert.equal(save.hasUnresolvedBusiness, false);
+  save.dispose();
+});
+test("IME beginning after a business dispatch prevents canonical replacement on late acknowledgment", async () => {
+  const { save, client } = setup();
+  let release;
+  let firstRead = true;
+  client.readManuscript = () => {
+    if (!firstRead)
+      return Promise.resolve({ ...save.state, workingRevision: 2 });
+    firstRead = false;
+    return new Promise(
+      (r) => (release = () => r({ ...save.state, workingRevision: 2 })),
+    );
+  };
+  const before = save.canonicalVersion,
+    pending = save.businessCore((revision) => ({
+      type: "SetUserLocks",
+      requestId: id(),
+      projectId: id(),
+      expectedWorkingRevision: revision,
+      payload: {
+        blockIds: [save.state.blocks[0].id],
+        locked: true,
+        all: false,
+      },
+    }));
+  await settle();
+  save.composition(true);
+  release();
+  assert.equal(await pending, true);
+  assert.equal(save.canonicalVersion, before);
+  assert.equal(save.composing, true);
+  save.dispose();
+});
+test("proven cancel or unlock receipt releases the shared fence even if canonical GET fails", async () => {
+  for (const type of ["CancelReviewTask", "SetUserLocks"]) {
+    const { save, client, calls } = setup();
+    save.update(local(save, "Private text"));
+    client.executeManuscript = async (c) => {
+      calls.push(c);
+      return receipt(c);
+    };
+    client.readManuscript = async () => {
+      throw new Error("GET failed");
+    };
+    const command = {
+      type,
+      requestId: id(),
+      projectId: id(),
+      expectedWorkingRevision: 1,
+      payload:
+        type === "CancelReviewTask"
+          ? { threadId: id(), requestVersion: 1 }
+          : { blockIds: [save.state.blocks[0].id], locked: false, all: false },
+    };
+    assert.equal(await save.cancelReviewCommand(command), true);
+    assert.equal(save.hasUnresolvedBusiness, false);
+    assert.equal(save.local[0].runs[0].text, "Private text");
+    assert.equal(save.status, "pending");
+    assert.equal(calls.length, 1);
+    save.dispose();
+  }
+});
+test("review typed after a committed stage-changing undo dispatch survives its delayed canonical acknowledgment", async () => {
+  const { save, client } = setup();
+  save.history = {
+    ...save.history,
+    undoCount: 1,
+    cursor: 1,
+    historyRevision: 1,
+  };
+  let release,
+    dirty = false;
+  save.reviewDirty = () => dirty;
+  client.executeManuscript = (command) =>
+    new Promise((r) => (release = () => r(receipt(command))));
+  client.readManuscript = async () => ({
+    ...save.state,
+    workspaceStage: "outline",
+    blocks: [],
+    workingRevision: 2,
+  });
+  const pending = save.navigate("UndoProject", () =>
+    assert.fail("must retain draft composer"),
+  );
+  await settle();
+  dirty = true;
+  release();
+  assert.equal(await pending, false);
+  assert.equal(save.state.workspaceStage, "draft");
+  assert.equal(save.status, "conflict");
+  assert.equal(await save.controlledClose(), false);
+  save.dispose();
+});
+test("cancel and unlock cannot bypass an unknown body command receipt", async () => {
+  const { save, client, calls } = setup();
+  save.update(local(save, "unknown body"));
+  client.executeManuscript = async (command) => {
+    calls.push(command);
+    throw Error("lost response");
+  };
+  client.commandReceipt = async () => {
+    throw Error("receipt unavailable");
+  };
+  assert.equal(await save.flush(), false);
+  for (const type of ["CancelReviewTask", "SetUserLocks"]) {
+    const command = {
+      type,
+      requestId: id(),
+      projectId: id(),
+      expectedWorkingRevision: 1,
+      payload:
+        type === "CancelReviewTask"
+          ? { threadId: id(), requestVersion: 1 }
+          : { blockIds: [save.state.blocks[0].id], locked: false, all: false },
+    };
+    assert.equal(await save.cancelReviewCommand(command), false);
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(save.local[0].runs[0].text, "unknown body");
+  save.dispose();
+});
+test("body-changing candidate acknowledgment cannot replace a newly started IME composition", async () => {
+  const { save, client } = setup();
+  let release,
+    first = true;
+  const replacement = {
+    ...save.state,
+    workingRevision: 2,
+    blocks: save.state.blocks.map((b) => ({
+      ...b,
+      revision: 2,
+      runs: [{ text: "Accepted candidate", marks: [] }],
+    })),
+  };
+  client.readManuscript = () => {
+    if (!first) return Promise.resolve(replacement);
+    first = false;
+    return new Promise((r) => (release = () => r(replacement)));
+  };
+  const pending = save.businessCore((revision) => ({
+    type: "AcceptReviewCandidates",
+    requestId: id(),
+    projectId: id(),
+    expectedWorkingRevision: revision,
+    payload: {
+      expectedHistoryRevision: 0,
+      candidates: [{ id: id(), version: 1 }],
+    },
+  }));
+  await settle();
+  save.composition(true);
+  release();
+  assert.equal(await pending, false);
+  assert.equal(save.canonicalVersion, 0);
+  assert.equal(save.state.blocks[0].runs[0].text, "Text");
+  assert.equal(save.composing, true);
+  save.dispose();
+});

@@ -111,6 +111,8 @@ impl SqliteProjectRepository {
         let c = storage(self.connection.lock())?;
         if read_project(&c)?.is_some() {
             let state = self.load(&c).map_err(|_| Error::Storage)?;
+            self.verify_finalization(&c, &state)
+                .map_err(|_| Error::Storage)?;
             self.verify_history(&c, &state)
                 .map_err(|_| Error::Storage)?;
             if read_project(&c)?.is_some_and(|p| p.working_revision != state.working_revision) {
@@ -235,6 +237,7 @@ impl SqliteProjectRepository {
         c: &mut Connection,
         command: &ManuscriptCommand,
     ) -> Result<CommandReceipt> {
+        Self::expire_downstream_now(c)?;
         let (request, project_id, _) = manuscript::envelope(command);
         if !manuscript::uuid4(request) {
             return Err(ManuscriptError("INVALID_REQUEST", None));
@@ -272,53 +275,92 @@ impl SqliteProjectRepository {
                 identities.insert(id, rev);
             }
         }
-        let (transition, tombstone_revisions, history) = match (|| {
-            if manuscript::envelope(command).2 != before.working_revision
-                && !matches!(command, ManuscriptCommand::CancelPlanningTask { .. })
-            {
-                return Err(ManuscriptError("REVISION_CONFLICT", None));
-            }
-            let mut transition = self.history_transition(c, command, &before, &identities)?;
-            self.coordinate_planning(c, command, &before, &mut transition)?;
-            self.coordinate_reviews(c, command, &before, &mut transition)?;
-            self.guard_reviews(c, command, &before, &transition)?;
-            self.guard_planning(c, command, &before, &transition)?;
-            // Allocate deleted identities through the same recorded preflight path
-            // as surviving block revisions, before any object or state writes.
-            let mut tombstone_revisions = BTreeMap::new();
-            for id in &transition.affected {
-                if !transition.state.blocks.iter().any(|block| &block.id == id)
-                    && !transition
-                        .sources
-                        .as_ref()
-                        .unwrap_or(&sources_before)
-                        .iter()
-                        .any(|source| &source.id == id)
+        let (transition, tombstone_revisions, history, prepared_reviews, prepared_finalization) =
+            match (|| {
+                if manuscript::envelope(command).2 != before.working_revision
+                    && !matches!(
+                        command,
+                        ManuscriptCommand::CancelPlanningTask { .. }
+                            | ManuscriptCommand::CancelReviewTask { .. }
+                    )
                 {
-                    let previous = identities
-                        .get(id)
-                        .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
-                    tombstone_revisions.insert(id.clone(), manuscript::next_revision(*previous)?);
+                    return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
-            }
-            let history = self.history_plan(c, command, &before, &transition)?;
-            Ok((transition, tombstone_revisions, history))
-        })() {
-            Ok(v) => v,
-            Err(error) => {
-                if error.0 == "STORAGE_UNAVAILABLE" {
+                let mut transition = self.history_transition(c, command, &before, &identities)?;
+                self.coordinate_planning(c, command, &before, &mut transition)?;
+                self.coordinate_reviews(c, command, &before, &mut transition)?;
+                if let Err(mut error) = Self::guard_finalization(c, &before, &transition) {
+                    if matches!(
+                        command,
+                        ManuscriptCommand::UndoProject { .. }
+                            | ManuscriptCommand::RedoProject { .. }
+                    ) {
+                        error = ManuscriptError::history_blocked(error.0, &transition.affected);
+                    } else if matches!(command, ManuscriptCommand::AcceptReviewCandidates { .. }) {
+                        let checks = self.review_acceptance_checks(c, command)?;
+                        let blocked = error
+                            .1
+                            .as_ref()
+                            .map(|d| d.affected_ids.clone())
+                            .unwrap_or_default();
+                        let checks = checks
+                            .into_iter()
+                            .filter(|(_, ctx)| {
+                                ctx.base.blocks.iter().any(|b| blocked.contains(&b.id))
+                            })
+                            .collect::<Vec<_>>();
+                        error.1 = Some(Self::review_acceptance_error(&checks, error.0));
+                    }
                     return Err(error);
                 }
-                let outcome = serde_json::json!({"error":error.0,"details":error.1}).to_string();
-                let transaction = db(c.transaction())?;
-                db(transaction.execute(
-                    "INSERT INTO command_receipts VALUES(?1,?2,?3)",
-                    params![request, digest, outcome],
-                ))?;
-                db(transaction.commit())?;
-                return Err(error);
-            }
-        };
+                self.guard_reviews(c, command, &before, &transition)?;
+                self.guard_planning(c, command, &before, &transition)?;
+                // Allocate deleted identities through the same recorded preflight path
+                // as surviving block revisions, before any object or state writes.
+                let mut tombstone_revisions = BTreeMap::new();
+                for id in &transition.affected {
+                    if !transition.state.blocks.iter().any(|block| &block.id == id)
+                        && !transition
+                            .sources
+                            .as_ref()
+                            .unwrap_or(&sources_before)
+                            .iter()
+                            .any(|source| &source.id == id)
+                    {
+                        let previous = identities
+                            .get(id)
+                            .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
+                        tombstone_revisions
+                            .insert(id.clone(), manuscript::next_revision(*previous)?);
+                    }
+                }
+                let history = self.history_plan(c, command, &before, &transition)?;
+                let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
+                let prepared_finalization = self.prepare_finalization(c, &transition)?;
+                Ok((
+                    transition,
+                    tombstone_revisions,
+                    history,
+                    prepared_reviews,
+                    prepared_finalization,
+                ))
+            })() {
+                Ok(v) => v,
+                Err(error) => {
+                    if error.0 == "STORAGE_UNAVAILABLE" {
+                        return Err(error);
+                    }
+                    let outcome =
+                        serde_json::json!({"error":error.0,"details":error.1}).to_string();
+                    let transaction = db(c.transaction())?;
+                    db(transaction.execute(
+                        "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                        params![request, digest, outcome],
+                    ))?;
+                    db(transaction.commit())?;
+                    return Err(error);
+                }
+            };
         let changed = transition.state.working_revision != before.working_revision;
         let mut revisions = vec![];
         // The repository mutex is the writer coordinator. Promote all immutable bytes
@@ -353,7 +395,6 @@ impl SqliteProjectRepository {
         } else {
             None
         };
-        let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
         let review_checks = self.review_acceptance_checks(c, command)?;
         let cancellation_watermark =
             if matches!(command, ManuscriptCommand::CancelPlanningTask { .. })
@@ -395,6 +436,7 @@ impl SqliteProjectRepository {
         self.guard_planning(&transaction, command, &before, &transition)?;
         self.guard_reviews(&transaction, command, &before, &transition)?;
         Self::recheck_review_acceptance(&transaction, &review_checks)?;
+        Self::guard_finalization(&transaction, &before, &transition)?;
         // Recheck the policy at the commit boundary, after object preparation.
         if let Err(mut error) =
             self.policy
@@ -531,7 +573,19 @@ impl SqliteProjectRepository {
             &prepared_reviews,
             history.current_entry_id(),
         )?;
+        Self::commit_finalization(
+            &transaction,
+            command,
+            &transition,
+            &prepared_finalization,
+            if history.changed {
+                history.current_entry_id()
+            } else {
+                None
+            },
+        )?;
         history.commit(&transaction)?;
+        Self::prune_finalization(&transaction)?;
         if history.changed {
             db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'history.changed',?2)",params![request,db(serde_json::to_string(&history.metadata))?]))?;
         }

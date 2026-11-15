@@ -76,7 +76,8 @@ The eight-step delivery sequence uses append-only project migrations:
 `007` S3 review (step 6), `008` S3 finalization (step 7), and
 `009` S4 export (step 8). Applied `001`/`002` retain their original numbers and
 bytes. Steps 2 and 3 append applied 003 and 004 with their migration/recovery tests.
-Numbers 005–009 remain reservations until implemented with their tests; each
+Migrations 005–008 are implemented with their delivery evidence in steps 4–7;
+009 remains reserved for S4. Each
 delivery adds its own migration instead of rewriting an earlier step. Additional migrations append
 to the sequence; never renumber an applied migration or reuse a version for another
 layout. Global settings have their own JSON `schemaVersion`, not a second database.

@@ -56,7 +56,8 @@ and runs coordinated object GC with a 60-second grace period. Backups own indepe
 pinned copies and are never traversed by the collector. See
 [step 3 evidence](validation/step-03.md) for parser behavior, fault/upgrade tests and
 measured performance-budget misses. Steps 4–5 below add shared AI and planning;
-step 6 adds review, and production locks/export follow in steps 7–8. The procedural motion
+step 6 adds review, step 7 adds locks/finalization and validated replay, and step 8
+adds copy/export and final validation. The procedural motion
 sample remains an independent collapsible example.
 
 ## Pinned tools and prerequisites
@@ -300,6 +301,30 @@ input and never issue an automatic paid retry.
 
 Named review reads cover `/v1/reviews`, per-thread messages, candidate detail pages
 and source comparisons. Browser and desktop adapters expose the same narrow
-operations. See [step 6 evidence](validation/step-06.md). Production user locks,
-full lock-aware history rebinding and finalization remain step 7; copy/export and
+operations. See [step 6 evidence](validation/step-06.md). Step 7 below adds production
+user locks, lock-aware history rebinding and finalization; copy/export and
 large-document performance remain step 8. Native/real-provider acceptance is open.
+
+## Locks, finalization and validated replay (execution step 7)
+
+`SetUserLocks` joins the existing command/receipt/history boundary for explicit
+block locks, unlock and atomic lock-all. `GET /v1/manuscript/finalization` and its
+desktop counterpart expose exact current locks, temporary use and the derived
+baseline. The core protects actual body/ancestry impact at preparation and commit
+on manual edits, imports, acceptance and replay. Unlock never releases task use,
+and acceptance never locks content. Far-right controls preserve text selection,
+IME and private input through late or uncertain acknowledgments.
+
+Migration 008 retains immutable version-4 business roots with optional lock
+membership. All-locked nonempty body creates/reuses a versioned exact ordered
+manifest. `Project.approvedBaseline` names its current registered sequence;
+`manuscript.readinessChanged` keeps the header and clients in sync. Review-only
+changes preserve body identity. Current, actual history-entry and downstream
+references bound baseline retention. Reopen validates the complete approval graph.
+
+Explicit decision replay can bind retained candidates to fresh tokens after full
+validation, including fill-section IDs above tombstone revisions. Ordinary edit
+undo never revives stale proposals; newer claims block replay atomically. A
+Rust-only future-consumer fixture verifies dependency validity and scoped use
+without creating media jobs. See [step 7 evidence](validation/step-07.md) for
+recovery/race cases, measured large-document budget misses and platform limits.

@@ -436,6 +436,17 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: DiscardReviewCandidatePayload,
     },
+    #[serde(rename = "SetUserLocks")]
+    SetUserLocks {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: UserLocksPayload,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -820,6 +831,10 @@ pub enum ProjectEventType {
     ReviewTaskchanged,
     #[serde(rename = "candidate.changed")]
     Candidatechanged,
+    #[serde(rename = "locks.changed")]
+    Lockschanged,
+    #[serde(rename = "manuscript.readinessChanged")]
+    ManuscriptreadinessChanged,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1493,6 +1508,50 @@ pub struct ReviewAnswer {
     pub run_id: String,
     #[serde(rename = "requestVersion")]
     pub request_version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserLocksPayload {
+    #[serde(rename = "blockIds")]
+    pub block_ids: Vec<String>,
+    #[serde(rename = "locked")]
+    pub locked: bool,
+    #[serde(rename = "all")]
+    pub all: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserLock {
+    #[serde(rename = "blockId")]
+    pub block_id: String,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+    #[serde(rename = "contentHash")]
+    pub content_hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovedBaseline {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sequence")]
+    pub sequence: i64,
+    #[serde(rename = "manifestHash")]
+    pub manifest_hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FinalizationState {
+    #[serde(rename = "workingRevision")]
+    pub working_revision: i64,
+    #[serde(rename = "locks")]
+    pub locks: Vec<UserLock>,
+    #[serde(rename = "reservedBlockIds")]
+    pub reserved_block_ids: Vec<String>,
+    #[serde(rename = "finalized")]
+    pub finalized: bool,
+    #[serde(rename = "baseline", deserialize_with = "required_nullable")]
+    pub baseline: Option<ApprovedBaseline>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
