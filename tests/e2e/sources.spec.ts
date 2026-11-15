@@ -11,7 +11,9 @@ async function workspace(page: Page) {
     await page.getByLabel("Project name").fill("幕雀 project");
     await page.getByRole("button", { name: "Create project" }).click();
   }
-  await page.getByLabel("Language").selectOption("en");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("en");
   const start = page.getByRole("button", {
     name: "Start writing",
     exact: true,
@@ -202,7 +204,9 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
   ).toHaveCount(0);
   expect((await state(page)).blocks).toEqual(current.blocks);
   await scanned.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByLabel("Language").selectOption("zh-CN");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("zh-CN");
   await expect(
     page.getByRole("heading", { name: "参考资料", exact: true }),
   ).toBeVisible();

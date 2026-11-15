@@ -15,7 +15,7 @@ tasks to the approved implementation sequence and review/commit/push gates.
 | Document                                                         | Scope                                                                              | Status                                                          |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | [S1: manuscript editing foundation](s1-manuscript-foundation.md) | Document model, persistence, editor, autosave, bounded history, sources and import | Core/browser implemented; native/performance acceptance open    |
-| [S2: outline and initial draft](s2-outline-and-initial-draft.md) | Planning UI and manuscript-specific AI orchestration                               | Written; implementation pending                                 |
+| [S2: outline and initial draft](s2-outline-and-initial-draft.md) | Planning UI and manuscript-specific AI orchestration                               | Core/browser implemented; native/provider acceptance open       |
 | [Shared AI](shared-ai-integration.md)                            | Global settings, credentials, adapters, generic task execution and lifecycle       | Shared core implemented; consumer/native/provider evidence open |
 | [S3: review and finalization](s3-review-and-finalization.md)     | Anchors, questions/notes, candidates, comparison, acceptance and locks             | Written; implementation pending                                 |
 | [S4: delivery and validation](s4-delivery-and-validation.md)     | Copy/export, desktop integration, recovery and complete-workflow acceptance        | Written; implementation pending                                 |
@@ -27,10 +27,12 @@ architecture; the implementation spec fixes its ports, dispatch/recovery behavio
 and acceptance cases. All four stage specs and shared AI are written; step 1
 implements the manual S1 subset with [evidence](../validation/step-01.md), step 2
 adds [bounded history](../validation/step-02.md), and
-step 3 adds [sources/import and recovery](../validation/step-03.md). Native and
-performance acceptance remains open;
-later implementation and complete-stage validation remain pending. Its migration ledger reserves the sequence
-from bootstrap through S4.
+step 3 adds [sources/import and recovery](../validation/step-03.md). Step 4 adds
+[shared AI foundations](../validation/step-04.md); step 5 connects
+[planning and complete drafting](../validation/step-05.md). Native, provider and
+performance acceptance remains open. Steps 6–8 and complete-stage validation
+remain pending. The shared migration ledger reserves the sequence from bootstrap
+through S4.
 
 Each stage spec includes scope, user behavior, domain/data rules, commands/events,
 errors and recovery, ordered development tasks, and testable acceptance criteria.

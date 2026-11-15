@@ -141,6 +141,28 @@ async function main() {
     });
   }
   for (const [channel, path, method] of [
+    ["planning:read", "/planning", "GET"],
+    ["planning:prepare", "/planning/preparations", "POST"],
+    ["planning:task", "/planning/tasks", "GET"],
+    ["planning:visual-prepare", "/planning/visuals", "POST"],
+    ["planning:visual", "/planning/visuals", "GET"],
+    ["planning:visual-cancel", "/planning/visuals", "DELETE"],
+  ] as const) {
+    ipcMain.handle(channel, (event, value: unknown) => {
+      checkSender(event);
+      if (
+        ["planning:task", "planning:visual", "planning:visual-cancel"].includes(
+          channel,
+        )
+      ) {
+        if (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(`${path}/${value}`, undefined, method);
+      }
+      return request(path, method === "POST" ? value : undefined, method);
+    });
+  }
+  for (const [channel, path, method] of [
     ["ai:settings-read", "/ai/settings", "GET"],
     ["ai:settings-update", "/ai/settings", "PUT"],
     ["ai:credential-update", "/ai/credentials", "POST"],

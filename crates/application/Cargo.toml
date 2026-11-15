@@ -10,3 +10,5 @@ serde_json.workspace = true
 
 scenesparrow-domain.workspace = true
 thiserror.workspace = true
+
+uuid.workspace = true

@@ -2,8 +2,11 @@
 
 These documents specify the first usable **SceneSparrow / 幕雀** manuscript
 workbench. They translate the product interview into an implementation plan.
-They describe planned behavior; the repository currently implements the bootstrap
-integration samples only. This delivery adds documentation, not business code.
+They describe intended behavior. The repository now implements execution steps
+1–5: manual editing/history, sources/import, shared AI and outline-to-draft
+generation. The [execution workflow](../implementation-execution.md) and linked
+validation reports record actual scope and limits; remaining design prose is not
+proof of implementation or platform readiness.
 
 The feature branch is `feat/script-workbench`, created directly from remote
 `origin/main` at `ba71ffc48946dcf11c3401b4b7c67916009b288c` after bootstrap PR #1.
@@ -32,10 +35,10 @@ The feature branch is `feat/script-workbench`, created directly from remote
 
 The user's interview decisions Q1–Q31 and subsequent corrections take precedence
 over conflicting recommendations in the original v0.1 attachments. The user has
-authorized documenting this design and creating the feature branch. Engineering
-choices below are proposed implementation decisions, not already tested features.
-Implementation should follow explicit development instructions and the delivery
-slices; the presence of a roadmap does not itself authorize developing everything.
+authorized the [eight-step implementation workflow](../implementation-execution.md),
+including delegated implementation, root review and per-step commit/push.
+Engineering choices below require implementation evidence. Follow the approved
+sequence and confirmed product scope; a roadmap alone does not expand it.
 
 Preserve the [original references](../reference/README.md) unchanged. In particular:
 

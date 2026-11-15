@@ -1,4 +1,10 @@
 import type {
+  PlanningState,
+  PlanningPreparation,
+  PlanningPreparationRequest,
+  PlanningTask,
+  PlanningVisual,
+  PlanningVisualAction,
   AiSettingsView,
   AiSettingsUpdate,
   AiCredentialUpdate,
@@ -25,6 +31,14 @@ import type {
 } from "@scenesparrow/contracts";
 
 export interface PlatformClient {
+  readPlanning(): Promise<PlanningState>;
+  preparePlanning(
+    request: PlanningPreparationRequest,
+  ): Promise<PlanningPreparation>;
+  planningTask(id: string): Promise<PlanningTask>;
+  preparePlanningVisual(action: PlanningVisualAction): Promise<PlanningVisual>;
+  planningVisual(id: string): Promise<PlanningVisual>;
+  cancelPlanningVisual(id: string): Promise<PlanningVisual>;
   readAiSettings(): Promise<AiSettingsView>;
   updateAiSettings(update: AiSettingsUpdate): Promise<AiSettingsView>;
   updateAiCredential(update: AiCredentialUpdate): Promise<AiSettingsView>;
@@ -80,6 +94,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | PlanningPreparationRequest
+      | PlanningVisualAction
       | CreateProject
       | ManuscriptCommand
       | DocumentAction
@@ -112,6 +128,19 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     return (await response.json()) as T;
   }
   return {
+    readPlanning: () => request("/v1/planning"),
+    preparePlanning: (body) => request("/v1/planning/preparations", body),
+    planningTask: (id) =>
+      request(`/v1/planning/tasks/${encodeURIComponent(id)}`),
+    preparePlanningVisual: (body) => request("/v1/planning/visuals", body),
+    planningVisual: (id) =>
+      request(`/v1/planning/visuals/${encodeURIComponent(id)}`),
+    cancelPlanningVisual: (id) =>
+      request(
+        `/v1/planning/visuals/${encodeURIComponent(id)}`,
+        undefined,
+        "DELETE",
+      ),
     readAiSettings: () => request("/v1/ai/settings"),
     updateAiSettings: (update) => request("/v1/ai/settings", update, "PUT"),
     updateAiCredential: (update) => request("/v1/ai/credentials", update),
@@ -229,6 +258,16 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  readPlanning(): Promise<BridgeResult<PlanningState>>;
+  preparePlanning(
+    request: PlanningPreparationRequest,
+  ): Promise<BridgeResult<PlanningPreparation>>;
+  planningTask(id: string): Promise<BridgeResult<PlanningTask>>;
+  preparePlanningVisual(
+    action: PlanningVisualAction,
+  ): Promise<BridgeResult<PlanningVisual>>;
+  planningVisual(id: string): Promise<BridgeResult<PlanningVisual>>;
+  cancelPlanningVisual(id: string): Promise<BridgeResult<PlanningVisual>>;
   readAiSettings(): Promise<BridgeResult<AiSettingsView>>;
   updateAiSettings(
     update: AiSettingsUpdate,
@@ -285,6 +324,12 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     return result.data;
   }
   return {
+    readPlanning: () => unwrap(bridge.readPlanning()),
+    preparePlanning: (body) => unwrap(bridge.preparePlanning(body)),
+    planningTask: (id) => unwrap(bridge.planningTask(id)),
+    preparePlanningVisual: (body) => unwrap(bridge.preparePlanningVisual(body)),
+    planningVisual: (id) => unwrap(bridge.planningVisual(id)),
+    cancelPlanningVisual: (id) => unwrap(bridge.cancelPlanningVisual(id)),
     readAiSettings: () => unwrap(bridge.readAiSettings()),
     updateAiSettings: (update) => unwrap(bridge.updateAiSettings(update)),
     updateAiCredential: (update) => unwrap(bridge.updateAiCredential(update)),

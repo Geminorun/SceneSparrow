@@ -61,3 +61,11 @@ consumer-owned.
 Input snapshot identity is its canonical SHA-256 `inputHash`, matching the immutable
 object identity; it does not need an additional mutable lookup identifier. Reported
 usage is retained in the compact completion receipt after payload pruning.
+
+Execution step 5 installs the script transaction adapter using an infrastructure-only
+`accept_ai_module` participant. It shares the accepted-start SQL transaction without
+adding script types to the generic application/runtime contract. Script output
+application uses the existing prepared manuscript/history commit and marks generic
+applicability in that same transaction. Script cancellation similarly coordinates
+its receipt, owning applicability and external origin watermark. Exact context is
+immutable generic input; script SQL manifests retain compact provenance metadata.

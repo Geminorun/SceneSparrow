@@ -48,6 +48,10 @@ impl SqliteProjectRepository {
         for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
         }
+        let mut planning_roots=db(c.prepare("SELECT content_hash FROM draft_generation_manifests UNION SELECT result_hash FROM draft_generation_manifests"))?;
+        for row in db(planning_roots.query_map([], |r| r.get::<_, String>(0)))? {
+            roots.insert(db(row)?);
+        }
         let mut ai = db(c.prepare("SELECT object_hash FROM ai_artifacts UNION SELECT object_hash FROM ai_input_snapshots WHERE payload_retained=1"))?;
         for row in db(ai.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
@@ -244,6 +248,8 @@ impl SqliteProjectRepository {
                     affected: BTreeSet::new(),
                     normalized: false,
                     sources: None,
+                    planning: None,
+                    planning_metadata: None,
                 });
             }
             ManuscriptCommand::AddSourceLink { .. }
@@ -251,6 +257,11 @@ impl SqliteProjectRepository {
             | ManuscriptCommand::RemoveSource { .. }
             | ManuscriptCommand::CommitManuscriptImport { .. } => {
                 return self.source_transition(c, command, before, identities);
+            }
+            ManuscriptCommand::SavePlanning { .. }
+            | ManuscriptCommand::UsePlanningResult { .. }
+            | ManuscriptCommand::CancelPlanningTask { .. } => {
+                return self.planning_transition(c, command, before, identities);
             }
             _ => return manuscript::apply(before, command, identities, self.policy.as_ref()),
         };
@@ -288,6 +299,7 @@ impl SqliteProjectRepository {
             self.policy.as_ref(),
         )?;
         self.restore_sources(c, before, &mut transition, &target, identities)?;
+        self.restore_planning(c, &mut transition, &target)?;
         Ok(transition)
     }
 
@@ -357,8 +369,11 @@ impl SqliteProjectRepository {
         } else {
             None
         };
-        if let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command {
-            let g = &payload.group;
+        if let Some(g) = match command {
+            ManuscriptCommand::ApplyDocumentEdit { payload, .. } => Some(&payload.group),
+            ManuscriptCommand::SavePlanning { payload, .. } => Some(&payload.group),
+            _ => None,
+        } {
             let previous=db(c.query_row("SELECT client_session_id,group_sequence,kind,closed,scope_block_id,last_commit_ms FROM edit_groups WHERE group_id=?1",[&g.group_id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?,r.get::<_,Option<String>>(4)?,r.get::<_,i64>(5)?))).optional())?;
             let kind = if g.kind == EditGroupKind::Typing {
                 "typing"
@@ -375,7 +390,13 @@ impl SqliteProjectRepository {
                 return Err(ManuscriptError("INVALID_REQUEST", None));
             }
             if business_changed {
-                let scope = typing_scope(before, transition, kind);
+                let scope = if matches!(command, ManuscriptCommand::SavePlanning { .. })
+                    && kind == "typing"
+                {
+                    self.planning_typing_scope(c, transition)?
+                } else {
+                    typing_scope(before, transition, kind)
+                };
                 let merge = previous.as_ref().is_some_and(|(_, _, _, _, old_scope, _)| {
                     scope.is_some() && old_scope == &scope
                 }) && plan.metadata.redo_count == 0
@@ -436,6 +457,8 @@ impl SqliteProjectRepository {
                             ManuscriptCommand::AddSourceLink { .. }
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
+                            ManuscriptCommand::SavePlanning { .. } => "planning",
+                            ManuscriptCommand::UsePlanningResult { .. } => "generation",
                             ManuscriptCommand::CommitManuscriptImport { .. } => "import",
                             _ => "startDraft",
                         }

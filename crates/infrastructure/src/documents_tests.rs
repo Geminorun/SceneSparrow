@@ -624,6 +624,7 @@ fn real_v3_roots_upgrade_extend_and_branch_without_rewriting_immutable_history()
             let mut value: Value = serde_json::from_slice(&r.read_object(&old).unwrap()).unwrap();
             value["version"] = json!(1);
             value.as_object_mut().unwrap().remove("sources");
+            value.as_object_mut().unwrap().remove("planning");
             let bytes = serde_json::to_vec(&value).unwrap();
             let new = r.object(&bytes).unwrap();
             c.execute(

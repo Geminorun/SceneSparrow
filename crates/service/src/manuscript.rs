@@ -23,9 +23,25 @@ pub(super) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "REVISION_CONFLICT" | "CONTENT_LOCKED" | "TASK_USING_CONTENT"
-                | "HISTORY_CONFLICT" | "HISTORY_BLOCKED" | "IMPORT_STALE" => StatusCode::CONFLICT,
-                "HISTORY_EMPTY"
+                "REVISION_CONFLICT"
+                | "CONTENT_LOCKED"
+                | "TASK_USING_CONTENT"
+                | "HISTORY_CONFLICT"
+                | "HISTORY_BLOCKED"
+                | "IMPORT_STALE"
+                | "STAGE_CONFLICT"
+                | "DRAFT_ALREADY_EXISTS"
+                | "PREFLIGHT_STALE"
+                | "EVIDENCE_NOT_READY"
+                | "EVIDENCE_CHOICE_REQUIRED"
+                | "CONFIGURATION_STALE"
+                | "PLANNING_TASK_ACTIVE"
+                | "PLANNING_RESULT_STALE"
+                | "HISTORY_DIVERGED" => StatusCode::CONFLICT,
+                "BRIEF_INVALID"
+                | "OUTLINE_INVALID"
+                | "OUTLINE_REQUIRED"
+                | "HISTORY_EMPTY"
                 | "SOURCE_UNSUPPORTED"
                 | "SOURCE_ENCRYPTED"
                 | "SOURCE_TEXT_UNAVAILABLE"
@@ -110,7 +126,12 @@ async fn command(
             );
         }
     };
-    let Ok(permit) = state.database_slots.acquire_owned().await else {
+    let slots = if matches!(command, ManuscriptCommand::StartPlanningTask { .. }) {
+        state.ai.blocking_slots.clone()
+    } else {
+        state.database_slots.clone()
+    };
+    let Ok(permit) = slots.acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
     };
     let request_id = scenesparrow_domain::manuscript::envelope(&command)
@@ -119,7 +140,24 @@ async fn command(
     result(
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            state.service.repository().execute_manuscript(&command)
+            if matches!(command, ManuscriptCommand::StartPlanningTask { .. }) {
+                if let Some(receipt) = state
+                    .service
+                    .repository()
+                    .replay_planning_command(&command)?
+                {
+                    return Ok(receipt);
+                }
+                state.service.repository().start_planning(
+                    state
+                        .ai
+                        .settings()
+                        .map_err(|e| ManuscriptError(e.0, None))?,
+                    &command,
+                )
+            } else {
+                state.service.repository().execute_manuscript(&command)
+            }
         })
         .await
         .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),

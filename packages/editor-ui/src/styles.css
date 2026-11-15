@@ -310,3 +310,95 @@ dd {
   flex-basis: 100%;
   margin: 0.25rem 0;
 }
+
+.planning-workspace {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  background: #f8faf9;
+  border: 1px solid #d8e4de;
+  border-radius: 14px;
+}
+.planning-heading {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  align-items: start;
+}
+.planning-heading h2 {
+  margin: 0 0 0.4rem;
+}
+.planning-heading p {
+  max-width: 65ch;
+}
+.planning-workspace label {
+  display: grid;
+  gap: 0.4rem;
+}
+.planning-workspace input,
+.planning-workspace textarea,
+.planning-workspace select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.planning-workspace input[type="checkbox"] {
+  width: auto;
+}
+.planning-brief {
+  border: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.planning-brief label:first-child {
+  grid-column: 1/-1;
+}
+.outline-node {
+  padding: 0.9rem;
+  margin-block: 0.6rem;
+  background: white;
+  border: 1px solid #d8e4de;
+  border-inline-start: 4px solid #71968a;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.6rem;
+}
+.outline-actions,
+.planning-primary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.outline-actions button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+.planning-notice {
+  background: #fff2cd;
+  border-radius: 8px;
+  padding: 1rem;
+}
+.planning-evidence article,
+.planning-tasks article {
+  padding: 1rem 0;
+  border-block-end: 1px solid #d8e4de;
+  display: grid;
+  gap: 0.6rem;
+}
+.planning-workspace pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 20rem;
+  overflow: auto;
+  background: #edf2ef;
+  padding: 0.8rem;
+}
+@media (max-width: 700px) {
+  .planning-brief {
+    grid-template-columns: 1fr;
+  }
+  .planning-heading {
+    display: block;
+  }
+}

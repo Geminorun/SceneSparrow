@@ -9,7 +9,7 @@ pub struct AiState {
     settings: OnceLock<Result<SettingsStore, AiError>>,
     actions: SettingsActions,
     slots: Arc<Semaphore>,
-    blocking_slots: Arc<Semaphore>,
+    pub(super) blocking_slots: Arc<Semaphore>,
 }
 impl Default for AiState {
     fn default() -> Self {
@@ -22,7 +22,7 @@ impl Default for AiState {
     }
 }
 impl AiState {
-    fn settings(&self) -> Result<&SettingsStore, AiError> {
+    pub(super) fn settings(&self) -> Result<&SettingsStore, AiError> {
         self.settings
             .get_or_init(|| {
                 SettingsStore::open(

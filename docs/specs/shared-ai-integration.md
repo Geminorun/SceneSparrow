@@ -591,3 +591,14 @@ Consumer registration drains deferred failure/recovery applicability cleanup.
 `execute_next_ai` is the controlled host tick for a consumer coordinator; read/status
 ports never schedule it. No manuscript consumer or raw public generation route is
 added in step 4.
+
+## 15. S2 consumer integration (execution step 5)
+
+The script planning consumer uses the same frozen configuration, SDK/runtime,
+durable queue, dispatch marker and origin-fenced recovery. Infrastructure's module
+transaction participant commits script confirmation/binding/receipt with generic
+enqueue; result application reuses the existing manuscript/history business commit.
+No manuscript models or SDK imports enter the generic runtime. See
+[step 5 evidence](../validation/step-05.md) for counted SDK/image requests,
+configuration freeze, script applicability, cancellation and retention coverage.
+Native/provider readiness remains independently open.

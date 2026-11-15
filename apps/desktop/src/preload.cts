@@ -13,6 +13,15 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readPlanning: () => ipcRenderer.invoke("planning:read"),
+  preparePlanning: (body: unknown) =>
+    ipcRenderer.invoke("planning:prepare", body),
+  planningTask: (id: string) => ipcRenderer.invoke("planning:task", id),
+  preparePlanningVisual: (body: unknown) =>
+    ipcRenderer.invoke("planning:visual-prepare", body),
+  planningVisual: (id: string) => ipcRenderer.invoke("planning:visual", id),
+  cancelPlanningVisual: (id: string) =>
+    ipcRenderer.invoke("planning:visual-cancel", id),
   readAiSettings: () => ipcRenderer.invoke("ai:settings-read"),
   updateAiSettings: (update: unknown) =>
     ipcRenderer.invoke("ai:settings-update", update),

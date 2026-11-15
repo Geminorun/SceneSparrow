@@ -733,6 +733,130 @@
               "$ref": "#/definitions/CommitManuscriptImportPayload"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["SavePlanning"]
+            },
+            "payload": {
+              "$ref": "#/definitions/SavePlanningPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["StartPlanningTask"]
+            },
+            "payload": {
+              "$ref": "#/definitions/StartPlanningTaskPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["CancelPlanningTask"]
+            },
+            "payload": {
+              "$ref": "#/definitions/CancelPlanningTaskPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["UsePlanningResult"]
+            },
+            "payload": {
+              "$ref": "#/definitions/UsePlanningResultPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
         }
       ]
     },
@@ -1262,7 +1386,10 @@
             "sources.changed",
             "documentJob.changed",
             "resync_required",
-            "aiRun.changed"
+            "aiRun.changed",
+            "planning.changed",
+            "planningTask.changed",
+            "draft.created"
           ]
         },
         "requestId": {
@@ -1407,6 +1534,488 @@
           "type": "string"
         }
       }
+    },
+    "PlanningBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "style": {
+          "type": "string"
+        },
+        "lengthHint": {
+          "type": "string"
+        }
+      },
+      "required": ["topic", "language", "audience", "style", "lengthHint"]
+    },
+    "OutlineNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "depth": {
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "keyPoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["id", "revision", "depth", "title", "keyPoints"]
+    },
+    "PlanningEvidenceChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["link_only", "extracted_text", "text_only", "visual_input"]
+        },
+        "start": {
+          "type": "integer"
+        },
+        "end": {
+          "type": "integer"
+        },
+        "visualId": {
+          "type": "string"
+        },
+        "allowUnknownImages": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sourceId",
+        "mode",
+        "start",
+        "end",
+        "visualId",
+        "allowUnknownImages"
+      ]
+    },
+    "PlanningContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brief": {
+          "$ref": "#/definitions/PlanningBrief"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OutlineNode"
+          }
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidenceChoice"
+          }
+        }
+      },
+      "required": ["brief", "nodes", "instruction", "evidence"]
+    },
+    "PlanningTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "application": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "run": {
+          "$ref": "#/definitions/AiRun"
+        },
+        "preview": {
+          "type": ["string", "null"]
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PlanningTaskMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "application",
+        "error",
+        "run",
+        "preview",
+        "metadata"
+      ]
+    },
+    "PlanningState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer"
+        },
+        "content": {
+          "$ref": "#/definitions/PlanningContent"
+        },
+        "reserved": {
+          "type": "boolean"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningTask"
+          }
+        }
+      },
+      "required": ["revision", "content", "reserved", "tasks"]
+    },
+    "PlanningEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer"
+        },
+        "contentHash": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "artifactId": {
+          "type": ["string", "null"]
+        },
+        "extractor": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "sourceId",
+        "sourceRevision",
+        "contentHash",
+        "level",
+        "location",
+        "text",
+        "artifactId",
+        "extractor",
+        "warnings"
+      ]
+    },
+    "PlanningPreparationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "generate_outline",
+            "adjust_outline",
+            "generate_initial_draft"
+          ]
+        }
+      },
+      "required": ["operation"]
+    },
+    "PlanningPreparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "integer"
+        },
+        "planningRevision": {
+          "type": "integer"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "manifestHash": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidence"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estimatedInputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "configuration": {
+          "$ref": "#/definitions/AiResolvedConfig"
+        }
+      },
+      "required": [
+        "id",
+        "expiresAt",
+        "planningRevision",
+        "fingerprint",
+        "manifestHash",
+        "evidence",
+        "warnings",
+        "estimatedInputTokens",
+        "outputTokens",
+        "configuration"
+      ]
+    },
+    "PlanningVisualAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer"
+        }
+      },
+      "required": ["id", "sourceId", "index"]
+    },
+    "PlanningVisual": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "hash": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "transformation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sourceId",
+        "sourceRevision",
+        "index",
+        "status",
+        "error",
+        "hash",
+        "size",
+        "width",
+        "height",
+        "transformation"
+      ]
+    },
+    "SavePlanningPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/definitions/PlanningContent"
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        }
+      },
+      "required": ["content", "group"]
+    },
+    "StartPlanningTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preparationId": {
+          "type": "string"
+        },
+        "retryOfTaskId": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["preparationId", "retryOfTaskId"]
+    },
+    "CancelPlanningTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": ["taskId"]
+    },
+    "UsePlanningResultPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "expectedHistoryRevision": {
+          "type": "integer"
+        },
+        "explicit": {
+          "type": "boolean"
+        }
+      },
+      "required": ["taskId", "expectedHistoryRevision", "explicit"]
+    },
+    "PlanningResultReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidenceId": {
+          "type": "string"
+        },
+        "outlineNodeId": {
+          "type": "string"
+        }
+      },
+      "required": ["evidenceId", "outlineNodeId"]
+    },
+    "PlanningSectionMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outlineNodeId": {
+          "type": "string"
+        },
+        "blockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["outlineNodeId", "blockIds"]
+    },
+    "PlanningTaskMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verificationHints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "planningNotes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidenceReferences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningResultReference"
+          }
+        },
+        "sectionMapping": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningSectionMapping"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidence"
+          }
+        }
+      },
+      "required": [
+        "verificationHints",
+        "planningNotes",
+        "evidenceReferences",
+        "sectionMapping",
+        "evidence"
+      ]
     }
   }
 }

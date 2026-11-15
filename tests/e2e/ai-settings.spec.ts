@@ -35,7 +35,9 @@ test("global bilingual settings allow manual model after discovery failure, clea
   const root = `http://127.0.0.1:${(server.address() as { port: number }).port}/custom`;
   try {
     await page.goto("/");
-    await page.getByLabel("Language").selectOption("en");
+    await page
+      .getByRole("combobox", { name: "Language", exact: true })
+      .selectOption("en");
     await page.getByText("AI settings", { exact: true }).click();
     await expect(
       page.getByText(
@@ -158,7 +160,9 @@ test("global bilingual settings allow manual model after discovery failure, clea
     expect(JSON.stringify(keyExposure)).not.toContain(
       "SYNTHETIC_UI_KEY_CANARY",
     );
-    await page.getByLabel("Language").selectOption("zh-CN");
+    await page
+      .getByRole("combobox", { name: "Language", exact: true })
+      .selectOption("zh-CN");
     await expect(
       page.getByText("音频 — 预留，尚不可用", { exact: true }),
     ).toBeVisible();

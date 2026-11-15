@@ -400,7 +400,7 @@ const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   for (let bit = 0; bit < 8; bit++) n = (n >>> 1) ^ (n & 1 ? 0xedb88320 : 0);
   return n >>> 0;
 });
-export function readDocx(bytes) {
+export function readDocx(bytes, includeMedia = false) {
   return new Promise((resolve, reject) => {
     let expanded = 0,
       count = 0;
@@ -439,7 +439,11 @@ export function readDocx(bytes) {
               if (
                 ["word/document.xml", "word/numbering.xml"].includes(
                   entry.fileName,
-                )
+                ) ||
+                (includeMedia &&
+                  /^word\/media\/[^/]+\.(png|jpe?g|webp)$/i.test(
+                    entry.fileName,
+                  ))
               )
                 chunks.push(chunk);
             });

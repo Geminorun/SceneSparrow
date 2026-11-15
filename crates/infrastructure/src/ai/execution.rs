@@ -29,8 +29,8 @@ fn id(id: &str) -> Result<()> {
     ensure(valid_id(id), "INVALID_REQUEST")
 }
 pub struct AiUnitOfWork<'a> {
-    tx: &'a Transaction<'a>,
-    prepared: Option<&'a AiInput>,
+    pub(crate) tx: &'a Transaction<'a>,
+    pub(crate) prepared: Option<&'a AiInput>,
 }
 impl SqliteProjectRepository {
     pub fn register_ai_consumer(
@@ -62,7 +62,7 @@ impl SqliteProjectRepository {
         }
         safe(tx.commit())
     }
-    fn ai_run(c: &Connection, run_id: &str) -> Result<AiRun> {
+    pub(crate) fn ai_run(c: &Connection, run_id: &str) -> Result<AiRun> {
         let (request,input,config,status,attempt,error,result,retry,consumer,binding): RunRow = safe(c.query_row("SELECT request_id,input_hash,config_json,status,attempt,error,result_json,retry_of_run_id,consumer,binding_id FROM ai_runs WHERE run_id=?1",[run_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?))).optional())?.ok_or(AiError("RUN_NOT_FOUND"))?;
         let completion: Option<String> = safe(c.query_row(
             "SELECT completion_json FROM ai_runs WHERE run_id=?1",
@@ -177,6 +177,14 @@ impl SqliteProjectRepository {
         start: &AiStart,
         participant: &mut dyn FnMut(&mut dyn ProjectUnitOfWork, &AiRun) -> Result<()>,
     ) -> Result<AiRun> {
+        self.accept_ai_module(settings, start, &mut |_, uow, run| participant(uow, run))
+    }
+    pub(crate) fn accept_ai_module(
+        &self,
+        settings: &dyn AiSettingsPort,
+        start: &AiStart,
+        participant: &mut dyn FnMut(&Connection, &mut dyn ProjectUnitOfWork, &AiRun) -> Result<()>,
+    ) -> Result<AiRun> {
         id(&start.request_id)?;
         id(&start.run_id)?;
         id(&start.binding_id)?;
@@ -216,7 +224,7 @@ impl SqliteProjectRepository {
                 prepared: Some(&input),
             };
             let run = uow.enqueue_in_unit_of_work(guard, start)?;
-            participant(&mut uow, &run)?;
+            participant(&tx, &mut uow, &run)?;
             self.ai_commit_watermark(&tx, watermark)?;
             safe(tx.commit())?;
             result = Some(run);
@@ -607,7 +615,7 @@ impl SqliteProjectRepository {
         let c = safe(self.connection.lock())?;
         self.origin_write(&c)
     }
-    fn ai_prepare_watermark(&self, c: &Connection) -> Result<i64> {
+    pub(crate) fn ai_prepare_watermark(&self, c: &Connection) -> Result<i64> {
         let (origin, old) = self.origin_record(c)?;
         ensure(old < 9223372036854775806, "REVISION_EXHAUSTED")?;
         let next = old + 1;
@@ -616,7 +624,7 @@ impl SqliteProjectRepository {
         safe(f.commit())?;
         Ok(next)
     }
-    fn ai_commit_watermark(&self, c: &Connection, next: i64) -> Result<()> {
+    pub(crate) fn ai_commit_watermark(&self, c: &Connection, next: i64) -> Result<()> {
         let changed = safe(c.execute(
             "UPDATE ai_execution_origin SET watermark=?1 WHERE watermark=?2",
             params![next, next - 1],

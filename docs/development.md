@@ -55,8 +55,9 @@ Reopen verifies retained references, fences interrupted work, abandons active pr
 and runs coordinated object GC with a 60-second grace period. Backups own independent
 pinned copies and are never traversed by the collector. See
 [step 3 evidence](validation/step-03.md) for parser behavior, fault/upgrade tests and
-measured performance-budget misses. Production locks, review, AI and export remain
-planned. The procedural motion sample remains an independent collapsible example.
+measured performance-budget misses. Steps 4–5 below add shared AI and planning;
+production locks, review and export follow in steps 6–8. The procedural motion
+sample remains an independent collapsible example.
 
 ## Pinned tools and prerequisites
 
@@ -214,13 +215,13 @@ See [step 1](validation/step-01.md), [step 2](validation/step-02.md) and
 remaining platform/fault/performance gaps.
 
 The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
-orders upcoming work by usable manuscript slices. The preliminary M0/M1 media
-roadmap does not authorize further feature implementation. Treat the bootstrap's
-single-project API as an integration sample, not a substitute for the detailed
-domain, history, lock and execution contracts.
-All [stage and shared AI specs](specs/README.md) are documented. The manual editing/history/source/import paths above are implemented; follow the shared AI migration/port ledger when those slices
-are explicitly developed, without making provider access a prerequisite for
-manual editing/export.
+orders work by usable manuscript slices. The user has selected the
+[eight-step implementation workflow](implementation-execution.md); preliminary
+media milestones do not expand that scope. The current business paths use the
+detailed domain, history and execution contracts rather than the original
+single-project sample alone. All [stage and shared AI specs](specs/README.md) are
+documented. Follow the shared AI migration/port ledger while keeping manual
+editing/export independent of provider availability.
 
 ## Shared AI (execution step 4)
 
@@ -255,4 +256,28 @@ methods. Worker control frames stay bounded; artifact content streams in small
 chunks. Blocking settings/credential/project reads run in separate bounded blocking
 slots so a settings file lock does not occupy manual editing's database slots.
 See [step 4 evidence](validation/step-04.md) for dispatch, recovery, redaction and
-platform/provider limitations. S2/S3 business generation remains future work.
+platform/provider limitations. Step 5 below connects S2; S3 review follows later.
+
+## Planning and initial drafting (execution step 5)
+
+The outline stage now saves a brief, preorder outline and explicit evidence choices.
+Write manually/import as before, or prepare the saved inputs and use the global
+text binding to generate/adjust an outline and confirm one complete initial draft.
+Preparation makes no provider call. Source discovery is unavailable; links and
+files remain manual. File text needs an explicit UTF-8 byte range; images need a
+selected local DOCX image/PDF page preparation, and unknown vision capability needs
+an explicit attempt. Text-only evidence is an explicit choice when images exist.
+
+The core owns script prompts/output interpretation and task applicability. Generic
+execution and the official SDK remain independent. Named planning routes add
+`GET /v1/planning`, `POST /v1/planning/preparations`, scoped task reads, and named
+visual create/read/cancel operations. Planning mutations join the existing manuscript
+command union and desktop allowlist. The host polls durable queue identities at
+250 ms without scanning documents; terminal transitions and a 60-second expiry
+sweep perform retention maintenance, with missed ticks skipped.
+
+Migration 006 and version-3 business roots preserve earlier manual drafts/history.
+Completed drafts retain exact plan/source/visual provenance and supporting hints
+outside spoken text. No S3 review/production locks or S4 exports are introduced.
+See [step 5 validation](validation/step-05.md); real providers and native desktop
+capabilities still require explicit target-system validation.

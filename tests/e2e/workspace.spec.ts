@@ -19,7 +19,9 @@ test("creates a persistent project and switches the shared UI language", async (
     page.getByRole("heading", { name: "幕雀 project" }),
   ).toBeVisible();
   await expect(page.getByText("Saved on this device")).toBeVisible();
-  await page.getByLabel("Language").selectOption("zh-CN");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("zh-CN");
   await expect(page.getByText("已保存到本机")).toBeVisible();
   await page.reload();
   await expect(

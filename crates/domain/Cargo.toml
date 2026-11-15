@@ -13,3 +13,5 @@ unicode-segmentation = "=1.12.0"
 url = "=2.5.4"
 
 thiserror.workspace = true
+
+language-tags = "=0.3.2"

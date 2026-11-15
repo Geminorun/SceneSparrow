@@ -23,7 +23,9 @@ test("measures Linux manuscript fixtures with real browser input and core receip
     await page.getByLabel("Project name").fill("Performance");
     await page.getByRole("button", { name: "Create project" }).click();
   }
-  await page.getByLabel("Language").selectOption("en");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("en");
   await expect(
     page.getByRole("button", { name: "Import manuscript", exact: true }),
   ).toBeVisible();

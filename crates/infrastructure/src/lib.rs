@@ -10,6 +10,8 @@ use scenesparrow_application::{Error, ProjectRepository};
 use scenesparrow_domain::Project;
 
 pub struct SqliteProjectRepository {
+    #[cfg(test)]
+    business_read_count: std::sync::atomic::AtomicUsize,
     connection: Mutex<Connection>,
     directory: std::path::PathBuf,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
@@ -60,7 +62,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 5 {
+        if version > 6 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -241,9 +243,58 @@ impl SqliteProjectRepository {
             ))?;
             storage(tx.commit())?;
         }
+        if version < 6 {
+            let backup_directory =
+                directory.join(format!("pre-migration-006-{}", uuid::Uuid::new_v4()));
+            storage(std::fs::create_dir(&backup_directory))?;
+            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let objects = backup_directory.join("objects");
+            storage(std::fs::create_dir(&objects))?;
+            if directory.join("objects").exists() {
+                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
+                    let entry = storage(entry)?;
+                    if storage(entry.file_type())?.is_file() {
+                        let target = objects.join(entry.file_name());
+                        storage(std::fs::copy(entry.path(), &target))?;
+                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
+                        {
+                            return Err(Error::Storage);
+                        }
+                        storage(
+                            File::options()
+                                .read(true)
+                                .write(true)
+                                .open(target)
+                                .and_then(|f| f.sync_all()),
+                        )?;
+                    }
+                }
+            }
+            storage(
+                File::options()
+                    .read(true)
+                    .write(true)
+                    .open(backup_directory.join("project.sqlite"))
+                    .and_then(|f| f.sync_all()),
+            )?;
+            #[cfg(unix)]
+            {
+                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
+                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
+                storage(File::open(directory).and_then(|f| f.sync_all()))?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/006_planning.sql")))?;
+            storage(tx.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
+            #[cfg(test)]
+            business_read_count: std::sync::atomic::AtomicUsize::new(0),
             connection: Mutex::new(connection),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
@@ -258,6 +309,9 @@ impl SqliteProjectRepository {
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
             .map_err(|_| Error::Storage)?;
         repository.recover_documents().map_err(|_| Error::Storage)?;
+        repository
+            .initialize_planning()
+            .map_err(|_| Error::Storage)?;
         repository.verify_manuscript()?;
         repository
             .collect_objects(Duration::from_secs(60))
@@ -388,5 +442,7 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_ai_schema_for_legacy_fixture(c: &Connection) {
-    c.execute_batch("DROP TABLE ai_preparations; DROP TABLE ai_consumer_cleanup; DROP TABLE application_execution_bindings; DROP TABLE ai_events; DROP TABLE ai_artifacts; DROP TABLE ai_dispatches; DROP TABLE ai_attempts; DROP TABLE ai_runs; DROP TABLE ai_input_snapshots; DROP TABLE ai_execution_origin;").unwrap();
+    c.execute_batch("DROP TABLE planning_visuals; DROP TABLE draft_generation_manifests; DROP TABLE outline_confirmations; DROP TABLE script_ai_tasks; DROP TABLE planning_preparations; DROP TABLE planning_node_identities; DROP TABLE planning_state; DROP TABLE planning_history_epoch; DROP TABLE ai_preparations; DROP TABLE ai_consumer_cleanup; DROP TABLE application_execution_bindings; DROP TABLE ai_events; DROP TABLE ai_artifacts; DROP TABLE ai_dispatches; DROP TABLE ai_attempts; DROP TABLE ai_runs; DROP TABLE ai_input_snapshots; DROP TABLE ai_execution_origin;").unwrap();
 }
+
+pub mod planning;

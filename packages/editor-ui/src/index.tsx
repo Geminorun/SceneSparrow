@@ -86,6 +86,7 @@ export function App({ client }: { client: PlatformClient }) {
         <label className="language">
           {t.language}
           <select
+            aria-label={t.language}
             value={locale}
             onChange={(event) => setLocale(event.target.value as Locale)}
           >

@@ -6,12 +6,12 @@ one workspace while preserving approved work.
 
 Windows and macOS are the intended product platforms. A browser entry point will
 validate the same React UI, application protocol, and Rust core during development.
-The initial validation project is a short Chinese-language explanatory video;
-the product architecture and contributor workflow support internationalization.
+The current delivery target is the manuscript workbench; audio/video production
+follows later. The architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The manuscript workbench is being implemented in eight reviewed steps. Steps 1–4
+The manuscript workbench is being implemented in eight reviewed steps. Steps 1–3
 provide manual manuscript editing, autosave, recovery and persistent five-step
 undo/redo, including reopening at the current history position.
 [Step 1](docs/validation/step-01.md), [step 2](docs/validation/step-02.md) and
@@ -19,7 +19,9 @@ undo/redo, including reopening at the current history position.
 bounded TXT/Markdown/DOCX/PDF extraction, import previews, events and recovery are
 implemented. [Step 4](docs/validation/step-04.md) adds global AI settings,
 credentials, an independent compatible text runtime and durable execution ports.
-Manuscript generation, review/locks and export follow in later steps; the
+[Step 5](docs/validation/step-05.md) adds saved planning, explicit text/visual
+evidence, outline generation/adjustment and one complete initial draft. Review,
+production locks and export follow in steps 6–8; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects

@@ -6,7 +6,7 @@ fn safe<T>(result: std::result::Result<T, impl std::fmt::Debug>) -> Result<T> {
 pub mod settings;
 
 pub mod actions;
-mod execution;
+pub(crate) mod execution;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod worker;

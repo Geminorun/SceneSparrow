@@ -21,7 +21,7 @@ fn evidence() -> AiEvidence {
         observed_at: None,
     }
 }
-pub(super) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
+pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
     let mut view = store.read_settings().unwrap();
     let id = uuid();
     view.settings.providers.push(AiProvider {

@@ -1,7 +1,9 @@
 # S2 specification: outline and initial draft
 
-Status: specified for implementation; S1 and S2 business functionality is not
-implemented by this document. Version: 0.1. This is the second slice of the
+Status: execution step 5 implements the local S2 workflow and has passed independent
+root review. Target-platform/real-provider acceptance remains open. See
+[step 5 validation](../validation/step-05.md). This document specifies behavior;
+the validation report records actual evidence. Version: 0.1. This is the second slice of the
 [implementation plan](../design/implementation-and-acceptance-v0.1.md).
 
 Read the [S1 spec](s1-manuscript-foundation.md),
@@ -527,7 +529,9 @@ the last completed outline and history cursor across browser/core restarts.
 
 ## 11. Development tasks and dependencies
 
-All tasks are pending. `Tnn` below means `S2-Tnn`, `ACnn` means `S2-ACnn`, and
+Execution step 5 has implementation evidence for T01–T12 and the unavailable/manual
+T13 path; T14 native/provider cases remain open. See the validation report rather
+than treating task implementation as full acceptance. `Tnn` below means `S2-Tnn`, `ACnn` means `S2-ACnn`, and
 `DEPnn` means `S2-DEPnn`. Shared AI internals are delivered under their independent
 spec; these tasks implement or verify its manuscript integration only.
 
@@ -611,3 +615,21 @@ S3 receives the canonical draft, exact source/plan provenance, reusable script
 context/prompt integration, task reservation policy and project history extension.
 It adds questions, revision candidates and user locks through those boundaries;
 S2 must not preimplement paragraph review or a separate model configuration system.
+
+## 14. Execution step 5 representation decisions
+
+The ordered outline is encoded as a flat preorder with depth 0–3. This expresses
+four levels without recursive output schemas, within the shared runtime's bounded
+schema subset. The core assigns/validates node identities and monotonic revisions;
+whole subtree moves remain atomic. Output objects require `schemaVersion: 1` and
+bindings additionally record prompt/interpreter versions. Unique immutable start
+command/task IDs identify submissions; scoped brief/outline/evidence/instruction
+counters prevent old requests or undo-to-identical-words from becoming current.
+
+Version-3 business roots extend the existing history cursor; old immutable root
+bytes remain unchanged. Exact composed evidence text is pinned in the generic
+immutable input object; SQL manifests retain compact evidence metadata. Current and
+history draft provenance retain their exact inputs/results, plus the latest terminal
+recovery payload per operation. Unselected visual previews retain at most eight for
+ten minutes; compact visual identity/outcome rows prevent retargeting reused IDs.
+No provider call follows a preparation, receipt replay, history action or resync.

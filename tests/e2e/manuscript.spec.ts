@@ -10,7 +10,9 @@ async function draft(page: Page) {
     await page.getByLabel("Project name").fill("幕雀 project");
     await page.getByRole("button", { name: "Create project" }).click();
   }
-  await page.getByLabel("Language").selectOption("en");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("en");
   const start = page.getByRole("button", {
     name: "Start writing",
     exact: true,
@@ -438,6 +440,7 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       readProject: () => request("/project"),
       createProject: (command: unknown) => request("/project", command),
       readManuscript: () => request("/manuscript"),
+      readPlanning: () => request("/planning"),
       readHistory: () => request("/history"),
       executeManuscript: (command: unknown) =>
         request("/manuscript/commands", command),

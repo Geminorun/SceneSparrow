@@ -114,6 +114,12 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "readAiResult",
       "cancelAiRun",
       "readSources",
+      "readPlanning",
+      "preparePlanning",
+      "planningTask",
+      "preparePlanningVisual",
+      "planningVisual",
+      "cancelPlanningVisual",
       "pickFileIntake",
       "cancelFileSelection",
       "onFileIntakeProgress",
@@ -142,6 +148,13 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
     "ai:test-prepare",
     { providerId: "fixture", modelId: "manual", tokenField: "max_tokens" },
   ]);
+  await exposed.preparePlanning({ operation: "generate_outline" });
+  assert.deepEqual(calls.pop(), [
+    "planning:prepare",
+    { operation: "generate_outline" },
+  ]);
+  await exposed.planningTask("task-id");
+  assert.deepEqual(calls.pop(), ["planning:task", "task-id"]);
   await exposed.readAiSettings();
   assert.deepEqual(calls.pop(), ["ai:settings-read"]);
   await exposed.readHistory();

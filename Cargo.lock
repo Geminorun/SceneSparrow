@@ -560,6 +560,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "language-tags"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4345964bb142484797b161f473a503a434de77149dd8c7427788c6e13379388"
+
+[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -755,12 +761,14 @@ dependencies = [
  "scenesparrow-domain",
  "serde_json",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
 name = "scenesparrow-domain"
 version = "0.1.0"
 dependencies = [
+ "language-tags",
  "serde",
  "serde_json",
  "thiserror",

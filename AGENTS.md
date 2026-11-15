@@ -47,8 +47,10 @@
   utility, prepared imports, event resync and reference-safe collection; see
   `docs/validation/step-03.md`. Step 4 adds global settings/credentials, the generic
   AI runtime, durable execution/UOW ports and origin-aware recovery; see
-  `docs/validation/step-04.md` and ADR 0002. Script AI consumers, production
-  locks/review and export follow in later steps. Real providers/native credential
+  `docs/validation/step-04.md` and ADR 0002. Step 5 adds saved planning, explicit
+  evidence/visual preparation and complete initial drafting through the shared
+  runtime; see `docs/validation/step-05.md`. Production locks/review and export
+  follow in later steps. Real providers/native credential
   stores remain unverified. Large-document performance budgets and native worker RSS
   enforcement remain open; do not claim full S1 acceptance. Applied migrations are
   immutable; append new versions using the shared ledger.

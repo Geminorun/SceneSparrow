@@ -315,6 +315,50 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: CommitManuscriptImportPayload,
     },
+    #[serde(rename = "SavePlanning")]
+    SavePlanning {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: SavePlanningPayload,
+    },
+    #[serde(rename = "StartPlanningTask")]
+    StartPlanningTask {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: StartPlanningTaskPayload,
+    },
+    #[serde(rename = "CancelPlanningTask")]
+    CancelPlanningTask {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: CancelPlanningTaskPayload,
+    },
+    #[serde(rename = "UsePlanningResult")]
+    UsePlanningResult {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: UsePlanningResultPayload,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -680,6 +724,12 @@ pub enum ProjectEventType {
     Resyncrequired,
     #[serde(rename = "aiRun.changed")]
     AiRunchanged,
+    #[serde(rename = "planning.changed")]
+    Planningchanged,
+    #[serde(rename = "planningTask.changed")]
+    PlanningTaskchanged,
+    #[serde(rename = "draft.created")]
+    Draftcreated,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -797,6 +847,264 @@ pub struct DocumentWorkerOutput {
         deserialize_with = "present_nonnull"
     )]
     pub error: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningBrief {
+    #[serde(rename = "topic")]
+    pub topic: String,
+    #[serde(rename = "language")]
+    pub language: String,
+    #[serde(rename = "audience")]
+    pub audience: String,
+    #[serde(rename = "style")]
+    pub style: String,
+    #[serde(rename = "lengthHint")]
+    pub length_hint: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutlineNode {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+    #[serde(rename = "depth")]
+    pub depth: i64,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "keyPoints")]
+    pub key_points: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlanningEvidenceChoiceMode {
+    #[serde(rename = "link_only")]
+    Linkonly,
+    #[serde(rename = "extracted_text")]
+    Extractedtext,
+    #[serde(rename = "text_only")]
+    Textonly,
+    #[serde(rename = "visual_input")]
+    Visualinput,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningEvidenceChoice {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "mode")]
+    pub mode: PlanningEvidenceChoiceMode,
+    #[serde(rename = "start")]
+    pub start: i64,
+    #[serde(rename = "end")]
+    pub end: i64,
+    #[serde(rename = "visualId")]
+    pub visual_id: String,
+    #[serde(rename = "allowUnknownImages")]
+    pub allow_unknown_images: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningContent {
+    #[serde(rename = "brief")]
+    pub brief: PlanningBrief,
+    #[serde(rename = "nodes")]
+    pub nodes: Vec<OutlineNode>,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "evidence")]
+    pub evidence: Vec<PlanningEvidenceChoice>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningTask {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "operation")]
+    pub operation: String,
+    #[serde(rename = "application")]
+    pub application: String,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "run")]
+    pub run: AiRun,
+    #[serde(rename = "preview", deserialize_with = "required_nullable")]
+    pub preview: Option<String>,
+    #[serde(rename = "metadata", deserialize_with = "required_nullable")]
+    pub metadata: Option<PlanningTaskMetadata>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningState {
+    #[serde(rename = "revision")]
+    pub revision: i64,
+    #[serde(rename = "content")]
+    pub content: PlanningContent,
+    #[serde(rename = "reserved")]
+    pub reserved: bool,
+    #[serde(rename = "tasks")]
+    pub tasks: Vec<PlanningTask>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningEvidence {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: i64,
+    #[serde(rename = "contentHash")]
+    pub content_hash: String,
+    #[serde(rename = "level")]
+    pub level: String,
+    #[serde(rename = "location")]
+    pub location: String,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "artifactId", deserialize_with = "required_nullable")]
+    pub artifact_id: Option<String>,
+    #[serde(rename = "extractor")]
+    pub extractor: String,
+    #[serde(rename = "warnings")]
+    pub warnings: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PlanningPreparationRequestOperation {
+    #[serde(rename = "generate_outline")]
+    Generateoutline,
+    #[serde(rename = "adjust_outline")]
+    Adjustoutline,
+    #[serde(rename = "generate_initial_draft")]
+    Generateinitialdraft,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningPreparationRequest {
+    #[serde(rename = "operation")]
+    pub operation: PlanningPreparationRequestOperation,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningPreparation {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+    #[serde(rename = "planningRevision")]
+    pub planning_revision: i64,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "manifestHash")]
+    pub manifest_hash: String,
+    #[serde(rename = "evidence")]
+    pub evidence: Vec<PlanningEvidence>,
+    #[serde(rename = "warnings")]
+    pub warnings: Vec<String>,
+    #[serde(rename = "estimatedInputTokens")]
+    pub estimated_input_tokens: i64,
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: i64,
+    #[serde(rename = "configuration")]
+    pub configuration: AiResolvedConfig,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningVisualAction {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "index")]
+    pub index: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningVisual {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: i64,
+    #[serde(rename = "index")]
+    pub index: i64,
+    #[serde(rename = "status")]
+    pub status: String,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "hash", deserialize_with = "required_nullable")]
+    pub hash: Option<String>,
+    #[serde(rename = "size")]
+    pub size: i64,
+    #[serde(rename = "width")]
+    pub width: i64,
+    #[serde(rename = "height")]
+    pub height: i64,
+    #[serde(rename = "transformation")]
+    pub transformation: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SavePlanningPayload {
+    #[serde(rename = "content")]
+    pub content: PlanningContent,
+    #[serde(rename = "group")]
+    pub group: EditGroup,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartPlanningTaskPayload {
+    #[serde(rename = "preparationId")]
+    pub preparation_id: String,
+    #[serde(rename = "retryOfTaskId", deserialize_with = "required_nullable")]
+    pub retry_of_task_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CancelPlanningTaskPayload {
+    #[serde(rename = "taskId")]
+    pub task_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsePlanningResultPayload {
+    #[serde(rename = "taskId")]
+    pub task_id: String,
+    #[serde(rename = "expectedHistoryRevision")]
+    pub expected_history_revision: i64,
+    #[serde(rename = "explicit")]
+    pub explicit: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningResultReference {
+    #[serde(rename = "evidenceId")]
+    pub evidence_id: String,
+    #[serde(rename = "outlineNodeId")]
+    pub outline_node_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningSectionMapping {
+    #[serde(rename = "outlineNodeId")]
+    pub outline_node_id: String,
+    #[serde(rename = "blockIds")]
+    pub block_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanningTaskMetadata {
+    #[serde(rename = "verificationHints")]
+    pub verification_hints: Vec<String>,
+    #[serde(rename = "planningNotes")]
+    pub planning_notes: Vec<String>,
+    #[serde(rename = "evidenceReferences")]
+    pub evidence_references: Vec<PlanningResultReference>,
+    #[serde(rename = "sectionMapping")]
+    pub section_mapping: Vec<PlanningSectionMapping>,
+    #[serde(rename = "evidence")]
+    pub evidence: Vec<PlanningEvidence>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

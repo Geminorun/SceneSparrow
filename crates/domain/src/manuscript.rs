@@ -193,6 +193,8 @@ pub struct Transition {
     pub affected: BTreeSet<String>,
     pub normalized: bool,
     pub sources: Option<Vec<Source>>,
+    pub planning: Option<PlanningContent>,
+    pub planning_metadata: Option<PlanningTaskMetadata>,
 }
 pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
     match command {
@@ -239,6 +241,30 @@ pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
             ..
         }
         | ManuscriptCommand::CommitManuscriptImport {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::SavePlanning {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::StartPlanningTask {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::CancelPlanningTask {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
+        | ManuscriptCommand::UsePlanningResult {
             request_id,
             project_id,
             expected_working_revision,
@@ -328,7 +354,11 @@ pub fn apply(
             }
             state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
         }
-        ManuscriptCommand::AddSourceLink { .. }
+        ManuscriptCommand::SavePlanning { .. }
+        | ManuscriptCommand::StartPlanningTask { .. }
+        | ManuscriptCommand::CancelPlanningTask { .. }
+        | ManuscriptCommand::UsePlanningResult { .. }
+        | ManuscriptCommand::AddSourceLink { .. }
         | ManuscriptCommand::AddSourceFile { .. }
         | ManuscriptCommand::RemoveSource { .. }
         | ManuscriptCommand::CommitManuscriptImport { .. }
@@ -520,6 +550,8 @@ pub fn apply(
         affected,
         normalized,
         sources: None,
+        planning: None,
+        planning_metadata: None,
     })
 }
 
@@ -533,11 +565,14 @@ pub struct BusinessSnapshot {
     pub blocks: Vec<NewBlock>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<Source>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planning: Option<PlanningContent>,
 }
 impl BusinessSnapshot {
     pub fn capture(state: &ManuscriptState) -> Self {
         Self {
-            version: 2,
+            version: 3,
+            planning: None,
             sources: vec![],
             workspace_stage: state.workspace_stage.clone(),
             blocks: state
@@ -561,7 +596,7 @@ pub fn restore(
     recorded: &BTreeSet<String>,
     policy: &dyn MutationPolicy,
 ) -> Result<Transition> {
-    if target.version != 1 && target.version != 2 {
+    if !(1..=3).contains(&target.version) {
         return Err(ManuscriptError::history_blocked(
             "SCHEMA_UNSUPPORTED",
             recorded,
@@ -632,6 +667,8 @@ pub fn restore(
         affected,
         normalized: false,
         sources: None,
+        planning: None,
+        planning_metadata: None,
     })
 }
 
@@ -725,6 +762,8 @@ pub fn import_candidate(
         affected,
         normalized,
         sources: None,
+        planning: None,
+        planning_metadata: None,
     })
 }
 

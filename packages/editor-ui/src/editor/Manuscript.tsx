@@ -8,6 +8,7 @@ import { TextSelection } from "@tiptap/pm/state";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
+import { Planning, GeneratedDraftEvidence } from "./Planning";
 import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
 import { fromEditor, toEditor } from "./canonical";
@@ -342,7 +343,7 @@ function Draft({
   }, [save.state.workingRevision, onRevision]);
   useEffect(() => {
     const warning = (event: BeforeUnloadEvent) => {
-      if (save.status !== "saved") {
+      if (save.status !== "saved" || save.planningAdapter?.dirty()) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -442,15 +443,7 @@ function Draft({
         </button>
       </div>
       {save.state.workspaceStage === "outline" ? (
-        <div className="document-start">
-          <p>{t.startDescription}</p>
-          <button
-            disabled={save.status === "saving"}
-            onClick={() => void save.start()}
-          >
-            {t.startWriting}
-          </button>
-        </div>
+        <Planning client={client} save={save} projectId={projectId} t={t} />
       ) : (
         <>
           <div
@@ -596,6 +589,13 @@ function Draft({
             <EditorContent editor={editor} />
           </div>
         </>
+      )}
+      {save.state.workspaceStage === "draft" && (
+        <GeneratedDraftEvidence
+          client={client}
+          blockIds={save.state.blocks.map((b) => b.id)}
+          t={t}
+        />
       )}
       <Sources client={client} save={save} projectId={projectId} t={t} />
       {(save.status === "error" || save.status === "conflict") && (

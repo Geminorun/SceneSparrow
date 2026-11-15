@@ -69,6 +69,9 @@ impl SqliteProjectRepository {
 
     pub(super) fn business(c: &Connection, state: &ManuscriptState) -> Result<BusinessSnapshot> {
         let mut root = BusinessSnapshot::capture(state);
+        root.planning = Some(scenesparrow_domain::planning::content_snapshot(
+            &Self::planning_content(c)?,
+        ));
         root.sources = Self::source_members(c)?;
         for s in &mut root.sources {
             s.revision = 0;
@@ -77,6 +80,9 @@ impl SqliteProjectRepository {
     }
     pub(super) fn business_after(c: &Connection, t: &Transition) -> Result<BusinessSnapshot> {
         let mut root = Self::business(c, &t.state)?;
+        if let Some(planning) = &t.planning {
+            root.planning = Some(scenesparrow_domain::planning::content_snapshot(planning));
+        }
         if let Some(sources) = &t.sources {
             root.sources = sources.clone();
             for s in &mut root.sources {
@@ -86,6 +92,9 @@ impl SqliteProjectRepository {
         Ok(root)
     }
     pub(super) fn read_business(&self, digest: &str) -> Result<BusinessSnapshot> {
+        #[cfg(test)]
+        self.business_read_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut root: BusinessSnapshot = db(serde_json::from_slice(&self.read_object(digest)?))?;
         // Applied v3 objects remain byte-for-byte immutable. A closed v1 decoder
         // upgrades only its in-memory meaning; v1 roots cannot invent membership.
@@ -95,9 +104,22 @@ impl SqliteProjectRepository {
             }
             root.version = 2;
         }
-        if root.version != 2 {
+        if root.version == 2 {
+            if root.planning.is_some() {
+                return invalid();
+            }
+            root.version = 3;
+            root.planning = Some(scenesparrow_domain::planning::empty());
+        }
+        if root.version != 3 {
             return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
         }
+        scenesparrow_domain::planning::validate(
+            root.planning
+                .as_ref()
+                .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?,
+            false,
+        )?;
         self.verify_sources(&root.sources)
             .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         Ok(root)
@@ -220,6 +242,8 @@ impl SqliteProjectRepository {
             affected,
             normalized: false,
             sources: Some(members),
+            planning: None,
+            planning_metadata: None,
         })
     }
     fn import_transition(

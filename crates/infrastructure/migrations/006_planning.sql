@@ -1,0 +1,10 @@
+CREATE TABLE planning_history_epoch(singleton INTEGER PRIMARY KEY CHECK(singleton=1), epoch INTEGER NOT NULL DEFAULT 0);
+INSERT INTO planning_history_epoch(singleton) VALUES(1);
+CREATE TABLE planning_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL, brief_revision INTEGER NOT NULL DEFAULT 0, outline_revision INTEGER NOT NULL DEFAULT 0, evidence_revision INTEGER NOT NULL DEFAULT 0, instruction_revision INTEGER NOT NULL DEFAULT 0, content_json TEXT NOT NULL);
+CREATE TABLE planning_node_identities(id TEXT PRIMARY KEY, high_water INTEGER NOT NULL);
+CREATE TABLE planning_preparations(id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, planning_revision INTEGER NOT NULL, dependencies_hash TEXT NOT NULL, history_revision INTEGER NOT NULL, operation TEXT NOT NULL, manifest_json TEXT NOT NULL, content_hash TEXT NOT NULL, input_hash TEXT NOT NULL, fingerprint TEXT NOT NULL);
+CREATE TABLE script_ai_tasks(id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES ai_runs(run_id), operation TEXT NOT NULL, planning_revision INTEGER NOT NULL, dependencies_hash TEXT NOT NULL, history_revision INTEGER NOT NULL, content_hash TEXT NOT NULL, manifest_json TEXT NOT NULL, application TEXT NOT NULL DEFAULT 'pending', error TEXT, application_command_id TEXT NOT NULL UNIQUE, prompt_version TEXT NOT NULL, interpreter_version TEXT NOT NULL);
+CREATE TABLE outline_confirmations(task_id TEXT PRIMARY KEY REFERENCES script_ai_tasks(id), content_hash TEXT NOT NULL, confirming_command_id TEXT NOT NULL UNIQUE);
+CREATE TABLE draft_generation_manifests(task_id TEXT PRIMARY KEY REFERENCES script_ai_tasks(id), content_hash TEXT NOT NULL, result_hash TEXT NOT NULL, blocks_json TEXT NOT NULL, metadata_json TEXT NOT NULL);
+CREATE TABLE planning_visuals(id TEXT PRIMARY KEY, source_id TEXT NOT NULL, source_revision INTEGER NOT NULL, selection_index INTEGER NOT NULL, status TEXT NOT NULL, error TEXT, object_hash TEXT, size INTEGER NOT NULL DEFAULT 0, width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, transformation TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL DEFAULT(unixepoch()*1000));
+PRAGMA user_version = 6;

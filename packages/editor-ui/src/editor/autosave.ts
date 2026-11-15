@@ -10,6 +10,19 @@ import { edits } from "./canonical";
 export type SaveStatus = "saved" | "pending" | "saving" | "error" | "conflict";
 class UncertainCommit extends Error {}
 export class Autosave {
+  planningAdapter?: {
+    flush: (retry?: boolean) => Promise<boolean>;
+    identity: () => string;
+    dirty: () => boolean;
+  };
+  private async settlePlanning(intent: string | undefined, retry = false) {
+    if (!this.planningAdapter) return true;
+    return (
+      (await this.planningAdapter.flush(retry)) &&
+      this.planningAdapter?.identity() === intent
+    );
+  }
+
   local: NewBlock[];
   status: SaveStatus = "saved";
   error = "";
@@ -57,6 +70,15 @@ export class Autosave {
   private groupKind: "typing" | "discrete" = "typing";
   private controls: Promise<unknown> = Promise.resolve();
   private controlPending: ManuscriptCommand | null = null;
+  get stageTransitionPending() {
+    return (
+      this.busy &&
+      !!this.controlPending &&
+      (this.controlPending.type === "StartManualDraft" ||
+        (this.controlPending.type === "CommitManuscriptImport" &&
+          this.controlPending.payload.mode === "start"))
+    );
+  }
   get hasUnresolvedBusiness() {
     return (
       !!this.controlPending &&
@@ -122,7 +144,26 @@ export class Autosave {
       : this.enqueue(async () => this.drain());
   }
   navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
+    if (!this.planningAdapter) return this.navigateCore(direction, apply);
     const requestedVisible = JSON.stringify(this.local);
+    const intent = this.planningAdapter.identity();
+    return this.settlePlanning(intent).then((ok) =>
+      ok
+        ? this.navigateCore(
+            direction,
+            apply,
+            () => this.planningAdapter?.identity() === intent,
+            requestedVisible,
+          )
+        : false,
+    );
+  }
+  private navigateCore(
+    direction: "UndoProject" | "RedoProject",
+    apply: () => void,
+    validIntent?: () => boolean,
+    requestedVisible = JSON.stringify(this.local),
+  ) {
     return this.enqueue(async () => {
       if (this.disposed) return false;
       if (this.controlPending) {
@@ -132,7 +173,12 @@ export class Autosave {
         if (ok && type !== "CloseEditGroup" && !this.disposed) apply();
         return ok;
       }
-      if (this.composing || !(await this.settle())) return false;
+      if (
+        this.composing ||
+        !(await this.settle()) ||
+        (validIntent && !validIntent())
+      )
+        return false;
       if (JSON.stringify(this.local) !== requestedVisible) {
         this.error = "REVISION_CONFLICT";
         this.status = "conflict";
@@ -152,16 +198,57 @@ export class Autosave {
     });
   }
   prepareInput() {
-    return this.enqueue(async () => (this.composing ? false : this.settle()));
+    if (!this.planningAdapter)
+      return this.enqueue(async () => (this.composing ? false : this.settle()));
+    const intent = this.planningAdapter?.identity();
+    return this.settlePlanning(intent).then((ok) =>
+      ok
+        ? this.enqueue(async () =>
+            this.composing || this.planningAdapter?.identity() !== intent
+              ? false
+              : this.settle(),
+          )
+        : false,
+    );
   }
   business(
     build: (revision: number) => ManuscriptCommand,
     options?: { signal?: AbortSignal; dispatched?: () => void },
   ) {
+    if (!this.planningAdapter) return this.businessCore(build, options);
     const requestedVisible = JSON.stringify(this.local);
+    const intent = this.planningAdapter.identity();
+    return this.settlePlanning(intent).then((ok) =>
+      ok
+        ? this.businessCore(build, {
+            ...options,
+            requestedVisible,
+            validIntent: () => this.planningAdapter?.identity() === intent,
+          })
+        : false,
+    );
+  }
+  businessCore(
+    build: (revision: number) => ManuscriptCommand,
+    options?: {
+      signal?: AbortSignal;
+      dispatched?: () => void;
+      validIntent?: () => boolean;
+      replayCommand?: () => ManuscriptCommand | null;
+      requestedVisible?: string;
+    },
+  ) {
+    const requestedVisible =
+      options?.requestedVisible ?? JSON.stringify(this.local);
     return this.enqueue(async () => {
       if (options?.signal?.aborted || this.disposed) return false;
       if (this.controlPending) {
+        const candidate = options?.replayCommand?.();
+        if (
+          candidate &&
+          JSON.stringify(candidate) === JSON.stringify(this.controlPending)
+        )
+          return this.control("CloseEditGroup");
         await this.control("CloseEditGroup");
         return false;
       }
@@ -172,7 +259,12 @@ export class Autosave {
         this.notify();
         return false;
       }
-      if (options?.signal?.aborted || this.disposed) return false;
+      if (
+        options?.signal?.aborted ||
+        this.disposed ||
+        (options?.validIntent && !options.validIntent())
+      )
+        return false;
       const command = build(this.state.workingRevision);
       options?.dispatched?.();
       return this.control("CloseEditGroup", command);
@@ -199,6 +291,7 @@ export class Autosave {
         if (
           generation !== this.generation ||
           !this.same() ||
+          this.planningAdapter?.dirty() ||
           this.conversionError ||
           this.composing
         ) {
@@ -219,9 +312,25 @@ export class Autosave {
       }
     });
   }
-  controlledClose(retry = false) {
+  async controlledClose(retry = false): Promise<boolean> {
     clearTimeout(this.idleTimer);
-    return this.enqueue(() => this.settle(retry));
+    for (;;) {
+      const intent = this.planningAdapter?.identity();
+      if (!(await this.settlePlanning(intent, retry))) {
+        if (this.planningAdapter?.identity() !== intent && !this.composing)
+          continue;
+        return false;
+      }
+      const result = await this.enqueue(async () => {
+        if (this.planningAdapter?.identity() !== intent) return null;
+        if (!(await this.settle(retry))) return false;
+        return this.planningAdapter?.identity() !== intent ||
+          this.planningAdapter?.dirty()
+          ? null
+          : true;
+      });
+      if (result !== null) return result;
+    }
   }
   private async settle(retry = false): Promise<boolean> {
     for (;;) {
@@ -258,10 +367,15 @@ export class Autosave {
       try {
         const receipt = await this.resolve(command);
         this.acceptHistory(receipt);
+        const taskControl = [
+          "StartPlanningTask",
+          "CancelPlanningTask",
+        ].includes(command.type);
         if (command.type !== "CloseEditGroup") {
           const canonical = await this.client.readManuscript();
           if (
-            canonical.workingRevision !== receipt.workingRevision ||
+            (!taskControl &&
+              canonical.workingRevision !== receipt.workingRevision) ||
             JSON.stringify(this.local) !== visible ||
             this.conversionError
           )
@@ -287,7 +401,7 @@ export class Autosave {
         const metadata = await this.client.readHistory();
         if (
           metadata.workingRevision !== this.state.workingRevision ||
-          metadata.historyRevision !== receipt.historyRevision
+          (!taskControl && metadata.historyRevision !== receipt.historyRevision)
         )
           throw new ApiError("HISTORY_CONFLICT");
         this.history = metadata;
@@ -349,6 +463,20 @@ export class Autosave {
       redoLabel: null,
     };
     this.local = state.blocks.map(({ revision: _, ...b }) => b);
+  }
+  acknowledgeBusinessRejection() {
+    if (
+      !this.controlPending &&
+      !this.unresolved &&
+      this.same() &&
+      !this.conversionError &&
+      this.status === "error"
+    ) {
+      this.status = "saved";
+      this.error = "";
+      this.notify();
+    }
+    return this.status === "saved";
   }
   private same() {
     return (
