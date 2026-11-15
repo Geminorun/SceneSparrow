@@ -13,8 +13,9 @@ zero and has no approved baseline. Creating the same request twice is idempotent
 a different request cannot replace the existing project. A file lock prevents two
 core instances from owning the same directory.
 
-The current phase is framework setup, not a business implementation milestone.
-The v0.1 proposal is a preliminary draft; detailed designs are still pending. Script
+The current phase is detailed design following framework setup. The
+[workbench and shared AI specifications](design/README.md) describe planned
+functionality, not a completed business implementation milestone. Script
 editing/Tiptap, assets, revision history, lock enforcement, review acceptance, SSE,
 durable worker jobs, provider authentication, incremental rendering, file pickers,
 packaging, and updates remain to be implemented. The Agent package contains an
@@ -138,7 +139,12 @@ The initial authenticated endpoints are `GET /v1/health`, `GET /v1/project`, and
 client-supplied revision or approve a baseline. There is intentionally no edit,
 unlock, or acceptance endpoint until revision and lock validation exist.
 
-The next planning step is detailed design of module responsibilities, domain
-models, protocols, storage, and workflow behavior. The draft M0/M1 roadmap does
-not authorize further feature implementation. Treat the bootstrap's single-project
-API as an integration sample, not a substitute for those detailed designs.
+The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
+orders upcoming work by usable manuscript slices. The preliminary M0/M1 media
+roadmap does not authorize further feature implementation. Treat the bootstrap's
+single-project API as an integration sample, not a substitute for the detailed
+domain, history, lock and execution contracts.
+All [stage and shared AI specs](specs/README.md) are now documented. Their tasks
+remain unimplemented; follow the shared AI migration/port ledger when those slices
+are explicitly developed, without making provider access a prerequisite for
+manual editing/export.

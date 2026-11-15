@@ -45,6 +45,39 @@ git fetch origin
 git switch -c feat/project-persistence origin/main
 ```
 
+## Design and stage specifications
+
+Use the following sequence for planned product work: technical design, stage spec
+with ordered tasks, implementation with tests, then PR validation. The
+[spec index](specs/README.md) defines one document for each S1–S4 stage and a separate
+document for shared AI. Each stage keeps its functional contracts, task breakdown
+and acceptance cases together. The [S1 spec](specs/s1-manuscript-foundation.md) is
+the first detailed implementation slice; [S2](specs/s2-outline-and-initial-draft.md)
+specifies planning and drafting against the independent shared AI boundary.
+The [S3 spec](specs/s3-review-and-finalization.md) extends those contracts with
+review decisions, production lock enforcement and derived finalization.
+The [S4 spec](specs/s4-delivery-and-validation.md) defines export/delivery and the
+evidence required for recovery, complete workflows and target-platform readiness.
+The [shared AI spec](specs/shared-ai-integration.md) independently defines provider
+access, credentials, task execution and the initial migration ledger. S1 can be
+implemented without AI; live S2/S3 integration depends on this shared capability.
+
+Before implementing a stage, make its scope, user behavior, data/command contracts,
+errors, recovery, dependencies and acceptance criteria concrete in that spec.
+Shared AI owns provider/configuration/execution rules; S2/S3 reference its
+independent spec and own manuscript orchestration. Avoid duplicating AI rules
+inside each business stage.
+
+Resolve material product ambiguities with the user while applying previously
+confirmed decisions directly. Routine engineering choices can be specified and
+validated during implementation. A documentation request authorizes its documented
+scope; task checklists do not themselves start feature development. Record actual
+test evidence with completed tasks and keep any deviations visible in the spec.
+
+Documentation changes use relevant formatting/link/integrity checks. Product changes
+add behavioral checks for the touched contracts and acceptance IDs. A spec is not
+evidence that its implementation or tests have passed.
+
 ## Commits and pull requests
 
 Use `type(scope): summary`, with an optional scope and an imperative English

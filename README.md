@@ -11,9 +11,10 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The current phase is framework setup only. The v0.1 technical proposal remains a
-preliminary draft, and detailed design documents will precede production workflow
-implementation. Existing sample models and interfaces are provisional.
+The framework setup is complete and the current work is detailed design of the
+first manuscript workbench. The [workbench and shared AI specifications](docs/design/README.md)
+define the planned behavior and implementation slices; production business features
+are not implemented yet. Existing sample models and interfaces are provisional.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
@@ -40,6 +41,9 @@ workflow here and validate desktop behavior on Windows/macOS.
 - [Agent and contributor rules](AGENTS.md)
 - [Setup, commands, and current implementation](docs/development.md)
 - [Branch, commit, and review workflow](docs/development-workflow.md)
+- [Manuscript workbench, shared AI, and implementation plan](docs/design/README.md)
+- [Stage specifications and shared AI integration](docs/specs/README.md)
+- [Decision: manuscript first and reusable AI execution](docs/decisions/0001-script-workbench-and-shared-ai.md)
 - [Architecture, planned layout, and milestones](docs/architecture.md)
 - [Original requirements and technical design, v0.1](docs/reference/README.md)
 
