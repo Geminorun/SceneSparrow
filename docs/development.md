@@ -221,3 +221,38 @@ domain, history, lock and execution contracts.
 All [stage and shared AI specs](specs/README.md) are documented. The manual editing/history/source/import paths above are implemented; follow the shared AI migration/port ledger when those slices
 are explicitly developed, without making provider access a prerequisite for
 manual editing/export.
+
+## Shared AI (execution step 4)
+
+The global AI settings panel is shared by browser and desktop. Add a provider with
+its full compatible API root (no automatic `/v1`), enter a key or explicitly select
+no authentication, then manually enter/discover a model and bind it to text.
+Audio/video and search remain unavailable. Inference tests are explicit quota
+actions against the selected saved provider/manual model; testing another profile
+does not change the global text binding. A duplicate submitted test reuses its
+session receipt; after restart an uncertain old test is not replayed.
+
+Set `SCENESPARROW_APP_DATA_DIR` to a writable application directory outside the
+project. `scripts/cloud-env.sh` defaults it to `/workspace/.local/share/scenesparrow`;
+the desktop launcher uses Electron user data. Settings, nonsecret credential
+revision inventory and execution-origin registry live there, outside project
+undo/backups. Linux/browser development keys are clearly labeled session memory
+and disappear on core restart. Windows/macOS keyring source adapters require actual
+target-host validation; no plaintext credential fallback exists.
+
+Migration 005 stores generic AI execution state. Internal consumer coordinators use
+the application UOW/configuration ports and controlled host tick; no public raw
+prompt route exists. The independent runtime uses OpenAI 7.57.0 with retries and
+SDK logging disabled, system TLS/proxy transport and rejected redirects. Plain
+Node 24 launches `workers/agent/src/entry.mjs` against installed workspace source.
+The process has no project DB API, service/API-key environment or generated-code
+executor. This development path is not a packaged desktop worker runtime.
+
+Named authenticated routes add `/v1/ai/settings`, credential update/delete, model
+discovery, configuration readiness, explicit connection-test prepare/submit and
+scoped run/result/cancel reads/actions. Desktop preload exposes matching named
+methods. Worker control frames stay bounded; artifact content streams in small
+chunks. Blocking settings/credential/project reads run in separate bounded blocking
+slots so a settings file lock does not occupy manual editing's database slots.
+See [step 4 evidence](validation/step-04.md) for dispatch, recovery, redaction and
+platform/provider limitations. S2/S3 business generation remains future work.

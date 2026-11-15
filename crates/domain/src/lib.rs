@@ -34,3 +34,5 @@ mod tests {
 
 pub mod contracts;
 pub mod manuscript;
+
+pub mod ai;

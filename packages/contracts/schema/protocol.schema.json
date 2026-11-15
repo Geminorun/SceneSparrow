@@ -1261,7 +1261,8 @@
             "history.changed",
             "sources.changed",
             "documentJob.changed",
-            "resync_required"
+            "resync_required",
+            "aiRun.changed"
           ]
         },
         "requestId": {

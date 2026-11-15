@@ -1212,6 +1212,7 @@ fn migrate_acknowledged_v2_draft_with_pinned_backup_and_transactional_retry() {
     drop(repo);
     let c = Connection::open(dir.path().join("project.sqlite")).unwrap();
     c.pragma_update(None, "journal_mode", "WAL").unwrap();
+    super::drop_ai_schema_for_legacy_fixture(&c);
     c.execute_batch("DROP TABLE sources; DROP TABLE intakes; DROP TABLE document_attempts; DROP TABLE import_provenance; DROP TABLE external_object_pins; DROP TABLE history_entries; DROP TABLE history_cursor; ALTER TABLE edit_groups DROP COLUMN scope_block_id; ALTER TABLE edit_groups DROP COLUMN last_commit_ms; UPDATE edit_groups SET closed=0; PRAGMA user_version=2;").unwrap();
     c.execute(
         "UPDATE command_receipts SET outcome_json=?1 WHERE request_id=?2",

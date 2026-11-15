@@ -678,6 +678,8 @@ pub enum ProjectEventType {
     DocumentJobchanged,
     #[serde(rename = "resync_required")]
     Resyncrequired,
+    #[serde(rename = "aiRun.changed")]
+    AiRunchanged,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -795,4 +797,644 @@ pub struct DocumentWorkerOutput {
         deserialize_with = "present_nonnull"
     )]
     pub error: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiCategory {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "audio")]
+    Audio,
+    #[serde(rename = "video")]
+    Video,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiCapability {
+    #[serde(rename = "text.generate")]
+    Textgenerate,
+    #[serde(rename = "audio.synthesize")]
+    Audiosynthesize,
+    #[serde(rename = "video.generate")]
+    Videogenerate,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiEvidenceState {
+    #[serde(rename = "supported")]
+    Supported,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiEvidenceSource {
+    #[serde(rename = "unknown")]
+    Unknown,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "provider")]
+    Provider,
+    #[serde(rename = "test")]
+    Test,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiEvidence {
+    #[serde(rename = "state")]
+    pub state: AiEvidenceState,
+    #[serde(rename = "source")]
+    pub source: AiEvidenceSource,
+    #[serde(rename = "scope")]
+    pub scope: String,
+    #[serde(rename = "observedAt", deserialize_with = "required_nullable")]
+    pub observed_at: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiCapabilities {
+    #[serde(rename = "images")]
+    pub images: AiEvidence,
+    #[serde(rename = "streaming")]
+    pub streaming: AiEvidence,
+    #[serde(rename = "nativeJson")]
+    pub native_json: AiEvidence,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiProviderAdapter {
+    #[serde(rename = "openai_compatible")]
+    Openaicompatible,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiProviderAuthMode {
+    #[serde(rename = "bearer")]
+    Bearer,
+    #[serde(rename = "none")]
+    None,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiProvider {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "label")]
+    pub label: String,
+    #[serde(rename = "adapter")]
+    pub adapter: AiProviderAdapter,
+    #[serde(rename = "baseUrl")]
+    pub base_url: String,
+    #[serde(rename = "authMode")]
+    pub auth_mode: AiProviderAuthMode,
+    #[serde(rename = "credentialRevision", deserialize_with = "required_nullable")]
+    pub credential_revision: Option<String>,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiModelTokenField {
+    #[serde(rename = "max_tokens")]
+    Maxtokens,
+    #[serde(rename = "max_completion_tokens")]
+    Maxcompletiontokens,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiModel {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "label")]
+    pub label: String,
+    #[serde(rename = "capabilities")]
+    pub capabilities: AiCapabilities,
+    #[serde(rename = "contextTokens", deserialize_with = "required_nullable")]
+    pub context_tokens: Option<i64>,
+    #[serde(rename = "outputTokens", deserialize_with = "required_nullable")]
+    pub output_tokens: Option<i64>,
+    #[serde(rename = "tokenField")]
+    pub token_field: AiModelTokenField,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiParameters {
+    #[serde(rename = "temperatureMilli", deserialize_with = "required_nullable")]
+    pub temperature_milli: Option<i64>,
+    #[serde(rename = "maxOutputTokens")]
+    pub max_output_tokens: i64,
+    #[serde(rename = "requestStreaming")]
+    pub request_streaming: bool,
+    #[serde(rename = "requestNativeJson")]
+    pub request_native_json: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiBinding {
+    #[serde(rename = "category")]
+    pub category: AiCategory,
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "parameters")]
+    pub parameters: AiParameters,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiPolicy {
+    #[serde(rename = "overallMs")]
+    pub overall_ms: i64,
+    #[serde(rename = "idleMs")]
+    pub idle_ms: i64,
+    #[serde(rename = "maxOutputBytes")]
+    pub max_output_bytes: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiSettings {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: i64,
+    #[serde(rename = "revision")]
+    pub revision: i64,
+    #[serde(rename = "providers")]
+    pub providers: Vec<AiProvider>,
+    #[serde(rename = "models")]
+    pub models: Vec<AiModel>,
+    #[serde(rename = "bindings")]
+    pub bindings: Vec<AiBinding>,
+    #[serde(rename = "retiredProfileIds")]
+    pub retired_profile_ids: Vec<String>,
+    #[serde(rename = "policy")]
+    pub policy: AiPolicy,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiSettingsViewCredentialBackend {
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "session_only")]
+    Sessiononly,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiSettingsView {
+    #[serde(rename = "settings")]
+    pub settings: AiSettings,
+    #[serde(rename = "credentialBackend")]
+    pub credential_backend: AiSettingsViewCredentialBackend,
+    #[serde(rename = "presentCredentialRevisions")]
+    pub present_credential_revisions: Vec<String>,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiSettingsUpdate {
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: i64,
+    #[serde(rename = "settings")]
+    pub settings: AiSettings,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiCredentialUpdate {
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: i64,
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "secret")]
+    pub secret: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiResolvedConfig {
+    #[serde(rename = "category")]
+    pub category: AiCategory,
+    #[serde(rename = "capability")]
+    pub capability: AiCapability,
+    #[serde(rename = "provider")]
+    pub provider: AiProvider,
+    #[serde(rename = "model")]
+    pub model: AiModel,
+    #[serde(rename = "parameters")]
+    pub parameters: AiParameters,
+    #[serde(rename = "policy")]
+    pub policy: AiPolicy,
+    #[serde(rename = "adapterVersion")]
+    pub adapter_version: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "stream")]
+    pub stream: bool,
+    #[serde(rename = "nativeJson")]
+    pub native_json: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiReadiness {
+    #[serde(rename = "configuration")]
+    pub configuration: AiResolvedConfig,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiModelAction {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiTestAction {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "target")]
+    pub target: AiTestTarget,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiDiscovery {
+    #[serde(rename = "models")]
+    pub models: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiTestReceiptStatus {
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiTestReceiptScope {
+    #[serde(rename = "text_only")]
+    Textonly,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiTestReceipt {
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "status")]
+    pub status: AiTestReceiptStatus,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "observedAt")]
+    pub observed_at: String,
+    #[serde(rename = "scope")]
+    pub scope: AiTestReceiptScope,
+    #[serde(rename = "target")]
+    pub target: AiTestTarget,
+    #[serde(rename = "providerRoot", deserialize_with = "required_nullable")]
+    pub provider_root: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiArtifactMime {
+    #[serde(rename = "text/plain")]
+    Textplain,
+    #[serde(rename = "application/json")]
+    Applicationjson,
+    #[serde(rename = "image/png")]
+    Imagepng,
+    #[serde(rename = "image/jpeg")]
+    Imagejpeg,
+    #[serde(rename = "image/webp")]
+    Imagewebp,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiArtifact {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+    #[serde(rename = "mime")]
+    pub mime: AiArtifactMime,
+    #[serde(rename = "size")]
+    pub size: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum AiPart {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "image")]
+    Image {
+        #[serde(rename = "artifactId")]
+        artifact_id: String,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiMessageRole {
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "user")]
+    User,
+    #[serde(rename = "assistant")]
+    Assistant,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiMessage {
+    #[serde(rename = "role")]
+    pub role: AiMessageRole,
+    #[serde(rename = "content")]
+    pub content: Vec<AiPart>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiOutputSpecMime {
+    #[serde(rename = "text/plain")]
+    Textplain,
+    #[serde(rename = "application/json")]
+    Applicationjson,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiOutputSpec {
+    #[serde(rename = "mime")]
+    pub mime: AiOutputSpecMime,
+    #[serde(rename = "schemaId")]
+    pub schema_id: String,
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: i64,
+    #[serde(rename = "schemaArtifactId", deserialize_with = "required_nullable")]
+    pub schema_artifact_id: Option<String>,
+    #[serde(rename = "maxBytes")]
+    pub max_bytes: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiInputImageDecision {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "attempt")]
+    Attempt,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiInput {
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: i64,
+    #[serde(rename = "messages")]
+    pub messages: Vec<AiMessage>,
+    #[serde(rename = "inputArtifacts")]
+    pub input_artifacts: Vec<AiArtifact>,
+    #[serde(rename = "outputSpec")]
+    pub output_spec: AiOutputSpec,
+    #[serde(rename = "imageDecision")]
+    pub image_decision: AiInputImageDecision,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiStart {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "inputHash")]
+    pub input_hash: String,
+    #[serde(rename = "consumer")]
+    pub consumer: String,
+    #[serde(rename = "bindingId")]
+    pub binding_id: String,
+    #[serde(rename = "retryOfRunId", deserialize_with = "required_nullable")]
+    pub retry_of_run_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiRunStatus {
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "cancelling")]
+    Cancelling,
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiRun {
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "inputHash")]
+    pub input_hash: String,
+    #[serde(rename = "configuration")]
+    pub configuration: AiResolvedConfig,
+    #[serde(rename = "status")]
+    pub status: AiRunStatus,
+    #[serde(rename = "attempt")]
+    pub attempt: i64,
+    #[serde(rename = "error", deserialize_with = "required_nullable")]
+    pub error: Option<String>,
+    #[serde(rename = "result", deserialize_with = "required_nullable")]
+    pub result: Option<AiArtifact>,
+    #[serde(rename = "retryOfRunId", deserialize_with = "required_nullable")]
+    pub retry_of_run_id: Option<String>,
+    #[serde(rename = "consumer")]
+    pub consumer: String,
+    #[serde(rename = "bindingId")]
+    pub binding_id: String,
+    #[serde(rename = "usage", deserialize_with = "required_nullable")]
+    pub usage: Option<AiUsage>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiUsage {
+    #[serde(rename = "inputTokens", deserialize_with = "required_nullable")]
+    pub input_tokens: Option<i64>,
+    #[serde(rename = "outputTokens", deserialize_with = "required_nullable")]
+    pub output_tokens: Option<i64>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiCompletionFinishReason {
+    #[serde(rename = "stop")]
+    Stop,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiCompletion {
+    #[serde(rename = "runId")]
+    pub run_id: String,
+    #[serde(rename = "attempt")]
+    pub attempt: i64,
+    #[serde(rename = "fence")]
+    pub fence: String,
+    #[serde(rename = "inputHash")]
+    pub input_hash: String,
+    #[serde(rename = "outputHash")]
+    pub output_hash: String,
+    #[serde(rename = "finishReason")]
+    pub finish_reason: AiCompletionFinishReason,
+    #[serde(rename = "usage", deserialize_with = "required_nullable")]
+    pub usage: Option<AiUsage>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiWorkerControlOperation {
+    #[serde(rename = "generate")]
+    Generate,
+    #[serde(rename = "discover")]
+    Discover,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum AiWorkerControl {
+    #[serde(rename = "start")]
+    Start {
+        #[serde(rename = "protocolVersion")]
+        protocol_version: i64,
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "attempt")]
+        attempt: i64,
+        #[serde(rename = "fence")]
+        fence: String,
+        #[serde(rename = "inputHash")]
+        input_hash: String,
+        #[serde(rename = "configuration")]
+        configuration: Box<AiResolvedConfig>,
+        #[serde(rename = "operation")]
+        operation: AiWorkerControlOperation,
+    },
+    #[serde(rename = "artifact_chunk")]
+    ArtifactChunk {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "data")]
+        data: String,
+    },
+    #[serde(rename = "artifact_end")]
+    ArtifactEnd {
+        #[serde(rename = "artifact")]
+        artifact: AiArtifact,
+    },
+    #[serde(rename = "credential_lease")]
+    CredentialLease {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "fence")]
+        fence: String,
+        #[serde(rename = "secret", deserialize_with = "required_nullable")]
+        secret: Option<String>,
+    },
+    #[serde(rename = "dispatch_permit")]
+    DispatchPermit {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "fence")]
+        fence: String,
+    },
+    #[serde(rename = "abort")]
+    Abort {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "fence")]
+        fence: String,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiWorkerEventPhase {
+    #[serde(rename = "validated")]
+    Validated,
+    #[serde(rename = "dispatch_ready")]
+    Dispatchready,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum AiWorkerEvent {
+    #[serde(rename = "started")]
+    Started {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "attempt")]
+        attempt: i64,
+        #[serde(rename = "fence")]
+        fence: String,
+    },
+    #[serde(rename = "progress")]
+    Progress {
+        #[serde(rename = "runId")]
+        run_id: String,
+        #[serde(rename = "phase")]
+        phase: AiWorkerEventPhase,
+    },
+    #[serde(rename = "output_delta")]
+    OutputDelta {
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "output_chunk")]
+    OutputChunk {
+        #[serde(rename = "data")]
+        data: String,
+    },
+    #[serde(rename = "usage")]
+    Usage {
+        #[serde(rename = "usage")]
+        usage: AiUsage,
+    },
+    #[serde(rename = "completed")]
+    Completed {
+        #[serde(rename = "receipt")]
+        receipt: AiCompletion,
+    },
+    #[serde(rename = "failed")]
+    Failed {
+        #[serde(rename = "code")]
+        code: String,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiSearchEntry {
+    #[serde(rename = "url")]
+    pub url: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "snippet")]
+    pub snippet: String,
+    #[serde(rename = "provider")]
+    pub provider: String,
+    #[serde(rename = "retrievedAt")]
+    pub retrieved_at: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiSearchResult {
+    #[serde(rename = "available")]
+    pub available: bool,
+    #[serde(rename = "entries")]
+    pub entries: Vec<AiSearchEntry>,
+    #[serde(rename = "reason", deserialize_with = "required_nullable")]
+    pub reason: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiTestTargetTokenField {
+    #[serde(rename = "max_tokens")]
+    Maxtokens,
+    #[serde(rename = "max_completion_tokens")]
+    Maxcompletiontokens,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AiTestTarget {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "tokenField")]
+    pub token_field: AiTestTargetTokenField,
 }

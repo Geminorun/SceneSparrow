@@ -648,6 +648,7 @@ fn real_v3_roots_upgrade_extend_and_branch_without_rewriting_immutable_history()
             .unwrap();
             old_objects.insert(new, bytes);
         }
+        super::drop_ai_schema_for_legacy_fixture(&c);
         c.execute_batch("DROP TABLE sources;DROP TABLE intakes;DROP TABLE document_attempts;DROP TABLE import_provenance;DROP TABLE external_object_pins;PRAGMA user_version=3;").unwrap();
     }
     let state = r.read_manuscript().unwrap();
@@ -710,6 +711,7 @@ fn migration004_failure_retry_keeps_verified_referenced_backup_and_old_receipts(
     let state = r.read_manuscript().unwrap();
     drop(r);
     let c = Connection::open(dir.path().join("project.sqlite")).unwrap();
+    super::drop_ai_schema_for_legacy_fixture(&c);
     c.execute_batch("DROP TABLE sources;DROP TABLE intakes;DROP TABLE document_attempts;DROP TABLE import_provenance;DROP TABLE external_object_pins;PRAGMA user_version=3;CREATE TABLE sources(conflict INTEGER);").unwrap();
     let prior_backups = std::fs::read_dir(dir.path())
         .unwrap()

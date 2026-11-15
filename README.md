@@ -11,13 +11,15 @@ the product architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The manuscript workbench is being implemented in eight reviewed steps. Steps 1–3
+The manuscript workbench is being implemented in eight reviewed steps. Steps 1–4
 provide manual manuscript editing, autosave, recovery and persistent five-step
 undo/redo, including reopening at the current history position.
 [Step 1](docs/validation/step-01.md), [step 2](docs/validation/step-02.md) and
 [step 3 evidence](docs/validation/step-03.md) record checks and limits. References,
 bounded TXT/Markdown/DOCX/PDF extraction, import previews, events and recovery are
-implemented. AI, review/locks and export follow in later steps; the
+implemented. [Step 4](docs/validation/step-04.md) adds global AI settings,
+credentials, an independent compatible text runtime and durable execution ports.
+Manuscript generation, review/locks and export follow in later steps; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
@@ -27,6 +29,8 @@ separate render pipeline. The render sample remains a framework example. Native
 Windows/macOS desktop validation and complete-stage acceptance remain open.
 Measured 500 KB/2 MB save and undo latency exceed the initial budgets; performance
 optimization and native document-worker RSS enforcement remain open for step 8.
+Real-provider interoperability, native credential stores and packaged workers also
+need separate acceptance; local fake endpoints establish the tested behavior only.
 
 See [development setup](docs/development.md) for prerequisites and platform limits.
 After installing the pinned tools:

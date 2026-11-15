@@ -15,6 +15,12 @@ pub struct SqliteProjectRepository {
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     // Holding the file lock prevents a second core from owning this project.
     _owner: File,
+    ai_consumers: Mutex<
+        std::collections::BTreeMap<
+            String,
+            Arc<dyn scenesparrow_application::ai::ConsumerCoordinator>,
+        >,
+    >,
 }
 
 fn storage<T>(result: Result<T, impl std::fmt::Debug>) -> Result<T, Error> {
@@ -54,7 +60,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 4 {
+        if version > 5 {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -184,6 +190,57 @@ impl SqliteProjectRepository {
             )?;
             storage(transaction.commit())?;
         }
+        if version < 5 {
+            let backup_directory =
+                directory.join(format!("pre-migration-005-{}", uuid::Uuid::new_v4()));
+            storage(std::fs::create_dir(&backup_directory))?;
+            let mut backup = storage(Connection::open(backup_directory.join("project.sqlite")))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let objects = backup_directory.join("objects");
+            storage(std::fs::create_dir(&objects))?;
+            if directory.join("objects").exists() {
+                for entry in storage(std::fs::read_dir(directory.join("objects")))? {
+                    let entry = storage(entry)?;
+                    if storage(entry.file_type())?.is_file() {
+                        let target = objects.join(entry.file_name());
+                        storage(std::fs::copy(entry.path(), &target))?;
+                        if storage(std::fs::read(entry.path()))? != storage(std::fs::read(&target))?
+                        {
+                            return Err(Error::Storage);
+                        }
+                        storage(
+                            File::options()
+                                .read(true)
+                                .write(true)
+                                .open(target)
+                                .and_then(|f| f.sync_all()),
+                        )?;
+                    }
+                }
+            }
+            storage(
+                File::options()
+                    .read(true)
+                    .write(true)
+                    .open(backup_directory.join("project.sqlite"))
+                    .and_then(|f| f.sync_all()),
+            )?;
+            #[cfg(unix)]
+            {
+                storage(File::open(&objects).and_then(|f| f.sync_all()))?;
+                storage(File::open(&backup_directory).and_then(|f| f.sync_all()))?;
+                storage(File::open(directory).and_then(|f| f.sync_all()))?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/005_shared_ai.sql")))?;
+            storage(tx.execute(
+                "INSERT INTO ai_execution_origin VALUES(1,?1,0)",
+                [uuid::Uuid::new_v4().to_string()],
+            ))?;
+            storage(tx.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
@@ -191,7 +248,15 @@ impl SqliteProjectRepository {
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             _owner: owner,
+            ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
         };
+        if version < 5 {
+            repository
+                .initialize_ai_origin()
+                .map_err(|_| Error::Storage)?;
+        }
+        scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
+            .map_err(|_| Error::Storage)?;
         repository.recover_documents().map_err(|_| Error::Storage)?;
         repository.verify_manuscript()?;
         repository
@@ -317,3 +382,11 @@ pub mod manuscript;
 mod manuscript_tests;
 
 mod documents;
+
+pub mod ai;
+pub mod credentials;
+
+#[cfg(test)]
+fn drop_ai_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE ai_preparations; DROP TABLE ai_consumer_cleanup; DROP TABLE application_execution_bindings; DROP TABLE ai_events; DROP TABLE ai_artifacts; DROP TABLE ai_dispatches; DROP TABLE ai_attempts; DROP TABLE ai_runs; DROP TABLE ai_input_snapshots; DROP TABLE ai_execution_origin;").unwrap();
+}

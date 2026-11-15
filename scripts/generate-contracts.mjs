@@ -7,6 +7,15 @@ const schema = JSON.parse(
     "utf8",
   ),
 );
+Object.assign(
+  schema.definitions,
+  JSON.parse(
+    await readFile(
+      new URL("packages/contracts/schema/ai.schema.json", root),
+      "utf8",
+    ),
+  ).definitions,
+);
 // This generator deliberately supports the protocol subset used here. Constraint
 // validation remains in the core; unsupported type constructs fail generation.
 function validateShape(s) {
@@ -97,7 +106,7 @@ function rust(s, name) {
       const props = { ...v.properties };
       const value = props[tag].enum[0];
       delete props[tag];
-      return `#[serde(rename = ${JSON.stringify(value)})]\n${pascal(value)} { ${fields({ ...v, properties: props }, name, false)} }`;
+      return `#[serde(rename = ${JSON.stringify(value)})]\n${pascal(value).replace(/_([a-z])/g, (_, c) => c.toUpperCase())} { ${fields({ ...v, properties: props }, name, false)} }`;
     });
     declarations.push(
       `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\n#[serde(tag = "${tag}", deny_unknown_fields)]\npub enum ${name} { ${variants.join(",\n")} }`,
@@ -113,7 +122,7 @@ function rust(s, name) {
     return `Option<${rust({ ...s, type: s.type.find((t) => t !== "null"), enum: s.enum?.filter((v) => v !== null) }, name)}>`;
   if (s.enum && s.type === "string") {
     declarations.push(
-      `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub enum ${name} { ${s.enum.map((v) => `#[serde(rename = ${JSON.stringify(v)})] ${pascal(v).replaceAll("_", "").replaceAll(".", "")}`).join(",")} }`,
+      `#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]\npub enum ${name} { ${s.enum.map((v) => `#[serde(rename = ${JSON.stringify(v)})] ${pascal(v).replace(/[^a-zA-Z0-9]/g, "")}`).join(",")} }`,
     );
     return name;
   }
@@ -133,6 +142,9 @@ function fields(s, name, visibility = true) {
   return Object.entries(s.properties ?? {})
     .map(([k, v]) => {
       let type = rust(v, name + pascal(k));
+      // Keep the large immutable snapshot indirect in the framed control union.
+      if (name === "AiWorkerControl" && k === "configuration")
+        type = `Box<${type}>`;
       if (!s.required?.includes(k)) type = `Option<${type}>`;
       const optional = !s.required?.includes(k);
       const field = k === "type" ? "r#type" : snake(k);

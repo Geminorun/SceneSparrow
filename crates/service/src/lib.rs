@@ -1,3 +1,4 @@
+mod ai;
 pub mod contracts;
 mod documents;
 mod manuscript;
@@ -22,6 +23,7 @@ struct AppState {
     allowed_origin: String,
     database_slots: Arc<Semaphore>,
     document_slots: Arc<Semaphore>,
+    ai: Arc<ai::AiState>,
 }
 
 pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: &str) -> Router {
@@ -31,12 +33,17 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
         allowed_origin: allowed_origin.to_owned(),
         database_slots: Arc::new(Semaphore::new(4)),
         document_slots: Arc::new(Semaphore::new(1)),
+        ai: Arc::new(ai::AiState::default()),
     };
+    state_router(state)
+}
+fn state_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/project", get(read_project).post(create_project))
         .merge(manuscript::routes())
         .merge(documents::routes())
+        .merge(ai::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))

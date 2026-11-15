@@ -13,6 +13,22 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readAiSettings: () => ipcRenderer.invoke("ai:settings-read"),
+  updateAiSettings: (update: unknown) =>
+    ipcRenderer.invoke("ai:settings-update", update),
+  updateAiCredential: (update: unknown) =>
+    ipcRenderer.invoke("ai:credential-update", update),
+  deleteAiCredential: (update: unknown) =>
+    ipcRenderer.invoke("ai:credential-delete", update),
+  resolveAiConfiguration: () => ipcRenderer.invoke("ai:configuration"),
+  discoverAiModels: (providerId: string) =>
+    ipcRenderer.invoke("ai:models", { providerId }),
+  prepareAiTest: (target: unknown) =>
+    ipcRenderer.invoke("ai:test-prepare", target),
+  testAiConnection: (action: unknown) => ipcRenderer.invoke("ai:test", action),
+  readAiResult: (runId: string) => ipcRenderer.invoke("ai:result", runId),
+  readAiRun: (runId: string) => ipcRenderer.invoke("ai:run", runId),
+  cancelAiRun: (runId: string) => ipcRenderer.invoke("ai:cancel", runId),
   readSources: (after?: string) => ipcRenderer.invoke("sources:read", after),
   pickFileIntake: (id: string) => ipcRenderer.invoke("intake:pick", id),
   cancelFileSelection: (id: string) =>

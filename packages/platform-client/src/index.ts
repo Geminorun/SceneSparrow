@@ -1,4 +1,13 @@
 import type {
+  AiSettingsView,
+  AiSettingsUpdate,
+  AiCredentialUpdate,
+  AiReadiness,
+  AiDiscovery,
+  AiTestAction,
+  AiTestTarget,
+  AiTestReceipt,
+  AiRun,
   HistoryErrorDetails,
   SourcePage,
   Intake,
@@ -16,6 +25,18 @@ import type {
 } from "@scenesparrow/contracts";
 
 export interface PlatformClient {
+  readAiSettings(): Promise<AiSettingsView>;
+  updateAiSettings(update: AiSettingsUpdate): Promise<AiSettingsView>;
+  updateAiCredential(update: AiCredentialUpdate): Promise<AiSettingsView>;
+  deleteAiCredential(update: AiCredentialUpdate): Promise<AiSettingsView>;
+  resolveAiConfiguration(): Promise<AiReadiness>;
+  discoverAiModels(providerId: string): Promise<AiDiscovery>;
+  prepareAiTest(target: AiTestTarget): Promise<AiReadiness>;
+  testAiConnection(action: AiTestAction): Promise<AiTestReceipt>;
+  readAiRun(runId: string): Promise<AiRun>;
+  readAiResult(runId: string): Promise<Uint8Array>;
+  cancelAiRun(runId: string): Promise<AiRun>;
+
   readSources(after?: string): Promise<SourcePage>;
   uploadFile(
     file: File,
@@ -58,14 +79,28 @@ export class ApiError extends Error {
 export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
-    body?: CreateProject | ManuscriptCommand | DocumentAction,
+    body?:
+      | CreateProject
+      | ManuscriptCommand
+      | DocumentAction
+      | AiSettingsUpdate
+      | AiCredentialUpdate
+      | AiTestAction
+      | AiTestTarget
+      | { providerId: string },
     method?: string,
   ): Promise<T> {
     const response = await fetch(`${baseUrl}${path}`, {
       method: method ?? (body ? "POST" : "GET"),
       headers: body ? { "content-type": "application/json" } : {},
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(
+        path.includes("connection-tests")
+          ? 35_000
+          : path.includes("models/discover")
+            ? 20_000
+            : 10_000,
+      ),
     });
     if (!response.ok) {
       const error = (await response.json()) as {
@@ -77,6 +112,33 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     return (await response.json()) as T;
   }
   return {
+    readAiSettings: () => request("/v1/ai/settings"),
+    updateAiSettings: (update) => request("/v1/ai/settings", update, "PUT"),
+    updateAiCredential: (update) => request("/v1/ai/credentials", update),
+    deleteAiCredential: (update) =>
+      request("/v1/ai/credentials/delete", update),
+    resolveAiConfiguration: () => request("/v1/ai/configuration"),
+    discoverAiModels: (providerId) =>
+      request("/v1/ai/models/discover", { providerId }),
+    prepareAiTest: (target) =>
+      request("/v1/ai/connection-tests/prepare", target),
+    testAiConnection: (action) => request("/v1/ai/connection-tests", action),
+    readAiRun: (id) => request(`/v1/ai/runs/${encodeURIComponent(id)}`),
+    readAiResult: async (id) => {
+      const response = await fetch(
+        `${baseUrl}/v1/ai/runs/${encodeURIComponent(id)}/result`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new ApiError(error.code ?? "RESULT_UNAVAILABLE");
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.byteLength > 8388608) throw new ApiError("OUTPUT_TRUNCATED");
+      return bytes;
+    },
+    cancelAiRun: (id) =>
+      request(`/v1/ai/runs/${encodeURIComponent(id)}/cancel`, {} as never),
     readSources: (after) =>
       request(
         `/v1/sources${after ? `?after=${encodeURIComponent(after)}` : ""}`,
@@ -167,6 +229,24 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  readAiSettings(): Promise<BridgeResult<AiSettingsView>>;
+  updateAiSettings(
+    update: AiSettingsUpdate,
+  ): Promise<BridgeResult<AiSettingsView>>;
+  updateAiCredential(
+    update: AiCredentialUpdate,
+  ): Promise<BridgeResult<AiSettingsView>>;
+  deleteAiCredential(
+    update: AiCredentialUpdate,
+  ): Promise<BridgeResult<AiSettingsView>>;
+  resolveAiConfiguration(): Promise<BridgeResult<AiReadiness>>;
+  discoverAiModels(providerId: string): Promise<BridgeResult<AiDiscovery>>;
+  prepareAiTest(target: AiTestTarget): Promise<BridgeResult<AiReadiness>>;
+  testAiConnection(action: AiTestAction): Promise<BridgeResult<AiTestReceipt>>;
+  readAiRun(runId: string): Promise<BridgeResult<AiRun>>;
+  readAiResult(runId: string): Promise<BridgeResult<Uint8Array>>;
+  cancelAiRun(runId: string): Promise<BridgeResult<AiRun>>;
+
   readSources(after?: string): Promise<BridgeResult<SourcePage>>;
   pickFileIntake(id: string): Promise<BridgeResult<Intake | null>>;
   cancelFileSelection(id: string): Promise<BridgeResult<null>>;
@@ -205,6 +285,18 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     return result.data;
   }
   return {
+    readAiSettings: () => unwrap(bridge.readAiSettings()),
+    updateAiSettings: (update) => unwrap(bridge.updateAiSettings(update)),
+    updateAiCredential: (update) => unwrap(bridge.updateAiCredential(update)),
+    deleteAiCredential: (update) => unwrap(bridge.deleteAiCredential(update)),
+    resolveAiConfiguration: () => unwrap(bridge.resolveAiConfiguration()),
+    discoverAiModels: (providerId) =>
+      unwrap(bridge.discoverAiModels(providerId)),
+    prepareAiTest: (target) => unwrap(bridge.prepareAiTest(target)),
+    testAiConnection: (action) => unwrap(bridge.testAiConnection(action)),
+    readAiRun: (id) => unwrap(bridge.readAiRun(id)),
+    readAiResult: (id) => unwrap(bridge.readAiResult(id)),
+    cancelAiRun: (id) => unwrap(bridge.cancelAiRun(id)),
     readSources: (after) => unwrap(bridge.readSources(after)),
     uploadFile: async () => {
       throw new ApiError("INVALID_REQUEST");

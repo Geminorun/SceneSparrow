@@ -102,6 +102,17 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
   assert.deepEqual(
     Object.keys(exposed).sort(),
     [
+      "readAiSettings",
+      "updateAiSettings",
+      "updateAiCredential",
+      "deleteAiCredential",
+      "resolveAiConfiguration",
+      "discoverAiModels",
+      "prepareAiTest",
+      "testAiConnection",
+      "readAiRun",
+      "readAiResult",
+      "cancelAiRun",
       "readSources",
       "pickFileIntake",
       "cancelFileSelection",
@@ -122,6 +133,17 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "readProject",
     ].sort(),
   );
+  await exposed.prepareAiTest({
+    providerId: "fixture",
+    modelId: "manual",
+    tokenField: "max_tokens",
+  });
+  assert.deepEqual(calls.pop(), [
+    "ai:test-prepare",
+    { providerId: "fixture", modelId: "manual", tokenField: "max_tokens" },
+  ]);
+  await exposed.readAiSettings();
+  assert.deepEqual(calls.pop(), ["ai:settings-read"]);
   await exposed.readHistory();
   assert.deepEqual(calls.pop(), ["manuscript:history"]);
   await exposed.commandReceipt("request-id");

@@ -14,3 +14,5 @@ export NODE_USE_ENV_PROXY=1
 export NODE_USE_SYSTEM_CA=1
 export NO_PROXY="${NO_PROXY:+$NO_PROXY,}127.0.0.1,localhost"
 export SCENESPARROW_TEST_BROWSER=/usr/bin/chromium
+
+export SCENESPARROW_APP_DATA_DIR="${SCENESPARROW_APP_DATA_DIR:-/workspace/.local/share/scenesparrow}"

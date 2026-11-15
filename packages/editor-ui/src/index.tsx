@@ -3,6 +3,7 @@ import { Player } from "@remotion/player";
 import type { Project } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import { MotionSample, sampleMetadata } from "@scenesparrow/video-runtime";
+import { AiSettings } from "./AiSettings";
 import { Manuscript } from "./editor/Manuscript";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
@@ -93,6 +94,7 @@ export function App({ client }: { client: PlatformClient }) {
           </select>
         </label>
       </header>
+      <AiSettings client={client} t={t} />
       <section className="intro">
         <p className="eyebrow">SCENESPARROW</p>
         <h1>{t.tagline}</h1>

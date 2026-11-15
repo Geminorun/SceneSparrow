@@ -275,3 +275,38 @@ dd {
 .import-dialog button {
   margin: 0.3rem;
 }
+
+.ai-settings {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #d8dfda;
+  border-radius: 12px;
+  background: #fff;
+}
+.ai-settings summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.ai-settings fieldset {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+  padding: 1rem 0 0;
+}
+.ai-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 12rem;
+}
+.ai-settings input,
+.ai-settings select {
+  padding: 0.5rem;
+  max-width: 100%;
+}
+.ai-settings p {
+  flex-basis: 100%;
+  margin: 0.25rem 0;
+}

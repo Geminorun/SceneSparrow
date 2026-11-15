@@ -51,3 +51,5 @@ impl<R: ProjectRepository> ProjectService<R> {
 }
 
 pub mod manuscript;
+
+pub mod ai;

@@ -48,6 +48,10 @@ impl SqliteProjectRepository {
         for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
         }
+        let mut ai = db(c.prepare("SELECT object_hash FROM ai_artifacts UNION SELECT object_hash FROM ai_input_snapshots WHERE payload_retained=1"))?;
+        for row in db(ai.query_map([], |r| r.get::<_, String>(0)))? {
+            roots.insert(db(row)?);
+        }
         let mut source_ids = BTreeSet::new();
         let mut block_ids = BTreeSet::new();
         let mut histories = db(c.prepare(

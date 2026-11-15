@@ -17,6 +17,9 @@ export default defineConfig({
     url: "http://127.0.0.1:5173",
     timeout: 120_000,
     reuseExistingServer: false,
-    env: { SCENESPARROW_PROJECT_DIR: resolve(`.local/e2e-${Date.now()}`) },
+    env: {
+      SCENESPARROW_PROJECT_DIR: resolve(`.local/e2e-${Date.now()}`),
+      SCENESPARROW_APP_DATA_DIR: resolve(`.local/e2e-app-data-${Date.now()}`),
+    },
   },
 });

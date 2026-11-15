@@ -1,7 +1,8 @@
 # Shared AI specification: configuration and execution
 
-Status: specified for implementation; no production AI functionality is implemented
-by this document. Version: 0.1. This independent spec supports the
+Status: step 4 implements the generic T01–T13 boundary; see
+[step 4 evidence](../validation/step-04.md). Consumer T14 and target-platform/real-provider
+T15 readiness remain open. Version: 0.1. This independent spec supports the
 [S1–S4 stage specifications](README.md) and refines the
 [shared AI technical design](../design/shared-ai-v0.1.md).
 
@@ -486,7 +487,9 @@ must exercise failure logging as well as successful redaction paths.
 
 ## 11. Development tasks and dependencies
 
-All tasks are pending. `Tnn`, `ACnn` and `DEPnn` mean `SAI-Tnn`, `SAI-ACnn` and
+T01–T13 have step 4 implementation and local fake-endpoint evidence. T14 is staged
+across S2/S3/S4; T15 remains open for native credentials and actual provider evidence.
+`Tnn`, `ACnn` and `DEPnn` mean `SAI-Tnn`, `SAI-ACnn` and
 `SAI-DEPnn`. This is one independent spec, not a new application service fleet.
 
 | Task    | Concrete deliverable                                                                                                     | Depends on              | Acceptance                   |
@@ -571,3 +574,20 @@ S4 cites this spec's independent evidence; it does not duplicate the AI implemen
 The user-facing delivery remains the manuscript workbench first. These documents
 authorize neither paid smoke calls with unknown credentials nor automatic release;
 actual implementation/verification follows the user's requested scope.
+
+## 14. Step 4 implementation decisions
+
+The [execution decision](../decisions/0002-shared-ai-execution.md) records the
+application UOW participant, external native-identity/watermark origin proof,
+credential orphan inventory and bounded schema subset. Public DTOs additionally
+include explicit settings-test target preparation: this freezes the selected saved
+provider root/manual model without changing the global text binding. Its session
+receipt includes tested target/root and cannot replay across application sessions.
+
+The source worker host streams up to an 8 MiB escaped input envelope in bounded
+artifact chunks; the semantic input and 4 MiB control-frame limits above remain
+unchanged. Unsupported regex/recursive/combinatorial schemas reject before dispatch.
+Consumer registration drains deferred failure/recovery applicability cleanup.
+`execute_next_ai` is the controlled host tick for a consumer coordinator; read/status
+ports never schedule it. No manuscript consumer or raw public generation route is
+added in step 4.

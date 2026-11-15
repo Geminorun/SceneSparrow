@@ -28,6 +28,8 @@ async function main() {
     env: {
       ...process.env,
       SCENESPARROW_SESSION_TOKEN: token,
+      SCENESPARROW_APP_DATA_DIR:
+        process.env.SCENESPARROW_APP_DATA_DIR ?? app.getPath("userData"),
       SCENESPARROW_PROJECT_DIR:
         process.env.SCENESPARROW_PROJECT_DIR ??
         join(app.getPath("userData"), "projects", "default"),
@@ -46,7 +48,13 @@ async function main() {
         "content-type": "application/json",
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(
+        path.includes("connection-tests")
+          ? 35_000
+          : path.includes("models/discover")
+            ? 20_000
+            : 10_000,
+      ),
     });
     const data = (await response.json()) as {
       code?: string;
@@ -132,6 +140,49 @@ async function main() {
       );
     });
   }
+  for (const [channel, path, method] of [
+    ["ai:settings-read", "/ai/settings", "GET"],
+    ["ai:settings-update", "/ai/settings", "PUT"],
+    ["ai:credential-update", "/ai/credentials", "POST"],
+    ["ai:credential-delete", "/ai/credentials/delete", "POST"],
+    ["ai:configuration", "/ai/configuration", "GET"],
+    ["ai:models", "/ai/models/discover", "POST"],
+    ["ai:test-prepare", "/ai/connection-tests/prepare", "POST"],
+    ["ai:test", "/ai/connection-tests", "POST"],
+    ["ai:run", "/ai/runs", "GET"],
+    ["ai:cancel", "/ai/runs", "POST"],
+  ] as const) {
+    ipcMain.handle(channel, (event, value: unknown) => {
+      checkSender(event);
+      if (channel === "ai:run" || channel === "ai:cancel") {
+        if (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(
+          `${path}/${value}${channel === "ai:cancel" ? "/cancel" : ""}`,
+          undefined,
+          method,
+        );
+      }
+      return request(path, method === "GET" ? undefined : value, method);
+    });
+  }
+  ipcMain.handle("ai:result", async (event, id: unknown) => {
+    checkSender(event);
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))
+      return { ok: false, code: "INVALID_REQUEST" };
+    const response = await fetch(`${baseUrl}/ai/runs/${id}/result`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      return { ok: false, code: error.code ?? "RESULT_UNAVAILABLE" };
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > 8388608)
+      return { ok: false, code: "OUTPUT_TRUNCATED" };
+    return { ok: true, data: bytes };
+  });
   const fileSelections = new Map<
     string,
     { abort: AbortController; sender: number }

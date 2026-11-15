@@ -1,13 +1,14 @@
 # Eight-step implementation and review workflow
 
 Status: execution policy selected by the user. The detailed designs/specs were
-committed as `11d36fa`. Steps 1–3 implement manual editing/save/reopen, persistent
-bounded history, sources/import and recovery; steps 4–8 remain pending. See
+committed as `11d36fa`. Steps 1–4 implement manual editing/save/reopen, persistent
+bounded history, sources/import/recovery and shared AI foundations; steps 5–8 remain pending. See
 [step 1](validation/step-01.md), [step 2](validation/step-02.md) and
-[step 3 evidence](validation/step-03.md). Native platform and large-document
+[step 3](validation/step-03.md) and [step 4 evidence](validation/step-04.md).
+Native platform, real-provider and large-document
 performance acceptance remains open, independently of these code checkpoints.
-This document
-formalizes dispatch/review/delivery and does not claim product implementation.
+This document formalizes dispatch/review/delivery. The linked validation reports
+record implemented behavior and its verification limits.
 
 Read [AGENTS.md](../AGENTS.md), the [development workflow](development-workflow.md),
 and the [stage/shared AI specs](specs/README.md). Previously confirmed product
