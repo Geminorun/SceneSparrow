@@ -88,19 +88,22 @@ container is recreated so the rotation takes effect.
 
 ## Deployment and local verification
 
-`Private Web deployment` triggers on pushes to `main`, `release/**`, version-like
-`v*` tags and manual dispatch. All run full checks, an AMD64 Docker build and the
+`Private Web deployment` triggers on pushes to `release/**`, version-like `v*`
+tags and manual dispatch. Ordinary PRs, task branch pushes and main pushes do not
+trigger CI. Local validation and review remain required before merging. Every
+triggered run performs full checks, an AMD64 Docker build and the
 complete final-container smoke. The release helper fails closed on malformed
 versions, deleted/moved refs, mismatched app versions and failed ancestry checks.
 
-| Event/ref                   | Publish and deploy                                                              |
-| --------------------------- | ------------------------------------------------------------------------------- |
-| Main push                   | Never; checks/build/smoke only                                                  |
-| `release/1.0.0` push        | Automatically to the single shared instance                                     |
-| `v1.0.0-rc.1` push          | Same instance, only on matching `release/1.0.0` history                         |
-| `v1.0.0` push               | Formal release to that same instance, only on accepted main history             |
-| Manual dispatch, default    | Checks/build/smoke only, including feature branches                             |
-| Manual dispatch with deploy | Valid release branch, stable tag or RC tag only; feature/untagged main rejected |
+| Event/ref                       | Publish and deploy                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------- |
+| Ordinary PR or task branch push | No automatic workflow run                                                       |
+| Main push                       | No automatic workflow run                                                       |
+| `release/1.0.0` push            | Automatically to the single shared instance                                     |
+| `v1.0.0-rc.1` push              | Same instance, only on matching `release/1.0.0` history                         |
+| `v1.0.0` push                   | Formal release to that same instance, only on accepted main history             |
+| Manual dispatch, default        | Checks/build/smoke only, including feature branches and main                    |
+| Manual dispatch with deploy     | Valid release branch, stable tag or RC tag only; feature/untagged main rejected |
 
 Versions use strict `MAJOR.MINOR.PATCH` without leading zeroes; RC numbers start
 at 1. Other prerelease forms/build metadata are not deployment refs. The app
@@ -113,8 +116,9 @@ its newer head as if it had tested it. A later concurrent ref move fails the nex
 validation; workflow concurrency queues all refs and never cancels deployment.
 
 Develop features/fixes through `release/1.0.0` PRs, accept the version, then merge
-the release PR into stable `main`. After main CI passes, explicitly create the
-immutable `v1.0.0` tag on the accepted main commit. No formal release/tag has been
+the release PR into stable `main`. Explicitly create the immutable `v1.0.0` tag on
+the accepted main commit; that run completes full checks and final-container smoke
+before formal publication/deployment. No formal release/tag has been
 created by implementing this policy. Optional RC tags and ordinary release pushes
 are candidates on **the same domain `https://scene.mindreview.me`, host port 8070,
 Compose project, volumes, `/srv/scenesparrow` directory and credential settings**.
@@ -128,10 +132,15 @@ integration tests and browser tests. The image job builds once for AMD64, exerci
 that loaded image, then only on an eligible deployment event tags/pushes that
 same image to `ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
 Deployment uses its exact `@sha256:...` digest; there is no arbitrary image input
-or separate rebuild. Build-only manual and main runs do not log in or publish.
+or separate rebuild. Build-only manual runs do not log in or publish.
 Actions permissions are contents-read, packages-write only in the image job and
 packages-read for deployment. All deployment events use the same concurrency
 queue and environment; the helper never changes DNS, TLS or provider settings.
+
+Full checks run once in this workflow before deployment. Merging a task PR into
+a release branch starts it through the resulting release push. PR branch
+protections must not require the removed Foundation workflow or deployment jobs
+that run only after merge. This trigger policy does not change GitHub settings.
 
 Local equivalent (Docker required):
 

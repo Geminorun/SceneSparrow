@@ -10,7 +10,7 @@ coordinated.
 
 | Branch or tag                                                                      | Purpose                                                                       |
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `main`                                                                             | Stable baseline after version acceptance; pushes run checks only              |
+| `main`                                                                             | Stable baseline after version acceptance; pushes do not trigger CI            |
 | `release/1.0.0`                                                                    | Initial version integration and acceptance; pushes deploy the shared instance |
 | `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Short-lived task branches, PR to the active release branch                    |
 | `v1.0.0-rc.1`                                                                      | Optional immutable candidate tag on the matching release history              |
@@ -28,17 +28,17 @@ project/global configuration. Each deployment backs up that data before startup.
 1. Inspect repository status and preserve existing changes. Root alone manages
    branches and Git delivery during delegated implementation.
 2. Fetch the active release branch and create a focused task branch from it.
-3. Implement, validate and review; keep credentials and real projects out of Git.
+3. Implement, validate locally and review; keep credentials and real projects out
+   of Git. Ordinary PRs and main pushes do not trigger CI.
 4. Open an English PR targeting `release/1.0.0` for the initial version. Include
    relevant checks and unresolved limits. Prefer squash merge for task PRs.
 5. After merge, delete the task branch and start the next from the updated release.
 6. Once the version passes user acceptance, open a release PR into `main`. Preserve
    the accepted release history with a merge commit so optional RC tags remain
    reachable; do not squash the entire release integration history.
-7. After the main checks pass, explicitly create the immutable matching stable tag
-   on the accepted main commit. Tag CI independently checks and smokes the same
-   code before formal publication/deployment. This policy does not itself accept
-   1.0.0, create tags, merge PRs or deploy.
+7. Explicitly create the immutable matching stable tag on the accepted main
+   commit. Tag CI checks and smokes that code before formal publication/deployment.
+   This policy does not itself accept 1.0.0, create tags, merge PRs or deploy.
 
 ```sh
 git fetch origin
@@ -117,9 +117,11 @@ must not substitute for those mechanisms.
 These are recommendations, not configured or enforced server-side settings.
 Keep `main` as default; protect it and `release/*` against direct development,
 force pushes and deletion. Protect version tags against update/deletion as well;
-formal and RC tags are immutable. Require PRs, resolved conversations and actual passing
-CI jobs. Use squash merging for task PRs and merge commits for release-to-main
-PRs. Delete merged task branches; retain the release branch while candidates,
+formal and RC tags are immutable. Require PRs and resolved conversations, with
+local validation and review evidence. Do not require the removed Foundation
+workflow or deployment jobs as PR status checks: ordinary PRs do not run CI, and
+release deployment runs after merge. Use squash merging for task PRs and merge
+commits for release-to-main PRs. Delete merged task branches; retain the release branch while candidates,
 acceptance or maintenance need it. With multiple maintainers, require independent
 human review; a sole maintainer should avoid an impossible approval requirement.
 Agents do not constitute independent human approval. Validate Windows/macOS at
@@ -150,11 +152,14 @@ After 1.0.0, a compatible feature targets `release/1.1.0`; a compatible correcti
 uses `release/1.0.1`; a breaking change uses `release/2.0.0`. Start each version
 branch from the appropriate accepted main baseline. For an urgent 1.0.1 while
 1.1.0 is in progress, branch the fix from `release/1.0.1`, PR it there, accept and
-merge it into main, pass main checks, then tag `v1.0.1`. Forward-port the fix by
-reviewed PR into `release/1.1.0`. Keep version bumps consistent with each target.
+merge it into main, then tag `v1.0.1` to run checks before release. Forward-port the
+fix by reviewed PR into `release/1.1.0`. Keep version bumps consistent with each target.
 
 The [deployment runbook](web-deployment.md) and [ADR 0004](decisions/0004-release-policy.md)
 define allowed deployment refs. Release pushes and optional `v1.0.0-rc.1` tags
 deploy to the same instance as formal `v1.0.0`; candidates have the same access to
-real shared data. Main pushes never publish/deploy. Manual dispatch defaults to
-checks/build/smoke, with explicit deployment restricted to valid version refs.
+real shared data. Full checks run once in the Web deployment workflow before each
+deployment. A task PR merged into a release branch triggers this deployment via
+the resulting release push; PR events and main pushes do not trigger CI. Manual
+dispatch defaults to checks/build/smoke, including on main, with explicit
+deployment restricted to valid version refs.

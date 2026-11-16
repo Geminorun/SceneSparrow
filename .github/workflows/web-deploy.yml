@@ -2,7 +2,7 @@ name: Private Web deployment
 
 on:
   push:
-    branches: [main, "release/**"]
+    branches: ["release/**"]
     tags: ["v*"]
   workflow_dispatch:
     inputs:

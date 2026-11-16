@@ -234,8 +234,7 @@ impl SqliteProjectRepository {
                 return Err(Error::Storage);
             }
             let file = storage(File::options().read(true).write(true).open(lock))?;
-            storage(file.try_lock())?;
-            Some(file)
+            Some(ProjectOwner::acquire(file)?)
         } else {
             None
         };
@@ -290,10 +289,10 @@ impl SqliteProjectRepository {
             connection: Mutex::new(c),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
-            _owner: storage(File::open(directory.join("project.sqlite")))?,
             ai_consumers: Mutex::new(BTreeMap::new()),
             quiescing: std::sync::atomic::AtomicBool::new(false),
             workers: std::sync::atomic::AtomicUsize::new(0),
+            _owner: None,
         };
         let c = storage(repository.connection.lock())?;
         let mut inventory = Inventory {
