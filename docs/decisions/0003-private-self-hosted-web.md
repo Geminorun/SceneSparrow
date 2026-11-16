@@ -1,0 +1,33 @@
+# ADR 0003: Private self-hosted Web delivery
+
+Status: accepted for implementation, pending real server deployment validation.
+
+The user selected a complete online deployment on an Ubuntu 24.04 x86_64 server
+with Docker Compose and an existing domain reverse proxy through Cloudflare.
+The existing React application, Rust core, SQLite project and Node document/AI
+workers must run together. Static hosting does not provide these capabilities.
+
+Ship an AMD64 container containing a production HTTP gateway, built Web assets,
+the Rust core and worker dependencies. The gateway authenticates the entire
+workspace with one operator Basic credential over external HTTPS. It injects
+private process tokens into loopback core requests and denies native operations.
+The container supervisor owns startup, readiness, worker quiescence and shutdown.
+The existing host reverse proxy terminates HTTPS; Compose publishes only loopback.
+
+This is one private, shared project and one shared global AI configuration. It
+does not introduce user accounts, tenant isolation, collaboration or a hosted
+service. Giving another person the operator credential shares the whole workspace.
+Linux AI credentials retain the current session-memory backend: restart/deploy
+requires entering keys again. No plaintext AI credential fallback is introduced.
+
+GitHub Actions checks, builds and exercises the final image before publication.
+Main deployment uses its immutable GHCR digest, pinned SSH host keys and temporary
+registry authentication. Both persistent volumes receive offline backups after
+graceful stop and before a replacement starts. Failed startup preserves backups
+and never automatically restores databases or rolls back migrated state.
+
+This adds a supported private Web delivery path while retaining the desktop
+architecture and current business/schema boundaries. The cost is planned downtime
+for consistent backups, operator-managed backup retention/recovery, an image that
+retains workspace dependencies, and no automatic recovery of acknowledged writes
+after a failed deployment. See [the runbook](../web-deployment.md).

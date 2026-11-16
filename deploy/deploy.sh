@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Run only on the self-hosted Ubuntu server; the registry token arrives on stdin.
+set -euo pipefail
+umask 077
+incoming=${1:?Missing incoming directory}
+[[ $incoming =~ ^/tmp/scenesparrow-deploy\.[A-Za-z0-9]+$ ]] || exit 2
+cleanup() {
+  [[ -z ${registry_config:-} ]] || rm -rf -- "$registry_config"
+  rm -rf -- "$incoming"
+}
+trap cleanup EXIT
+
+mapfile -t config < <(python3 - "$incoming/config.json" <<'PY'
+import json, re, sys
+from urllib.parse import urlsplit
+c = json.load(open(sys.argv[1]))
+assert set(c) == {'image', 'origin', 'directory', 'port', 'actor'}
+assert re.fullmatch(r'ghcr\.io/[a-z0-9][a-z0-9_./-]*@sha256:[a-f0-9]{64}', c['image'])
+assert re.fullmatch(r'/[A-Za-z0-9_/-]+', c['directory']) and '..' not in c['directory'].split('/')
+assert c['directory'] not in ('/', '/tmp', '/home', '/srv', '/opt', '/var')
+u = urlsplit(c['origin'])
+assert u.scheme == 'https' and u.hostname and not u.username and not u.password
+assert c['origin'] == 'https://' + u.netloc and re.fullmatch(r'https://[A-Za-z0-9.:-]+', c['origin'])
+assert isinstance(c['port'], int) and 1024 <= c['port'] <= 65535
+assert re.fullmatch(r'[A-Za-z0-9_-]+', c['actor'])
+print(c['image'], c['origin'], c['directory'], c['port'], c['actor'], sep='\n')
+PY
+)
+[[ ${#config[@]} == 5 ]] || { echo 'Invalid deployment configuration' >&2; exit 2; }
+image=${config[0]}
+origin=${config[1]}
+directory=${config[2]}
+port=${config[3]}
+actor=${config[4]}
+mkdir -p -- "$directory"
+exec 9>"$directory/deploy.lock"
+flock -x 9
+mkdir -p -- "$directory/secrets" "$directory/backups"
+chmod 700 "$directory/secrets" "$directory/backups"
+auth_file=$directory/secrets/operator-auth
+if [[ -f $incoming/operator-auth ]]; then
+  # Validate without printing the secret; the bind-mounted file must be readable by uid 1000.
+  python3 - "$incoming/operator-auth" <<'PY'
+import re, sys
+s = open(sys.argv[1]).read().removesuffix('\n')
+assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{32,256}', s)
+PY
+fi
+[[ -f $auth_file || -f $incoming/operator-auth ]] || { echo 'Provision operator-auth first' >&2; exit 2; }
+next_auth=$auth_file
+[[ ! -f $incoming/operator-auth ]] || next_auth=$incoming/operator-auth
+printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
+  "$image" "$origin" "$port" "$next_auth" > "$incoming/runtime.env"
+docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" config --quiet
+registry_config=$(mktemp -d /tmp/scenesparrow-registry.XXXXXXXX)
+export DOCKER_CONFIG=$registry_config
+docker login ghcr.io --username "$actor" --password-stdin > /dev/null
+docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" pull --quiet
+rm -rf -- "$registry_config"
+unset DOCKER_CONFIG
+registry_config=
+
+# Stop with the currently active definition before copying every byte of both volumes.
+# A failed backup leaves the old service stopped; it never starts a migration without a backup.
+if [[ -f $directory/compose.yaml && -f $directory/runtime.env ]]; then
+  docker compose --env-file "$directory/runtime.env" -f "$directory/compose.yaml" stop --timeout 60
+fi
+for volume in scenesparrow-project scenesparrow-appdata; do
+  if [[ -n $(docker ps -q --filter "volume=$volume") ]]; then
+    echo 'A running container still mounts persistent data; stop its owner before deploying.' >&2
+    exit 1
+  fi
+done
+backup=$(mktemp -d "$directory/backups/$(date -u +%Y%m%dT%H%M%SZ).XXXXXXXX")
+for name in compose.yaml runtime.env; do
+  [[ ! -f $directory/$name ]] || cp -- "$directory/$name" "$backup/$name"
+done
+for volume in scenesparrow-project scenesparrow-appdata; do
+  if docker volume inspect "$volume" > /dev/null 2>&1; then
+    docker run --rm --user 0 --entrypoint tar \
+      --mount "type=volume,src=$volume,dst=/source,readonly" \
+      --mount "type=bind,src=$backup,dst=/backup" \
+      "$image" -czf "/backup/$volume.tar.gz" -C /source .
+  fi
+done
+printf '%s\n' "$image" > "$backup/requested-image"
+if [[ -f $incoming/operator-auth ]]; then install -m 0444 "$incoming/operator-auth" "$auth_file"; fi
+printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
+  "$image" "$origin" "$port" "$auth_file" > "$incoming/runtime.env"
+install -m 0600 "$incoming/compose.yaml" "$directory/compose.yaml"
+install -m 0600 "$incoming/runtime.env" "$directory/runtime.env"
+if ! docker compose --env-file "$directory/runtime.env" -f "$directory/compose.yaml" up -d --force-recreate --pull never --wait --wait-timeout 120; then
+  echo "Deployment failed. Backup retained at $backup; inspect the service before manual recovery. No database restore or image rollback was attempted." >&2
+  exit 1
+fi
+printf 'Deployment ready. Offline backup: %s\n' "$backup"

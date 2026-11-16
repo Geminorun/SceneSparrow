@@ -1,5 +1,8 @@
 # Development setup
 
+For the production private Web entry, use the [self-hosted deployment runbook](web-deployment.md).
+Development Vite servers and preview are not production servers.
+
 ## What the foundation implements
 
 The pnpm workspace contains a shared React UI, browser and Electron entry points,

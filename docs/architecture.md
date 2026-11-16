@@ -15,8 +15,11 @@ promise to validate is changing a selected object while preserving approved work
 The editable project and its history remain primary; an exported video is an
 artifact of a specific project snapshot.
 
-The technical design refines the requirements report: Windows and macOS are the
-product platforms, and the browser is a development and validation entry point.
+The technical design refines the requirements report: Windows and macOS remain
+desktop platforms. The browser supports development/validation and the user-selected
+[private self-hosted deployment](web-deployment.md), with a built Web gateway, the
+same Rust core and Node workers; see [ADR 0003](decisions/0003-private-self-hosted-web.md).
+That deployment shares one project and AI configuration without user isolation.
 The initial representative project is an approximately two-minute Chinese
 explanatory video with text, diagrams, images, narration, and captions. This test
 scope does not restrict the internationalized UI or future content languages.
