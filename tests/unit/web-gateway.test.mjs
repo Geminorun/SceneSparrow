@@ -13,7 +13,7 @@ import {
 
 test("production gateway authenticates all content, enforces origin, strips secrets and cancels SSE", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-gateway-"));
-  const credential = "operator:" + "r".repeat(40);
+  const credential = "operator:" + "r".repeat(16);
   const origin = "https://scene.example";
   let received;
   let receivedPath;

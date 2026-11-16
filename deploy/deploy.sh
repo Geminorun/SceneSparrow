@@ -38,17 +38,15 @@ flock -x 9
 mkdir -p -- "$directory/secrets" "$directory/backups"
 chmod 700 "$directory/secrets" "$directory/backups"
 auth_file=$directory/secrets/operator-auth
-if [[ -f $incoming/operator-auth ]]; then
-  # Validate without printing the secret; the bind-mounted file must be readable by uid 1000.
-  python3 - "$incoming/operator-auth" <<'PY'
-import re, sys
-s = open(sys.argv[1]).read().removesuffix('\n')
-assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{32,256}', s)
-PY
-fi
 [[ -f $auth_file || -f $incoming/operator-auth ]] || { echo 'Provision operator-auth first' >&2; exit 2; }
 next_auth=$auth_file
 [[ ! -f $incoming/operator-auth ]] || next_auth=$incoming/operator-auth
+# Validate both provisioned and rotated secrets without exposing their contents.
+python3 - "$next_auth" <<'PYAUTH'
+import re, sys
+s = open(sys.argv[1]).read().removesuffix('\n')
+assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{16,256}', s), 'Invalid operator configuration'
+PYAUTH
 printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
   "$image" "$origin" "$port" "$next_auth" > "$incoming/runtime.env"
 docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" config --quiet

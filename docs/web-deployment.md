@@ -19,11 +19,12 @@ does not become a production video service through this deployment.
 - A writable deployment directory, default `/srv/scenesparrow`, created for that
   user. The path must be absolute and contain only letters, digits, `_`, `-`, `/`.
   It must not be a general system directory. Keep the same directory across runs.
-- An existing host HTTPS reverse proxy to `127.0.0.1:8080`, an appropriate origin
+- An existing host HTTPS reverse proxy to `127.0.0.1:8070`, an appropriate origin
   certificate and DNS. Cloudflare must use **Full (strict)** and bypass caching
-  for this hostname. Cloudflare DNS proxying alone is not access authentication.
+  for `scene.mindreview.me`. Use per-hostname configuration/rules; do not change
+  zone-wide TLS settings or the existing `mindreview.me` website virtual host. Cloudflare DNS proxying alone is not access authentication.
   Optional Cloudflare Access is an additional layer, not a substitute for the
-  required operator credential. Do not expose port 8080 or core port 4318 publicly.
+  required operator credential. Do not expose host port 8070 or core port 4318 publicly.
 - This workflow depends on the current manuscript workbench, not the original
   bootstrap-only `main`. Review and integrate the complete source and workflow
   first. GitHub normally shows `workflow_dispatch` after the workflow exists on
@@ -31,8 +32,10 @@ does not become a production video service through this deployment.
   GitHub environments, secrets, DNS or the server automatically.
 
 Create `web-production` in GitHub Environments and set its secrets/variables (or
-repository secrets/variables). Configure any desired human environment gate there.
-Restrict deployment to `main`. Ensure the repository's Actions token may publish
+repository secrets/variables). The existing name represents the **one shared deployment**, including candidates;
+it is not a second production environment. If deployment branch/tag restrictions
+are configured, allow valid `release/*`, stable tags and matching RC tags. No new
+approval gate is required by this workflow. Ensure the repository's Actions token may publish
 and read its GHCR package; keep the image private. No long-lived registry PAT is
 needed: each run uses its short-lived `GITHUB_TOKEN`.
 
@@ -42,7 +45,9 @@ needed: each run uses its short-lived `GITHUB_TOKEN`.
 | `WEB_DEPLOY_USER`        | Dedicated SSH username                                                                   |
 | `WEB_DEPLOY_SSH_KEY`     | Private deployment key, including actual newlines                                        |
 | `WEB_DEPLOY_KNOWN_HOSTS` | Verified OpenSSH known_hosts entry/entries; for a nonstandard port use `[hostname]:port` |
-| `WEB_OPERATOR_AUTH`      | Optional `username:password` described below; omit when separately provisioned           |
+| `WEB_OPERATOR_USERNAME`  | Operator username; set together with password                                            |
+| `WEB_OPERATOR_PASSWORD`  | Operator password; set together with username                                            |
+| `WEB_OPERATOR_AUTH`      | Optional legacy `username:password`, used only when both new secrets are unset           |
 
 Use the actual server IP or an unproxied SSH hostname for `WEB_DEPLOY_HOST`;
 normal Cloudflare orange-cloud Web proxying does not forward SSH.
@@ -50,42 +55,83 @@ Verify SSH host fingerprints through an already trusted server console or channe
 before supplying `WEB_DEPLOY_KNOWN_HOSTS`. The helper uses strict host checking and
 does not trust `ssh-keyscan` output automatically. A changed host key fails closed.
 
-| GitHub variable       | Meaning/default                                                                            |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `WEB_PUBLIC_ORIGIN`   | Required exact HTTPS origin, e.g. `https://scene.example.com`, without trailing slash/path |
-| `WEB_DEPLOY_SSH_PORT` | SSH port, default `22`                                                                     |
-| `WEB_DEPLOY_DIR`      | Persistent configuration/backup directory, default `/srv/scenesparrow`                     |
-| `WEB_PORT`            | Host loopback proxy port, default `8080`; use an unprivileged port                         |
+| GitHub variable       | Meaning/default                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `WEB_PUBLIC_ORIGIN`   | Exact HTTPS origin; default `https://scene.mindreview.me`, without trailing slash/path |
+| `WEB_DEPLOY_SSH_PORT` | SSH port, default `22`                                                                 |
+| `WEB_DEPLOY_DIR`      | Persistent configuration/backup directory, default `/srv/scenesparrow`                 |
+| `WEB_PORT`            | Host loopback proxy port, default `8070`; use an unprivileged port                     |
+
+When migrating an existing setup, change an explicit GitHub `WEB_PORT=8080` to
+`8070` (or remove it to use the default), and update this hostname's reverse proxy
+upstream to `127.0.0.1:8070`. Defaults do not override an existing variable. Keep
+the existing deployment directory/Compose project/volume names and credentials;
+no second instance is needed. Set `WEB_PUBLIC_ORIGIN` to the exact public origin
+or remove it to use the known default. Do not edit the root-domain virtual host.
 
 The operator file contains `username:password` with an optional final newline.
-Username: 1–64 ASCII letters, digits, `_` or `-`. Password: 32–256 printable ASCII
-characters without spaces. Use a long randomly generated password and store it
+Username: 1–64 ASCII letters, digits, `_` or `-`. Password: 16–256 printable ASCII
+characters without spaces. A memorable password of at least 16 characters is
+accepted; use a unique strong password and store it
 in a password manager. There is no default password, reset endpoint or account
-database. Either set `WEB_OPERATOR_AUTH` as a GitHub secret, or provision
+database. Set the separate `WEB_OPERATOR_USERNAME` and `WEB_OPERATOR_PASSWORD` GitHub
+secrets. They take precedence over the legacy `WEB_OPERATOR_AUTH`; if exactly one
+new secret is supplied, deployment fails before SSH, even when legacy auth exists.
+When both are unset, legacy auth is supported, or provision
 `<WEB_DEPLOY_DIR>/secrets/operator-auth` directly on the server. Make the parent
 directory mode `0700` for the deployment user and the file `0444` so container uid
 1000 can read the bind-mounted secret. The parent directory protects it on the
 host. Keep this file outside project/app data and backups; protect it separately.
-Missing or invalid credentials fail startup. Supplying the GitHub secret rotates
+Missing or invalid credentials fail startup. Supplying the GitHub credential pair (or legacy secret) rotates
 the file only after pull/configuration checks and offline backup succeed; the
 container is recreated so the rotation takes effect.
 
 ## Deployment and local verification
 
-`Private Web deployment` runs only on pushes to `main` and manual dispatch.
-Feature-branch pushes never publish or deploy. Manual dispatch defaults to
-**build and smoke only**, including on a feature branch. To deploy, select `main`
-and enable the `deploy` input. A successful main push checks and deploys directly,
-subject to the `web-production` environment's configured gate. Concurrent runs
-queue; an in-progress deployment is never cancelled for a newer commit.
+`Private Web deployment` triggers on pushes to `main`, `release/**`, version-like
+`v*` tags and manual dispatch. All run full checks, an AMD64 Docker build and the
+complete final-container smoke. The release helper fails closed on malformed
+versions, deleted/moved refs, mismatched app versions and failed ancestry checks.
+
+| Event/ref                   | Publish and deploy                                                              |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| Main push                   | Never; checks/build/smoke only                                                  |
+| `release/1.0.0` push        | Automatically to the single shared instance                                     |
+| `v1.0.0-rc.1` push          | Same instance, only on matching `release/1.0.0` history                         |
+| `v1.0.0` push               | Formal release to that same instance, only on accepted main history             |
+| Manual dispatch, default    | Checks/build/smoke only, including feature branches                             |
+| Manual dispatch with deploy | Valid release branch, stable tag or RC tag only; feature/untagged main rejected |
+
+Versions use strict `MAJOR.MINOR.PATCH` without leading zeroes; RC numbers start
+at 1. Other prerelease forms/build metadata are not deployment refs. The app
+version must match the release branch/tag base version. Checkout is pinned to the
+event commit; full history and fresh exact remote refs verify that it still
+identifies the tested commit immediately before publication and deployment.
+Stable tags must be reachable from current `origin/main`; RC tags must be
+reachable from their matching release branch. A stale branch push cannot publish
+its newer head as if it had tested it. A later concurrent ref move fails the next
+validation; workflow concurrency queues all refs and never cancels deployment.
+
+Develop features/fixes through `release/1.0.0` PRs, accept the version, then merge
+the release PR into stable `main`. After main CI passes, explicitly create the
+immutable `v1.0.0` tag on the accepted main commit. No formal release/tag has been
+created by implementing this policy. Optional RC tags and ordinary release pushes
+are candidates on **the same domain `https://scene.mindreview.me`, host port 8070,
+Compose project, volumes, `/srv/scenesparrow` directory and credential settings**.
+They overwrite the shared application and use the same data; there is no isolated
+preview/staging environment or second port. Back up and assess candidate changes
+accordingly. Keep operator credentials in the compatible `web-production` GitHub
+Environment, which represents this single shared instance.
 
 The checks job runs contracts, formatting, types, unit/Rust tests, Clippy, builds,
 integration tests and browser tests. The image job builds once for AMD64, exercises
-that loaded image, and only then tags/pushes that same image to
-`ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`. Deployment
-uses its `@sha256:...` digest. Build-only manual runs do not log in or publish.
+that loaded image, then only on an eligible deployment event tags/pushes that
+same image to `ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
+Deployment uses its exact `@sha256:...` digest; there is no arbitrary image input
+or separate rebuild. Build-only manual and main runs do not log in or publish.
 Actions permissions are contents-read, packages-write only in the image job and
-packages-read for deployment.
+packages-read for deployment. All deployment events use the same concurrency
+queue and environment; the helper never changes DNS, TLS or provider settings.
 
 Local equivalent (Docker required):
 
@@ -115,14 +161,15 @@ only its own containers/volumes.
 
 For first server setup, create the directory and secret, configure the existing
 reverse proxy using [the Nginx example](../deploy/nginx.conf.example), then deploy
-from `main`. The helper uploads configuration into a private temporary directory,
+from `release/1.0.0` (or a valid matching version tag). The helper uploads configuration into a private temporary directory,
 validates it, takes a deployment lock and pulls the digest before any downtime.
 The server's registry login uses a temporary Docker configuration and the token
 over stdin; the configuration is removed immediately after pull. No credential
 is put in image layers, command arguments, runtime environment files or logs.
 The helper does not edit the reverse proxy or DNS.
 
-The first visit prompts for operator HTTP Basic authentication. All static files
+The first visit prompts for operator HTTP Basic authentication with the familiar
+separate username and password fields; there is no new login UI or account system. All static files
 and APIs require it; `/readyz` is a minimal unauthenticated health status and
 reveals no project data. Browser requests must use the configured host and exact
 origin; mutations require an Origin header. Authenticated top-level navigation to
@@ -189,9 +236,10 @@ available to operators offline; it is not exposed to public browser requests.
 
 ## Evidence and limits
 
-Local automated evidence is recorded in [Web deployment validation](validation/web-deployment.md).
+Local automated evidence is recorded in [Web deployment validation](validation/web-deployment.md)
+and the later [release policy validation](validation/release-policy.md).
 No real SSH host, GHCR publication, GitHub workflow execution, domain/proxy change
-or paid provider call is performed by implementation checks. Run a real main
+or paid provider call is performed by implementation checks. Run an authorized real release
 workflow and verify HTTPS, operator rejection, SSE reconnect, project persistence,
 backup retention and restart key re-entry on the actual server before accepting
 online deployment. Desktop Windows/macOS compatibility, real provider behavior,

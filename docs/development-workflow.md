@@ -2,48 +2,52 @@
 
 ## Branch model
 
-Use a lightweight trunk-based workflow: one long-lived `main`, short-lived task
-branches, and pull requests. A single monorepo keeps coordinated UI, core,
-protocol, and worker changes together. A permanent `develop` branch would add a
-second integration baseline without a current release-management need.
+`main` is the stable, accepted baseline. Development integrates and is accepted on
+`release/MAJOR.MINOR.PATCH`; the initial target is `release/1.0.0`. Features and
+fixes start from the active release branch and return to it by PR. No permanent
+`develop` branch is used. A single monorepo keeps UI, core, protocol and workers
+coordinated.
 
-| Branch or tag                                                     | Purpose                                                               | Lifecycle               |
-| ----------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------- |
-| `main`                                                            | Reviewed integration baseline; kept buildable as implementation grows | Permanent               |
-| `feat/<description>`                                              | Product capability                                                    | Delete after merge      |
-| `fix/<description>`                                               | Defect correction, including urgent fixes                             | Delete after merge      |
-| `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Focused maintenance and engineering work                              | Delete after merge      |
-| `release/<major>.<minor>`                                         | Optional maintenance for a shipped version that differs from `main`   | Create only when needed |
-| `v0.1.0`, `v0.1.0-alpha.1`                                        | A specific reviewed release commit                                    | Immutable               |
+| Branch or tag                                                                      | Purpose                                                                       |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `main`                                                                             | Stable baseline after version acceptance; pushes run checks only              |
+| `release/1.0.0`                                                                    | Initial version integration and acceptance; pushes deploy the shared instance |
+| `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Short-lived task branches, PR to the active release branch                    |
+| `v1.0.0-rc.1`                                                                      | Optional immutable candidate tag on the matching release history              |
+| `v1.0.0`                                                                           | Immutable formal release tag on accepted main history                         |
 
-Branch names use lowercase English kebab-case; optionally include an issue number,
-such as `feat/42-script-review`. Keep each branch focused on one reviewable outcome
-and merge promptly rather than maintaining personal or module-specific branches.
-
-The empty repository was seeded with one empty root commit on `main`. All bootstrap
-files are developed on `chore/repository-bootstrap`. This one-time seed establishes
-a real base for a PR; it is not permission for later direct development on `main`.
+Task names use lowercase English kebab-case, e.g. `feat/42-script-review`.
+Release branches integrate a complete version; they are not separate deployment
+environments. There is only one deployed instance, domain, port, Compose project,
+configuration directory, credential set and pair of data volumes. Candidate and
+formal release deployment replace the same application and operate on the same
+project/global configuration. Each deployment backs up that data before startup.
 
 ## Daily workflow
 
-1. Inspect `git status --short --branch` and preserve existing changes.
-2. Once `origin/main` exists, fetch it and create a task branch from its latest
-   reviewed state. Before the first remote push, use local `main` as the base.
-3. Implement a focused change, run relevant checks, and review the diff. Keep
-   credentials, user projects, and generated artifacts out of the commit.
-4. Commit in English and open a PR targeting `main`. Include validation evidence
-   and any known limitations. Draft PRs are useful for early feedback.
-5. Address review and pass applicable checks. Prefer squash merge, using the
-   Conventional Commit PR title as the resulting commit subject.
-6. Delete the merged task branch. Start the next independent task from updated
-   `main`. Rebase only private local history; coordinate changes to shared branches.
-
-After the remote baseline exists, a typical start is:
+1. Inspect repository status and preserve existing changes. Root alone manages
+   branches and Git delivery during delegated implementation.
+2. Fetch the active release branch and create a focused task branch from it.
+3. Implement, validate and review; keep credentials and real projects out of Git.
+4. Open an English PR targeting `release/1.0.0` for the initial version. Include
+   relevant checks and unresolved limits. Prefer squash merge for task PRs.
+5. After merge, delete the task branch and start the next from the updated release.
+6. Once the version passes user acceptance, open a release PR into `main`. Preserve
+   the accepted release history with a merge commit so optional RC tags remain
+   reachable; do not squash the entire release integration history.
+7. After the main checks pass, explicitly create the immutable matching stable tag
+   on the accepted main commit. Tag CI independently checks and smokes the same
+   code before formal publication/deployment. This policy does not itself accept
+   1.0.0, create tags, merge PRs or deploy.
 
 ```sh
 git fetch origin
-git switch -c feat/project-persistence origin/main
+git switch -c feat/project-persistence origin/release/1.0.0
+# Open the resulting PR with base release/1.0.0.
 ```
+
+The local initial release baseline is created from accepted `origin/main`; its
+existence does not establish a remote protected branch or release acceptance.
 
 ## Design and stage specifications
 
@@ -110,31 +114,47 @@ must not substitute for those mechanisms.
 
 ## Recommended GitHub settings
 
-These are settings to apply when the remote `main` exists. This document and
-`AGENTS.md` do not enforce server-side protection; no remote settings have been
-changed by this bootstrap.
+These are recommendations, not configured or enforced server-side settings.
+Keep `main` as default; protect it and `release/*` against direct development,
+force pushes and deletion. Protect version tags against update/deletion as well;
+formal and RC tags are immutable. Require PRs, resolved conversations and actual passing
+CI jobs. Use squash merging for task PRs and merge commits for release-to-main
+PRs. Delete merged task branches; retain the release branch while candidates,
+acceptance or maintenance need it. With multiple maintainers, require independent
+human review; a sole maintainer should avoid an impossible approval requirement.
+Agents do not constitute independent human approval. Validate Windows/macOS at
+relevant desktop milestones; Linux CI cannot certify them.
 
-- Set `main` as the default branch; require PRs, resolved review conversations,
-  and linear history; disallow force pushes and branch deletion.
-- Use squash merging and automatically delete merged task branches.
-- With multiple maintainers, require at least one independent approval and dismiss
-  stale approvals after changes. For a sole maintainer, keep the PR workflow but
-  avoid an approval rule that nobody else can satisfy; agents are not independent
-  human reviewers.
-- Require actual CI jobs only after those workflows exist and pass reliably. Add
-  formatting, lint, type, domain, integration, and schema-consistency checks as the
-  corresponding components land. Do not configure nonexistent required checks.
-- Validate Windows x64 and macOS Apple Silicon for relevant desktop milestones.
-  Linux CI provides useful core checks but cannot certify desktop behavior.
-- Add path ownership rules when real maintainers are assigned; do not invent
-  GitHub usernames or teams in `CODEOWNERS`.
+The existing GitHub Environment name `web-production` remains for compatibility
+and represents the one shared deployment. Its branch/tag policies, if configured,
+must allow valid release branches, matching RC tags and stable version tags.
+This change does not install approval gates or alter remote settings.
 
-## Releases and maintenance
+## Versions, releases and maintenance
 
-Tag reviewed commits on `main` for initial pre-release development. Do not create
-release branches for each milestone. If a shipped version later needs maintenance
-while `main` has advanced, use a `release/<major>.<minor>` branch with the same PR
-and validation rules, and bring fixes back to `main` through a separate PR.
+All private pnpm package versions and the Cargo workspace version share the
+application version. To prepare a version on its release branch, run:
 
-Version tags identify source revisions; they do not by themselves publish binaries
-or prove signing, upgrades, media compatibility, or recovery have been validated.
+```sh
+pnpm release:version 1.1.0
+```
+
+This builtin helper updates only private package manifests, Cargo workspace
+version and four workspace Cargo.lock entries. It does not upgrade dependencies,
+change protocol/schema/migration versions, commit or create a tag. CI checks that
+all application versions agree and match release/tag refs. Application 1.0.0 is
+the initial target, not an assertion of accepted delivery; design v0.1 and
+protocolVersion remain independently versioned.
+
+After 1.0.0, a compatible feature targets `release/1.1.0`; a compatible correction
+uses `release/1.0.1`; a breaking change uses `release/2.0.0`. Start each version
+branch from the appropriate accepted main baseline. For an urgent 1.0.1 while
+1.1.0 is in progress, branch the fix from `release/1.0.1`, PR it there, accept and
+merge it into main, pass main checks, then tag `v1.0.1`. Forward-port the fix by
+reviewed PR into `release/1.1.0`. Keep version bumps consistent with each target.
+
+The [deployment runbook](web-deployment.md) and [ADR 0004](decisions/0004-release-policy.md)
+define allowed deployment refs. Release pushes and optional `v1.0.0-rc.1` tags
+deploy to the same instance as formal `v1.0.0`; candidates have the same access to
+real shared data. Main pushes never publish/deploy. Manual dispatch defaults to
+checks/build/smoke, with explicit deployment restricted to valid version refs.

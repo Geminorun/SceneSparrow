@@ -9,7 +9,7 @@ services:
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the HTTPS public origin}
     ports:
-      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+      - "127.0.0.1:${WEB_PORT:-8070}:8080"
     volumes:
       - project:/data/project
       - appdata:/data/app

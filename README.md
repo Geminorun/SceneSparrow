@@ -75,9 +75,16 @@ and FFmpeg. TypeScript and Rust use pnpm and Cargo workspaces in one repository.
 
 ## Working on SceneSparrow
 
-Use a short-lived task branch from `main`, such as `feat/project-persistence` or
-`fix/locked-shot-validation`. Submit changes through a pull request targeting
-`main`; do not develop directly on `main`.
+The initial application target is **1.0.0**, still awaiting release acceptance.
+Start a short-lived task branch from `release/1.0.0`, such as
+`feat/project-persistence` or `fix/locked-shot-validation`, and target
+`release/1.0.0` in its PR. After acceptance, the release PR targets stable `main`;
+once main CI passes, the immutable `v1.0.0` tag initiates formal release.
+See [the workflow](docs/development-workflow.md) for version bumps and hotfixes.
+
+There is one shared deployment at `https://scene.mindreview.me` (host loopback
+8070). Release pushes and optional RC tags overwrite that same instance/data;
+main pushes only run checks. No isolated preview environment is created.
 
 Commit messages, pull request titles, code comments, and new engineering
 documentation use English. The supplied Chinese reference documents retain their

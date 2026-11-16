@@ -7,10 +7,15 @@ import { pipeline } from "node:stream/promises";
 const UPLOAD_LIMIT = 25 * 1024 * 1024;
 const DOWNLOAD_LIMIT = 32 * 1024 * 1024;
 const digest = (value) => createHash("sha256").update(value).digest();
-export async function readOperator(path) {
-  const value = (await readFile(path, "utf8")).replace(/\n$/, "");
-  if (!/^[A-Za-z0-9_-]{1,64}:[\x21-\x7e]{32,256}$/.test(value))
+export function validateOperator(value) {
+  if (!/^[A-Za-z0-9_-]{1,64}:[\x21-\x7e]{16,256}$/.test(value))
     throw Error("Invalid operator configuration");
+  return value;
+}
+export async function readOperator(path) {
+  const value = validateOperator(
+    (await readFile(path, "utf8")).replace(/\n$/, ""),
+  );
   return digest(`Basic ${Buffer.from(value).toString("base64")}`);
 }
 

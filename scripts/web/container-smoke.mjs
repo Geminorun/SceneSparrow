@@ -16,8 +16,8 @@ const run = (args, options = {}) => {
 };
 const id = `scenesparrow-smoke-${randomUUID()}`;
 const temporary = await mkdtemp(join(tmpdir(), id));
-const credential = `operator:${randomUUID()}${randomUUID()}`;
-const origin = "https://scene.example";
+const credential = `operator:${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+const origin = "https://scene.mindreview.me";
 const volumes = [`${id}-project`, `${id}-app`];
 let port;
 const send = (path, body, extra = {}) =>
@@ -35,7 +35,7 @@ const send = (path, body, extra = {}) =>
         path,
         method: bytes ? "POST" : "GET",
         headers: {
-          host: "scene.example",
+          host: "scene.mindreview.me",
           authorization: `Basic ${Buffer.from(credential).toString("base64")}`,
           origin,
           "content-type": "application/json",
