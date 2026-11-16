@@ -1,7 +1,9 @@
 # Remote diagnostics design, v0.1
 
-Status: **proposed; not implemented or enabled**. This document specifies a
-private Web support capability, not authorization to access or change a server.
+Status: **RD-1/RD-2 implemented in source; deployment and live-incident
+verification remain separate**. See the [implementation evidence](../validation/remote-diagnostics.md).
+This document specifies a private Web support capability, not authorization to
+access or change a server.
 It supplements [Web deployment](../web-deployment.md) and
 [ADR 0003](../decisions/0003-private-self-hosted-web.md); it preserves the single
 workspace, operator authentication, private loopback core and native API boundary.
@@ -122,6 +124,7 @@ Each record has `schemaVersion`, UTC `timestamp`, gateway `bootId`, monotonic
 - `stage`, `routeId`, HTTP `method`/`status`, bounded `durationMs`, `responseBytes`,
   allowlisted `responseKind`/MIME class, `completion` (`complete`, `aborted`,
   `truncated`), generated `traceId`, and validated `cfRay`.
+- Bounded `droppedEvents` producer summaries, folded into collector drop counts.
 - Safe enum/code fields for OS/SQLite failures and worker/provider outcomes;
   `category` (`text`, `audio`, `video`) and lifecycle stage where relevant.
 
@@ -264,8 +267,11 @@ needs a separate reviewed operational change, not an unaccepted product merge.
 
 ## 8. Ordered work and acceptance
 
-This proposal changes no source, dependencies, server configuration or live access.
-Implementation needs its own reviewed scope, protocol definitions and evidence.
+The user subsequently authorized RD-1/RD-2 implementation. The source now includes
+the versioned protocol, safe collector, gateway APIs/page/grants, client decoding
+and early reports. RD-3 remains deferred. Evidence and limits are recorded in the
+[validation report](../validation/remote-diagnostics.md); source delivery alone does
+not enable the capability on a running deployment or establish the incident cause.
 
 | Phase          | Concrete work and exit evidence                                                                                                                                                                    |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -292,6 +298,7 @@ Implementation needs its own reviewed scope, protocol definitions and evidence.
 - **RD-A07:** Preserve SSE streaming/cancellation, upload/export limits, private
   loopback core/native exclusions, desktop credentials and shared AI dispatch guards.
 
-These are planned acceptance cases, not executed results. Documentation delivery
-checks formatting, links and scope only; it does not establish live diagnosis,
-real-browser behavior, Rust/native compatibility or operational readiness.
+These acceptance cases define the intended behavior. Consult the validation report
+for executed checks, fault simulations and remaining platform/live-incident gaps.
+A local browser fixture does not establish the authenticated response or proxy
+behavior of the reported production incident.

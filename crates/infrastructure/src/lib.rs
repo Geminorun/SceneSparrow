@@ -1,3 +1,4 @@
+pub mod diagnostics;
 use std::{
     fs::File,
     path::Path,
@@ -53,6 +54,7 @@ fn storage<T>(result: Result<T, impl std::fmt::Debug>) -> Result<T, Error> {
     result.map_err(|_| {
         #[cfg(test)]
         eprintln!("storage failure at {caller}");
+        diagnostics::emit(diagnostics::Event::StorageFailed);
         Error::Storage
     })
 }

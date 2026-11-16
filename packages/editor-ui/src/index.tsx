@@ -1,7 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Player } from "@remotion/player";
 import type { Project } from "@scenesparrow/contracts";
-import type { PlatformClient } from "@scenesparrow/platform-client";
+import {
+  onTransportFailure,
+  TransportError,
+  type PlatformClient,
+} from "@scenesparrow/platform-client";
 import { MotionSample, sampleMetadata } from "@scenesparrow/video-runtime";
 import { AiSettings } from "./AiSettings";
 import { Manuscript } from "./editor/Manuscript";
@@ -25,6 +29,9 @@ export function App({ client }: { client: PlatformClient }) {
   const [title, setTitle] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transportFailure, setTransportFailure] =
+    useState<TransportError | null>(null);
+  useEffect(() => onTransportFailure(setTransportFailure), []);
   const [request, setRequest] = useState<{
     title: string;
     requestId: string;
@@ -40,11 +47,12 @@ export function App({ client }: { client: PlatformClient }) {
   async function load() {
     setLoading(true);
     setError(null);
+    setTransportFailure(null);
     try {
       const response = await client.readProject();
       setProject(response.project);
-    } catch {
-      setError("error");
+    } catch (failure) {
+      setError(failure instanceof TransportError ? failure.message : "error");
     } finally {
       setLoading(false);
     }
@@ -177,7 +185,31 @@ export function App({ client }: { client: PlatformClient }) {
         <p className="eyebrow">SCENESPARROW</p>
         <h1>{t.tagline}</h1>
       </section>
-      {error && (
+      {transportFailure && (
+        <div role="alert" className="error" data-testid="transport-failure">
+          <p>{t[transportFailure.message as keyof typeof en] ?? t.error}</p>
+          {transportFailure.status !== undefined && (
+            <p>
+              {t.transportStatus.replace(
+                "{status}",
+                String(transportFailure.status),
+              )}
+            </p>
+          )}
+          {transportFailure.traceId && (
+            <p>
+              {t.transportTrace.replace("{traceId}", transportFailure.traceId)}
+            </p>
+          )}
+          {error?.startsWith("TRANSPORT_") && (
+            <button onClick={() => void load()}>{t.retry}</button>
+          )}
+          <button onClick={() => setTransportFailure(null)}>
+            {t.transportDismiss}
+          </button>
+        </div>
+      )}
+      {error && !transportFailure && (
         <div role="alert" className="error">
           {t[error as keyof typeof en]}{" "}
           <button onClick={() => void load()}>{t.retry}</button>

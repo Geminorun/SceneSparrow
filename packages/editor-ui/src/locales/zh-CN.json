@@ -371,5 +371,16 @@
   "exportReselect": "检查目标并重新选择保存位置…",
   "closingProject": "正在完成项目保存和关闭…",
   "projectOpenFailed": "无法打开项目，原项目已保留。您可以选择已验证备份，将其打开为新的恢复副本。",
-  "exportDiscardInput": "丢弃已捕获的输入"
+  "exportDiscardInput": "丢弃已捕获的输入",
+  "TRANSPORT_AUTH_REQUIRED": "需要运维身份验证。请重新登录并刷新。",
+  "TRANSPORT_HTTP_ERROR": "服务器未能完成请求。您的输入已保留。",
+  "TRANSPORT_NETWORK_TIMEOUT": "请求超时。操作结果可能尚未确定。",
+  "TRANSPORT_NETWORK_FAILED": "连接失败，操作结果尚未确定。",
+  "TRANSPORT_RESPONSE_NOT_JSON": "服务器返回了意外的响应格式。",
+  "TRANSPORT_RESPONSE_EMPTY": "服务器返回了空响应。",
+  "TRANSPORT_RESPONSE_INVALID_JSON": "服务器响应不完整或无效。",
+  "TRANSPORT_BOOTSTRAP_FAILED": "应用未能启动。",
+  "transportStatus": "HTTP 状态：{status}",
+  "transportTrace": "支持追踪编号：{traceId}",
+  "transportDismiss": "关闭"
 }

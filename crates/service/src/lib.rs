@@ -56,7 +56,36 @@ fn state_router(state: AppState) -> Router {
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
+        .layer(middleware::from_fn(observe_transport))
         .with_state(state)
+}
+
+// Transport correlation is separate from business request/idempotency identities.
+async fn observe_transport(request: Request, next: Next) -> Response {
+    use scenesparrow_infrastructure::diagnostics::{self, Event};
+    let trace = request
+        .headers()
+        .get("x-scenesparrow-trace-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| diagnostics::valid_transport_trace(v))
+        .map(str::to_owned);
+    let started = std::time::Instant::now();
+    let mut response = next.run(request).await;
+    if let Some(trace) = &trace {
+        response.headers_mut().insert(
+            "x-scenesparrow-trace-id",
+            trace.parse().expect("validated ASCII trace"),
+        );
+    }
+    diagnostics::emit_record(
+        Event::CoreRequest,
+        trace.as_deref(),
+        Some(response.status().as_u16()),
+        Some(started.elapsed().as_millis()),
+        None,
+        None,
+    );
+    response
 }
 
 fn api_error(status: StatusCode, code: &str) -> Response {
@@ -187,6 +216,58 @@ mod tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn validates_transport_trace_without_changing_auth_or_business_protocol() {
+        let directory = tempfile::tempdir().unwrap();
+        let app = router(
+            SqliteProjectRepository::open(directory.path()).unwrap(),
+            "test-token",
+            "http://127.0.0.1:5173",
+        );
+        for (trace, expected) in [
+            ("0123456789abcdef0123456789abcdef", true),
+            ("CANARY-provider-url", false),
+            ("ABCDEF0123456789ABCDEF0123456789", false),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/v1/health")
+                        .header("authorization", "Bearer test-token")
+                        .header("x-scenesparrow-trace-id", trace)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().contains_key("x-scenesparrow-trace-id"),
+                expected
+            );
+            let bytes = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+            assert!(!String::from_utf8_lossy(&bytes).contains(trace));
+            let health: contracts::Health = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(health.status, "ok");
+        }
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/project")
+                    .header("authorization", "Bearer diagnostics-only")
+                    .header(
+                        "x-scenesparrow-trace-id",
+                        "0123456789abcdef0123456789abcdef",
+                    )
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 
     #[tokio::test]
     async fn authenticates_validates_and_preserves_project_state() {

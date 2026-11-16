@@ -16,6 +16,13 @@ Object.assign(
     ),
   ).definitions,
 );
+const diagnosticSchema = JSON.parse(
+  await readFile(
+    new URL("packages/contracts/schema/diagnostics.schema.json", root),
+    "utf8",
+  ),
+);
+Object.assign(schema.definitions, diagnosticSchema.definitions);
 // This generator deliberately supports the protocol subset used here. Constraint
 // validation remains in the core; unsupported type constructs fail generation.
 function validateShape(s) {
@@ -155,7 +162,7 @@ function fields(s, name, visibility = true) {
 for (const [name, s] of Object.entries(schema.definitions)) {
   const start = declarations.length;
   rust(s, name);
-  if (transportNames.has(name))
+  if (transportNames.has(name) || name.startsWith("Diagnostic"))
     serviceDeclarations.push(...declarations.splice(start));
 }
 const banner = "// Generated from protocol.schema.json. Do not edit by hand.\n";

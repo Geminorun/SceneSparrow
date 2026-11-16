@@ -537,6 +537,7 @@ impl SqliteProjectRepository {
             .directory
             .join("staging")
             .join(std::format!("export-{id}-{}", current.attempt));
+        crate::diagnostics::emit(crate::diagnostics::Event::WorkerStart);
         let input = self.directory.join("objects").join(&current.snapshot_hash);
         let mut command = Command::new("node");
         command.env_clear();
@@ -674,6 +675,14 @@ impl SqliteProjectRepository {
         attempt: i64,
         result: std::result::Result<Vec<u8>, &'static str>,
     ) -> Result<()> {
+        crate::diagnostics::emit_record(
+            crate::diagnostics::Event::WorkerResult,
+            None,
+            None,
+            None,
+            None,
+            Some(result.is_ok()),
+        );
         let mut c = db(self.connection.lock())?;
         let j = read_job(&c, id)?;
         if j.attempt != attempt || j.status != ExportJobStatus::Running {

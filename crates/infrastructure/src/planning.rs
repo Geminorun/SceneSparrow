@@ -1224,6 +1224,7 @@ impl SqliteProjectRepository {
             ))?;
             (source, visual.index)
         };
+        let mut diagnostics = crate::diagnostics::WorkerSummary::new(None);
         let work = (|| -> Result<(Vec<u8>, i64, i64, String)> {
             let mut command = Command::new("node");
             command.env_clear();
@@ -1351,6 +1352,7 @@ impl SqliteProjectRepository {
                 result["transformation"].as_str().unwrap_or_default().into(),
             ))
         })();
+        diagnostics.finish(work.is_ok());
         let mut c = db(self.connection.lock())?;
         if Self::visual(&c, id)?.status != "running" {
             return Ok(());

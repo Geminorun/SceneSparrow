@@ -371,5 +371,16 @@
   "exportReselect": "Check destination and select a new save destination…",
   "closingProject": "Finishing project save and shutdown…",
   "projectOpenFailed": "The project could not be opened. The original has been preserved. You can select a verified backup to open as a new recovered copy.",
-  "exportDiscardInput": "Discard captured input"
+  "exportDiscardInput": "Discard captured input",
+  "TRANSPORT_AUTH_REQUIRED": "Operator authentication is required. Sign in again and reload.",
+  "TRANSPORT_HTTP_ERROR": "The server could not complete the request. Your input is preserved.",
+  "TRANSPORT_NETWORK_TIMEOUT": "The request timed out. Its result may still be pending.",
+  "TRANSPORT_NETWORK_FAILED": "The connection failed. The request result is uncertain.",
+  "TRANSPORT_RESPONSE_NOT_JSON": "The server returned an unexpected response format.",
+  "TRANSPORT_RESPONSE_EMPTY": "The server returned an empty response.",
+  "TRANSPORT_RESPONSE_INVALID_JSON": "The server response was incomplete or invalid.",
+  "TRANSPORT_BOOTSTRAP_FAILED": "The application could not start.",
+  "transportStatus": "HTTP status: {status}",
+  "transportTrace": "Support trace: {traceId}",
+  "transportDismiss": "Dismiss"
 }

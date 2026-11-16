@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Autosave } from "../../packages/editor-ui/src/editor/autosave.ts";
-import { ApiError } from "../../packages/platform-client/src/index.ts";
+import {
+  ApiError,
+  TransportError,
+} from "../../packages/platform-client/src/index.ts";
 const id = () => crypto.randomUUID();
 const block = (text = "Text") => ({
   id: id(),
@@ -103,16 +106,19 @@ test("lost committed response and transient receipt error preserve the original 
     }
     return receipt(c);
   };
-  client.commandReceipt = async () => {
-    throw new ApiError("SERVICE_UNAVAILABLE");
+  let receiptReads = 0;
+  client.commandReceipt = async (requestId) => {
+    assert.equal(requestId, calls[0].requestId);
+    if (++receiptReads === 1) throw new ApiError("SERVICE_UNAVAILABLE");
+    return receipt(calls[0]);
   };
   save.update(local(save, "committed once"));
   assert.equal(await save.flush(), false);
   save.update(local(save, "new buffered text"));
   assert.equal(await save.flush(true), true);
-  assert.equal(calls.length, 3);
-  assert.deepEqual(calls[1], calls[0]);
-  assert.notEqual(calls[2].requestId, calls[0].requestId);
+  assert.equal(receiptReads, 2);
+  assert.equal(calls.length, 2);
+  assert.notEqual(calls[1].requestId, calls[0].requestId);
   assert.equal(save.status, "saved");
   save.dispose();
 });
@@ -379,7 +385,7 @@ test("discrete actions preserve typing before, structure at action, and later vi
   assert.equal(save.local[0].runs[0].text, "later");
   save.dispose();
 });
-test("ambiguous committed undo retries the original identity once without a second undo", async () => {
+test("ambiguous committed undo resolves the original receipt without a second undo", async () => {
   const { save, client, calls } = historySetup();
   const execute = client.executeManuscript;
   let outcome;
@@ -393,15 +399,18 @@ test("ambiguous committed undo retries the original identity once without a seco
     calls.push(c);
     return outcome;
   };
-  client.commandReceipt = async () => {
-    throw new ApiError("SERVICE_UNAVAILABLE");
+  let receiptReads = 0;
+  client.commandReceipt = async (requestId) => {
+    assert.equal(requestId, calls[0].requestId);
+    if (++receiptReads === 1) throw new ApiError("SERVICE_UNAVAILABLE");
+    return outcome;
   };
   assert.equal(await save.navigate("UndoProject", () => {}), false);
   assert.equal(save.status, "error");
   assert.equal(await save.flush(), false);
   assert.equal(await save.flush(true), true);
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(calls.length, 1);
+  assert.equal(receiptReads, 2);
   assert.equal(save.history.cursor, 1);
   assert.equal(save.canonicalVersion, 1);
   assert.equal(save.local[0].runs[0].text, "history result");
@@ -574,8 +583,11 @@ test("a new source action cannot claim success from reconciling an earlier uncer
     }
     return stored;
   };
-  client.commandReceipt = async () => {
-    throw Error("receipt unavailable");
+  let receiptReads = 0;
+  client.commandReceipt = async (requestId) => {
+    assert.equal(requestId, calls[0].requestId);
+    if (++receiptReads === 1) throw Error("receipt unavailable");
+    return stored;
   };
   client.readManuscript = async () => ({ ...state, workingRevision: 2 });
   client.readHistory = async () => ({ ...save.history, workingRevision: 2 });
@@ -598,8 +610,8 @@ test("a new source action cannot claim success from reconciling an earlier uncer
   );
   assert.equal(built, 0);
   assert.equal(save.hasUnresolvedBusiness, false);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].requestId, calls[1].requestId);
+  assert.equal(calls.length, 1);
+  assert.equal(receiptReads, 2);
   assert.equal(save.status, "saved");
   save.dispose();
 });
@@ -991,5 +1003,76 @@ test("cheap identity resync rechecks late input and never fetches a whole unchan
   assert.equal(save.local[0].runs[0].text, "New private input");
   assert.equal(save.state.workingRevision, 1);
   assert.equal(bodies, 0);
+  save.dispose();
+});
+
+for (const code of [
+  "RESPONSE_NOT_JSON",
+  "RESPONSE_EMPTY",
+  "RESPONSE_INVALID_JSON",
+  "AUTH_REQUIRED",
+  "HTTP_ERROR",
+  "NETWORK_TIMEOUT",
+  "NETWORK_FAILED",
+]) {
+  test(`ambiguous ${code} queries the committed receipt without replacing command identity`, async () => {
+    const { save, client, calls } = setup();
+    client.executeManuscript = async (command) => {
+      calls.push(command);
+      throw new TransportError(code, 200, "a".repeat(32));
+    };
+    const queries = [];
+    client.commandReceipt = async (requestId) => {
+      queries.push(requestId);
+      return receipt(calls[0]);
+    };
+    save.update(local(save, "committed once"));
+    assert.equal(await save.flush(), true);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(queries, [calls[0].requestId]);
+    assert.equal(save.status, "saved");
+    save.dispose();
+  });
+}
+test("uncertain transport receipt keeps its identity and queries again before explicit retry", async () => {
+  const { save, client, calls } = setup();
+  client.executeManuscript = async (command) => {
+    calls.push(command);
+    throw new TransportError("RESPONSE_INVALID_JSON", 200);
+  };
+  let available = false;
+  const queries = [];
+  client.commandReceipt = async (requestId) => {
+    queries.push(requestId);
+    if (!available) throw new TransportError("NETWORK_TIMEOUT");
+    return receipt(calls[0]);
+  };
+  save.update(local(save, "pending"));
+  assert.equal(await save.flush(), false);
+  assert.equal(await save.flush(true), false);
+  assert.equal(calls.length, 1);
+  available = true;
+  assert.equal(await save.flush(true), true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(queries, Array(3).fill(calls[0].requestId));
+  save.dispose();
+});
+test("only proven command absence allows replay with the identical original request", async () => {
+  const { save, client, calls } = setup();
+  client.executeManuscript = async (command) => {
+    calls.push(command);
+    if (calls.length === 1) throw new TransportError("NETWORK_FAILED");
+    return receipt(command);
+  };
+  const queries = [];
+  client.commandReceipt = async (requestId) => {
+    queries.push(requestId);
+    throw new ApiError("COMMAND_NOT_FOUND");
+  };
+  save.update(local(save, "pending"));
+  assert.equal(await save.flush(), true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  assert.deepEqual(queries, [calls[0].requestId]);
   save.dispose();
 });

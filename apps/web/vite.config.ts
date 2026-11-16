@@ -6,7 +6,25 @@ export default defineConfig(({ command }) => {
   if (command === "serve" && !token)
     throw new Error("Start the workspace with pnpm dev");
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      {
+        name: "scenesparrow-safe-build",
+        transformIndexHtml() {
+          const candidate = process.env.SCENESPARROW_BUILD_SHA ?? "";
+          const content = /^[a-f0-9]{7,40}$/.test(candidate)
+            ? candidate
+            : "unknown";
+          return [
+            {
+              tag: "meta",
+              attrs: { name: "scenesparrow-build", content },
+              injectTo: "head-prepend" as const,
+            },
+          ];
+        },
+      },
+    ],
     base: "./",
     preview: {
       host: "127.0.0.1",

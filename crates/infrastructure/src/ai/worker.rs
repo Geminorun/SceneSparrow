@@ -83,6 +83,12 @@ fn run_worker_at(
     cancelled: &mut dyn FnMut() -> bool,
     launch: Option<&std::path::Path>,
 ) -> Result<(AiCompletion, Vec<u8>)> {
+    let mut diagnostics =
+        crate::diagnostics::WorkerSummary::new(Some(match run.configuration.category {
+            AiCategory::Text => "text",
+            AiCategory::Audio => "audio",
+            AiCategory::Video => "video",
+        }));
     let input: AiInput = safe(serde_json::from_slice(input_bytes))?;
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut command = Command::new("node");
@@ -315,6 +321,7 @@ fn run_worker_at(
     drop(write_result);
     let _ = writer.join();
     let _ = reader.join();
+    diagnostics.finish(result.is_ok());
     result
 }
 pub fn safe_code(code: &str) -> &'static str {
@@ -359,7 +366,6 @@ impl SqliteProjectRepository {
         let Some((run, fence)) = self.claim_ai()? else {
             return Ok(None);
         };
-        let started = Instant::now();
         let result = (|| {
             let lease = settings.lease(&run.configuration)?;
             let (bytes, artifacts) = self.ai_input_bytes(&run)?;
@@ -380,17 +386,10 @@ impl SqliteProjectRepository {
             )?;
             self.complete_ai(&receipt, &output)
         })();
-        let terminal = match result {
+        match result {
             Ok(run) => Ok(Some(run)),
             Err(error) => self.fail_ai(&run.run_id, &fence, error.0).map(Some),
-        };
-        if let Ok(Some(done)) = &terminal {
-            eprintln!(
-                "{}",
-                serde_json::json!({"event":"aiRun.terminal","runId":done.run_id,"attempt":done.attempt,"category":done.configuration.category,"adapter":done.configuration.adapter_version,"model":done.configuration.model.id,"status":done.status,"error":done.error,"durationMs":started.elapsed().as_millis(),"outputBytes":done.result.as_ref().map(|a|a.size),"usage":done.usage})
-            );
         }
-        terminal
     }
 }
 
