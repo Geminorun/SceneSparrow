@@ -142,6 +142,35 @@ files, run commands, or call arbitrary core endpoints. Electron uses an applicat
 data directory by default; set `SCENESPARROW_PROJECT_DIR` to share a particular
 development project with the browser, one core instance at a time.
 
+Desktop startup restores the last successfully activated project from
+`app.getPath("userData")/project-registry.json`. A first launch uses the existing
+`projects/default` directory under that same app-data root, creating it only when
+it is absent. An explicit `SCENESPARROW_PROJECT_DIR` takes precedence. Remembered
+projects require an existing database and read-only core inspection before startup;
+a missing, corrupt, unsupported or owned project is never silently recreated.
+Open failure offers native localized open-project, verified-backup recovery,
+default-workspace and cancel choices. Recovery opens a separate directory. Cancelling
+or failing activation retains the previous registry; an unreadable/unsupported
+registry is preserved as a `.corrupt-<uuid>` sibling before a successful replacement.
+
+The versioned registry contains at most ten directory locators with opaque IDs,
+core project IDs and display titles. It contains no manuscript or credentials.
+Writes flush a same-directory temporary file before atomic rename. Failed writes
+preserve the previous file and show one actionable warning until persistence
+succeeds; acknowledged project mutations keep their successful result. Project
+reads, ensure and rename refresh the active entry. Renderer capabilities are optional
+`readRecentProjects(): Promise<{ id: string; title: string }[]>` and
+`openRecentProject(id: string): Promise<void>`. Paths remain in the main process;
+unknown IDs are rejected and recent switches share native picker preflight, the
+save/close handshake and failed-activation rollback. Opening resolves when the
+switch is requested; a completed switch reloads the window. The renderer does not
+provide a path to either capability. Only one picker or switch is allowed at a time.
+
+Registry/preflight tests and an Electron-host simulation exercise persistence,
+startup decisions, bridge sender checks, rollback and warnings. These Linux tests
+do not establish native Windows/macOS filesystem or dialog behavior
+(`S4-T09`/`S4-T10`, `S4-AC18`/`S4-AC20`/`S4-AC21`/`S4-AC22`).
+
 Controlled desktop close waits for a flush and group closure, repeating the drain
 if newer valid input arrives while closure is in flight. Failure keeps the window open for
 retry, cancellation or an explicit discard decision; an unresponsive renderer has

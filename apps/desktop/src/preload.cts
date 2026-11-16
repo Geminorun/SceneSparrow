@@ -113,6 +113,9 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
     ipcRenderer.invoke("manuscript:receipt", requestId),
   pickProject: (recover?: boolean) =>
     ipcRenderer.invoke("project:pick", recover),
+  readRecentProjects: () => ipcRenderer.invoke("project:recents"),
+  openRecentProject: (id: string) =>
+    ipcRenderer.invoke("project:open-recent", id),
   backupProject: () => ipcRenderer.invoke("project:backup"),
   onCloseAborted: (handler: () => void) => {
     const listener = () => handler();

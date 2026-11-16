@@ -371,5 +371,7 @@
   "exportReselect": "检查目标并重新选择保存位置…",
   "closingProject": "正在完成项目保存和关闭…",
   "projectOpenFailed": "无法打开项目，原项目已保留。您可以选择已验证备份，将其打开为新的恢复副本。",
-  "exportDiscardInput": "丢弃已捕获的输入"
+  "exportDiscardInput": "丢弃已捕获的输入",
+  "useDefaultProject": "打开默认工作区",
+  "projectRegistryWarning": "无法更新最近项目列表，项目内容不受影响。请检查应用数据文件夹是否可写，然后重新打开项目。"
 }

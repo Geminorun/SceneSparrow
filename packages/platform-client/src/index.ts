@@ -47,6 +47,11 @@ import type {
   ProjectResponse,
 } from "@scenesparrow/contracts";
 
+export interface RecentProject {
+  id: string;
+  title: string;
+}
+
 export interface PlatformClient {
   readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
   prepareCopy(request: CopyRequest): Promise<PreparedCopy>;
@@ -109,6 +114,8 @@ export interface PlatformClient {
   readManuscript(): Promise<ManuscriptState>;
   executeManuscript(command: ManuscriptCommand): Promise<CommandReceipt>;
   commandReceipt(requestId: string): Promise<CommandReceipt>;
+  readRecentProjects?(): Promise<RecentProject[]>;
+  openRecentProject?(id: string): Promise<void>;
   pickProject?(recover?: boolean): Promise<void>;
   backupProject?(): Promise<{ id: string }>;
   onCloseAborted?(handler: () => void): () => void;
@@ -467,6 +474,8 @@ export interface DesktopBridge {
     command: ManuscriptCommand,
   ): Promise<BridgeResult<CommandReceipt>>;
   commandReceipt(requestId: string): Promise<BridgeResult<CommandReceipt>>;
+  readRecentProjects?(): Promise<BridgeResult<RecentProject[]>>;
+  openRecentProject?(id: string): Promise<BridgeResult<null>>;
   pickProject(recover?: boolean): Promise<BridgeResult<null>>;
   backupProject(): Promise<BridgeResult<{ id: string }>>;
   onCloseAborted(handler: () => void): () => void;
@@ -560,6 +569,18 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     readManuscript: () => unwrap(bridge.readManuscript()),
     executeManuscript: (c) => unwrap(bridge.executeManuscript(c)),
     commandReceipt: (id) => unwrap(bridge.commandReceipt(id)),
+    ...(bridge.readRecentProjects
+      ? {
+          readRecentProjects: () => unwrap(bridge.readRecentProjects!()),
+        }
+      : {}),
+    ...(bridge.openRecentProject
+      ? {
+          openRecentProject: async (id: string) => {
+            await unwrap(bridge.openRecentProject!(id));
+          },
+        }
+      : {}),
     pickProject: async (recover) => {
       await unwrap(bridge.pickProject(recover));
     },

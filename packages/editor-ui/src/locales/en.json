@@ -371,5 +371,7 @@
   "exportReselect": "Check destination and select a new save destination…",
   "closingProject": "Finishing project save and shutdown…",
   "projectOpenFailed": "The project could not be opened. The original has been preserved. You can select a verified backup to open as a new recovered copy.",
-  "exportDiscardInput": "Discard captured input"
+  "exportDiscardInput": "Discard captured input",
+  "useDefaultProject": "Open default workspace",
+  "projectRegistryWarning": "The recent-project list could not be updated. Your project content is unaffected. Check that the app data folder is writable, then reopen the project."
 }
