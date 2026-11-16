@@ -647,3 +647,16 @@ Explicit artifact pins and prepared/import/source roots share the promotion writ
 coordinator. Applied migration 004 and old immutable business roots remain immutable.
 The [step 3 report](../validation/step-03.md) records supported format fallbacks,
 measured budget misses and the exact remaining acceptance gaps.
+
+## 14. Workspace entry and metadata follow-up
+
+The [shared workbench follow-up](../design/workspace-onboarding.md) supersedes the
+bootstrap project-name form. Entry reads the current project, then calls atomic
+`ensureProject` only for a successful null read. A new localized default title is
+persisted immediately; starting a manual draft remains explicit and undoable.
+`renameProject` changes only title metadata, using project identity, the exact
+previous title and durable request receipts. It neither moves files nor changes
+manuscript revisions/history. The editor and planning queues stay mounted through
+rename, Settings and locale changes; S1-AC05/06/08/12 remain applicable.
+Migration 010 appends rename receipts; applied migrations are not rewritten.
+See the [follow-up evidence](../validation/workspace-onboarding.md).

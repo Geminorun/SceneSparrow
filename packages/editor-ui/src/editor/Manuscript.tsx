@@ -23,11 +23,15 @@ export function Manuscript({
   projectId,
   t,
   onRevision,
+  onBeforeClose,
+  approvedBaseline,
 }: {
   client: PlatformClient;
   projectId: string;
   t: typeof en;
   onRevision: (revision: number) => void;
+  onBeforeClose: () => void;
+  approvedBaseline: number | null;
 }) {
   const [initial, setInitial] = useState<{
     document: ManuscriptState;
@@ -79,6 +83,8 @@ export function Manuscript({
       projectId={projectId}
       t={t}
       onRevision={onRevision}
+      onBeforeClose={onBeforeClose}
+      approvedBaseline={approvedBaseline}
     />
   );
 }
@@ -89,6 +95,8 @@ function Draft({
   projectId,
   t,
   onRevision,
+  onBeforeClose,
+  approvedBaseline,
 }: {
   initial: ManuscriptState;
   history: HistoryState;
@@ -96,7 +104,11 @@ function Draft({
   projectId: string;
   t: typeof en;
   onRevision: (revision: number) => void;
+  onBeforeClose: () => void;
+  approvedBaseline: number | null;
 }) {
+  const beforeClose = useRef(onBeforeClose);
+  beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
   const [recovery, setRecovery] = useState(false);
   const [protectionReady, setProtectionReady] = useState(false);
@@ -345,6 +357,7 @@ function Draft({
       const target = event.target instanceof Element ? event.target : null;
       const inEditor = !!target?.closest(".tiptap");
       if (
+        target?.closest("dialog,[role=dialog],[aria-modal=true]") ||
         inEditor ||
         target?.closest("input,textarea,select,[contenteditable=true]")
       )
@@ -399,6 +412,7 @@ function Draft({
     };
     window.addEventListener("beforeunload", warning);
     const remove = client.onCloseRequested?.(async () => {
+      beforeClose.current();
       freeze(true);
       const ok = await save.controlledClose();
       if (ok) return true;
@@ -468,12 +482,17 @@ function Draft({
           >
             {t[`save_${save.status}`]}
           </span>
+          {save.state.workspaceStage === "draft" && (
+            <span className="approval-status" data-testid="approval-status">
+              {approvedBaseline !== null ? t.finalized : t.notApproved}
+            </span>
+          )}
           <div ref={setLockHeader} className="lock-header-target" />
         </div>
         {save.state.workspaceStage === "draft" && (
           <Exports client={client} save={save} t={t} />
         )}
-        <div role="toolbar" aria-label={t.history}>
+        <div className="history-toolbar" role="toolbar" aria-label={t.history}>
           <button
             disabled={
               save.busy ||

@@ -47,6 +47,8 @@ fn state_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/project", get(read_project).post(create_project))
+        .route("/v1/project/ensure", axum::routing::post(ensure_project))
+        .route("/v1/project/rename", axum::routing::post(rename_project))
         .merge(manuscript::routes())
         .merge(documents::routes())
         .merge(exports::routes())
@@ -168,6 +170,7 @@ fn result_response(result: Result<Option<scenesparrow_domain::Project>, Error>) 
             api_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST")
         }
         Err(Error::Conflict) => api_error(StatusCode::CONFLICT, "PROJECT_CONFLICT"),
+        Err(Error::Closing) => api_error(StatusCode::CONFLICT, "PROJECT_CLOSING"),
         Err(Error::SchemaUnsupported) => {
             api_error(StatusCode::SERVICE_UNAVAILABLE, "SCHEMA_UNSUPPORTED")
         }
@@ -208,6 +211,53 @@ async fn create_project(
     result_response(result.unwrap_or(Err(Error::Storage)))
 }
 
+async fn ensure_project(
+    State(state): State<AppState>,
+    body: Result<Json<contracts::EnsureProject>, JsonRejection>,
+) -> Response {
+    let Ok(Json(command)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    let Ok(permit) = state.database_slots.acquire_owned().await else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        state
+            .service
+            .ensure(&command.request_id, &command.title)
+            .map(Some)
+    })
+    .await;
+    result_response(result.unwrap_or(Err(Error::Storage)))
+}
+
+async fn rename_project(
+    State(state): State<AppState>,
+    body: Result<Json<contracts::RenameProject>, JsonRejection>,
+) -> Response {
+    let Ok(Json(command)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    let Ok(permit) = state.database_slots.acquire_owned().await else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE");
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        state
+            .service
+            .rename(
+                &command.request_id,
+                &command.project_id,
+                &command.previous_title,
+                &command.title,
+            )
+            .map(Some)
+    })
+    .await;
+    result_response(result.unwrap_or(Err(Error::Storage)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +266,171 @@ mod tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    async fn project_post(app: Router, path: &str, body: serde_json::Value) -> Response {
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("authorization", "Bearer test-token")
+                .header("origin", "http://127.0.0.1:5173")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn ensure_and_rename_authenticate_validate_and_keep_one_identity() {
+        use serde_json::json;
+        let directory = tempfile::tempdir().unwrap();
+        let app = router(
+            SqliteProjectRepository::open(directory.path()).unwrap(),
+            "test-token",
+            "http://127.0.0.1:5173",
+        );
+        for path in ["/v1/project/ensure", "/v1/project/rename"] {
+            for (auth, origin, expected) in [
+                (None, None, StatusCode::UNAUTHORIZED),
+                (
+                    Some("Bearer test-token"),
+                    Some("https://other.example"),
+                    StatusCode::FORBIDDEN,
+                ),
+            ] {
+                let mut request = Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("content-type", "application/json");
+                if let Some(auth) = auth {
+                    request = request.header("authorization", auth);
+                }
+                if let Some(origin) = origin {
+                    request = request.header("origin", origin);
+                }
+                let response = app
+                    .clone()
+                    .oneshot(
+                        request
+                            .body(Body::from(
+                                r#"{"requestId":"first","title":"Untitled project"}"#,
+                            ))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), expected);
+            }
+        }
+        for (body, expected) in [
+            (json!({"title":"Missing request"}), StatusCode::BAD_REQUEST),
+            (
+                json!({"requestId":"x","title":"Untitled","path":"/tmp/other"}),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                json!({"requestId":"bad request","title":"Untitled"}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                json!({"requestId":"first","title":" "}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                json!({"requestId":"first","title":"雀".repeat(121)}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+        ] {
+            assert_eq!(
+                project_post(app.clone(), "/v1/project/ensure", body)
+                    .await
+                    .status(),
+                expected
+            );
+        }
+        let mut tasks = tokio::task::JoinSet::new();
+        for n in 0..8 {
+            let app = app.clone();
+            tasks.spawn(async move {
+                let response = project_post(
+                    app,
+                    "/v1/project/ensure",
+                    json!({"requestId":format!("first-{n}"),"title":format!("Untitled {n}")}),
+                )
+                .await;
+                assert_eq!(response.status(), StatusCode::OK);
+                let bytes = to_bytes(response.into_body(), 16384).await.unwrap();
+                serde_json::from_slice::<contracts::ProjectResponse>(&bytes)
+                    .unwrap()
+                    .project
+                    .unwrap()
+            });
+        }
+        let mut projects = vec![];
+        while let Some(result) = tasks.join_next().await {
+            projects.push(result.unwrap());
+        }
+        assert!(projects.iter().all(|p| p == &projects[0]));
+        let project = &projects[0];
+        let rename = json!({"requestId":"rename-one","projectId":project.id,"previousTitle":project.title,"title":"Saved name 中文"});
+        for (body, expected) in [
+            (
+                json!({"requestId":"missing","projectId":project.id,"title":"New"}),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                json!({"requestId":"invalid","projectId":"wrong","previousTitle":project.title,"title":"New"}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                json!({"requestId":"mismatch","projectId":"00000000-0000-4000-8000-000000000001","previousTitle":project.title,"title":"New"}),
+                StatusCode::CONFLICT,
+            ),
+            (
+                json!({"requestId":"empty","projectId":project.id,"previousTitle":project.title,"title":""}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (rename.clone(), StatusCode::OK),
+            (rename.clone(), StatusCode::OK),
+            (
+                json!({"requestId":"rename-one","projectId":project.id,"previousTitle":project.title,"title":"Changed payload"}),
+                StatusCode::CONFLICT,
+            ),
+            (
+                json!({"requestId":"stale","projectId":project.id,"previousTitle":project.title,"title":"Stale"}),
+                StatusCode::CONFLICT,
+            ),
+            (
+                json!({"requestId":"rename-two","projectId":project.id,"previousTitle":"Saved name 中文","title":"Latest"}),
+                StatusCode::OK,
+            ),
+            (rename, StatusCode::CONFLICT),
+        ] {
+            assert_eq!(
+                project_post(app.clone(), "/v1/project/rename", body)
+                    .await
+                    .status(),
+                expected
+            );
+        }
+        let response = project_post(
+            app,
+            "/v1/project/ensure",
+            json!({"requestId":"next-launch","title":"Other locale default"}),
+        )
+        .await;
+        let bytes = to_bytes(response.into_body(), 16384).await.unwrap();
+        let current = serde_json::from_slice::<contracts::ProjectResponse>(&bytes)
+            .unwrap()
+            .project
+            .unwrap();
+        assert_eq!(current.id, project.id);
+        assert_eq!(current.title, "Latest");
+        assert_eq!(current.working_revision, project.working_revision);
+        assert_eq!(current.approved_baseline, project.approved_baseline);
+    }
 
     #[tokio::test]
     async fn validates_transport_trace_without_changing_auth_or_business_protocol() {

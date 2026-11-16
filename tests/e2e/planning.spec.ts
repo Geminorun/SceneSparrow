@@ -1,3 +1,4 @@
+import { openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -68,14 +69,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       });
       await route.fulfill({ response });
     });
-    await page.goto("/");
-    await page
-      .getByRole("combobox", { name: "Language", exact: true })
-      .selectOption("en");
-    await page.getByLabel("Project name").fill("Planning browser fixture");
-    await page
-      .getByRole("button", { name: "Create project", exact: true })
-      .click();
+    await openWorkbench(page);
     await expect(
       page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
     ).toBeVisible();

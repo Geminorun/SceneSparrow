@@ -225,7 +225,7 @@ test("RD-A01 fresh browser challenge, wrong/right Basic and external document na
     const response = await page.goto(origin);
     expect(response?.headers()["content-type"]).toContain("text/html");
     await expect(
-      page.getByLabel("Project name", { exact: true }),
+      page.locator(".project-workbench[data-project-id]"),
     ).toBeVisible();
     expect(
       challenges.some(
@@ -246,7 +246,7 @@ test("RD-A01 fresh browser challenge, wrong/right Basic and external document na
     await page.goto(externalOrigin);
     await page.getByRole("link", { name: "Application", exact: true }).click();
     await expect(
-      page.getByLabel("Project name", { exact: true }),
+      page.locator(".project-workbench[data-project-id]"),
     ).toBeVisible();
     await page.goto(externalOrigin);
     await page.getByRole("link", { name: "Diagnostics", exact: true }).click();
@@ -267,6 +267,11 @@ test("RD-A06 mounted application shows safe localized response class, status and
   });
   try {
     const page = await context.newPage();
+    let ensureCalls = 0;
+    await page.route("**/api/v1/project/ensure", (route) => {
+      ensureCalls++;
+      return route.continue();
+    });
     await page.route("**/api/v1/project", (route) =>
       route.fulfill({
         status: 200,
@@ -279,7 +284,10 @@ test("RD-A06 mounted application shows safe localized response class, status and
     );
     await page.goto(origin);
     const alert = page.getByTestId("transport-failure");
-    await expect(alert).toContainText("200");
+    await expect(alert).toContainText(
+      "The server returned an unexpected response format.",
+    );
+    await expect(alert).toContainText("HTTP status: 200");
     await expect(alert).toContainText(trace);
     await expect(page.locator("body")).not.toContainText(
       "RESPONSE_BODY_CANARY",
@@ -288,6 +296,14 @@ test("RD-A06 mounted application shows safe localized response class, status and
       .getByRole("combobox", { name: "Language", exact: true })
       .selectOption("zh-CN");
     await expect(alert).toContainText("服务器返回了意外的响应格式。");
+    await expect(alert).toContainText("HTTP 状态：200");
+    await expect(alert).toContainText(trace);
+    // A failed project read is never evidence of an empty workspace. Explicit
+    // retry must retain the failure class and must not initialize a replacement.
+    await alert.getByRole("button", { name: "重试", exact: true }).click();
+    await expect(alert).toContainText("服务器返回了意外的响应格式。");
+    await expect(alert).toContainText(trace);
+    expect(ensureCalls).toBe(0);
     await expect
       .poll(async () =>
         (await events("client")).some(

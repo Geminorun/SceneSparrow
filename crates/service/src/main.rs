@@ -42,7 +42,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .parse()?;
     let origin =
         env::var("SCENESPARROW_WEB_ORIGIN").unwrap_or_else(|_| "http://127.0.0.1:5173".to_owned());
-    let repository = SqliteProjectRepository::open(&directory)?;
+    let repository = match env::var("SCENESPARROW_PROJECT_OPEN_MODE") {
+        Ok(mode) if mode == "existing" => SqliteProjectRepository::open_existing(&directory)?,
+        Ok(mode) if mode == "create" => SqliteProjectRepository::open(&directory)?,
+        Err(env::VarError::NotPresent) => SqliteProjectRepository::open(&directory)?,
+        _ => return Err("SCENESPARROW_PROJECT_OPEN_MODE must be existing or create".into()),
+    };
     let listener =
         tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await?;
     scenesparrow_infrastructure::diagnostics::emit(

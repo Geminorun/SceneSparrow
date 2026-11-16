@@ -2,6 +2,8 @@
 export type Project = { id: string; title: string; workingRevision: number; approvedBaseline: number | null; };
 export type Health = { status: string; protocolVersion: string; };
 export type CreateProject = { requestId: string; title: string; };
+export type EnsureProject = { requestId: string; title: string; };
+export type RenameProject = { requestId: string; projectId: string; previousTitle: string; title: string; };
 export type ProjectResponse = { project: Project | null; };
 export type ApiError = { code: string; requestId?: string; details?: HistoryErrorDetails; };
 export type Mark = { type: "bold" | "italic" | "code" | "link"; href?: string; };

@@ -118,6 +118,8 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "exportJob",
       "onCloseAborted",
       "pickProject",
+      "readRecentProjects",
+      "openRecentProject",
       "prepareCopy",
       "readExports",
       "readManuscriptIdentity",
@@ -149,6 +151,8 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "subscribeEvents",
       "commandReceipt",
       "createProject",
+      "ensureProject",
+      "renameProject",
       "executeManuscript",
       "health",
       "onCloseRequested",
@@ -157,6 +161,21 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "readProject",
     ].sort(),
   );
+  await exposed.readRecentProjects();
+  assert.deepEqual(calls.pop(), ["project:recents"]);
+  await exposed.openRecentProject("opaque-id");
+  assert.deepEqual(calls.pop(), ["project:open-recent", "opaque-id"]);
+  const ensure = { requestId: "first-open", title: "Untitled project" };
+  await exposed.ensureProject(ensure);
+  assert.deepEqual(calls.pop(), ["project:ensure", ensure]);
+  const rename = {
+    requestId: "rename",
+    projectId: "stable-id",
+    previousTitle: "Untitled project",
+    title: "Named project",
+  };
+  await exposed.renameProject(rename);
+  assert.deepEqual(calls.pop(), ["project:rename", rename]);
   await exposed.prepareAiTest({
     providerId: "fixture",
     modelId: "manual",
@@ -220,4 +239,25 @@ test("cancelled timeout drops only its project switch intent and stale replies c
   close.reply("second-nonce", true);
   assert.deepEqual(accepted, ["second"]);
   close.dispose();
+});
+
+test("desktop recent-project capability is optional and propagates host errors", async () => {
+  const absent = createDesktopClient({});
+  assert.equal(absent.readRecentProjects, undefined);
+  assert.equal(absent.openRecentProject, undefined);
+  const entries = [{ id: "opaque-id", title: "A project" }];
+  const opened = [];
+  const client = createDesktopClient({
+    readRecentProjects: async () => ({ ok: true, data: entries }),
+    openRecentProject: async (id) => {
+      opened.push(id);
+      return { ok: false, code: "PROJECT_CLOSING" };
+    },
+  });
+  assert.deepEqual(await client.readRecentProjects(), entries);
+  await assert.rejects(
+    client.openRecentProject("opaque-id"),
+    (error) => error instanceof ApiError && error.code === "PROJECT_CLOSING",
+  );
+  assert.deepEqual(opened, ["opaque-id"]);
 });

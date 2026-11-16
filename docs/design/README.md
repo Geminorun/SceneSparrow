@@ -38,6 +38,10 @@ The feature branch is `feat/script-workbench`, created directly from remote
    response classification and temporary read-only support access. RD-1/RD-2 are
    implemented in source; see the [evidence and limits](../validation/remote-diagnostics.md).
 
+The later [shared creator workbench](workspace-onboarding.md) follow-up replaces
+the creation gate and locates global AI configuration under Settings while
+preserving the manuscript stage boundaries.
+
 ## Authority and status
 
 The user's interview decisions Q1–Q31 and subsequent corrections take precedence
