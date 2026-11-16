@@ -16,7 +16,7 @@ const run = (args, options = {}) => {
 };
 const id = `scenesparrow-smoke-${randomUUID()}`;
 const temporary = await mkdtemp(join(tmpdir(), id));
-const credential = `operator:${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+const credential = `operator:${randomUUID().replaceAll("-", "").slice(0, 6)}`;
 const origin = "https://scene.mindreview.me";
 const volumes = [`${id}-project`, `${id}-app`];
 let port;

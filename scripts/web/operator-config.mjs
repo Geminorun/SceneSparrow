@@ -8,7 +8,7 @@ export function operatorConfiguration(env) {
   if (hasUsername) {
     if (
       !/^[A-Za-z0-9_-]{1,64}$/.test(env.OPERATOR_USERNAME) ||
-      !/^[\x21-\x7e]{16,256}$/.test(env.OPERATOR_PASSWORD)
+      !/^[\x21-\x7e]{6,256}$/.test(env.OPERATOR_PASSWORD)
     )
       throw Error("Invalid operator configuration");
     return validateOperator(

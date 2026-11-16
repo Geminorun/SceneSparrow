@@ -13,7 +13,7 @@ import {
 
 test("production gateway authenticates all content, enforces origin, strips secrets and cancels SSE", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-gateway-"));
-  const credential = "operator:" + "r".repeat(16);
+  const credential = "operator:" + "r".repeat(6);
   const origin = "https://scene.example";
   let received;
   let receivedPath;
@@ -41,6 +41,10 @@ test("production gateway authenticates all content, enforces origin, strips secr
   });
   let gateway;
   try {
+    await writeFile(join(directory, "auth"), "operator:" + "r".repeat(5));
+    await assert.rejects(readOperator(join(directory, "auth")), {
+      message: "Invalid operator configuration",
+    });
     await writeFile(join(directory, "auth"), credential);
     await writeFile(join(directory, "index.html"), "built frontend");
     await symlink("/etc/passwd", join(directory, "outside"));
