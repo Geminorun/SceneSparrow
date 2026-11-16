@@ -76,6 +76,18 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        Self::open_with_mode(directory, false)
+    }
+
+    /// Reopening must never replace a database removed after desktop preflight.
+    pub fn open_existing(directory: &Path) -> Result<Self, Error> {
+        Self::open_with_mode(directory, true)
+    }
+
+    fn open_with_mode(directory: &Path, require_existing: bool) -> Result<Self, Error> {
+        if require_existing && !storage(std::fs::metadata(directory))?.is_dir() {
+            return Err(Error::Storage);
+        }
         for component in ["objects", "staging", "exports"] {
             let path = directory.join(component);
             if path.exists()
@@ -95,7 +107,9 @@ impl SqliteProjectRepository {
                 return Err(Error::Storage);
             }
         }
-        storage(std::fs::create_dir_all(directory))?;
+        if !require_existing {
+            storage(std::fs::create_dir_all(directory))?;
+        }
         let owner = storage(
             File::options()
                 .read(true)
@@ -105,11 +119,18 @@ impl SqliteProjectRepository {
                 .open(directory.join(".core.lock")),
         )?;
         let owner = ProjectOwner::acquire(owner)?;
-        let mut connection = storage(Connection::open(directory.join("project.sqlite")))?;
+        let mut flags = rusqlite::OpenFlags::default();
+        if require_existing {
+            flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+        }
+        let mut connection = storage(Connection::open_with_flags(
+            directory.join("project.sqlite"),
+            flags,
+        ))?;
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 9 {
+        if version > 10 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -187,6 +208,12 @@ impl SqliteProjectRepository {
             backup::migration_backup(&connection, directory, 9)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/009_exports.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 10 {
+            backup::migration_backup(&connection, directory, 10)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/010_project_metadata.sql")))?;
             storage(tx.commit())?;
         }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
@@ -268,6 +295,9 @@ impl ProjectRepository for SqliteProjectRepository {
 
     fn create(&self, request_id: &str, title: &str) -> Result<Project, Error> {
         let mut connection = storage(self.connection.lock())?;
+        if self.is_quiescing() {
+            return Err(Error::Closing);
+        }
         let transaction = storage(connection.transaction())?;
         if let Some(project) = read_project(&transaction)? {
             let previous_request: String = storage(transaction.query_row(
@@ -281,20 +311,94 @@ impl ProjectRepository for SqliteProjectRepository {
                 Err(Error::Conflict)
             };
         }
-        let project = Project {
-            id: uuid::Uuid::new_v4().to_string(),
-            title: title.to_owned(),
-            working_revision: 0,
-            approved_baseline: None,
-        };
-        storage(transaction.execute(
-            "INSERT INTO project (singleton, id, title, request_id, working_revision, approved_baseline) VALUES (1, ?1, ?2, ?3, 0, NULL)",
-            params![project.id, project.title, request_id],
-        ))?;
-        manuscript::initialize(&transaction)?;
+        let project = initialize_project(&transaction, request_id, title)?;
         storage(transaction.commit())?;
         Ok(project)
     }
+
+    fn ensure(&self, request_id: &str, title: &str) -> Result<Project, Error> {
+        let mut connection = storage(self.connection.lock())?;
+        if self.is_quiescing() {
+            return Err(Error::Closing);
+        }
+        let transaction = storage(connection.transaction())?;
+        if let Some(project) = read_project(&transaction)? {
+            return Ok(project);
+        }
+        let project = initialize_project(&transaction, request_id, title)?;
+        storage(transaction.commit())?;
+        Ok(project)
+    }
+
+    fn rename(
+        &self,
+        request_id: &str,
+        project_id: &str,
+        previous_title: &str,
+        title: &str,
+    ) -> Result<Project, Error> {
+        let mut connection = storage(self.connection.lock())?;
+        if self.is_quiescing() {
+            return Err(Error::Closing);
+        }
+        let tx = storage(connection.transaction())?;
+        let Some(mut project) = read_project(&tx)? else {
+            return Err(Error::Conflict);
+        };
+        let receipt: Option<(String, String, String, i64)> = storage(tx.query_row(
+            "SELECT project_id, previous_title, title, sequence FROM project_rename_receipts WHERE request_id=?1",
+            [request_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        ).optional())?;
+        if let Some((saved_id, saved_previous, saved_title, sequence)) = receipt {
+            let latest: i64 = storage(tx.query_row(
+                "SELECT MAX(sequence) FROM project_rename_receipts",
+                [],
+                |r| r.get(0),
+            ))?;
+            // A replay never performs another write, even after an intervening ABA rename.
+            return if saved_id == project_id
+                && saved_previous == previous_title
+                && saved_title == title
+                && project.id == project_id
+                && project.title == title
+                && sequence == latest
+            {
+                Ok(project)
+            } else {
+                Err(Error::Conflict)
+            };
+        }
+        if project.id != project_id || project.title != previous_title {
+            return Err(Error::Conflict);
+        }
+        storage(tx.execute("UPDATE project SET title=?1 WHERE singleton=1", [title]))?;
+        storage(tx.execute(
+            "INSERT INTO project_rename_receipts(request_id,project_id,previous_title,title) VALUES(?1,?2,?3,?4)",
+            params![request_id, project_id, previous_title, title],
+        ))?;
+        storage(tx.commit())?;
+        project.title = title.to_owned();
+        Ok(project)
+    }
+}
+
+fn initialize_project(
+    connection: &Connection,
+    request_id: &str,
+    title: &str,
+) -> Result<Project, Error> {
+    let project = Project {
+        id: uuid::Uuid::new_v4().to_string(),
+        title: title.to_owned(),
+        working_revision: 0,
+        approved_baseline: None,
+    };
+    storage(connection.execute(
+        "INSERT INTO project (singleton, id, title, request_id, working_revision, approved_baseline) VALUES (1, ?1, ?2, ?3, 0, NULL)",
+        params![project.id, project.title, request_id],
+    ))?;
+    manuscript::initialize(connection)?;
+    Ok(project)
 }
 
 #[cfg(test)]
@@ -332,6 +436,311 @@ mod tests {
         drop(service);
         let reopened = SqliteProjectRepository::open(directory.path()).unwrap();
         assert_eq!(reopened.read().unwrap(), Some(project));
+    }
+
+    #[test]
+    fn concurrent_first_open_returns_one_project_and_existing_ensure_is_read_only() {
+        use scenesparrow_application::manuscript::ManuscriptRepository;
+        let directory = tempfile::tempdir().unwrap();
+        let service = Arc::new(ProjectService::new(
+            SqliteProjectRepository::open(directory.path()).unwrap(),
+        ));
+        let barrier = Arc::new(std::sync::Barrier::new(12));
+        let threads = (0..12)
+            .map(|n| {
+                let service = service.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    service
+                        .ensure(
+                            &format!("browser-{n}"),
+                            if n % 2 == 0 {
+                                "Untitled project"
+                            } else {
+                                "未命名项目"
+                            },
+                        )
+                        .unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let projects = threads
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect::<Vec<_>>();
+        assert!(projects.iter().all(|p| p == &projects[0]));
+        let manuscript = service.repository().read_manuscript().unwrap();
+        let history = service.repository().read_history().unwrap();
+        assert_eq!(
+            service.ensure("retry", "Different default").unwrap(),
+            projects[0]
+        );
+        assert_eq!(service.repository().read_manuscript().unwrap(), manuscript);
+        assert_eq!(service.repository().read_history().unwrap(), history);
+        assert_eq!(service.read().unwrap(), Some(projects[0].clone()));
+        assert!(matches!(
+            service.create("explicit-create", "Other project"),
+            Err(Error::Conflict)
+        ));
+    }
+
+    #[test]
+    fn rename_compares_identity_title_and_receipts_without_replaying_later_renames() {
+        let directory = tempfile::tempdir().unwrap();
+        let service = ProjectService::new(SqliteProjectRepository::open(directory.path()).unwrap());
+        let project = service.ensure("first", "Untitled project").unwrap();
+        for (request, id, previous, title) in [
+            (
+                "bad request",
+                project.id.clone(),
+                project.title.as_str(),
+                "Title",
+            ),
+            (
+                "bad-id",
+                "not-a-project-id".into(),
+                project.title.as_str(),
+                "Title",
+            ),
+            (
+                "bad-previous",
+                project.id.clone(),
+                " Untitled project ",
+                "Title",
+            ),
+        ] {
+            assert!(matches!(
+                service.rename(request, &id, previous, title),
+                Err(Error::InvalidRequest)
+            ));
+        }
+        assert!(matches!(
+            service.rename("empty", &project.id, &project.title, " "),
+            Err(Error::InvalidTitle)
+        ));
+        assert!(matches!(
+            service.rename(
+                "mismatch",
+                &uuid::Uuid::new_v4().to_string(),
+                &project.title,
+                "Title"
+            ),
+            Err(Error::Conflict)
+        ));
+        let renamed = service
+            .rename(
+                "rename-one",
+                &project.id,
+                &project.title,
+                "  My film 幕雀  ",
+            )
+            .unwrap();
+        assert_eq!(renamed.title, "My film 幕雀");
+        assert_eq!(
+            service
+                .rename("rename-one", &project.id, &project.title, "My film 幕雀")
+                .unwrap(),
+            renamed
+        );
+        assert!(matches!(
+            service.rename("rename-one", &project.id, &project.title, "Changed payload"),
+            Err(Error::Conflict)
+        ));
+        assert!(matches!(
+            service.rename("stale", &project.id, &project.title, "Stale edit"),
+            Err(Error::Conflict)
+        ));
+        let third = service
+            .rename("rename-two", &project.id, &renamed.title, "Later name")
+            .unwrap();
+        assert!(matches!(
+            service.rename("rename-one", &project.id, &project.title, &renamed.title),
+            Err(Error::Conflict)
+        ));
+        // Even returning to the previous title cannot make an old receipt write again.
+        service
+            .rename("rename-three", &project.id, &third.title, &project.title)
+            .unwrap();
+        assert!(matches!(
+            service.rename("rename-one", &project.id, &project.title, &renamed.title),
+            Err(Error::Conflict)
+        ));
+        assert_eq!(service.read().unwrap(), Some(project.clone()));
+        drop(service);
+        let service = ProjectService::new(SqliteProjectRepository::open(directory.path()).unwrap());
+        assert_eq!(
+            service
+                .ensure("next-launch", "Another locale default")
+                .unwrap(),
+            project
+        );
+        assert!(matches!(
+            service.rename("rename-one", &project.id, &project.title, &renamed.title),
+            Err(Error::Conflict)
+        ));
+        assert_eq!(
+            service
+                .rename("rename-three", &project.id, &third.title, &project.title)
+                .unwrap(),
+            project
+        );
+    }
+
+    #[test]
+    fn quiescing_fences_project_metadata_writes_until_resume() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = SqliteProjectRepository::open(directory.path()).unwrap();
+        repo.quiesce().unwrap();
+        assert!(matches!(
+            repo.ensure("first", "Untitled project"),
+            Err(Error::Closing)
+        ));
+        assert!(repo.read().unwrap().is_none());
+        repo.resume();
+        let project = repo.ensure("first", "Untitled project").unwrap();
+        repo.quiesce().unwrap();
+        assert!(matches!(
+            repo.rename("rename", &project.id, &project.title, "Changed"),
+            Err(Error::Closing)
+        ));
+        assert_eq!(repo.read().unwrap(), Some(project.clone()));
+        repo.resume();
+        assert_eq!(
+            repo.rename("rename", &project.id, &project.title, "Changed")
+                .unwrap()
+                .title,
+            "Changed"
+        );
+    }
+
+    #[test]
+    fn failed_rename_receipt_insert_rolls_back_title_and_remains_retryable() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = SqliteProjectRepository::open(directory.path()).unwrap();
+        let project = repo.ensure("first", "Untitled project").unwrap();
+        repo.connection.lock().unwrap().execute_batch(
+            "CREATE TEMP TRIGGER fail_rename BEFORE INSERT ON project_rename_receipts BEGIN SELECT RAISE(FAIL,'injected'); END;"
+        ).unwrap();
+        assert!(matches!(
+            repo.rename("rename", &project.id, &project.title, "New title"),
+            Err(Error::Storage)
+        ));
+        assert_eq!(repo.read().unwrap(), Some(project.clone()));
+        {
+            let c = repo.connection.lock().unwrap();
+            assert_eq!(
+                c.query_row("SELECT COUNT(*) FROM project_rename_receipts", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                0
+            );
+            c.execute_batch("DROP TRIGGER fail_rename").unwrap();
+        }
+        assert_eq!(
+            repo.rename("rename", &project.id, &project.title, "New title")
+                .unwrap()
+                .title,
+            "New title"
+        );
+    }
+
+    #[test]
+    fn migration010_failure_preserves_v9_project_and_retries_from_verified_backup() {
+        use scenesparrow_application::manuscript::ManuscriptRepository;
+        let directory = tempfile::tempdir().unwrap();
+        let repo = SqliteProjectRepository::open(directory.path()).unwrap();
+        let project = repo.create("legacy", "Existing project").unwrap();
+        let manuscript = repo.read_manuscript().unwrap();
+        let history = repo.read_history().unwrap();
+        drop(repo);
+        let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
+        c.execute_batch("DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
+        assert!(SqliteProjectRepository::open(directory.path()).is_err());
+        assert_eq!(
+            c.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
+                .unwrap(),
+            9
+        );
+        assert_eq!(read_project(&c).unwrap(), Some(project.clone()));
+        let backup = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("pre-migration-010-")
+            })
+            .unwrap();
+        SqliteProjectRepository::inspect_project(&backup).unwrap();
+        c.execute_batch("DROP TABLE project_rename_receipts")
+            .unwrap();
+        drop(c);
+        let repo = SqliteProjectRepository::open(directory.path()).unwrap();
+        assert_eq!(repo.read().unwrap(), Some(project.clone()));
+        assert_eq!(repo.read_manuscript().unwrap(), manuscript);
+        assert_eq!(repo.read_history().unwrap(), history);
+        assert_eq!(
+            repo.rename("rename", &project.id, &project.title, "New title")
+                .unwrap()
+                .id,
+            project.id
+        );
+    }
+
+    #[test]
+    fn existing_open_never_creates_missing_paths_or_initializes_schema_zero() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing");
+        assert!(SqliteProjectRepository::open_existing(&missing).is_err());
+        assert!(!missing.exists());
+        let database = root.path().join("project.sqlite");
+        assert!(SqliteProjectRepository::open_existing(root.path()).is_err());
+        assert!(!database.exists());
+        std::fs::write(&database, []).unwrap();
+        assert!(matches!(
+            SqliteProjectRepository::open_existing(root.path()),
+            Err(Error::SchemaUnsupported)
+        ));
+        assert!(std::fs::read(&database).unwrap().is_empty());
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE preserved(value TEXT); INSERT INTO preserved VALUES('original');",
+            )
+            .unwrap();
+        drop(connection);
+        let before = std::fs::read(&database).unwrap();
+        assert!(matches!(
+            SqliteProjectRepository::open_existing(root.path()),
+            Err(Error::SchemaUnsupported)
+        ));
+        assert_eq!(std::fs::read(&database).unwrap(), before);
+        assert!(!root.path().join("objects").exists());
+    }
+
+    #[test]
+    fn existing_open_migrates_supported_legacy_database_without_changing_project_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let connection = Connection::open(directory.path().join("project.sqlite")).unwrap();
+        connection
+            .execute_batch(include_str!("../migrations/001_project.sql"))
+            .unwrap();
+        connection.execute("INSERT INTO project VALUES(1,'legacy-id','Legacy project','legacy-request',0,NULL)", []).unwrap();
+        let original = read_project(&connection).unwrap().unwrap();
+        drop(connection);
+        SqliteProjectRepository::inspect_available_project(directory.path()).unwrap();
+        let repository = SqliteProjectRepository::open_existing(directory.path()).unwrap();
+        assert_eq!(repository.read().unwrap(), Some(original));
+        let connection = repository.connection.lock().unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            10
+        );
+        assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
 
     #[test]
@@ -396,6 +805,8 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE project_rename_receipts;")
+        .unwrap();
     c.execute_batch("DROP TABLE copy_preparations;DROP TABLE export_deliveries;DROP TABLE export_controls;DROP TABLE export_jobs;").unwrap();
     c.execute_batch("DROP TABLE downstream_dependencies;DROP TABLE downstream_inputs;DROP TABLE review_candidate_bindings;DROP TABLE review_history_evidence;DROP TABLE manuscript_baseline;DROP TABLE approved_manifest_history;DROP TABLE approved_manifests;DROP TABLE user_locks;").unwrap();
 }

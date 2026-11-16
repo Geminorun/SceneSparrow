@@ -23,8 +23,15 @@ import type {
   ExportJob,
   DeliveryAction,
   DeliveryReceipt,
+  ProjectResponse,
 } from "@scenesparrow/contracts";
 import { intakeSelectedFile } from "./file-intake.js";
+import {
+  ProjectRegistry,
+  type ProjectOpenMode,
+  inspectRememberedProject,
+  prepareInitialProject,
+} from "./project-registry.js";
 import { activateProject } from "./project-activation.js";
 import { coreIsRunning, stopCoreProcess } from "./core-process.js";
 import { CloseHandshake } from "./close-handshake.js";
@@ -32,6 +39,7 @@ import en from "../../../packages/editor-ui/src/locales/en.json" with { type: "j
 import zhCN from "../../../packages/editor-ui/src/locales/zh-CN.json" with { type: "json" };
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -54,10 +62,44 @@ async function main() {
   let closingCore = false;
   let startingCore = true;
   let nativeToken = randomBytes(32).toString("hex");
-  let projectDirectory =
-    process.env.SCENESPARROW_PROJECT_DIR ??
-    join(app.getPath("userData"), "projects", "default");
-  function spawnCore() {
+  const registry = new ProjectRegistry(
+    join(app.getPath("userData"), "project-registry.json"),
+  );
+  await registry.load();
+  const defaultDirectory = join(app.getPath("userData"), "projects", "default");
+  let projectDirectory = "";
+  let registryWarningShown = false;
+  let registryRefresh: Promise<void> = Promise.resolve();
+  function recordCurrentProject() {
+    const update = registryRefresh.then(async () => {
+      const owner = core,
+        directory = projectDirectory;
+      try {
+        const result = await request("/project");
+        if (!result.ok || owner !== core || directory !== projectDirectory)
+          return;
+        await registry.record(
+          directory,
+          (result.data as unknown as ProjectResponse).project,
+        );
+        registryWarningShown = false;
+      } catch {
+        if (registryWarningShown) return;
+        registryWarningShown = true;
+        const t = app.getLocale().startsWith("zh") ? zhCN : en;
+        await dialog
+          .showMessageBox({
+            type: "warning",
+            title: t.appName,
+            message: t.projectRegistryWarning,
+          })
+          .catch(() => {});
+      }
+    });
+    registryRefresh = update.catch(() => {});
+    return registryRefresh;
+  }
+  function spawnCore(mode: ProjectOpenMode) {
     token = randomBytes(32).toString("hex");
     nativeToken = randomBytes(32).toString("hex");
     core = spawn(binary!, [], {
@@ -69,17 +111,17 @@ async function main() {
         SCENESPARROW_APP_DATA_DIR:
           process.env.SCENESPARROW_APP_DATA_DIR ?? app.getPath("userData"),
         SCENESPARROW_PROJECT_DIR: projectDirectory,
+        SCENESPARROW_PROJECT_OPEN_MODE: mode,
       },
     });
     core.on("error", (error) => {
       console.error(error.message);
-      app.quit();
+      if (!switching && !startingCore) app.quit();
     });
     core.on("exit", () => {
       if (!switching && !startingCore) app.quit();
     });
   }
-  spawnCore();
   async function request(path: string, body?: unknown, method?: string) {
     const owningCore = core;
     const response = await fetch(`${baseUrl}${path}`, {
@@ -145,62 +187,123 @@ async function main() {
         code === 0 ? resolveTool() : reject(Error("PROJECT_INTEGRITY_FAILED")),
       );
     });
-  if (!(await waitCoreReady())) {
-    await stopCore();
+  const inspectProject = (path: string) =>
+    runProjectTool(["--inspect-project", path]);
+  async function startInitial(
+    directory: string,
+    create = false,
+    mode: ProjectOpenMode = "existing",
+  ) {
+    if (create) {
+      await mkdir(dirname(directory), { recursive: true });
+      // Exclusive creation refuses a directory that appeared since preflight.
+      await mkdir(directory);
+    }
+    await inspectProject(directory);
+    projectDirectory = directory;
+    spawnCore(mode);
+    if (!(await waitCoreReady())) {
+      await stopCore();
+      throw Error("PROJECT_INTEGRITY_FAILED");
+    }
+  }
+  let ready = false;
+  try {
+    const initial = await prepareInitialProject(
+      registry,
+      defaultDirectory,
+      process.env.SCENESPARROW_PROJECT_DIR,
+      inspectProject,
+    );
+    await startInitial(initial.directory, initial.create, initial.mode);
+    ready = true;
+  } catch {
+    /* A failed locator never initializes replacement data. */
+  }
+  while (!ready) {
     const t = app.getLocale().startsWith("zh") ? zhCN : en;
     const choice = await dialog.showMessageBox({
       type: "error",
       title: t.appName,
       message: t.projectOpenFailed,
-      buttons: [t.recoverProject, t.cancel],
-      defaultId: 1,
-      cancelId: 1,
+      buttons: [t.openProject, t.recoverProject, t.useDefaultProject, t.cancel],
+      defaultId: 0,
+      cancelId: 3,
     });
-    if (choice.response !== 0) {
+    if (choice.response === 3) {
       app.quit();
       return;
     }
-    const selected = await dialog.showOpenDialog({
-      title: t.recoverProject,
-      properties: ["openDirectory"],
-    });
-    if (selected.canceled || !selected.filePaths[0]) {
-      app.quit();
-      return;
+    try {
+      if (choice.response === 2) {
+        // Explicit default choice still refuses a disappeared remembered default.
+        const initial = await prepareInitialProject(
+          registry,
+          defaultDirectory,
+          defaultDirectory,
+          inspectProject,
+        );
+        await startInitial(initial.directory, initial.create, initial.mode);
+      } else {
+        const selected = await dialog.showOpenDialog({
+          title: choice.response === 1 ? t.recoverProject : t.openProject,
+          properties: ["openDirectory"],
+        });
+        if (selected.canceled || !selected.filePaths[0]) continue;
+        let path = selected.filePaths[0];
+        if (choice.response === 1) {
+          const target = join(
+            dirname(path),
+            `recovered-${randomBytes(16).toString("hex")}`,
+          );
+          await runProjectTool(["--recover-project", path, target]);
+          path = target;
+        }
+        await inspectRememberedProject(path, inspectProject);
+        await startInitial(path);
+      }
+      ready = true;
+    } catch {
+      /* Keep the original selection and offer another explicit choice. */
     }
-    const target = join(
-      dirname(selected.filePaths[0]),
-      `recovered-${randomBytes(16).toString("hex")}`,
-    );
-    await runProjectTool(["--recover-project", selected.filePaths[0], target]);
-    projectDirectory = target;
-    spawnCore();
-    if (!(await waitCoreReady())) throw Error("PROJECT_INTEGRITY_FAILED");
   }
+  await recordCurrentProject();
   startingCore = false;
   for (const [channel, path] of [
     ["project:health", "/health"],
     ["project:read", "/project"],
     ["project:create", "/project"],
+    ["project:ensure", "/project/ensure"],
+    ["project:rename", "/project/rename"],
     ["manuscript:history", "/history"],
     ["manuscript:identity", "/manuscript/identity"],
     ["manuscript:read", "/manuscript"],
     ["manuscript:command", "/manuscript/commands"],
     ["manuscript:receipt", "/commands"],
   ] as const) {
-    ipcMain.handle(channel, (event, command: unknown) => {
+    ipcMain.handle(channel, async (event, command: unknown) => {
       checkSender(event);
       if (channel === "manuscript:receipt") {
         if (typeof command !== "string" || !/^[0-9a-f-]{36}$/.test(command))
           return { ok: false, code: "INVALID_REQUEST" };
         return request(`${path}/${encodeURIComponent(command)}`);
       }
-      return request(
+      const result = await request(
         path,
-        channel === "project:create" || channel === "manuscript:command"
+        channel === "project:create" ||
+          channel === "project:ensure" ||
+          channel === "project:rename" ||
+          channel === "manuscript:command"
           ? command
           : undefined,
       );
+      if (
+        result.ok &&
+        channel.startsWith("project:") &&
+        channel !== "project:health"
+      )
+        await recordCurrentProject();
+      return result;
     });
   }
   const checkSender = (
@@ -750,13 +853,15 @@ async function main() {
               const result = await activateProject(previous, candidate, {
                 stop: stopCore,
                 start: async (directory) => {
+                  await inspectRememberedProject(directory, inspectProject);
                   projectDirectory = directory;
-                  spawnCore();
+                  spawnCore("existing");
                   if (!(await waitCoreReady()))
                     throw Error("PROJECT_INTEGRITY_FAILED");
                 },
               });
               projectDirectory = result.directory;
+              if (result.changed) await recordCurrentProject();
               switching = false;
               closingCore = false;
               window.reload();
@@ -804,26 +909,26 @@ async function main() {
     },
   );
   let pickingProject = false;
-  ipcMain.handle("project:pick", async (event, recover: unknown) => {
-    checkSender(event);
+  async function chooseProject(
+    select: () => Promise<string | null>,
+    recover = false,
+  ) {
     if (pickingProject || closingCore || close.isPending)
       return { ok: false, code: "PROJECT_CLOSING" };
     pickingProject = true;
     try {
-      const selected = await dialog.showOpenDialog(window, {
-        properties: ["openDirectory"],
-      });
-      if (selected.canceled || !selected.filePaths[0])
+      let path = await select();
+      if (!path || (!recover && resolve(path) === resolve(projectDirectory)))
         return { ok: true, data: null };
-      let path = selected.filePaths[0];
-      if (recover === true) {
+      if (recover) {
         const destination = join(
           dirname(path),
           `recovered-${randomBytes(16).toString("hex")}`,
         );
         await runProjectTool(["--recover-project", path, destination]);
         path = destination;
-      } else await runProjectTool(["--inspect-project", path]);
+      }
+      await inspectRememberedProject(path, inspectProject);
       if (closingCore || close.isPending)
         return { ok: false, code: "PROJECT_CLOSING" };
       nextProject = path;
@@ -836,6 +941,31 @@ async function main() {
     } finally {
       pickingProject = false;
     }
+  }
+  ipcMain.handle("project:pick", async (event, recover: unknown) => {
+    checkSender(event);
+    if (recover !== undefined && typeof recover !== "boolean")
+      return { ok: false, code: "INVALID_REQUEST" };
+    return chooseProject(async () => {
+      const selected = await dialog.showOpenDialog(window, {
+        properties: ["openDirectory"],
+      });
+      return selected.canceled ? null : (selected.filePaths[0] ?? null);
+    }, recover === true);
+  });
+  ipcMain.handle("project:recents", (event) => {
+    checkSender(event);
+    return { ok: true, data: registry.recentProjects() };
+  });
+  ipcMain.handle("project:open-recent", (event, id: unknown) => {
+    checkSender(event);
+    let path: string;
+    try {
+      path = registry.resolveRecent(id);
+    } catch (error) {
+      return { ok: false, code: (error as Error).message };
+    }
+    return chooseProject(async () => path);
   });
   ipcMain.handle("project:backup", async (event) => {
     checkSender(event);

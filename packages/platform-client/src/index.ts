@@ -38,12 +38,19 @@ import type {
   ProjectEvent,
   HistoryState,
   CreateProject,
+  EnsureProject,
+  RenameProject,
   ManuscriptState,
   ManuscriptCommand,
   CommandReceipt,
   Health,
   ProjectResponse,
 } from "@scenesparrow/contracts";
+
+export interface RecentProject {
+  id: string;
+  title: string;
+}
 
 export interface PlatformClient {
   readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
@@ -107,6 +114,8 @@ export interface PlatformClient {
   readManuscript(): Promise<ManuscriptState>;
   executeManuscript(command: ManuscriptCommand): Promise<CommandReceipt>;
   commandReceipt(requestId: string): Promise<CommandReceipt>;
+  readRecentProjects?(): Promise<RecentProject[]>;
+  openRecentProject?(id: string): Promise<void>;
   pickProject?(recover?: boolean): Promise<void>;
   backupProject?(): Promise<{ id: string }>;
   onCloseAborted?(handler: () => void): () => void;
@@ -114,6 +123,8 @@ export interface PlatformClient {
   health(): Promise<Health>;
   readProject(): Promise<ProjectResponse>;
   createProject(command: CreateProject): Promise<ProjectResponse>;
+  ensureProject(command: EnsureProject): Promise<ProjectResponse>;
+  renameProject(command: RenameProject): Promise<ProjectResponse>;
 }
 
 export class ApiError extends Error {
@@ -136,6 +147,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       | PlanningPreparationRequest
       | PlanningVisualAction
       | CreateProject
+      | EnsureProject
+      | RenameProject
       | ManuscriptCommand
       | DocumentAction
       | AiSettingsUpdate
@@ -362,6 +375,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     health: () => request("/v1/health"),
     readProject: () => request("/v1/project"),
     createProject: (command) => request("/v1/project", command),
+    ensureProject: (command) => request("/v1/project/ensure", command),
+    renameProject: (command) => request("/v1/project/rename", command),
   };
 }
 
@@ -451,12 +466,16 @@ export interface DesktopBridge {
   health(): Promise<BridgeResult<Health>>;
   readProject(): Promise<BridgeResult<ProjectResponse>>;
   createProject(command: CreateProject): Promise<BridgeResult<ProjectResponse>>;
+  ensureProject(command: EnsureProject): Promise<BridgeResult<ProjectResponse>>;
+  renameProject(command: RenameProject): Promise<BridgeResult<ProjectResponse>>;
   readHistory(): Promise<BridgeResult<HistoryState>>;
   readManuscript(): Promise<BridgeResult<ManuscriptState>>;
   executeManuscript(
     command: ManuscriptCommand,
   ): Promise<BridgeResult<CommandReceipt>>;
   commandReceipt(requestId: string): Promise<BridgeResult<CommandReceipt>>;
+  readRecentProjects?(): Promise<BridgeResult<RecentProject[]>>;
+  openRecentProject?(id: string): Promise<BridgeResult<null>>;
   pickProject(recover?: boolean): Promise<BridgeResult<null>>;
   backupProject(): Promise<BridgeResult<{ id: string }>>;
   onCloseAborted(handler: () => void): () => void;
@@ -544,10 +563,24 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     health: () => unwrap(bridge.health()),
     readProject: () => unwrap(bridge.readProject()),
     createProject: (c) => unwrap(bridge.createProject(c)),
+    ensureProject: (c) => unwrap(bridge.ensureProject(c)),
+    renameProject: (c) => unwrap(bridge.renameProject(c)),
     readHistory: () => unwrap(bridge.readHistory()),
     readManuscript: () => unwrap(bridge.readManuscript()),
     executeManuscript: (c) => unwrap(bridge.executeManuscript(c)),
     commandReceipt: (id) => unwrap(bridge.commandReceipt(id)),
+    ...(bridge.readRecentProjects
+      ? {
+          readRecentProjects: () => unwrap(bridge.readRecentProjects!()),
+        }
+      : {}),
+    ...(bridge.openRecentProject
+      ? {
+          openRecentProject: async (id: string) => {
+            await unwrap(bridge.openRecentProject!(id));
+          },
+        }
+      : {}),
     pickProject: async (recover) => {
       await unwrap(bridge.pickProject(recover));
     },

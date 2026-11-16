@@ -61,7 +61,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–009 are
+  open; do not claim full stage acceptance. Applied migrations 001–010 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;

@@ -92,6 +92,8 @@ const transportNames = new Set([
   "Project",
   "Health",
   "CreateProject",
+  "EnsureProject",
+  "RenameProject",
   "ProjectResponse",
   "ApiError",
 ]);

@@ -39,6 +39,15 @@ JSON Schema defines the protocol; TypeScript and Rust protocol structures derive
 from it. HTTP/SSE serves browser development, while desktop integration uses
 restricted platform capabilities. The Rust core owns authoritative writes.
 
+`apps/web` is also the desktop renderer entry: it mounts the shared
+`packages/editor-ui` workbench and selects either the authenticated HTTP client
+or the restricted Electron preload client. Web and desktop do not maintain
+separate business interfaces. The workbench opens an existing project or atomically
+ensures one default project; project-title changes are metadata commands outside
+manuscript history. Desktop recent-project locators remain in the host. The
+[workspace follow-up](design/workspace-onboarding.md) records settings placement,
+editor lifecycle and the single-project Web boundary.
+
 The core is a modular monolith with seven business modules: project/workflow,
 script/content, review/versioning, storyboard/engineering, assets/media,
 Agent/Skills, and rendering/delivery. These are ownership boundaries within one

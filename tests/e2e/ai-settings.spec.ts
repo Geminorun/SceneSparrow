@@ -1,3 +1,4 @@
+import { openWorkbench, openAiSettings } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 test("global bilingual settings allow manual model after discovery failure, clear key and make inference explicit", async ({
@@ -34,11 +35,8 @@ test("global bilingual settings allow manual model after discovery failure, clea
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const root = `http://127.0.0.1:${(server.address() as { port: number }).port}/custom`;
   try {
-    await page.goto("/");
-    await page
-      .getByRole("combobox", { name: "Language", exact: true })
-      .selectOption("en");
-    await page.getByText("AI settings", { exact: true }).click();
+    await openWorkbench(page);
+    await openAiSettings(page);
     await expect(
       page.getByText(
         "Keys are kept in memory for this app session only. Restarting loses them.",
@@ -87,9 +85,26 @@ test("global bilingual settings allow manual model after discovery failure, clea
       ),
     ).toBeVisible();
     expect(calls).toBe(0);
+    let loseTestResponse = true;
+    await page.route("**/api/v1/ai/connection-tests", async (route) => {
+      const response = await route.fetch();
+      if (loseTestResponse) {
+        loseTestResponse = false;
+        await route.abort("failed");
+      } else await route.fulfill({ response });
+    });
     await page
       .getByRole("button", { name: "Run a new inference test", exact: true })
       .click();
+    await expect(
+      page.getByRole("button", { name: "Resolve submitted test", exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await openAiSettings(page);
+    await page
+      .getByRole("button", { name: "Resolve submitted test", exact: true })
+      .click();
+
     await expect(
       page.getByText(
         "Text test succeeded. Other capabilities remain unverified.",
@@ -161,8 +176,14 @@ test("global bilingual settings allow manual model after discovery failure, clea
       "SYNTHETIC_UI_KEY_CANARY",
     );
     await page
+      .getByRole("dialog", { name: "Settings", exact: true })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await page
       .getByRole("combobox", { name: "Language", exact: true })
       .selectOption("zh-CN");
+    await page.getByRole("button", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "AI 与模型", exact: true }).click();
     await expect(
       page.getByText("音频 — 预留，尚不可用", { exact: true }),
     ).toBeVisible();
@@ -177,5 +198,81 @@ test("global bilingual settings allow manual model after discovery failure, clea
   } finally {
     server.closeAllConnections();
     await new Promise<void>((r) => server.close(() => r()));
+  }
+});
+
+test("a second explicit test on the same profile replaces the previous receipt and resolves its own unknown action", async ({
+  page,
+}) => {
+  let calls = 0;
+  const server = createServer(async (_request, response) => {
+    calls++;
+    response.setHeader("content-type", "application/json");
+    response.end(
+      JSON.stringify({
+        choices: [
+          { message: { content: "OK" }, finish_reason: "stop", index: 0 },
+        ],
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const root = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`;
+  try {
+    await openWorkbench(page);
+    await openAiSettings(page);
+    await page
+      .getByLabel("Profile name", { exact: true })
+      .fill("Repeated inference fixture");
+    await page.getByLabel("API root", { exact: true }).fill(root);
+    await page
+      .getByRole("combobox", { name: "Authentication", exact: true })
+      .selectOption("none");
+    await page
+      .getByRole("button", { name: "Save provider", exact: true })
+      .click();
+    await page
+      .getByLabel("Model ID (manual entry supported)", { exact: true })
+      .fill("same-model");
+    const success = page.getByText(
+      "Text test succeeded. Other capabilities remain unverified.",
+      { exact: true },
+    );
+    await page
+      .getByRole("button", { name: "Run a new inference test", exact: true })
+      .click();
+    await expect(success).toBeVisible();
+    expect(calls).toBe(1);
+    let loseResponse = true;
+    const actions: unknown[] = [];
+    await page.route("**/api/v1/ai/connection-tests", async (route) => {
+      actions.push(route.request().postDataJSON());
+      const response = await route.fetch();
+      if (loseResponse) {
+        loseResponse = false;
+        await route.abort("failed");
+      } else await route.fulfill({ response });
+    });
+    await page
+      .getByRole("button", { name: "Run a new inference test", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Resolve submitted test", exact: true }),
+    ).toBeEnabled();
+    await expect(success).not.toBeVisible();
+    expect(calls).toBe(2);
+    await page.keyboard.press("Escape");
+    await openAiSettings(page);
+    await expect(success).not.toBeVisible();
+    await page
+      .getByRole("button", { name: "Resolve submitted test", exact: true })
+      .click();
+    await expect(success).toBeVisible();
+    expect(actions).toHaveLength(2);
+    expect(actions[0]).toEqual(actions[1]);
+    expect(calls).toBe(2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

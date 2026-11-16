@@ -113,6 +113,9 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
     ipcRenderer.invoke("manuscript:receipt", requestId),
   pickProject: (recover?: boolean) =>
     ipcRenderer.invoke("project:pick", recover),
+  readRecentProjects: () => ipcRenderer.invoke("project:recents"),
+  openRecentProject: (id: string) =>
+    ipcRenderer.invoke("project:open-recent", id),
   backupProject: () => ipcRenderer.invoke("project:backup"),
   onCloseAborted: (handler: () => void) => {
     const listener = () => handler();
@@ -128,6 +131,10 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
   },
   health: () => ipcRenderer.invoke("project:health"),
   readProject: () => ipcRenderer.invoke("project:read"),
+  ensureProject: (command: unknown) =>
+    ipcRenderer.invoke("project:ensure", command),
+  renameProject: (command: unknown) =>
+    ipcRenderer.invoke("project:rename", command),
   createProject: (command: unknown) =>
     ipcRenderer.invoke("project:create", command),
 });

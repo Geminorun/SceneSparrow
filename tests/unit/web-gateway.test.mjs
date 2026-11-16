@@ -175,6 +175,21 @@ test("production gateway authenticates all content, enforces origin, strips secr
     assert.equal(received["x-intake-id"], "allowed");
     assert.equal((await send("/api/v1/project?q=one?two%20three")).status, 200);
     assert.equal(receivedPath, "/v1/project?q=one?two%20three");
+    for (const operation of ["ensure", "rename"]) {
+      const path = `/api/v1/project/${operation}`;
+      assert.equal(
+        (await send(path, { method: "POST", body: "{}" })).status,
+        403,
+      );
+      assert.equal(
+        (await send(path, { method: "POST", headers: { origin }, body: "{}" }))
+          .status,
+        200,
+      );
+      assert.equal(receivedPath, `/v1/project/${operation}`);
+      assert.equal(received.authorization, "Bearer private-core-token");
+    }
+
     assert.equal((await send("/api/v1/oversized")).status, 502);
     assert.equal(
       (

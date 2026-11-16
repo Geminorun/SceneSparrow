@@ -2249,3 +2249,55 @@ fn recovered_copy_preserves_pending_candidate_locks_middle_cursor_and_exact_busi
     assert_ne!(copy.read_manuscript().unwrap().blocks, expected_body.blocks);
     assert_eq!(r.read_manuscript().unwrap(), expected_body);
 }
+
+#[test]
+fn metadata_rename_and_ensure_preserve_approved_manuscript_history_and_reopen() {
+    let (d, r, _s, p) = setup();
+    locks(&r, &p, vec![], true, true).unwrap();
+    let before_project = r.read().unwrap().unwrap();
+    let before_body = r.read_manuscript().unwrap();
+    let before_history = r.read_history().unwrap();
+    let before_finalization = r.read_finalization().unwrap();
+    let before_roots = r.retained_object_roots().unwrap();
+    assert!(before_finalization.finalized);
+    assert!(before_project.approved_baseline.is_some());
+    let renamed = r
+        .rename("metadata-rename", &p, &before_project.title, "Film 中文 🐦")
+        .unwrap();
+    assert_eq!(renamed.id, p);
+    assert_eq!(renamed.working_revision, before_project.working_revision);
+    assert_eq!(renamed.approved_baseline, before_project.approved_baseline);
+    assert_eq!(
+        r.ensure("another-browser", "Untitled project").unwrap(),
+        renamed
+    );
+    assert_eq!(r.read_manuscript().unwrap(), before_body);
+    assert_eq!(r.read_history().unwrap(), before_history);
+    assert_eq!(r.read_finalization().unwrap(), before_finalization);
+    assert_eq!(r.retained_object_roots().unwrap(), before_roots);
+    let backup = r.verified_backup().unwrap();
+    let recovered_path = d.path().join("recovered");
+    let recovered =
+        SqliteProjectRepository::restore_verified_copy(&backup, &recovered_path).unwrap();
+    assert_eq!(recovered.read().unwrap(), Some(renamed.clone()));
+    assert_eq!(recovered.read_finalization().unwrap(), before_finalization);
+    assert_eq!(
+        recovered
+            .rename("metadata-rename", &p, &before_project.title, &renamed.title)
+            .unwrap(),
+        renamed
+    );
+    drop(recovered);
+    drop(r);
+    let r = SqliteProjectRepository::open(&d.path().join("project")).unwrap();
+    assert_eq!(r.read().unwrap(), Some(renamed.clone()));
+    assert_eq!(r.read_manuscript().unwrap(), before_body);
+    assert_eq!(r.read_history().unwrap(), before_history);
+    assert_eq!(r.read_finalization().unwrap(), before_finalization);
+    assert_eq!(r.retained_object_roots().unwrap(), before_roots);
+    assert_eq!(
+        r.rename("metadata-rename", &p, &before_project.title, &renamed.title)
+            .unwrap(),
+        renamed
+    );
+}

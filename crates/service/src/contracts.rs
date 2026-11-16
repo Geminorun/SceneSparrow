@@ -42,6 +42,26 @@ pub struct CreateProject {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct EnsureProject {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameProject {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "previousTitle")]
+    pub previous_title: String,
+    #[serde(rename = "title")]
+    pub title: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectResponse {
     #[serde(rename = "project", deserialize_with = "required_nullable")]
     pub project: Option<Project>,

@@ -1,3 +1,4 @@
+import { openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { readFile, readdir, stat, writeFile, mkdir } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -13,19 +14,7 @@ test("measures Linux manuscript fixtures with real browser input and core receip
     "Run pnpm perf:s1 explicitly.",
   );
   test.setTimeout(240000);
-  await page.goto("/");
-  await expect(
-    page
-      .getByLabel("Project name")
-      .or(page.getByRole("heading", { name: "Performance", exact: true })),
-  ).toBeVisible();
-  if (await page.getByLabel("Project name").isVisible()) {
-    await page.getByLabel("Project name").fill("Performance");
-    await page.getByRole("button", { name: "Create project" }).click();
-  }
-  await page
-    .getByRole("combobox", { name: "Language", exact: true })
-    .selectOption("en");
+  await openWorkbench(page);
   await expect(
     page.getByRole("button", { name: "Import manuscript", exact: true }),
   ).toBeVisible();
