@@ -127,14 +127,16 @@ export interface PlatformClient {
   renameProject(command: RenameProject): Promise<ProjectResponse>;
 }
 
-export class ApiError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly details?: HistoryErrorDetails,
-  ) {
-    super(code);
-  }
-}
+import { ApiError, TransportError } from "./errors";
+import {
+  decodeJson,
+  decodeJsonText,
+  fetchResponse,
+  networkError,
+  reportTransport,
+} from "./transport";
+export { ApiError, TransportError } from "./errors";
+export { onTransportFailure } from "./transport";
 
 export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
@@ -158,26 +160,25 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       | { providerId: string },
     method?: string,
   ): Promise<T> {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: method ?? (body ? "POST" : "GET"),
-      headers: body ? { "content-type": "application/json" } : {},
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(
+    try {
+      const signal = AbortSignal.timeout(
         path.includes("connection-tests")
           ? 35_000
           : path.includes("models/discover")
             ? 20_000
             : 10_000,
-      ),
-    });
-    if (!response.ok) {
-      const error = (await response.json()) as {
-        code?: string;
-        details?: HistoryErrorDetails;
-      };
-      throw new ApiError(error.code ?? "SERVICE_UNAVAILABLE", error.details);
+      );
+      const response = await fetchResponse(`${baseUrl}${path}`, {
+        method: method ?? (body ? "POST" : "GET"),
+        headers: body ? { "content-type": "application/json" } : {},
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal,
+      });
+      return await decodeJson<T>(response, method, false, signal);
+    } catch (error) {
+      reportTransport(error, path);
+      throw error;
     }
-    return (await response.json()) as T;
   }
   const subscribers = new Set<{
     handler: (event: ProjectEvent) => void;
@@ -230,18 +231,28 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     retryExport: (id, body) =>
       request(`/v1/manuscript/exports/${encodeURIComponent(id)}/retry`, body),
     exportBytes: async (id) => {
-      const response = await fetch(
-        `${baseUrl}/v1/manuscript/exports/${encodeURIComponent(id)}/artifact`,
-        { signal: AbortSignal.timeout(10000) },
-      );
-      if (!response.ok)
-        throw new ApiError(
-          (await response.json()).code ?? "DOWNLOAD_UNAVAILABLE",
-        );
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.length > 32 * 1024 * 1024)
-        throw new ApiError("EXPORT_TOO_LARGE");
-      return bytes;
+      const path = `/v1/manuscript/exports/${encodeURIComponent(id)}/artifact`;
+      const signal = AbortSignal.timeout(10000);
+      let response: Response | undefined;
+      try {
+        response = await fetchResponse(`${baseUrl}${path}`, { signal });
+        if (!response.ok) await decodeJson(response, "GET", false, signal);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length > 32 * 1024 * 1024)
+          throw new ApiError("EXPORT_TOO_LARGE");
+        return bytes;
+      } catch (error) {
+        const failure =
+          error instanceof ApiError || error instanceof TransportError
+            ? error
+            : new TransportError(
+                networkError(error, signal).code,
+                response?.status,
+                response?.headers.get("X-SceneSparrow-Trace-Id"),
+              );
+        reportTransport(failure, path);
+        throw failure;
+      }
     },
     reviewCandidate: (id, offset) =>
       request(
@@ -284,17 +295,27 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     testAiConnection: (action) => request("/v1/ai/connection-tests", action),
     readAiRun: (id) => request(`/v1/ai/runs/${encodeURIComponent(id)}`),
     readAiResult: async (id) => {
-      const response = await fetch(
-        `${baseUrl}/v1/ai/runs/${encodeURIComponent(id)}/result`,
-        { signal: AbortSignal.timeout(10000) },
-      );
-      if (!response.ok) {
-        const error = await response.json();
-        throw new ApiError(error.code ?? "RESULT_UNAVAILABLE");
+      const path = `/v1/ai/runs/${encodeURIComponent(id)}/result`;
+      const signal = AbortSignal.timeout(10000);
+      let response: Response | undefined;
+      try {
+        response = await fetchResponse(`${baseUrl}${path}`, { signal });
+        if (!response.ok) await decodeJson(response, "GET", false, signal);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > 8388608) throw new ApiError("OUTPUT_TRUNCATED");
+        return bytes;
+      } catch (error) {
+        const failure =
+          error instanceof ApiError || error instanceof TransportError
+            ? error
+            : new TransportError(
+                networkError(error, signal).code,
+                response?.status,
+                response?.headers.get("X-SceneSparrow-Trace-Id"),
+              );
+        reportTransport(failure, path);
+        throw failure;
       }
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      if (bytes.byteLength > 8388608) throw new ApiError("OUTPUT_TRUNCATED");
-      return bytes;
     },
     cancelAiRun: (id) =>
       request(`/v1/ai/runs/${encodeURIComponent(id)}/cancel`, {} as never),
@@ -322,16 +343,29 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
           xhr.onload = () => {
             cleanup();
             try {
-              const value = JSON.parse(xhr.responseText);
-              if (xhr.status >= 200 && xhr.status < 300) resolve(value);
-              else reject(new ApiError(value.code ?? "SERVICE_UNAVAILABLE"));
-            } catch {
-              reject(new Error("SERVICE_UNAVAILABLE"));
+              const value = decodeJsonText(
+                xhr.status,
+                xhr.getResponseHeader("content-type"),
+                xhr.responseText,
+                xhr.getResponseHeader("X-SceneSparrow-Trace-Id"),
+              );
+              resolve(value as Intake);
+            } catch (error) {
+              reportTransport(error, "/v1/intakes");
+              reject(error);
             }
           };
-          xhr.onerror = xhr.ontimeout = () => {
+          xhr.onerror = () => {
             cleanup();
-            reject(new Error("SERVICE_UNAVAILABLE"));
+            const error = new TransportError("NETWORK_FAILED");
+            reportTransport(error, "/v1/intakes");
+            reject(error);
+          };
+          xhr.ontimeout = () => {
+            cleanup();
+            const error = new TransportError("NETWORK_TIMEOUT");
+            reportTransport(error, "/v1/intakes");
+            reject(error);
           };
           xhr.onabort = () => {
             cleanup();
@@ -612,12 +646,17 @@ export function subscribeProjectEvents(
   void (async () => {
     while (!abort.signal.aborted) {
       try {
-        const response = await fetch(`${url}?after=${after}`, {
+        const response = await fetchResponse(`${url}?after=${after}`, {
           headers,
           signal: abort.signal,
         });
-        if (!response.ok || !response.body)
-          throw new Error("SERVICE_UNAVAILABLE");
+        if (!response.ok) await decodeJson(response);
+        if (!response.body)
+          throw new TransportError(
+            "NETWORK_FAILED",
+            response.status,
+            response.headers.get("X-SceneSparrow-Trace-Id"),
+          );
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let pending = "";
@@ -660,7 +699,8 @@ export function subscribeProjectEvents(
           await reader.cancel().catch(() => {});
           reader.releaseLock();
         }
-      } catch {
+      } catch (error) {
+        if (!abort.signal.aborted) reportTransport(error, "/v1/project/events");
         /* Reconnect using the last delivered cursor, without replaying work. */
       }
       if (!abort.signal.aborted)

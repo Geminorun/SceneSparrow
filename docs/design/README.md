@@ -34,6 +34,9 @@ The feature branch is `feat/script-workbench`, created directly from remote
 6. [Shared AI implementation spec](../specs/shared-ai-integration.md): concrete
    settings/execution ports, secure credential lifecycle, one-dispatch invariant,
    recovery modes and the initial migration sequence shared with S1–S4.
+7. [Remote diagnostics](remote-diagnostics-v0.1.md): private Web observability,
+   response classification and temporary read-only support access. RD-1/RD-2 are
+   implemented in source; see the [evidence and limits](../validation/remote-diagnostics.md).
 
 The later [shared creator workbench](workspace-onboarding.md) follow-up replaces
 the creation gate and locates global AI configuration under Settings while

@@ -253,3 +253,81 @@ workflow and verify HTTPS, operator rejection, SSE reconnect, project persistenc
 backup retention and restart key re-entry on the actual server before accepting
 online deployment. Desktop Windows/macOS compatibility, real provider behavior,
 multiuser isolation and full production video rendering remain separate work.
+
+## Private diagnostics
+
+The gateway serves `/diagnostics` directly, with inline nonce-protected assets and
+English/Simplified Chinese resources. It does not import the React bundle or use
+the project API. Open it with the existing operator Basic credential when the
+application bundle fails. The page provides runtime status, recent events, a
+bounded JSON download and explicit create/replace/revoke controls for temporary
+read access. See the [design](design/remote-diagnostics-v0.1.md) and
+[validation evidence](validation/remote-diagnostics.md).
+
+A read grant defaults to 15 minutes (API range: 60–3600 seconds). One grant is
+active at a time. Creating another, revoking, expiry or a gateway restart invalidates
+it. The gateway stores only the token hash in RAM; the page reveals the token
+only after the operator creates it and keeps it in memory. Supply it to a support
+tool as an Authorization Bearer header. Its exact scope is GET on
+`/diagnostics/v1/status`, `/diagnostics/v1/logs` and `/diagnostics/v1/bundle`.
+It cannot open the page, change grants, submit events, call project/native APIs or
+access the host. The support flow is status, a narrow recent event window, optional
+bundle export, then revocation. No permanent support secret is needed.
+
+The APIs also accept the operator credential. This command prompts for the
+password without putting it in arguments or history:
+
+```sh
+curl --user OPERATOR_USERNAME --fail-with-body \
+  https://scene.mindreview.me/diagnostics/v1/status
+```
+
+Header-authenticated CLI reads may omit Origin. POST operations require the exact
+configured Origin, including revocation:
+
+```sh
+curl --user OPERATOR_USERNAME --fail-with-body \
+  --header 'Origin: https://scene.mindreview.me' \
+  --header 'Content-Type: application/json' --data '{}' \
+  https://scene.mindreview.me/diagnostics/v1/access-grants/revoke
+```
+
+Logs contain allowlisted operational codes, timing/status/size metadata and
+transport trace identifiers. They exclude authorization, bodies, IP addresses,
+paths, filenames, project/content IDs, prompts and raw provider/SDK errors. Child
+stdout/stderr is drained and revalidated; worker stdout remains its RPC channel.
+Rust producers use a separate bounded queue and detached stderr writer; output
+failures drop diagnostic events without panicking a business request. Delivered
+safe drop summaries contribute to collector totals. Collection begins with the
+instrumented runtime; previously discarded output
+cannot be recovered. A failure before JavaScript runs has no client report; use
+document/asset gateway records and browser network evidence to identify that stage.
+
+Safe JSONL lives under `/data/app/diagnostics` in the existing app-data volume,
+with directory/file modes 0700/0600. Files rotate at 2 MiB and are bounded by
+20 MiB total, three days and 64 files. Startup and a serialized, unref maintenance
+check every 60 seconds remove expired files; idle expiry may take that maintenance
+interval. Full app-data backups can contain these logs and have their own backup
+retention. No project schema migration is introduced.
+
+Reads default to the last 15 minutes, accept at most a 24-hour requested window,
+and return at most 500 events/1 MiB. A bundle contains safe status, a retention
+manifest and one bounded page, with gap/truncation markers. Cursors freeze the
+window and expire at restart; retained events survive with their original boot
+and sequence identity. Requests, exports, grant management and reports are rate
+limited. Disk failures and full queues degrade diagnostics rather than business
+operations; status exposes aggregate drop/error counts.
+
+The build workflow passes its source SHA to both Vite's safe build meta tag and
+the gateway runtime. Local builds without that value report `unknown`; only
+allowlisted version/SHA metadata is exposed, never environment or configuration.
+The public `/readyz` continues to expose minimal readiness only. Existing hostname
+cache-bypass configuration also applies to diagnostics.
+
+Lifecycle supervision is unchanged: failed core startup prevents gateway startup,
+and an unexpected core exit shuts the runtime down. Gateway/container/edge death
+can therefore make the page unavailable. Use the trusted host console or SSH for
+Compose state and offline access to the already-safe JSONL; application read grants
+do not grant that host access. Proxy, TLS/DNS and host logs are outside this
+collector. RD-3 sanitized Nginx/host collectors and a separate manual workflow are
+not installed. Missing application events alone do not identify an edge failure.

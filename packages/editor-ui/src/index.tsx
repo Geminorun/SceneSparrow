@@ -7,9 +7,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type { Project, RenameProject } from "@scenesparrow/contracts";
-import type {
-  PlatformClient,
-  RecentProject,
+import {
+  onTransportFailure,
+  TransportError,
+  type PlatformClient,
+  type RecentProject,
 } from "@scenesparrow/platform-client";
 import { AiSettings } from "./AiSettings";
 import { Manuscript } from "./editor/Manuscript";
@@ -61,7 +63,10 @@ export function App({ client }: { client: PlatformClient }) {
   const initialTitle = useRef(t.untitledProject);
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [transportFailure, setTransportFailure] =
+    useState<TransportError | null>(null);
+  useEffect(() => onTransportFailure(setTransportFailure), []);
   const bootstrap = useRef<{ title: string; requestId: string } | null>(null);
   const loadGeneration = useRef(0);
   const metadataEpoch = useRef(0);
@@ -91,7 +96,8 @@ export function App({ client }: { client: PlatformClient }) {
     const generation = ++loadGeneration.current;
     const epoch = metadataEpoch.current;
     setLoading(true);
-    setError(false);
+    setError(null);
+    setTransportFailure(null);
     try {
       const read = await client.readProject();
       // A read failure must never fall through into workspace creation. Preserve
@@ -117,8 +123,9 @@ export function App({ client }: { client: PlatformClient }) {
               ? { ...next, title: current.title }
               : next,
         );
-    } catch {
-      if (generation === loadGeneration.current) setError(true);
+    } catch (failure) {
+      if (generation === loadGeneration.current)
+        setError(failure instanceof TransportError ? failure.message : "error");
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
@@ -429,9 +436,38 @@ export function App({ client }: { client: PlatformClient }) {
         </div>
       </header>
       <main id="workbench" aria-label={t.workbench}>
-        {error && (
+        {transportFailure && (
+          <div role="alert" className="error" data-testid="transport-failure">
+            <p>{t[transportFailure.message as keyof typeof en] ?? t.error}</p>
+            {transportFailure.status !== undefined && (
+              <p>
+                {t.transportStatus.replace(
+                  "{status}",
+                  String(transportFailure.status),
+                )}
+              </p>
+            )}
+            {transportFailure.traceId && (
+              <p>
+                {t.transportTrace.replace(
+                  "{traceId}",
+                  transportFailure.traceId,
+                )}
+              </p>
+            )}
+            {error?.startsWith("TRANSPORT_") && (
+              <button disabled={loading} onClick={() => void load()}>
+                {t.retry}
+              </button>
+            )}
+            <button onClick={() => setTransportFailure(null)}>
+              {t.transportDismiss}
+            </button>
+          </div>
+        )}
+        {error && !transportFailure && (
           <div role="alert" className="error">
-            {t.error}{" "}
+            {t[error as keyof typeof en] ?? t.error}{" "}
             <button disabled={loading} onClick={() => void load()}>
               {t.retry}
             </button>

@@ -6,7 +6,17 @@ use std::{
 };
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() {
+    use scenesparrow_infrastructure::diagnostics::{self, Event};
+    diagnostics::emit(Event::CoreStart);
+    if run().await.is_err() {
+        diagnostics::emit(Event::CoreFailed);
+        std::process::exit(1);
+    }
+    diagnostics::emit(Event::CoreStop);
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     if args.get(1).map(String::as_str) == Some("--inspect-project") && args.len() == 3 {
         SqliteProjectRepository::inspect_available_project(std::path::Path::new(&args[2]))?;
@@ -40,9 +50,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let listener =
         tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await?;
-    println!(
-        "SceneSparrow core is listening on {}",
-        listener.local_addr()?
+    scenesparrow_infrastructure::diagnostics::emit(
+        scenesparrow_infrastructure::diagnostics::Event::CoreReady,
     );
     axum::serve(
         listener,

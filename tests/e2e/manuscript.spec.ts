@@ -93,7 +93,7 @@ test("composition remains local until completion", async ({ page }) => {
   await page.reload();
   await expect(input).toContainText("输入法");
 });
-test("late receipt cannot mark newer visible input saved and writes stay serialized", async ({
+test("late receipt preserves newer visible input and serializes body saves", async ({
   page,
 }) => {
   await draft(page);
@@ -104,6 +104,8 @@ test("late receipt cannot mark newer visible input saved and writes stay seriali
     release = r;
   });
   await page.route("**/api/v1/manuscript/commands", async (route) => {
+    if (route.request().postDataJSON().type !== "ApplyDocumentEdit")
+      return route.continue();
     intercepted++;
     const response = await route.fetch();
     if (intercepted === 1) await gate;

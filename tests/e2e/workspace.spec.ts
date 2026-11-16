@@ -60,18 +60,28 @@ test("Unicode rename preserves identity, manuscript, history and editor through 
   await openWorkbench(page);
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
+  const closedGroup = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/manuscript/commands") &&
+      response.request().method() === "POST" &&
+      response.ok() &&
+      response.request().postDataJSON().type === "CloseEditGroup",
+  );
   await editor.fill("A manuscript 中文 🐦");
   await expect(page.getByTestId("save-status")).toHaveAttribute(
     "data-state",
     "saved",
   );
-  const before = await core.request("/project"),
-    manuscript = await core.request("/manuscript"),
-    history = await core.request("/history");
   const node = await editor.elementHandle();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
+  expect(await (await closedGroup).finished()).toBeNull();
+  // Opening the dialog legitimately closes the typing group. Metadata rename
+  // must preserve the complete history after that independent transition.
+  const before = await core.request("/project"),
+    manuscript = await core.request("/manuscript"),
+    history = await core.request("/history");
   await page
     .getByLabel("Project name", { exact: true })
     .fill("鸟鸣 / Scene 🐦");
@@ -100,16 +110,24 @@ test("settings trap focus, preserve local failed saves, clear unsaved keys and e
   await openWorkbench(page);
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
+  const closedGroup = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/manuscript/commands") &&
+      response.request().method() === "POST" &&
+      response.ok() &&
+      response.request().postDataJSON().type === "CloseEditGroup",
+  );
   await editor.fill("Saved body");
   await expect(page.getByTestId("save-status")).toHaveAttribute(
     "data-state",
     "saved",
   );
-  const saved = await core.request("/manuscript"),
-    history = await core.request("/history");
   // The saved document has an available project undo. A modal button must not
   // route its shortcut to that history even when no pending save blocks it.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  expect(await (await closedGroup).finished()).toBeNull();
+  const saved = await core.request("/manuscript"),
+    history = await core.request("/history");
   await page
     .getByRole("dialog", { name: "Settings", exact: true })
     .getByRole("button", { name: "Close", exact: true })

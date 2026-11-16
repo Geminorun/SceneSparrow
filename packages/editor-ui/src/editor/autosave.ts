@@ -782,26 +782,46 @@ export class Autosave {
         Math.max(0, Math.min(300, 2000 - (Date.now() - this.firstPending))),
       );
   }
+  private readonly pendingReceipts = new Set<string>();
   private async resolve(command: ManuscriptCommand): Promise<CommandReceipt> {
-    try {
-      return await this.client.executeManuscript(command);
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
+    let submissions = 0;
+    const resolveReceipt = async (): Promise<CommandReceipt> => {
       try {
-        return await this.client.commandReceipt(command.requestId);
+        const receipt = await this.client.commandReceipt(command.requestId);
+        this.pendingReceipts.delete(command.requestId);
+        return receipt;
       } catch (resolution) {
         if (
           resolution instanceof ApiError &&
           resolution.code === "COMMAND_NOT_FOUND"
-        )
-          return this.client.executeManuscript(command);
+        ) {
+          this.pendingReceipts.delete(command.requestId);
+          if (submissions < 2) return submit();
+          if (!this.disposed) this.pendingReceipts.add(command.requestId);
+        }
         throw new UncertainCommit(
           resolution instanceof Error
             ? resolution.message
             : "SERVICE_UNAVAILABLE",
         );
       }
-    }
+    };
+    const submit = async (): Promise<CommandReceipt> => {
+      submissions++;
+      try {
+        const receipt = await this.client.executeManuscript(command);
+        this.pendingReceipts.delete(command.requestId);
+        return receipt;
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        if (!this.disposed) this.pendingReceipts.add(command.requestId);
+        // Only a receipt for this exact identity can establish a committed result.
+        return resolveReceipt();
+      }
+    };
+    return this.pendingReceipts.has(command.requestId)
+      ? resolveReceipt()
+      : submit();
   }
   async start() {
     return this.enqueue(async () => {
@@ -1020,6 +1040,10 @@ export class Autosave {
         throw new ApiError("REVISION_CONFLICT");
       this.state = state;
       this.history = history;
+      if (this.controlPending)
+        this.pendingReceipts.delete(this.controlPending.requestId);
+      if (this.unresolved)
+        this.pendingReceipts.delete(this.unresolved.command.requestId);
       this.controlPending = null;
       this.controlVisible = null;
       this.local = this.state.blocks.map(({ revision: _, ...b }) => b);
@@ -1042,6 +1066,7 @@ export class Autosave {
   }
   dispose() {
     this.disposed = true;
+    this.pendingReceipts.clear();
     clearTimeout(this.timer);
     clearTimeout(this.idleTimer);
   }

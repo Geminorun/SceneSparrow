@@ -16,6 +16,7 @@ function fixture() {
     reject = "";
   const receipts = new Map(),
     calls = [],
+    lookups = [],
     mutations = [];
   const client = {
     async executeManuscript(c) {
@@ -42,7 +43,9 @@ function fixture() {
       return receipts.get(c.requestId);
     },
     async commandReceipt(id) {
+      lookups.push(id);
       if (lose) throw Error("lookup unavailable");
+      if (!receipts.has(id)) throw new ApiError("COMMAND_NOT_FOUND");
       return receipts.get(id);
     },
     async readManuscript() {
@@ -74,6 +77,7 @@ function fixture() {
     review,
     build,
     calls,
+    lookups,
     mutations,
     advance() {
       revision++;
@@ -86,7 +90,7 @@ function fixture() {
     },
   };
 }
-test("uncertain committed review save replays exact command and thread instead of creating a duplicate", async () => {
+test("uncertain committed review save resolves its exact receipt without resubmitting the command", async () => {
   const f = fixture();
   f.setLose(true);
   assert.equal((await f.review.run("composer:1", f.build)).ok, false);
@@ -102,7 +106,8 @@ test("uncertain committed review save replays exact command and thread instead o
     true,
   );
   assert.equal(f.mutations.length, 1);
-  assert.deepEqual(f.calls[1], original);
+  assert.equal(f.calls.length, 1);
+  assert.deepEqual(f.lookups, [original.requestId, original.requestId]);
   f.save.dispose();
 });
 test("settling an older review action never evaluates or reports success for a new intent", async () => {

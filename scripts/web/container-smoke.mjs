@@ -8,6 +8,9 @@ import { request } from "node:http";
 import { docx, pdf } from "../../tests/fixtures/documents.mjs";
 
 const image = process.argv[2];
+const { version } = JSON.parse(
+  await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+);
 assert.ok(image, "Supply the locally built image tag");
 const run = (args, options = {}) => {
   const result = spawnSync("docker", args, { encoding: "utf8", ...options });
@@ -98,6 +101,45 @@ try {
   assert.equal((await send("/", undefined, { authorization: "" })).status, 401);
   assert.match((await send("/")).bytes.toString(), /<html/);
   assert.equal(run(["exec", id, "id", "-u"]), "1000");
+  const status = await send("/diagnostics/v1/status");
+  assert.equal(status.status, 200);
+  const diagnosticsStatus = JSON.parse(status.bytes);
+  assert.equal(diagnosticsStatus.appVersion, version);
+  assert.equal(diagnosticsStatus.collector, "ready");
+  assert.equal(diagnosticsStatus.coreAvailable, true);
+  assert.match(
+    (await send("/diagnostics")).bytes.toString(),
+    /diagnostics:read/,
+  );
+  const grant = await send("/diagnostics/v1/access-grants", { ttlSeconds: 60 });
+  assert.equal(grant.status, 201);
+  const access = JSON.parse(grant.bytes);
+  const diagnosticHeaders = { authorization: "Bearer " + access.token };
+  assert.equal(
+    (await send("/diagnostics/v1/status", undefined, diagnosticHeaders)).status,
+    200,
+  );
+  assert.equal(
+    (await send("/api/v1/project", undefined, diagnosticHeaders)).status,
+    403,
+  );
+  const bundle = await send(
+    "/diagnostics/v1/bundle",
+    undefined,
+    diagnosticHeaders,
+  );
+  assert.equal(bundle.status, 200);
+  assert.ok(bundle.bytes.length <= 1048576);
+  assert.ok(!bundle.bytes.includes(Buffer.from(access.token)));
+  assert.ok(!bundle.bytes.includes(Buffer.from(credential)));
+  assert.equal(
+    (await send("/diagnostics/v1/access-grants/revoke", {})).status,
+    200,
+  );
+  assert.equal(
+    (await send("/diagnostics/v1/status", undefined, diagnosticHeaders)).status,
+    401,
+  );
   const project = (
     await api("/project", {
       requestId: randomUUID(),

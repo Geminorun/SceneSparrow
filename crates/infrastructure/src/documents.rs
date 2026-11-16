@@ -485,6 +485,7 @@ impl SqliteProjectRepository {
             db(tx.commit())?;
             (j.attempt, j.input_hash, name)
         };
+        crate::diagnostics::emit(crate::diagnostics::Event::WorkerStart);
         let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../workers/document/src/entry.mjs");
         let mut command = Command::new("node");
@@ -636,6 +637,14 @@ impl SqliteProjectRepository {
         attempt: i64,
         result: std::result::Result<DocumentResult, &'static str>,
     ) -> Result<()> {
+        crate::diagnostics::emit_record(
+            crate::diagnostics::Event::WorkerResult,
+            None,
+            None,
+            None,
+            None,
+            Some(result.is_ok()),
+        );
         let mut c = db(self.connection.lock())?;
         let j = self.job(&c, id)?;
         if j.attempt != attempt || j.status != DocumentJobStatus::Running {

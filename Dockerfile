@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
 FROM node:24.22.1-bookworm-slim AS dependencies
+ARG SCENESPARROW_BUILD_SHA=unknown
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /app
 RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; npm install --global pnpm@11.25.0'
@@ -10,7 +11,7 @@ COPY packages/ packages/
 COPY workers/ workers/
 RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; pnpm install --frozen-lockfile'
 COPY apps/web/ apps/web/
-RUN pnpm --filter @scenesparrow/web build
+RUN SCENESPARROW_BUILD_SHA="$SCENESPARROW_BUILD_SHA" pnpm --filter @scenesparrow/web build
 
 FROM rust:1.100.0-bookworm AS core
 WORKDIR /app
@@ -19,6 +20,8 @@ COPY crates/ crates/
 RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then export CARGO_HTTP_CAINFO=/run/secrets/build_ca SSL_CERT_FILE=/run/secrets/build_ca; fi; cargo build --release --locked -p scenesparrow-service'
 
 FROM node:24.22.1-bookworm-slim AS runtime
+ARG SCENESPARROW_BUILD_SHA=unknown
+ENV SCENESPARROW_BUILD_SHA=$SCENESPARROW_BUILD_SHA
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libfontconfig1 libfreetype6 fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Keep the build-time workspace path: Rust workers use CARGO_MANIFEST_DIR.

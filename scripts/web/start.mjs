@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { createDiagnostics, collectChild } from "./diagnostics.mjs";
 import { pathToFileURL } from "node:url";
 import { createGateway, readOperator, validateOrigin } from "./gateway.mjs";
 
@@ -21,6 +24,8 @@ export async function startRuntime({
   shutdownMs = 40_000,
   quiesceMs = 30_000,
   startupMs = 30_000,
+  version = "unknown",
+  buildSha = "unknown",
 }) {
   validateOrigin(origin);
   const token = randomBytes(32).toString("hex");
@@ -36,13 +41,28 @@ export async function startRuntime({
     SCENESPARROW_PROJECT_DIR: projectDir,
     SCENESPARROW_APP_DATA_DIR: appDataDir,
   };
+  let ready = false;
+  const diagnostics = createDiagnostics({
+    directory: join(appDataDir, "diagnostics"),
+    version,
+    buildSha,
+    coreAvailable: () => ready,
+  });
+  diagnostics.emit({
+    schemaVersion: 1,
+    component: "supervisor",
+    level: "info",
+    eventCode: "CORE_START",
+    stage: "startup",
+  });
   const child = spawn(binary, args, {
     env,
-    stdio: ["ignore", "ignore", "ignore"],
+    stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
   let stopping = false;
-  let ready = false;
+  collectChild(child.stdout, diagnostics);
+  collectChild(child.stderr, diagnostics);
   let gateway;
   let stopPromise;
   const exited = new Promise((done) => {
@@ -90,6 +110,14 @@ export async function startRuntime({
         killGroup("SIGKILL");
         signals.removeListener("SIGTERM", terminate);
         signals.removeListener("SIGINT", terminate);
+        diagnostics.emit({
+          schemaVersion: 1,
+          component: "supervisor",
+          level: failed ? "error" : "info",
+          eventCode: failed ? "CORE_FAILED" : "CORE_STOP",
+          stage: "shutdown",
+        });
+        await diagnostics.close(250);
         onExit(failed ? 1 : 0);
       }
     })();
@@ -116,6 +144,13 @@ export async function startRuntime({
         });
         if (result.ok) {
           ready = true;
+          diagnostics.emit({
+            schemaVersion: 1,
+            component: "supervisor",
+            level: "info",
+            eventCode: "CORE_READY",
+            stage: "startup",
+          });
           break;
         }
       } catch {
@@ -131,6 +166,7 @@ export async function startRuntime({
       corePort,
       token,
       ready: () => ready,
+      diagnostics,
     });
     if (stopping) {
       await gateway.close();
@@ -164,7 +200,15 @@ if (
     const operator = await readOperator(
       process.env.OPERATOR_AUTH_FILE ?? "/run/secrets/operator_auth",
     );
-    await startRuntime({ origin, operator });
+    const { version } = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    );
+    await startRuntime({
+      origin,
+      operator,
+      version,
+      buildSha: process.env.SCENESPARROW_BUILD_SHA ?? "unknown",
+    });
   })().catch(() => {
     console.error("SceneSparrow startup failed");
     process.exitCode = 1;

@@ -390,5 +390,16 @@
   "recentProjectsFailed": "无法读取最近项目，请使用“打开项目”选择项目。",
   "aiProtocol": "所有服务均使用 OpenAI 兼容的 Chat Completions 协议。Gemini 等地址模板仅填写兼容接口地址，不代表支持原生厂商 API。",
   "aiAdvanced": "高级模型选项",
-  "untitledProject": "未命名项目"
+  "untitledProject": "未命名项目",
+  "TRANSPORT_AUTH_REQUIRED": "需要运维身份验证。请重新登录并刷新。",
+  "TRANSPORT_HTTP_ERROR": "服务器未能完成请求。您的输入已保留。",
+  "TRANSPORT_NETWORK_TIMEOUT": "请求超时。操作结果可能尚未确定。",
+  "TRANSPORT_NETWORK_FAILED": "连接失败，操作结果尚未确定。",
+  "TRANSPORT_RESPONSE_NOT_JSON": "服务器返回了意外的响应格式。",
+  "TRANSPORT_RESPONSE_EMPTY": "服务器返回了空响应。",
+  "TRANSPORT_RESPONSE_INVALID_JSON": "服务器响应不完整或无效。",
+  "TRANSPORT_BOOTSTRAP_FAILED": "应用未能启动。",
+  "transportStatus": "HTTP 状态：{status}",
+  "transportTrace": "支持追踪编号：{traceId}",
+  "transportDismiss": "关闭"
 }

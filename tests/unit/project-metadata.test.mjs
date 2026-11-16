@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ApiError,
+  TransportError,
   createHttpClient,
   createDesktopClient,
 } from "../../packages/platform-client/src/index.ts";
@@ -80,4 +81,54 @@ test("desktop project bootstrap and rename unwrap scoped bridge results and surf
     ["ensure", ensure],
     ["rename", rename],
   ]);
+});
+
+// An uncertain metadata response cannot be treated as a definitive rejection or
+// silently retried with a replacement command identity.
+test("metadata writes classify malformed responses and retain original commands for explicit retry", async (t) => {
+  const trace = "a".repeat(32);
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push([url, options.method, JSON.parse(options.body)]);
+    return new Response('{"project":', {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "X-SceneSparrow-Trace-Id": trace,
+      },
+    });
+  });
+  const client = createHttpClient();
+  for (const [method, path, command] of [
+    [
+      "ensureProject",
+      "ensure",
+      { requestId: "first-open", title: "Untitled project" },
+    ],
+    [
+      "renameProject",
+      "rename",
+      {
+        requestId: "rename-original",
+        projectId: "stable-id",
+        previousTitle: "Untitled project",
+        title: "Named project",
+      },
+    ],
+  ]) {
+    const before = calls.length;
+    for (let attempt = 0; attempt < 2; attempt++)
+      await assert.rejects(client[method](command), (error) => {
+        assert.ok(error instanceof TransportError);
+        assert.ok(!(error instanceof ApiError));
+        assert.equal(error.code, "RESPONSE_INVALID_JSON");
+        assert.equal(error.status, 200);
+        assert.equal(error.traceId, trace);
+        return true;
+      });
+    assert.deepEqual(calls.slice(before), [
+      [`/api/v1/project/${path}`, "POST", command],
+      [`/api/v1/project/${path}`, "POST", command],
+    ]);
+  }
 });

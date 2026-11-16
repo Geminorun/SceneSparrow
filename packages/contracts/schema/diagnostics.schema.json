@@ -1,0 +1,844 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SceneSparrow diagnostics v1",
+  "definitions": {
+    "DiagnosticInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "component", "level", "eventCode"],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "component": {
+          "type": "string",
+          "enum": ["gateway", "core", "worker", "client", "supervisor"]
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warn", "error"]
+        },
+        "eventCode": {
+          "type": "string",
+          "enum": [
+            "HTTP_COMPLETE",
+            "HTTP_ABORTED",
+            "SSE_OPEN",
+            "AUTH_DENIED",
+            "ORIGIN_DENIED",
+            "UPSTREAM_FAILED",
+            "CORE_START",
+            "CORE_READY",
+            "CORE_STOP",
+            "CORE_FAILED",
+            "CORE_REQUEST",
+            "WORKER_START",
+            "WORKER_RESULT",
+            "CLIENT_FAILURE",
+            "DIAGNOSTICS_DEGRADED"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "startup",
+            "shutdown",
+            "request",
+            "decode",
+            "bootstrap",
+            "mounted",
+            "dispatch",
+            "worker",
+            "collection"
+          ]
+        },
+        "routeId": {
+          "type": "string",
+          "enum": [
+            "document",
+            "asset",
+            "project",
+            "manuscript",
+            "ai",
+            "events",
+            "diagnostics",
+            "health",
+            "unknown"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000
+        },
+        "responseBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1099511627776
+        },
+        "responseKind": {
+          "type": "string",
+          "enum": [
+            "html",
+            "json",
+            "event-stream",
+            "binary",
+            "text",
+            "empty",
+            "unknown"
+          ]
+        },
+        "completion": {
+          "type": "string",
+          "enum": ["complete", "aborted", "truncated"]
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "parentTraceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "cfRay": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "category": {
+          "type": "string",
+          "enum": ["text", "audio", "video"]
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "UNKNOWN",
+            "BOOTSTRAP_FAILED",
+            "AUTH_REQUIRED",
+            "HTTP_ERROR",
+            "NETWORK_TIMEOUT",
+            "NETWORK_FAILED",
+            "RESPONSE_NOT_JSON",
+            "RESPONSE_EMPTY",
+            "RESPONSE_INVALID_JSON",
+            "STORAGE_UNAVAILABLE",
+            "SQLITE_BUSY",
+            "SQLITE_CORRUPT",
+            "OS_DENIED",
+            "OS_FULL",
+            "WORKER_INTERRUPTED",
+            "REQUEST_TIMEOUT",
+            "CANCELLED",
+            "PROTOCOL_MISMATCH",
+            "WORKER_RESOURCE_LIMIT",
+            "AUTH_REJECTED",
+            "CREDENTIAL_UNAVAILABLE",
+            "MODEL_UNAVAILABLE",
+            "CAPABILITY_UNSUPPORTED",
+            "CONFIGURATION_STALE",
+            "SETTINGS_CONFLICT",
+            "QUEUE_FULL",
+            "RATE_LIMITED",
+            "CONTEXT_LIMIT",
+            "OUTPUT_TRUNCATED",
+            "INVALID_OUTPUT",
+            "PROVIDER_REFUSED",
+            "PROVIDER_REJECTED",
+            "INVALID_OUTPUT_SCHEMA",
+            "ARTIFACT_MISMATCH",
+            "ENDPOINT_REDIRECT",
+            "INPUT_TOO_LARGE",
+            "INVALID_INPUT",
+            "INVALID_URL",
+            "SUCCEEDED",
+            "FAILED",
+            "INTERRUPTED"
+          ]
+        },
+        "appBuild": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "droppedEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DiagnosticEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "component",
+        "level",
+        "eventCode",
+        "timestamp",
+        "bootId",
+        "sequence"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "component": {
+          "type": "string",
+          "enum": ["gateway", "core", "worker", "client", "supervisor"]
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warn", "error"]
+        },
+        "eventCode": {
+          "type": "string",
+          "enum": [
+            "HTTP_COMPLETE",
+            "HTTP_ABORTED",
+            "SSE_OPEN",
+            "AUTH_DENIED",
+            "ORIGIN_DENIED",
+            "UPSTREAM_FAILED",
+            "CORE_START",
+            "CORE_READY",
+            "CORE_STOP",
+            "CORE_FAILED",
+            "CORE_REQUEST",
+            "WORKER_START",
+            "WORKER_RESULT",
+            "CLIENT_FAILURE",
+            "DIAGNOSTICS_DEGRADED"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "startup",
+            "shutdown",
+            "request",
+            "decode",
+            "bootstrap",
+            "mounted",
+            "dispatch",
+            "worker",
+            "collection"
+          ]
+        },
+        "routeId": {
+          "type": "string",
+          "enum": [
+            "document",
+            "asset",
+            "project",
+            "manuscript",
+            "ai",
+            "events",
+            "diagnostics",
+            "health",
+            "unknown"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "GET",
+            "HEAD",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS",
+            "unknown"
+          ]
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400000
+        },
+        "responseBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1099511627776
+        },
+        "responseKind": {
+          "type": "string",
+          "enum": [
+            "html",
+            "json",
+            "event-stream",
+            "binary",
+            "text",
+            "empty",
+            "unknown"
+          ]
+        },
+        "completion": {
+          "type": "string",
+          "enum": ["complete", "aborted", "truncated"]
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "parentTraceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "cfRay": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "category": {
+          "type": "string",
+          "enum": ["text", "audio", "video"]
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "UNKNOWN",
+            "BOOTSTRAP_FAILED",
+            "AUTH_REQUIRED",
+            "HTTP_ERROR",
+            "NETWORK_TIMEOUT",
+            "NETWORK_FAILED",
+            "RESPONSE_NOT_JSON",
+            "RESPONSE_EMPTY",
+            "RESPONSE_INVALID_JSON",
+            "STORAGE_UNAVAILABLE",
+            "SQLITE_BUSY",
+            "SQLITE_CORRUPT",
+            "OS_DENIED",
+            "OS_FULL",
+            "WORKER_INTERRUPTED",
+            "REQUEST_TIMEOUT",
+            "CANCELLED",
+            "PROTOCOL_MISMATCH",
+            "WORKER_RESOURCE_LIMIT",
+            "AUTH_REJECTED",
+            "CREDENTIAL_UNAVAILABLE",
+            "MODEL_UNAVAILABLE",
+            "CAPABILITY_UNSUPPORTED",
+            "CONFIGURATION_STALE",
+            "SETTINGS_CONFLICT",
+            "QUEUE_FULL",
+            "RATE_LIMITED",
+            "CONTEXT_LIMIT",
+            "OUTPUT_TRUNCATED",
+            "INVALID_OUTPUT",
+            "PROVIDER_REFUSED",
+            "PROVIDER_REJECTED",
+            "INVALID_OUTPUT_SCHEMA",
+            "ARTIFACT_MISMATCH",
+            "ENDPOINT_REDIRECT",
+            "INPUT_TOO_LARGE",
+            "INVALID_INPUT",
+            "INVALID_URL",
+            "SUCCEEDED",
+            "FAILED",
+            "INTERRUPTED"
+          ]
+        },
+        "appBuild": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "timestamp": {
+          "type": "string",
+          "maxLength": 24
+        },
+        "bootId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "droppedEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DiagnosticGrantMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grantId", "expiresAt", "scope"],
+      "properties": {
+        "grantId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["diagnostics:read"]
+        }
+      }
+    },
+    "DiagnosticGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grantId", "expiresAt", "scope", "token"],
+      "properties": {
+        "grantId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["diagnostics:read"]
+        },
+        "token": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43
+        }
+      }
+    },
+    "DiagnosticGrantRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "ttlSeconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 3600
+        }
+      }
+    },
+    "DiagnosticRevocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revoked"],
+      "properties": {
+        "revoked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DiagnosticClientAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted"],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DiagnosticClientEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "component",
+        "level",
+        "eventCode",
+        "stage",
+        "routeId",
+        "code"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "component": {
+          "type": "string",
+          "enum": ["client"]
+        },
+        "level": {
+          "type": "string",
+          "enum": ["warn"]
+        },
+        "eventCode": {
+          "type": "string",
+          "enum": ["CLIENT_FAILURE"]
+        },
+        "stage": {
+          "type": "string",
+          "enum": ["request", "decode", "bootstrap", "mounted"]
+        },
+        "routeId": {
+          "type": "string",
+          "enum": [
+            "document",
+            "asset",
+            "project",
+            "manuscript",
+            "ai",
+            "events",
+            "diagnostics",
+            "health",
+            "unknown"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "AUTH_REQUIRED",
+            "HTTP_ERROR",
+            "NETWORK_TIMEOUT",
+            "NETWORK_FAILED",
+            "RESPONSE_NOT_JSON",
+            "RESPONSE_EMPTY",
+            "RESPONSE_INVALID_JSON",
+            "BOOTSTRAP_FAILED"
+          ]
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        },
+        "appBuild": {
+          "type": "string",
+          "maxLength": 40
+        }
+      }
+    },
+    "DiagnosticWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["since", "until", "retainedSince"],
+      "properties": {
+        "since": {
+          "type": "string"
+        },
+        "until": {
+          "type": "string"
+        },
+        "retainedSince": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "DiagnosticLogPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "events",
+        "window",
+        "nextCursor",
+        "gap",
+        "truncated",
+        "droppedEvents"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiagnosticEvent"
+          }
+        },
+        "window": {
+          "$ref": "#/definitions/DiagnosticWindow"
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gap": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "droppedEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "DiagnosticStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "appVersion",
+        "buildSha",
+        "bootId",
+        "bootTime",
+        "gatewayAvailable",
+        "coreAvailable",
+        "collector",
+        "retained",
+        "droppedEvents",
+        "errors",
+        "queueEvents",
+        "queueBytes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "buildSha": {
+          "type": "string"
+        },
+        "bootId": {
+          "type": "string"
+        },
+        "bootTime": {
+          "type": "string"
+        },
+        "gatewayAvailable": {
+          "type": "boolean"
+        },
+        "coreAvailable": {
+          "type": "boolean"
+        },
+        "collector": {
+          "type": "string",
+          "enum": ["ready", "DIAGNOSTICS_DEGRADED"]
+        },
+        "retained": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["since", "until", "bytes"],
+          "properties": {
+            "since": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "until": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        "droppedEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queueEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "queueBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "activeGrant": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DiagnosticGrantMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "DiagnosticBundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "events",
+        "window",
+        "nextCursor",
+        "gap",
+        "truncated",
+        "droppedEvents",
+        "status",
+        "manifest"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DiagnosticEvent"
+          }
+        },
+        "window": {
+          "$ref": "#/definitions/DiagnosticWindow"
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "gap": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "droppedEvents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "$ref": "#/definitions/DiagnosticStatus"
+        },
+        "manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "retention", "eventLimit"],
+          "properties": {
+            "schemaVersion": {
+              "type": "integer",
+              "enum": [1]
+            },
+            "retention": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bytes", "ageSeconds"],
+              "properties": {
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "ageSeconds": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "eventLimit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    },
+    "DiagnosticApiError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "traceId"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "INVALID_DIAGNOSTICS_QUERY",
+            "INVALID_DIAGNOSTICS_EVENT",
+            "UNAUTHORIZED",
+            "DIAGNOSTICS_GRANT_EXPIRED",
+            "DIAGNOSTICS_SCOPE_DENIED",
+            "ORIGIN_DENIED",
+            "NOT_FOUND",
+            "METHOD_NOT_ALLOWED",
+            "CURSOR_EXPIRED",
+            "INPUT_TOO_LARGE",
+            "DIAGNOSTICS_RATE_LIMITED",
+            "DIAGNOSTICS_UNAVAILABLE"
+          ]
+        },
+        "traceId": {
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
+        }
+      }
+    }
+  }
+}
