@@ -1,13 +1,32 @@
-use std::{fs::File, path::Path, sync::Mutex, time::Duration};
+use std::{
+    fs::File,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::{Error, ProjectRepository};
 use scenesparrow_domain::Project;
 
 pub struct SqliteProjectRepository {
+    #[cfg(test)]
+    business_read_count: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    fail_export_directory_sync: std::sync::atomic::AtomicBool,
     connection: Mutex<Connection>,
+    quiescing: std::sync::atomic::AtomicBool,
+    workers: std::sync::atomic::AtomicUsize,
+    directory: std::path::PathBuf,
+    policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     // Holding the file lock prevents a second core from owning this project.
     _owner: File,
+    ai_consumers: Mutex<
+        std::collections::BTreeMap<
+            String,
+            Arc<dyn scenesparrow_application::ai::ConsumerCoordinator>,
+        >,
+    >,
 }
 
 fn storage<T>(result: Result<T, impl std::fmt::Debug>) -> Result<T, Error> {
@@ -33,6 +52,25 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        for component in ["objects", "staging", "exports"] {
+            let path = directory.join(component);
+            if path.exists()
+                && (!storage(std::fs::symlink_metadata(&path))?.is_dir()
+                    || storage(std::fs::symlink_metadata(&path))?
+                        .file_type()
+                        .is_symlink())
+            {
+                return Err(Error::Storage);
+            }
+        }
+        for component in ["project.sqlite", ".core.lock"] {
+            let path = directory.join(component);
+            if std::fs::symlink_metadata(&path)
+                .is_ok_and(|m| !m.is_file() || m.file_type().is_symlink())
+            {
+                return Err(Error::Storage);
+            }
+        }
         storage(std::fs::create_dir_all(directory))?;
         let owner = storage(
             File::options()
@@ -45,23 +83,156 @@ impl SqliteProjectRepository {
         storage(owner.try_lock())?;
         let mut connection = storage(Connection::open(directory.join("project.sqlite")))?;
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
-        storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
-        storage(connection.pragma_update(None, "foreign_keys", true))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        match version {
-            0 => {
-                let transaction = storage(connection.transaction())?;
-                storage(transaction.execute_batch(include_str!("../migrations/001_project.sql")))?;
-                storage(transaction.commit())?;
-            }
-            1 => {}
-            _ => return Err(Error::Storage),
+        if version > 9 {
+            return Err(Error::SchemaUnsupported);
         }
-        Ok(Self {
+        storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
+        storage(connection.pragma_update(None, "synchronous", "FULL"))?;
+        storage(connection.pragma_update(None, "foreign_keys", true))?;
+        if version == 0 {
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/001_project.sql")))?;
+            storage(transaction.commit())?;
+        }
+        if version < 2 {
+            backup::migration_backup(&connection, directory, 2)?;
+            // Keep the original bare SQLite compatibility restore point as well.
+            // SQLite's backup API includes committed WAL pages in a consistent snapshot.
+            let mut backup_path = directory.join("pre-migration-002.sqlite");
+            if backup_path.exists() {
+                backup_path =
+                    directory.join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+            }
+            let mut backup = storage(Connection::open(&backup_path))?;
+            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                .run_to_completion(32, Duration::from_millis(10), None)
+                .map_err(|_| Error::Storage)?;
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/002_manuscript.sql")))?;
+            if read_project(&transaction)?.is_some() {
+                manuscript::initialize(&transaction)?;
+            }
+            storage(transaction.commit())?;
+        }
+        if version < 3 {
+            backup::migration_backup(&connection, directory, 3)?;
+            let transaction = storage(connection.transaction())?;
+            storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
+            storage(transaction.commit())?;
+        }
+        if version < 4 {
+            backup::migration_backup(&connection, directory, 4)?;
+            let transaction = storage(connection.transaction())?;
+            storage(
+                transaction.execute_batch(include_str!("../migrations/004_sources_import.sql")),
+            )?;
+            storage(transaction.commit())?;
+        }
+        if version < 5 {
+            backup::migration_backup(&connection, directory, 5)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/005_shared_ai.sql")))?;
+            storage(tx.execute(
+                "INSERT INTO ai_execution_origin VALUES(1,?1,0)",
+                [uuid::Uuid::new_v4().to_string()],
+            ))?;
+            storage(tx.commit())?;
+        }
+        if version < 6 {
+            backup::migration_backup(&connection, directory, 6)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/006_planning.sql")))?;
+            storage(tx.execute("INSERT OR IGNORE INTO planning_state(singleton,revision,content_json) VALUES(1,0,?1)", [serde_json::to_string(&scenesparrow_domain::planning::empty()).map_err(|_| Error::Storage)?]))?;
+            storage(tx.commit())?;
+        }
+        if version < 7 {
+            backup::migration_backup(&connection, directory, 7)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/007_review.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 8 {
+            backup::migration_backup(&connection, directory, 8)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/008_finalization.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 9 {
+            backup::migration_backup(&connection, directory, 9)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/009_exports.sql")))?;
+            storage(tx.commit())?;
+        }
+        storage(std::fs::create_dir_all(directory.join("exports")))?;
+        storage(std::fs::create_dir_all(directory.join("objects")))?;
+        storage(std::fs::create_dir_all(directory.join("staging")))?;
+        let repository = Self {
+            #[cfg(test)]
+            business_read_count: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(connection),
+            quiescing: std::sync::atomic::AtomicBool::new(false),
+            workers: std::sync::atomic::AtomicUsize::new(0),
+            directory: directory.to_path_buf(),
+            policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             _owner: owner,
-        })
+            ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
+        };
+        if version < 5 {
+            repository
+                .initialize_ai_origin()
+                .map_err(|_| Error::Storage)?;
+        }
+        // Validate acknowledged data before startup recovery mutates task state.
+        repository.verify_manuscript()?;
+        {
+            let c = storage(repository.connection.lock())?;
+            storage(c.execute(
+                "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
+                [],
+            ))?;
+        }
+        scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
+            .map_err(|_| Error::Storage)?;
+        repository.recover_exports().map_err(|_| Error::Storage)?;
+        repository.recover_documents().map_err(|_| Error::Storage)?;
+        repository
+            .initialize_planning()
+            .map_err(|_| Error::Storage)?;
+        repository.verify_manuscript()?;
+        repository
+            .collect_objects(Duration::from_secs(60))
+            .map_err(|_| Error::Storage)?;
+        {
+            let mut c = storage(repository.connection.lock())?;
+            let tx = storage(c.transaction())?;
+            let closed = storage(tx.execute(
+                "UPDATE edit_groups SET closed=1,before_hash=NULL,after_hash='' WHERE closed=0",
+                [],
+            ))?;
+            if closed > 0 {
+                let revision: i64 = storage(tx.query_row(
+                    "SELECT history_revision FROM history_cursor",
+                    [],
+                    |r| r.get(0),
+                ))?;
+                let next =
+                    scenesparrow_domain::manuscript::next_revision(revision).unwrap_or(revision);
+                storage(tx.execute("UPDATE history_cursor SET history_revision=?1", [next]))?;
+            }
+            storage(tx.commit())?;
+        }
+        Ok(repository)
+    }
+    pub fn with_policy(
+        mut self,
+        policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
+    ) -> Self {
+        self.policy = policy;
+        self
     }
 }
 
@@ -96,6 +267,7 @@ impl ProjectRepository for SqliteProjectRepository {
             "INSERT INTO project (singleton, id, title, request_id, working_revision, approved_baseline) VALUES (1, ?1, ?2, ?3, 0, NULL)",
             params![project.id, project.title, request_id],
         ))?;
+        manuscript::initialize(&transaction)?;
         storage(transaction.commit())?;
         Ok(project)
     }
@@ -147,3 +319,77 @@ mod tests {
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
     }
 }
+
+mod finalization;
+mod history;
+pub mod manuscript;
+#[cfg(test)]
+mod manuscript_tests;
+
+mod documents;
+
+pub mod ai;
+pub mod credentials;
+
+#[cfg(test)]
+fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE copy_preparations;DROP TABLE export_deliveries;DROP TABLE export_controls;DROP TABLE export_jobs;").unwrap();
+    c.execute_batch("DROP TABLE downstream_dependencies;DROP TABLE downstream_inputs;DROP TABLE review_candidate_bindings;DROP TABLE review_history_evidence;DROP TABLE manuscript_baseline;DROP TABLE approved_manifest_history;DROP TABLE approved_manifests;DROP TABLE user_locks;").unwrap();
+}
+#[cfg(test)]
+fn drop_ai_schema_for_legacy_fixture(c: &Connection) {
+    drop_finalization_schema_for_legacy_fixture(c);
+    c.execute_batch("DROP TABLE history_entry_identities;DROP TABLE review_messages;DROP TABLE review_decisions;DROP TABLE review_comparisons;DROP TABLE review_reservations;DROP TABLE review_claims;DROP TABLE review_candidates;DROP TABLE review_tasks;DROP TABLE review_threads;").unwrap();
+    c.execute_batch("DROP TABLE planning_visuals; DROP TABLE draft_generation_manifests; DROP TABLE outline_confirmations; DROP TABLE script_ai_tasks; DROP TABLE planning_preparations; DROP TABLE planning_node_identities; DROP TABLE planning_state; DROP TABLE planning_history_epoch; DROP TABLE ai_preparations; DROP TABLE ai_consumer_cleanup; DROP TABLE application_execution_bindings; DROP TABLE ai_events; DROP TABLE ai_artifacts; DROP TABLE ai_dispatches; DROP TABLE ai_attempts; DROP TABLE ai_runs; DROP TABLE ai_input_snapshots; DROP TABLE ai_execution_origin;").unwrap();
+}
+
+pub mod planning;
+
+pub mod review;
+
+mod backup;
+pub mod exports;
+
+struct WorkerGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+impl Drop for WorkerGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
+impl SqliteProjectRepository {
+    fn worker_guard(&self) -> WorkerGuard<'_> {
+        self.workers
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        WorkerGuard(&self.workers)
+    }
+    pub fn is_quiescing(&self) -> bool {
+        self.quiescing.load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub fn resume(&self) {
+        self.quiescing
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+    pub fn quiesce(&self) -> Result<(), Error> {
+        self.quiescing
+            .store(true, std::sync::atomic::Ordering::Release);
+        scenesparrow_application::ai::AiExecutionPort::reconcile_execution(self)
+            .map_err(|_| Error::Storage)?;
+        self.reconcile_planning().map_err(|_| Error::Storage)?;
+        self.reconcile_reviews().map_err(|_| Error::Storage)?;
+        {
+            let c = storage(self.connection.lock())?;
+            storage(c.execute("UPDATE document_attempts SET status='interrupted',attempt=attempt+1,error='DOCUMENT_JOB_INTERRUPTED' WHERE status='running'",[]))?;
+            storage(c.execute("UPDATE planning_visuals SET status='interrupted',error='DOCUMENT_JOB_INTERRUPTED' WHERE status='running'",[]))?;
+        }
+        let start = std::time::Instant::now();
+        while self.workers.load(std::sync::atomic::Ordering::Acquire) > 0 {
+            if start.elapsed() > Duration::from_secs(65) {
+                return Err(Error::Storage);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(())
+    }
+}
+
+mod operation;

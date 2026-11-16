@@ -3,6 +3,8 @@ import { Player } from "@remotion/player";
 import type { Project } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import { MotionSample, sampleMetadata } from "@scenesparrow/video-runtime";
+import { AiSettings } from "./AiSettings";
+import { Manuscript } from "./editor/Manuscript";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
@@ -52,6 +54,53 @@ export function App({ client }: { client: PlatformClient }) {
     void load();
   }, [client]);
 
+  useEffect(() => {
+    if (!project) return;
+    const projectId = project.id;
+    let active = true,
+      generation = 0;
+    const refresh = async () => {
+      const ticket = ++generation;
+      try {
+        const response = await client.readProject();
+        if (
+          active &&
+          ticket === generation &&
+          response.project?.id === projectId
+        ) {
+          const next = response.project;
+          setProject((current) =>
+            current?.id === projectId &&
+            next.workingRevision >= current.workingRevision
+              ? next
+              : current,
+          );
+        }
+      } catch {
+        /* A later event/resync retries the current project projection. */
+      }
+    };
+    void refresh();
+    const stop = client.subscribeEvents(
+      (event) => {
+        if (
+          [
+            "manuscript.readinessChanged",
+            "locks.changed",
+            "manuscript.changed",
+          ].includes(event.type)
+        )
+          void refresh();
+      },
+      () => void refresh(),
+    );
+    return () => {
+      active = false;
+      generation++;
+      stop();
+    };
+  }, [client, project?.id]);
+
   async function create(event: FormEvent) {
     event.preventDefault();
     setSaving(true);
@@ -84,6 +133,7 @@ export function App({ client }: { client: PlatformClient }) {
         <label className="language">
           {t.language}
           <select
+            aria-label={t.language}
             value={locale}
             onChange={(event) => setLocale(event.target.value as Locale)}
           >
@@ -92,6 +142,37 @@ export function App({ client }: { client: PlatformClient }) {
           </select>
         </label>
       </header>
+      {client.pickProject && (
+        <nav aria-label={t.projectFiles}>
+          <button
+            onClick={() => {
+              void client.pickProject?.().catch(() => setError("error"));
+            }}
+          >
+            {t.openProject}
+          </button>
+          <button
+            onClick={() => {
+              void client.pickProject?.(true).catch(() => setError("error"));
+            }}
+          >
+            {t.recoverProject}
+          </button>
+          {client.backupProject && project && (
+            <button
+              onClick={() => {
+                void client
+                  .backupProject?.()
+                  .then(() => window.alert(t.backupComplete))
+                  .catch(() => setError("error"));
+              }}
+            >
+              {t.backupProject}
+            </button>
+          )}
+        </nav>
+      )}
+      <AiSettings client={client} t={t} />
       <section className="intro">
         <p className="eyebrow">SCENESPARROW</p>
         <h1>{t.tagline}</h1>
@@ -120,21 +201,39 @@ export function App({ client }: { client: PlatformClient }) {
               </div>
               <div>
                 <dt>{t.baseline}</dt>
-                <dd>{t.notApproved}</dd>
+                <dd data-testid="approval-status">
+                  {project.approvedBaseline !== null
+                    ? t.finalized
+                    : t.notApproved}
+                </dd>
               </div>
             </dl>
-            <p className="muted">{t.nextStep}</p>
           </div>
-          <div className="preview">
-            <h3>{t.preview}</h3>
-            <Player
-              component={MotionSample}
-              {...sampleMetadata}
-              controls
-              style={{ width: "100%", borderRadius: 12 }}
-            />
-            <p className="muted">{t.previewDescription}</p>
-          </div>
+          <Manuscript
+            client={client}
+            projectId={project.id}
+            t={t}
+            onRevision={(workingRevision) =>
+              setProject((p) =>
+                p && workingRevision > p.workingRevision
+                  ? { ...p, workingRevision }
+                  : p,
+              )
+            }
+          />
+          <details className="preview">
+            <summary>{t.preview}</summary>
+            <div>
+              <h3>{t.preview}</h3>
+              <Player
+                component={MotionSample}
+                {...sampleMetadata}
+                controls
+                style={{ width: "100%", borderRadius: 12 }}
+              />
+              <p className="muted">{t.previewDescription}</p>
+            </div>
+          </details>
         </section>
       ) : (
         !error && (

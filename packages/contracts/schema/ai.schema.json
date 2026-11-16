@@ -1,0 +1,1285 @@
+{
+  "definitions": {
+    "AiCategory": {
+      "type": "string",
+      "enum": ["text", "audio", "video"]
+    },
+    "AiCapability": {
+      "type": "string",
+      "enum": ["text.generate", "audio.synthesize", "video.generate"]
+    },
+    "AiEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["supported", "unsupported", "unknown"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["unknown", "user", "provider", "test"]
+        },
+        "scope": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "observedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["state", "source", "scope", "observedAt"]
+    },
+    "AiCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "images": {
+          "$ref": "#/definitions/AiEvidence"
+        },
+        "streaming": {
+          "$ref": "#/definitions/AiEvidence"
+        },
+        "nativeJson": {
+          "$ref": "#/definitions/AiEvidence"
+        }
+      },
+      "required": ["images", "streaming", "nativeJson"]
+    },
+    "AiProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "adapter": {
+          "type": "string",
+          "enum": ["openai_compatible"]
+        },
+        "baseUrl": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "authMode": {
+          "type": "string",
+          "enum": ["bearer", "none"]
+        },
+        "credentialRevision": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 36
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "adapter",
+        "baseUrl",
+        "authMode",
+        "credentialRevision",
+        "revision"
+      ]
+    },
+    "AiModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "capabilities": {
+          "$ref": "#/definitions/AiCapabilities"
+        },
+        "contextTokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outputTokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokenField": {
+          "type": "string",
+          "enum": ["max_tokens", "max_completion_tokens"]
+        }
+      },
+      "required": [
+        "providerId",
+        "id",
+        "label",
+        "capabilities",
+        "contextTokens",
+        "outputTokens",
+        "tokenField"
+      ]
+    },
+    "AiParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "temperatureMilli": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 1000000
+        },
+        "requestStreaming": {
+          "type": "boolean"
+        },
+        "requestNativeJson": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "temperatureMilli",
+        "maxOutputTokens",
+        "requestStreaming",
+        "requestNativeJson"
+      ]
+    },
+    "AiBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/definitions/AiCategory"
+        },
+        "providerId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "modelId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "parameters": {
+          "$ref": "#/definitions/AiParameters"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "category",
+        "providerId",
+        "modelId",
+        "parameters",
+        "revision"
+      ]
+    },
+    "AiPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "overallMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 180000
+        },
+        "idleMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "maxOutputBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        }
+      },
+      "required": ["overallMs", "idleMs", "maxOutputBytes"]
+    },
+    "AiSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiProvider"
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiModel"
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiBinding"
+          }
+        },
+        "retiredProfileIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 36
+          }
+        },
+        "policy": {
+          "$ref": "#/definitions/AiPolicy"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "revision",
+        "providers",
+        "models",
+        "bindings",
+        "retiredProfileIds",
+        "policy"
+      ]
+    },
+    "AiSettingsView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "settings": {
+          "$ref": "#/definitions/AiSettings"
+        },
+        "credentialBackend": {
+          "type": "string",
+          "enum": ["native", "session_only"]
+        },
+        "presentCredentialRevisions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 36
+          }
+        },
+        "sessionId": {
+          "type": "string",
+          "maxLength": 36
+        }
+      },
+      "required": [
+        "settings",
+        "credentialBackend",
+        "presentCredentialRevisions",
+        "sessionId"
+      ]
+    },
+    "AiSettingsUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "settings": {
+          "$ref": "#/definitions/AiSettings"
+        }
+      },
+      "required": ["expectedRevision", "settings"]
+    },
+    "AiCredentialUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "providerId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "secret": {
+          "type": "string",
+          "maxLength": 8192
+        }
+      },
+      "required": ["expectedRevision", "providerId", "secret"]
+    },
+    "AiResolvedConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/definitions/AiCategory"
+        },
+        "capability": {
+          "$ref": "#/definitions/AiCapability"
+        },
+        "provider": {
+          "$ref": "#/definitions/AiProvider"
+        },
+        "model": {
+          "$ref": "#/definitions/AiModel"
+        },
+        "parameters": {
+          "$ref": "#/definitions/AiParameters"
+        },
+        "policy": {
+          "$ref": "#/definitions/AiPolicy"
+        },
+        "adapterVersion": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "fingerprint": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "stream": {
+          "type": "boolean"
+        },
+        "nativeJson": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "category",
+        "capability",
+        "provider",
+        "model",
+        "parameters",
+        "policy",
+        "adapterVersion",
+        "fingerprint",
+        "stream",
+        "nativeJson"
+      ]
+    },
+    "AiReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "#/definitions/AiResolvedConfig"
+        }
+      },
+      "required": ["configuration"]
+    },
+    "AiModelAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "maxLength": 36
+        }
+      },
+      "required": ["providerId"]
+    },
+    "AiTestAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "actionId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "fingerprint": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "target": {
+          "$ref": "#/definitions/AiTestTarget"
+        }
+      },
+      "required": ["sessionId", "actionId", "fingerprint", "target"]
+    },
+    "AiDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "required": ["models"]
+    },
+    "AiTestReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actionId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "fingerprint": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "enum": ["succeeded", "failed"]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observedAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["text_only"]
+        },
+        "target": {
+          "$ref": "#/definitions/AiTestTarget"
+        },
+        "providerRoot": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 8192
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "actionId",
+        "fingerprint",
+        "status",
+        "error",
+        "observedAt",
+        "scope",
+        "target",
+        "providerRoot"
+      ]
+    },
+    "AiArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "hash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "mime": {
+          "type": "string",
+          "enum": [
+            "text/plain",
+            "application/json",
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16777216
+        }
+      },
+      "required": ["id", "hash", "mime", "size"]
+    },
+    "AiPart": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["text"]
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 1048576
+            }
+          },
+          "required": ["type", "text"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["image"]
+            },
+            "artifactId": {
+              "type": "string",
+              "maxLength": 36
+            }
+          },
+          "required": ["type", "artifactId"]
+        }
+      ]
+    },
+    "AiMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["system", "user", "assistant"]
+        },
+        "content": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiPart"
+          }
+        }
+      },
+      "required": ["role", "content"]
+    },
+    "AiOutputSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mime": {
+          "type": "string",
+          "enum": ["text/plain", "application/json"]
+        },
+        "schemaId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "schemaArtifactId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 36
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        }
+      },
+      "required": [
+        "mime",
+        "schemaId",
+        "schemaVersion",
+        "schemaArtifactId",
+        "maxBytes"
+      ]
+    },
+    "AiInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiMessage"
+          }
+        },
+        "inputArtifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiArtifact"
+          }
+        },
+        "outputSpec": {
+          "$ref": "#/definitions/AiOutputSpec"
+        },
+        "imageDecision": {
+          "type": "string",
+          "enum": ["none", "attempt"]
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "messages",
+        "inputArtifacts",
+        "outputSpec",
+        "imageDecision"
+      ]
+    },
+    "AiStart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "runId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "fingerprint": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "inputHash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "consumer": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "bindingId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "retryOfRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 36
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requestId",
+        "runId",
+        "fingerprint",
+        "inputHash",
+        "consumer",
+        "bindingId",
+        "retryOfRunId"
+      ]
+    },
+    "AiRunStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "running",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted"
+      ]
+    },
+    "AiRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "requestId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "inputHash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "configuration": {
+          "$ref": "#/definitions/AiResolvedConfig"
+        },
+        "status": {
+          "$ref": "#/definitions/AiRunStatus"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AiArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retryOfRunId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 36
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "consumer": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "bindingId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AiUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "runId",
+        "requestId",
+        "inputHash",
+        "configuration",
+        "status",
+        "attempt",
+        "error",
+        "result",
+        "retryOfRunId",
+        "consumer",
+        "bindingId",
+        "usage"
+      ]
+    },
+    "AiUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "inputTokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outputTokens": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["inputTokens", "outputTokens"]
+    },
+    "AiCompletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "fence": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "inputHash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "outputHash": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "finishReason": {
+          "type": "string",
+          "enum": ["stop"]
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AiUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "runId",
+        "attempt",
+        "fence",
+        "inputHash",
+        "outputHash",
+        "finishReason",
+        "usage"
+      ]
+    },
+    "AiWorkerControl": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["start"]
+            },
+            "protocolVersion": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "attempt": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "fence": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "inputHash": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "configuration": {
+              "$ref": "#/definitions/AiResolvedConfig"
+            },
+            "operation": {
+              "type": "string",
+              "enum": ["generate", "discover"]
+            }
+          },
+          "required": [
+            "type",
+            "protocolVersion",
+            "runId",
+            "attempt",
+            "fence",
+            "inputHash",
+            "configuration",
+            "operation"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["artifact_chunk"]
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "data": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": ["type", "id", "data"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["artifact_end"]
+            },
+            "artifact": {
+              "$ref": "#/definitions/AiArtifact"
+            }
+          },
+          "required": ["type", "artifact"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["credential_lease"]
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "fence": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "secret": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8192
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["type", "runId", "fence", "secret"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["dispatch_permit"]
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "fence": {
+              "type": "string",
+              "maxLength": 36
+            }
+          },
+          "required": ["type", "runId", "fence"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["abort"]
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "fence": {
+              "type": "string",
+              "maxLength": 36
+            }
+          },
+          "required": ["type", "runId", "fence"]
+        }
+      ]
+    },
+    "AiWorkerEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["started"]
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "attempt": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "fence": {
+              "type": "string",
+              "maxLength": 36
+            }
+          },
+          "required": ["type", "runId", "attempt", "fence"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["progress"]
+            },
+            "runId": {
+              "type": "string",
+              "maxLength": 36
+            },
+            "phase": {
+              "type": "string",
+              "enum": ["validated", "dispatch_ready"]
+            }
+          },
+          "required": ["type", "runId", "phase"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["output_delta"]
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 32768
+            }
+          },
+          "required": ["type", "text"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["output_chunk"]
+            },
+            "data": {
+              "type": "string",
+              "maxLength": 65536
+            }
+          },
+          "required": ["type", "data"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["usage"]
+            },
+            "usage": {
+              "$ref": "#/definitions/AiUsage"
+            }
+          },
+          "required": ["type", "usage"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["completed"]
+            },
+            "receipt": {
+              "$ref": "#/definitions/AiCompletion"
+            }
+          },
+          "required": ["type", "receipt"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["failed"]
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": ["type", "code"]
+        }
+      ]
+    },
+    "AiSearchEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "snippet": {
+          "type": "string",
+          "maxLength": 8192
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "retrievedAt": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": ["url", "title", "snippet", "provider", "retrievedAt"]
+    },
+    "AiSearchResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AiSearchEntry"
+          }
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 64
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["available", "entries", "reason"]
+    },
+    "AiTestTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providerId", "modelId", "tokenField"],
+      "properties": {
+        "providerId": {
+          "type": "string",
+          "maxLength": 36
+        },
+        "modelId": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "tokenField": {
+          "type": "string",
+          "enum": ["max_tokens", "max_completion_tokens"]
+        }
+      }
+    }
+  }
+}

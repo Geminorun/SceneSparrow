@@ -6,5 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde_json.workspace = true
+
 scenesparrow-domain.workspace = true
 thiserror.workspace = true
+
+uuid.workspace = true

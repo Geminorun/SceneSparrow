@@ -26,11 +26,14 @@ technical document is a temporary directory label, not the product name.
 - Technical design sections 7–11 define enforced locks, worker isolation, provider
   adapters, rendering, performance, and platform constraints.
 - Technical design sections 12–14 define the planned monorepo layout, acceptance
-  scenarios, and the current M0–M3 implementation stages.
+  scenarios, and the preliminary full-product M0–M3 implementation stages.
 
 The documents reuse `T01`–`T10` and M0–M3 labels for different definitions.
 Always cite the source alongside an identifier, such as `DESIGN-v0.1:T04`.
 For a concise English guide, read [the architecture baseline](../architecture.md).
+The later [manuscript workbench and shared AI designs](../design/README.md) take
+precedence for the first product stage; [ADR 0001](../decisions/0001-script-workbench-and-shared-ai.md)
+records the changes from these original proposals.
 
 ## Source integrity
 

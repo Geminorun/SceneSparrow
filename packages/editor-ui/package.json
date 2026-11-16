@@ -11,13 +11,22 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@remotion/player": "4.0.543",
     "@scenesparrow/contracts": "workspace:*",
     "@scenesparrow/platform-client": "workspace:*",
     "@scenesparrow/video-runtime": "workspace:*",
-    "@remotion/player": "4.0.543",
-    "react": "19.3.1"
+    "@tiptap/core": "3.34.0",
+    "@tiptap/extension-code": "3.34.0",
+    "@tiptap/extension-link": "3.34.0",
+    "@tiptap/extension-unique-id": "3.34.0",
+    "@tiptap/pm": "3.34.0",
+    "@tiptap/react": "3.34.0",
+    "@tiptap/starter-kit": "3.34.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "@types/react": "19.3.0"
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.2.3"
   }
 }

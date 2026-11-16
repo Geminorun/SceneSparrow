@@ -8,7 +8,10 @@
     "health",
     "createProject",
     "projectResponse",
-    "apiError"
+    "apiError",
+    "manuscriptState",
+    "manuscriptCommand",
+    "commandReceipt"
   ],
   "properties": {
     "project": {
@@ -25,6 +28,15 @@
     },
     "apiError": {
       "$ref": "#/definitions/ApiError"
+    },
+    "manuscriptState": {
+      "$ref": "#/definitions/ManuscriptState"
+    },
+    "manuscriptCommand": {
+      "$ref": "#/definitions/ManuscriptCommand"
+    },
+    "commandReceipt": {
+      "$ref": "#/definitions/CommandReceipt"
     }
   },
   "definitions": {
@@ -105,6 +117,3048 @@
       "properties": {
         "code": {
           "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "details": {
+          "$ref": "#/definitions/HistoryErrorDetails"
+        }
+      }
+    },
+    "Mark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["bold", "italic", "code", "link"]
+        },
+        "href": {
+          "type": "string"
+        }
+      }
+    },
+    "TextRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "marks"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Mark"
+          }
+        }
+      }
+    },
+    "BlockAttrs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "level": {
+          "type": "integer"
+        },
+        "listKind": {
+          "type": "string",
+          "enum": ["bullet", "ordered"]
+        },
+        "depth": {
+          "type": "integer"
+        }
+      }
+    },
+    "NewBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "attrs", "runs"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/BlockKind"
+        },
+        "attrs": {
+          "$ref": "#/definitions/BlockAttrs"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TextRun"
+          }
+        }
+      }
+    },
+    "Block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "attrs", "runs", "revision"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/BlockKind"
+        },
+        "attrs": {
+          "$ref": "#/definitions/BlockAttrs"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TextRun"
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ManuscriptState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manuscriptId",
+        "schemaVersion",
+        "workspaceStage",
+        "blocks",
+        "workingRevision"
+      ],
+      "properties": {
+        "manuscriptId": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "workspaceStage": {
+          "type": "string",
+          "enum": ["outline", "draft"]
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "BlockRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "EditGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientSessionId", "groupId", "groupSequence", "kind"],
+      "properties": {
+        "clientSessionId": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "groupSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["typing", "discrete"]
+        }
+      }
+    },
+    "Primitive": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "block", "after"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["insertBlock"]
+            },
+            "block": {
+              "$ref": "#/definitions/NewBlock"
+            },
+            "after": {
+              "type": ["string", "null"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id", "runs"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["setBlockContent"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "runs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/TextRun"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id", "kind", "attrs"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["setBlockAttributes"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/definitions/BlockKind"
+            },
+            "attrs": {
+              "$ref": "#/definitions/BlockAttrs"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "id"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["deleteBlock"]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "ids", "after"],
+          "properties": {
+            "op": {
+              "type": "string",
+              "enum": ["moveBlocks"]
+            },
+            "ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "after": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      ]
+    },
+    "EmptyPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {}
+    },
+    "EditPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operations", "expectedBlockRevisions", "group"],
+      "properties": {
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Primitive"
+          }
+        },
+        "expectedBlockRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        }
+      }
+    },
+    "ManuscriptCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["StartManualDraft"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["ApplyDocumentEdit"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EditPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["UndoProject"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RedoProject"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/EmptyPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "expectedHistoryRevision",
+            "expectedCursor",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CloseEditGroup"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedHistoryRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "expectedCursor": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/CloseGroupPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AddSourceLink"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/AddSourceLinkPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AddSourceFile"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/AddSourceFilePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RemoveSource"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/RemoveSourcePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CommitManuscriptImport"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/CommitManuscriptImportPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["SavePlanning"]
+            },
+            "payload": {
+              "$ref": "#/definitions/SavePlanningPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["StartPlanningTask"]
+            },
+            "payload": {
+              "$ref": "#/definitions/StartPlanningTaskPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["CancelPlanningTask"]
+            },
+            "payload": {
+              "$ref": "#/definitions/CancelPlanningTaskPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "type": {
+              "type": "string",
+              "enum": ["UsePlanningResult"]
+            },
+            "payload": {
+              "$ref": "#/definitions/UsePlanningResultPayload"
+            }
+          },
+          "required": [
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "type",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SaveReview"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/SaveReviewPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SetReviewHandled"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/SetReviewHandledPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["DeleteReviewThread"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/DeleteReviewThreadPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["StartReviewTask"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/StartReviewTaskPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["CancelReviewTask"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/CancelReviewTaskPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["AcceptReviewCandidates"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/AcceptReviewCandidatesPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["DiscardReviewCandidate"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer"
+            },
+            "payload": {
+              "$ref": "#/definitions/DiscardReviewCandidatePayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["SetUserLocks"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/UserLocksPayload"
+            }
+          }
+        }
+      ]
+    },
+    "CommandReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "workingRevision",
+        "blockRevisions",
+        "historyRevision",
+        "cursor",
+        "undoCount",
+        "redoCount",
+        "eventSequence",
+        "normalized"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "blockRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
+        },
+        "historyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "redoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "eventSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "normalized": {
+          "type": "boolean"
+        },
+        "undoLabel": {
+          "type": "string"
+        },
+        "redoLabel": {
+          "type": "string"
+        },
+        "sourceRevisions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/BlockRevision"
+          }
+        }
+      }
+    },
+    "BlockKind": {
+      "type": "string",
+      "enum": ["paragraph", "heading", "list_item"]
+    },
+    "HistoryState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workingRevision",
+        "historyRevision",
+        "cursor",
+        "undoCount",
+        "redoCount",
+        "undoLabel",
+        "redoLabel"
+      ],
+      "properties": {
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "historyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cursor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "redoCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "undoLabel": {
+          "type": ["string", "null"]
+        },
+        "redoLabel": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CloseGroupPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientSessionId", "groupId", "groupSequence"],
+      "properties": {
+        "clientSessionId": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "groupSequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "HistoryErrorDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "affectedIds"],
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "candidateConflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/CandidateConflict"
+          }
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "kind", "title", "evidence"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["link", "file"]
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "objectHash": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "evidence": {
+          "type": "string",
+          "enum": ["link_only", "file_bytes"]
+        },
+        "intakeId": {
+          "type": "string"
+        }
+      }
+    },
+    "SourceSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "status", "warnings", "hasImages"],
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/Source"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "link_only",
+            "interrupted",
+            "queued",
+            "running",
+            "ready",
+            "failed"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        }
+      }
+    },
+    "SourcePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "next"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SourceSummary"
+          }
+        },
+        "next": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "Intake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hash", "size", "displayName", "mimeType"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "intakeId", "expectedWorkingRevision"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["prepareFile"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "intakeId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "text", "expectedWorkingRevision"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["preparePaste"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId", "sourceId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["extractSource"]
+            },
+            "jobId": {
+              "type": "string"
+            },
+            "sourceId": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "jobId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["cancel"]
+            },
+            "jobId": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "DocumentResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parser",
+        "text",
+        "blocks",
+        "warnings",
+        "hasImages",
+        "references"
+      ],
+      "properties": {
+        "parser": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NewBlock"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DocumentJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attempt",
+        "status",
+        "purpose",
+        "inputHash",
+        "baseRevision"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "ready",
+            "failed",
+            "interrupted",
+            "cancelled"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "enum": ["import", "source"]
+        },
+        "inputHash": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/definitions/DocumentResult"
+        },
+        "error": {
+          "type": "string"
+        },
+        "candidateHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExtractionPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "jobId",
+        "text",
+        "offset",
+        "next",
+        "warnings",
+        "references",
+        "hasImages",
+        "parser"
+      ],
+      "properties": {
+        "jobId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "next": {
+          "type": ["integer", "null"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hasImages": {
+          "type": "boolean"
+        },
+        "parser": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "projectId",
+        "type",
+        "workingRevision",
+        "affectedIds"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "manuscript.changed",
+            "history.changed",
+            "sources.changed",
+            "documentJob.changed",
+            "resync_required",
+            "aiRun.changed",
+            "planning.changed",
+            "planningTask.changed",
+            "draft.created",
+            "review.changed",
+            "reviewTask.changed",
+            "candidate.changed",
+            "locks.changed",
+            "manuscript.readinessChanged",
+            "exportJob.changed"
+          ]
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "EventPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events", "latest", "resyncRequired"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProjectEvent"
+          }
+        },
+        "latest": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "resyncRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AddSourceLinkPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "url", "title"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "AddSourceFilePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "intakeId", "hash"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "intakeId": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      }
+    },
+    "RemoveSourcePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "expectedSourceRevision"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "CommitManuscriptImportPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preparedId", "candidateHash", "mode"],
+      "properties": {
+        "preparedId": {
+          "type": "string"
+        },
+        "candidateHash": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["start", "append", "replace"]
+        }
+      }
+    },
+    "DocumentWorkerInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "attempt", "path", "name"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "DocumentWorkerOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "result": {
+          "$ref": "#/definitions/DocumentResult"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    },
+    "PlanningBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "style": {
+          "type": "string"
+        },
+        "lengthHint": {
+          "type": "string"
+        }
+      },
+      "required": ["topic", "language", "audience", "style", "lengthHint"]
+    },
+    "OutlineNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "depth": {
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "keyPoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["id", "revision", "depth", "title", "keyPoints"]
+    },
+    "PlanningEvidenceChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["link_only", "extracted_text", "text_only", "visual_input"]
+        },
+        "start": {
+          "type": "integer"
+        },
+        "end": {
+          "type": "integer"
+        },
+        "visualId": {
+          "type": "string"
+        },
+        "allowUnknownImages": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sourceId",
+        "mode",
+        "start",
+        "end",
+        "visualId",
+        "allowUnknownImages"
+      ]
+    },
+    "PlanningContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "brief": {
+          "$ref": "#/definitions/PlanningBrief"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/OutlineNode"
+          }
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidenceChoice"
+          }
+        }
+      },
+      "required": ["brief", "nodes", "instruction", "evidence"]
+    },
+    "PlanningTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "application": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "run": {
+          "$ref": "#/definitions/AiRun"
+        },
+        "preview": {
+          "type": ["string", "null"]
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PlanningTaskMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "operation",
+        "application",
+        "error",
+        "run",
+        "preview",
+        "metadata"
+      ]
+    },
+    "PlanningState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer"
+        },
+        "content": {
+          "$ref": "#/definitions/PlanningContent"
+        },
+        "reserved": {
+          "type": "boolean"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningTask"
+          }
+        }
+      },
+      "required": ["revision", "content", "reserved", "tasks"]
+    },
+    "PlanningEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer"
+        },
+        "contentHash": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "artifactId": {
+          "type": ["string", "null"]
+        },
+        "extractor": {
+          "type": "string"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "sourceId",
+        "sourceRevision",
+        "contentHash",
+        "level",
+        "location",
+        "text",
+        "artifactId",
+        "extractor",
+        "warnings"
+      ]
+    },
+    "PlanningPreparationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "generate_outline",
+            "adjust_outline",
+            "generate_initial_draft"
+          ]
+        }
+      },
+      "required": ["operation"]
+    },
+    "PlanningPreparation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "integer"
+        },
+        "planningRevision": {
+          "type": "integer"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "manifestHash": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidence"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estimatedInputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "configuration": {
+          "$ref": "#/definitions/AiResolvedConfig"
+        }
+      },
+      "required": [
+        "id",
+        "expiresAt",
+        "planningRevision",
+        "fingerprint",
+        "manifestHash",
+        "evidence",
+        "warnings",
+        "estimatedInputTokens",
+        "outputTokens",
+        "configuration"
+      ]
+    },
+    "PlanningVisualAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer"
+        }
+      },
+      "required": ["id", "sourceId", "index"]
+    },
+    "PlanningVisual": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "hash": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": "integer"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "transformation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sourceId",
+        "sourceRevision",
+        "index",
+        "status",
+        "error",
+        "hash",
+        "size",
+        "width",
+        "height",
+        "transformation"
+      ]
+    },
+    "SavePlanningPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "$ref": "#/definitions/PlanningContent"
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        }
+      },
+      "required": ["content", "group"]
+    },
+    "StartPlanningTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preparationId": {
+          "type": "string"
+        },
+        "retryOfTaskId": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["preparationId", "retryOfTaskId"]
+    },
+    "CancelPlanningTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string"
+        }
+      },
+      "required": ["taskId"]
+    },
+    "UsePlanningResultPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string"
+        },
+        "expectedHistoryRevision": {
+          "type": "integer"
+        },
+        "explicit": {
+          "type": "boolean"
+        }
+      },
+      "required": ["taskId", "expectedHistoryRevision", "explicit"]
+    },
+    "PlanningResultReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidenceId": {
+          "type": "string"
+        },
+        "outlineNodeId": {
+          "type": "string"
+        }
+      },
+      "required": ["evidenceId", "outlineNodeId"]
+    },
+    "PlanningSectionMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outlineNodeId": {
+          "type": "string"
+        },
+        "blockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": ["outlineNodeId", "blockIds"]
+    },
+    "PlanningTaskMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "verificationHints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "planningNotes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidenceReferences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningResultReference"
+          }
+        },
+        "sectionMapping": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningSectionMapping"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidence"
+          }
+        }
+      },
+      "required": [
+        "verificationHints",
+        "planningNotes",
+        "evidenceReferences",
+        "sectionMapping",
+        "evidence"
+      ]
+    },
+    "ReviewRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blockId",
+        "revision",
+        "start",
+        "end",
+        "quote",
+        "wholeBlock"
+      ],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "start": {
+          "type": "integer"
+        },
+        "end": {
+          "type": "integer"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "wholeBlock": {
+          "type": "boolean"
+        },
+        "quoteHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewSlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headingId", "beforeId", "afterId"],
+      "properties": {
+        "headingId": {
+          "type": "string"
+        },
+        "beforeId": {
+          "type": "string"
+        },
+        "afterId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "ReviewAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranges", "state", "slot"],
+      "properties": {
+        "ranges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewRange"
+          }
+        },
+        "state": {
+          "type": "string"
+        },
+        "slot": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewSlot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReviewThread": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "requestVersion",
+        "text",
+        "anchor",
+        "handled",
+        "deleted",
+        "language",
+        "evidence",
+        "decision",
+        "userMessageIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["question", "revision_note"]
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/definitions/ReviewAnchor"
+        },
+        "handled": {
+          "type": "boolean"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "language": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PlanningEvidenceChoice"
+          }
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewUserDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "userMessageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReviewCandidateRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "ReviewCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "threadId",
+        "requestVersion",
+        "runId",
+        "status",
+        "before",
+        "after",
+        "explanation",
+        "previewTruncated",
+        "detailNextCursor"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Block"
+          }
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "previewTruncated": {
+          "type": "boolean"
+        },
+        "detailNextCursor": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "ReviewTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "application", "error", "answer", "requestVersion"],
+      "properties": {
+        "run": {
+          "$ref": "#/definitions/AiRun"
+        },
+        "application": {
+          "type": "string"
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "answer": {
+          "type": ["string", "null"]
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "ReviewCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "thread",
+        "candidate",
+        "task",
+        "sourceComparisons",
+        "answer"
+      ],
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ReviewThread"
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewCandidate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewTask"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceComparisons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewComparison"
+          }
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ReviewAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ReviewPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cards", "nextCursor"],
+      "properties": {
+        "cards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewCard"
+          }
+        },
+        "nextCursor": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "SaveReviewPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["thread", "expectedRequestVersion"],
+      "properties": {
+        "thread": {
+          "$ref": "#/definitions/ReviewThread"
+        },
+        "expectedRequestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "SetReviewHandledPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion", "handled"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "handled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "DeleteReviewThreadPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion", "discardCandidate"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "discardCandidate": {
+          "type": "boolean"
+        }
+      }
+    },
+    "StartReviewTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "messageIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "retryOfRunId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CancelReviewTaskPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threadId", "requestVersion"],
+      "properties": {
+        "threadId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "AcceptReviewCandidatesPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidates", "expectedHistoryRevision"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewCandidateRef"
+          }
+        },
+        "expectedHistoryRevision": {
+          "type": "integer"
+        }
+      }
+    },
+    "DiscardReviewCandidatePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate"],
+      "properties": {
+        "candidate": {
+          "$ref": "#/definitions/ReviewCandidateRef"
+        }
+      }
+    },
+    "ReviewUserDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidateId", "decision"],
+      "properties": {
+        "candidateId": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["accepted", "discarded"]
+        }
+      }
+    },
+    "ReviewComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockId", "before", "after", "previewTruncated"],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/definitions/Block"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Block"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "previewTruncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ReviewMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sequence",
+        "requestVersion",
+        "author",
+        "text",
+        "requestUserId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "requestVersion": {
+          "type": "integer"
+        },
+        "author": {
+          "type": "string",
+          "enum": ["user", "ai"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "requestUserId": {
+          "type": "string"
+        }
+      }
+    },
+    "ReviewMessagePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messages", "nextCursor"],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReviewMessage"
+          }
+        },
+        "nextCursor": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "CandidateConflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "reason", "affectedIds"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "affectedIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReviewAnswer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "runId", "requestVersion"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "requestVersion": {
+          "type": "integer"
+        }
+      }
+    },
+    "UserLocksPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockIds", "locked", "all"],
+      "properties": {
+        "blockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "all": {
+          "type": "boolean"
+        }
+      }
+    },
+    "UserLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blockId", "revision", "contentHash"],
+      "properties": {
+        "blockId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "contentHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ApprovedBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sequence", "manifestHash"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer"
+        },
+        "manifestHash": {
+          "type": "string"
+        }
+      }
+    },
+    "FinalizationState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workingRevision",
+        "locks",
+        "reservedBlockIds",
+        "finalized",
+        "baseline"
+      ],
+      "properties": {
+        "workingRevision": {
+          "type": "integer"
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/UserLock"
+          }
+        },
+        "reservedBlockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "finalized": {
+          "type": "boolean"
+        },
+        "baseline": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ApprovedBaseline"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "ExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "expectedRevision", "format"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "md", "docx"]
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExportControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "attempt"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ExportRetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "attempt", "mode", "expectedRevision"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["retained", "recapture"]
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ExportJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "format",
+        "status",
+        "attempt",
+        "snapshotHash",
+        "bodyHash",
+        "capturedRevision",
+        "serializerVersion",
+        "filename",
+        "artifactHash",
+        "size",
+        "error",
+        "inputRetained",
+        "capturedFinalized",
+        "capturedBaseline",
+        "delivery"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "md", "docx"]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "ready",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "snapshotHash": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "capturedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "serializerVersion": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": ["string", "null"]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "error": {
+          "type": ["string", "null"]
+        },
+        "inputRetained": {
+          "type": "boolean"
+        },
+        "capturedFinalized": {
+          "type": "boolean"
+        },
+        "capturedBaseline": {
+          "type": ["string", "null"]
+        },
+        "delivery": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeliveryReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "PreparedCopy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "bodyHash", "capturedRevision", "text", "expiresAt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "capturedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "text": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "integer"
+        }
+      }
+    },
+    "DeliveryAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "jobId", "artifactHash"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": "string"
+        }
+      }
+    },
+    "DeliveryReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "jobId", "artifactHash", "status", "error"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "jobId": {
+          "type": "string"
+        },
+        "artifactHash": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["intent", "saved", "unknown", "failed"]
+        },
+        "error": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "CopyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "expectedRevision", "expectedBodyHash"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "integer"
+        },
+        "expectedBodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ClipboardAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliveryId", "preparationId", "bodyHash"],
+      "properties": {
+        "deliveryId": {
+          "type": "string"
+        },
+        "preparationId": {
+          "type": "string"
+        },
+        "bodyHash": {
+          "type": "string"
+        }
+      }
+    },
+    "ManuscriptIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workingRevision", "bodyHash", "workspaceStage"],
+      "properties": {
+        "workingRevision": {
+          "type": "integer"
+        },
+        "bodyHash": {
+          "type": "string"
+        },
+        "workspaceStage": {
+          "type": "string",
+          "enum": ["outline", "draft"]
         }
       }
     }

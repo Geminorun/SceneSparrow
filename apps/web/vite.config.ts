@@ -8,6 +8,18 @@ export default defineConfig(({ command }) => {
   return {
     plugins: [react()],
     base: "./",
+    preview: {
+      host: "127.0.0.1",
+      port: Number(process.env.SCENESPARROW_WEB_PORT ?? 5173),
+      strictPort: true,
+      proxy: {
+        "/api": {
+          target: `http://127.0.0.1:${process.env.SCENESPARROW_CORE_PORT ?? 4318}`,
+          rewrite: (path) => path.replace(/^\/api/, ""),
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      },
+    },
     server: {
       host: "127.0.0.1",
       port: Number(process.env.SCENESPARROW_WEB_PORT ?? 5173),

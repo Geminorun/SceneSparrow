@@ -17,19 +17,19 @@
     "contracts:check": "node scripts/generate-contracts.mjs --check",
     "format": "prettier --write . && cargo fmt --all",
     "format:check": "prettier --check . && cargo fmt --all -- --check",
-    "test": "node --test tests/unit/*.test.mjs && cargo test --workspace --locked",
+    "test": "node --import tsx --test tests/unit/*.test.mjs && cargo test --workspace --locked",
     "test:e2e": "playwright test",
     "render:smoke": "pnpm --filter @scenesparrow/render smoke",
     "check": "pnpm contracts:check && pnpm format:check && pnpm typecheck && pnpm test && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "test:integration": "cargo build --locked -p scenesparrow-service && node --test tests/integration/*.test.mjs",
-    "env:check": "node scripts/doctor.mjs"
+    "env:check": "node scripts/doctor.mjs",
+    "perf:s1": "SCENESPARROW_PERFORMANCE=1 playwright test tests/e2e/performance.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
     "@types/node": "24.10.1",
     "prettier": "3.10.1",
-    "quicktype-core": "26.0.0",
-    "typescript": "5.9.3",
-    "tsx": "4.21.0"
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
   }
 }

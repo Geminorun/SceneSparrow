@@ -1,10 +1,11 @@
 # Draft architecture outline
 
 This is a provisional framework outline derived from the two user-provided v0.1
-documents. The technical proposal is a preliminary draft, and detailed design
-documents are still required before production workflow implementation. Framework
-samples do not establish approved business models or completed milestones. See the
-[reference index](reference/README.md) for the unmodified originals.
+documents. The [manuscript workbench and shared AI designs](design/README.md) now
+refine the first product stage and supersede conflicting preliminary assumptions.
+Framework samples do not establish implemented business workflows. See the
+[reference index](reference/README.md) for the unmodified originals and
+[ADR 0001](decisions/0001-script-workbench-and-shared-ai.md) for the scope decisions.
 
 ## Product direction
 
@@ -129,10 +130,21 @@ preserving user-authored content in its own language. Keep stable protocol/error
 codes and persisted values independent of display locale. Font availability,
 Unicode paths, text expansion, and OS differences need actual platform checks.
 
-## Implementation stages
+## Current implementation direction
 
-Use the technical design's stage definitions; the earlier requirements report uses
-different M0–M3 boundaries.
+Deliver the manuscript workbench first: editing/history, shared AI with
+outline-to-draft generation, review/locks, then export and end-to-end validation.
+Use the [detailed implementation plan](design/implementation-and-acceptance-v0.1.md).
+Audio/video bindings remain architectural extension points. Shared AI execution
+does not own script rules or rendering. Internal revision/provenance requirements
+remain, with five-step project undo and bounded review comparisons rather than
+unbounded user-facing manuscript version management.
+
+## Preliminary full-product stages
+
+The table below preserves the original technical design's stage definitions; the
+earlier requirements report uses different M0–M3 boundaries. It is historical
+planning context, not the current manuscript-first work order.
 
 | Stage                    | Intended deliverable                                                  | Evidence needed                                                                           |
 | ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
@@ -154,8 +166,10 @@ measured results or delivery commitments.
 
 Prototype platform isolation, media stitching/audio continuity, desktop runtime
 packaging, provider authentication/cancellation, and actual performance before
-claiming those capabilities. Codex App Server is a candidate adapter; existing
-subscriptions do not establish access to every generation capability.
+claiming those capabilities. The first production text adapter is OpenAI-compatible
+user-supplied API access under the [shared AI spec](specs/shared-ai-integration.md).
+Codex App Server remains a deferred candidate; existing subscriptions do not
+establish API access or access to every generation capability.
 
 The initial design excludes cloud multitenancy, a second business database,
 simultaneous Electron/Tauri implementations, real-time collaboration, automatic

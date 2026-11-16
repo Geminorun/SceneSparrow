@@ -1,4 +1,9 @@
+mod ai;
 pub mod contracts;
+mod documents;
+mod exports;
+mod manuscript;
+mod planning;
 
 use axum::{
     Json, Router,
@@ -19,6 +24,9 @@ struct AppState {
     authorization: String,
     allowed_origin: String,
     database_slots: Arc<Semaphore>,
+    document_slots: Arc<Semaphore>,
+    ai: Arc<ai::AiState>,
+    native_authorization: Option<String>,
 }
 
 pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: &str) -> Router {
@@ -27,10 +35,24 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
         authorization: format!("Bearer {token}"),
         allowed_origin: allowed_origin.to_owned(),
         database_slots: Arc::new(Semaphore::new(4)),
+        document_slots: Arc::new(Semaphore::new(1)),
+        ai: Arc::new(ai::AiState::default()),
+        native_authorization: std::env::var("SCENESPARROW_NATIVE_TOKEN").ok(),
     };
+    planning::drive(&state);
+    exports::drive(&state);
+    state_router(state)
+}
+fn state_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/project", get(read_project).post(create_project))
+        .merge(manuscript::routes())
+        .merge(documents::routes())
+        .merge(exports::routes())
+        .merge(ai::routes())
+        .merge(planning::routes())
+        .merge(review::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -42,6 +64,8 @@ fn api_error(status: StatusCode, code: &str) -> Response {
         status,
         Json(contracts::ApiError {
             code: code.to_owned(),
+            details: None,
+            request_id: None,
         }),
     )
         .into_response()
@@ -60,6 +84,30 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
         && origin.to_str().ok() != Some(state.allowed_origin.as_str())
     {
         return api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED");
+    }
+    let native = request
+        .uri()
+        .path()
+        .starts_with("/v1/manuscript/deliveries")
+        || request.uri().path().starts_with("/v1/project/quiesce")
+        || request.uri().path().starts_with("/v1/project/resume")
+        || request.uri().path().starts_with("/v1/project/backup");
+    if native
+        && (state.native_authorization.is_none()
+            || request
+                .headers()
+                .get("x-scenesparrow-native")
+                .and_then(|v| v.to_str().ok())
+                != state.native_authorization.as_deref())
+    {
+        return api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED");
+    }
+    if state.service.repository().is_quiescing()
+        && request.method() != axum::http::Method::GET
+        && !request.uri().path().ends_with("/quiesce")
+        && !request.uri().path().ends_with("/resume")
+    {
+        return api_error(StatusCode::CONFLICT, "PROJECT_CLOSING");
     }
     next.run(request).await
 }
@@ -91,6 +139,9 @@ fn result_response(result: Result<Option<scenesparrow_domain::Project>, Error>) 
             api_error(StatusCode::UNPROCESSABLE_ENTITY, "INVALID_REQUEST")
         }
         Err(Error::Conflict) => api_error(StatusCode::CONFLICT, "PROJECT_CONFLICT"),
+        Err(Error::SchemaUnsupported) => {
+            api_error(StatusCode::SERVICE_UNAVAILABLE, "SCHEMA_UNSUPPORTED")
+        }
         Err(Error::Storage) => api_error(StatusCode::INTERNAL_SERVER_ERROR, "STORAGE_UNAVAILABLE"),
     }
 }
@@ -219,3 +270,5 @@ mod tests {
         assert_eq!(project.approved_baseline, None);
     }
 }
+
+mod review;

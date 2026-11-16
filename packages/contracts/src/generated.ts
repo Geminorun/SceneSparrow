@@ -1,33 +1,127 @@
 // Generated from protocol.schema.json. Do not edit by hand.
-export interface Protocol {
-    apiError:        APIError;
-    createProject:   CreateProject;
-    health:          Health;
-    project:         Project;
-    projectResponse: ProjectResponse;
-}
-
-export interface APIError {
-    code: string;
-}
-
-export interface CreateProject {
-    requestId: string;
-    title:     string;
-}
-
-export interface Health {
-    protocolVersion: string;
-    status:          string;
-}
-
-export interface Project {
-    approvedBaseline: number | null;
-    id:               string;
-    title:            string;
-    workingRevision:  number;
-}
-
-export interface ProjectResponse {
-    project: Project | null;
-}
+export type Project = { id: string; title: string; workingRevision: number; approvedBaseline: number | null; };
+export type Health = { status: string; protocolVersion: string; };
+export type CreateProject = { requestId: string; title: string; };
+export type ProjectResponse = { project: Project | null; };
+export type ApiError = { code: string; requestId?: string; details?: HistoryErrorDetails; };
+export type Mark = { type: "bold" | "italic" | "code" | "link"; href?: string; };
+export type TextRun = { text: string; marks: Array<Mark>; };
+export type BlockAttrs = { level?: number; listKind?: "bullet" | "ordered"; depth?: number; };
+export type NewBlock = { id: string; kind: BlockKind; attrs: BlockAttrs; runs: Array<TextRun>; };
+export type Block = { id: string; kind: BlockKind; attrs: BlockAttrs; runs: Array<TextRun>; revision: number; };
+export type ManuscriptState = { manuscriptId: string; schemaVersion: 1; workspaceStage: "outline" | "draft"; blocks: Array<Block>; workingRevision: number; };
+export type BlockRevision = { id: string; revision: number; };
+export type EditGroup = { clientSessionId: string; groupId: string; groupSequence: number; kind: "typing" | "discrete"; };
+export type Primitive = { op: "insertBlock"; block: NewBlock; after: string | null; } | { op: "setBlockContent"; id: string; runs: Array<TextRun>; } | { op: "setBlockAttributes"; id: string; kind: BlockKind; attrs: BlockAttrs; } | { op: "deleteBlock"; id: string; } | { op: "moveBlocks"; ids: Array<string>; after: string | null; };
+export type EmptyPayload = {  };
+export type EditPayload = { operations: Array<Primitive>; expectedBlockRevisions: Array<BlockRevision>; group: EditGroup; };
+export type ManuscriptCommand = { type: "StartManualDraft"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: EmptyPayload; } | { type: "ApplyDocumentEdit"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: EditPayload; } | { type: "UndoProject"; requestId: string; projectId: string; expectedWorkingRevision: number; expectedHistoryRevision: number; expectedCursor: number; payload: EmptyPayload; } | { type: "RedoProject"; requestId: string; projectId: string; expectedWorkingRevision: number; expectedHistoryRevision: number; expectedCursor: number; payload: EmptyPayload; } | { type: "CloseEditGroup"; requestId: string; projectId: string; expectedWorkingRevision: number; expectedHistoryRevision: number; expectedCursor: number; payload: CloseGroupPayload; } | { type: "AddSourceLink"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: AddSourceLinkPayload; } | { type: "AddSourceFile"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: AddSourceFilePayload; } | { type: "RemoveSource"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: RemoveSourcePayload; } | { type: "CommitManuscriptImport"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: CommitManuscriptImportPayload; } | { requestId: string; projectId: string; expectedWorkingRevision: number; type: "SavePlanning"; payload: SavePlanningPayload; } | { requestId: string; projectId: string; expectedWorkingRevision: number; type: "StartPlanningTask"; payload: StartPlanningTaskPayload; } | { requestId: string; projectId: string; expectedWorkingRevision: number; type: "CancelPlanningTask"; payload: CancelPlanningTaskPayload; } | { requestId: string; projectId: string; expectedWorkingRevision: number; type: "UsePlanningResult"; payload: UsePlanningResultPayload; } | { type: "SaveReview"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: SaveReviewPayload; } | { type: "SetReviewHandled"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: SetReviewHandledPayload; } | { type: "DeleteReviewThread"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: DeleteReviewThreadPayload; } | { type: "StartReviewTask"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: StartReviewTaskPayload; } | { type: "CancelReviewTask"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: CancelReviewTaskPayload; } | { type: "AcceptReviewCandidates"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: AcceptReviewCandidatesPayload; } | { type: "DiscardReviewCandidate"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: DiscardReviewCandidatePayload; } | { type: "SetUserLocks"; requestId: string; projectId: string; expectedWorkingRevision: number; payload: UserLocksPayload; };
+export type CommandReceipt = { requestId: string; workingRevision: number; blockRevisions: Array<BlockRevision>; historyRevision: number; cursor: number; undoCount: number; redoCount: number; eventSequence: number; normalized: boolean; undoLabel?: string; redoLabel?: string; sourceRevisions?: Array<BlockRevision>; };
+export type BlockKind = "paragraph" | "heading" | "list_item";
+export type HistoryState = { workingRevision: number; historyRevision: number; cursor: number; undoCount: number; redoCount: number; undoLabel: string | null; redoLabel: string | null; };
+export type CloseGroupPayload = { clientSessionId: string; groupId: string; groupSequence: number; };
+export type HistoryErrorDetails = { reason: string; affectedIds: Array<string>; candidateConflicts?: Array<CandidateConflict>; };
+export type Source = { id: string; revision: number; kind: "link" | "file"; title: string; url?: string; objectHash?: string; mimeType?: string; size?: number; evidence: "link_only" | "file_bytes"; intakeId?: string; };
+export type SourceSummary = { source: Source; jobId?: string; status: "link_only" | "interrupted" | "queued" | "running" | "ready" | "failed"; error?: string; warnings: Array<string>; hasImages: boolean; };
+export type SourcePage = { items: Array<SourceSummary>; next: string | null; };
+export type Intake = { id: string; hash: string; size: number; displayName: string; mimeType: string; };
+export type DocumentAction = { type: "prepareFile"; jobId: string; intakeId: string; expectedWorkingRevision: number; } | { type: "preparePaste"; jobId: string; text: string; expectedWorkingRevision: number; } | { type: "extractSource"; jobId: string; sourceId: string; } | { type: "cancel"; jobId: string; };
+export type DocumentResult = { parser: string; text: string; blocks: Array<NewBlock>; warnings: Array<string>; hasImages: boolean; references: Array<string>; };
+export type DocumentJob = { id: string; attempt: number; status: "queued" | "running" | "ready" | "failed" | "interrupted" | "cancelled"; purpose: "import" | "source"; inputHash: string; baseRevision: number; sourceId?: string; result?: DocumentResult; error?: string; candidateHash?: string; };
+export type ExtractionPage = { jobId: string; text: string; offset: number; next: number | null; warnings: Array<string>; references: Array<string>; hasImages: boolean; parser: string; };
+export type ProjectEvent = { sequence: number; projectId: string; type: "manuscript.changed" | "history.changed" | "sources.changed" | "documentJob.changed" | "resync_required" | "aiRun.changed" | "planning.changed" | "planningTask.changed" | "draft.created" | "review.changed" | "reviewTask.changed" | "candidate.changed" | "locks.changed" | "manuscript.readinessChanged" | "exportJob.changed"; requestId?: string; workingRevision: number; affectedIds: Array<string>; };
+export type EventPage = { events: Array<ProjectEvent>; latest: number; resyncRequired: boolean; };
+export type AddSourceLinkPayload = { sourceId: string; url: string; title: string; };
+export type AddSourceFilePayload = { sourceId: string; intakeId: string; hash: string; };
+export type RemoveSourcePayload = { sourceId: string; expectedSourceRevision: number; };
+export type CommitManuscriptImportPayload = { preparedId: string; candidateHash: string; mode: "start" | "append" | "replace"; };
+export type DocumentWorkerInput = { version: 1; attempt: number; path: string; name: string; };
+export type DocumentWorkerOutput = { version: 1; attempt?: number; result?: DocumentResult; error?: string; };
+export type PlanningBrief = { topic: string; language: string; audience: string; style: string; lengthHint: string; };
+export type OutlineNode = { id: string; revision: number; depth: number; title: string; keyPoints: Array<string>; };
+export type PlanningEvidenceChoice = { sourceId: string; mode: "link_only" | "extracted_text" | "text_only" | "visual_input"; start: number; end: number; visualId: string; allowUnknownImages: boolean; };
+export type PlanningContent = { brief: PlanningBrief; nodes: Array<OutlineNode>; instruction: string; evidence: Array<PlanningEvidenceChoice>; };
+export type PlanningTask = { id: string; operation: string; application: string; error: string | null; run: AiRun; preview: string | null; metadata: PlanningTaskMetadata | null; };
+export type PlanningState = { revision: number; content: PlanningContent; reserved: boolean; tasks: Array<PlanningTask>; };
+export type PlanningEvidence = { id: string; sourceId: string; sourceRevision: number; contentHash: string; level: string; location: string; text: string; artifactId: string | null; extractor: string; warnings: Array<string>; };
+export type PlanningPreparationRequest = { operation: "generate_outline" | "adjust_outline" | "generate_initial_draft"; };
+export type PlanningPreparation = { id: string; expiresAt: number; planningRevision: number; fingerprint: string; manifestHash: string; evidence: Array<PlanningEvidence>; warnings: Array<string>; estimatedInputTokens: number; outputTokens: number; configuration: AiResolvedConfig; };
+export type PlanningVisualAction = { id: string; sourceId: string; index: number; };
+export type PlanningVisual = { id: string; sourceId: string; sourceRevision: number; index: number; status: string; error: string | null; hash: string | null; size: number; width: number; height: number; transformation: string; };
+export type SavePlanningPayload = { content: PlanningContent; group: EditGroup; };
+export type StartPlanningTaskPayload = { preparationId: string; retryOfTaskId: string | null; };
+export type CancelPlanningTaskPayload = { taskId: string; };
+export type UsePlanningResultPayload = { taskId: string; expectedHistoryRevision: number; explicit: boolean; };
+export type PlanningResultReference = { evidenceId: string; outlineNodeId: string; };
+export type PlanningSectionMapping = { outlineNodeId: string; blockIds: Array<string>; };
+export type PlanningTaskMetadata = { verificationHints: Array<string>; planningNotes: Array<string>; evidenceReferences: Array<PlanningResultReference>; sectionMapping: Array<PlanningSectionMapping>; evidence: Array<PlanningEvidence>; };
+export type ReviewRange = { blockId: string; revision: number; start: number; end: number; quote: string; wholeBlock: boolean; quoteHash?: string; };
+export type ReviewSlot = { headingId: string; beforeId: string; afterId: string | null; };
+export type ReviewAnchor = { ranges: Array<ReviewRange>; state: string; slot: ReviewSlot | null; };
+export type ReviewThread = { id: string; kind: "question" | "revision_note"; requestVersion: number; text: string; anchor: ReviewAnchor; handled: boolean; deleted: boolean; language: string; evidence: Array<PlanningEvidenceChoice>; decision: ReviewUserDecision | null; userMessageIds: Array<string>; };
+export type ReviewCandidateRef = { id: string; version: number; };
+export type ReviewCandidate = { id: string; version: number; threadId: string; requestVersion: number; runId: string; status: string; before: Array<Block>; after: Array<Block>; explanation: string; previewTruncated: boolean; detailNextCursor: number | null; };
+export type ReviewTask = { run: AiRun; application: string; error: string | null; answer: string | null; requestVersion: number; };
+export type ReviewCard = { thread: ReviewThread; candidate: ReviewCandidate | null; task: ReviewTask | null; sourceComparisons: Array<ReviewComparison>; answer: ReviewAnswer | null; };
+export type ReviewPage = { cards: Array<ReviewCard>; nextCursor: string | null; };
+export type SaveReviewPayload = { thread: ReviewThread; expectedRequestVersion: number; };
+export type SetReviewHandledPayload = { threadId: string; requestVersion: number; handled: boolean; };
+export type DeleteReviewThreadPayload = { threadId: string; requestVersion: number; discardCandidate: boolean; };
+export type StartReviewTaskPayload = { threadId: string; requestVersion: number; messageIds?: Array<string>; retryOfRunId?: string | null; };
+export type CancelReviewTaskPayload = { threadId: string; requestVersion: number; };
+export type AcceptReviewCandidatesPayload = { candidates: Array<ReviewCandidateRef>; expectedHistoryRevision: number; };
+export type DiscardReviewCandidatePayload = { candidate: ReviewCandidateRef; };
+export type ReviewUserDecision = { candidateId: string; decision: "accepted" | "discarded"; };
+export type ReviewComparison = { blockId: string; before: Block; after: Block | null; previewTruncated: boolean; };
+export type ReviewMessage = { id: string; sequence: number; requestVersion: number; author: "user" | "ai"; text: string; requestUserId: string; };
+export type ReviewMessagePage = { messages: Array<ReviewMessage>; nextCursor: number | null; };
+export type CandidateConflict = { id: string; version: number; reason: string; affectedIds: Array<string>; };
+export type ReviewAnswer = { text: string; runId: string; requestVersion: number; };
+export type UserLocksPayload = { blockIds: Array<string>; locked: boolean; all: boolean; };
+export type UserLock = { blockId: string; revision: number; contentHash: string; };
+export type ApprovedBaseline = { id: string; sequence: number; manifestHash: string; };
+export type FinalizationState = { workingRevision: number; locks: Array<UserLock>; reservedBlockIds: Array<string>; finalized: boolean; baseline: ApprovedBaseline | null; };
+export type ExportRequest = { requestId: string; expectedRevision: number; format: "txt" | "md" | "docx"; expectedBodyHash?: string; };
+export type ExportControl = { requestId: string; attempt: number; };
+export type ExportRetry = { requestId: string; attempt: number; mode: "retained" | "recapture"; expectedRevision: number; expectedBodyHash?: string; };
+export type ExportJob = { id: string; format: "txt" | "md" | "docx"; status: "queued" | "running" | "ready" | "failed" | "cancelled" | "interrupted"; attempt: number; snapshotHash: string; bodyHash: string; capturedRevision: number; serializerVersion: string; filename: string; artifactHash: string | null; size: number; error: string | null; inputRetained: boolean; capturedFinalized: boolean; capturedBaseline: string | null; delivery: DeliveryReceipt | null; };
+export type PreparedCopy = { id: string; bodyHash: string; capturedRevision: number; text: string; expiresAt: number; };
+export type DeliveryAction = { deliveryId: string; jobId: string; artifactHash: string; };
+export type DeliveryReceipt = { deliveryId: string; jobId: string; artifactHash: string; status: "intent" | "saved" | "unknown" | "failed"; error: string | null; };
+export type CopyRequest = { requestId: string; expectedRevision: number; expectedBodyHash: string; };
+export type ClipboardAction = { deliveryId: string; preparationId: string; bodyHash: string; };
+export type ManuscriptIdentity = { workingRevision: number; bodyHash: string; workspaceStage: "outline" | "draft"; };
+export type AiCategory = "text" | "audio" | "video";
+export type AiCapability = "text.generate" | "audio.synthesize" | "video.generate";
+export type AiEvidence = { state: "supported" | "unsupported" | "unknown"; source: "unknown" | "user" | "provider" | "test"; scope: string; observedAt: string | null; };
+export type AiCapabilities = { images: AiEvidence; streaming: AiEvidence; nativeJson: AiEvidence; };
+export type AiProvider = { id: string; label: string; adapter: "openai_compatible"; baseUrl: string; authMode: "bearer" | "none"; credentialRevision: string | null; revision: number; };
+export type AiModel = { providerId: string; id: string; label: string; capabilities: AiCapabilities; contextTokens: number | null; outputTokens: number | null; tokenField: "max_tokens" | "max_completion_tokens"; };
+export type AiParameters = { temperatureMilli: number | null; maxOutputTokens: number; requestStreaming: boolean; requestNativeJson: boolean; };
+export type AiBinding = { category: AiCategory; providerId: string; modelId: string; parameters: AiParameters; revision: number; };
+export type AiPolicy = { overallMs: number; idleMs: number; maxOutputBytes: number; };
+export type AiSettings = { schemaVersion: number; revision: number; providers: Array<AiProvider>; models: Array<AiModel>; bindings: Array<AiBinding>; retiredProfileIds: Array<string>; policy: AiPolicy; };
+export type AiSettingsView = { settings: AiSettings; credentialBackend: "native" | "session_only"; presentCredentialRevisions: Array<string>; sessionId: string; };
+export type AiSettingsUpdate = { expectedRevision: number; settings: AiSettings; };
+export type AiCredentialUpdate = { expectedRevision: number; providerId: string; secret: string; };
+export type AiResolvedConfig = { category: AiCategory; capability: AiCapability; provider: AiProvider; model: AiModel; parameters: AiParameters; policy: AiPolicy; adapterVersion: string; fingerprint: string; stream: boolean; nativeJson: boolean; };
+export type AiReadiness = { configuration: AiResolvedConfig; };
+export type AiModelAction = { providerId: string; };
+export type AiTestAction = { sessionId: string; actionId: string; fingerprint: string; target: AiTestTarget; };
+export type AiDiscovery = { models: Array<string>; };
+export type AiTestReceipt = { actionId: string; fingerprint: string; status: "succeeded" | "failed"; error: string | null; observedAt: string; scope: "text_only"; target: AiTestTarget; providerRoot: string | null; };
+export type AiArtifact = { id: string; hash: string; mime: "text/plain" | "application/json" | "image/png" | "image/jpeg" | "image/webp"; size: number; };
+export type AiPart = { type: "text"; text: string; } | { type: "image"; artifactId: string; };
+export type AiMessage = { role: "system" | "user" | "assistant"; content: Array<AiPart>; };
+export type AiOutputSpec = { mime: "text/plain" | "application/json"; schemaId: string; schemaVersion: number; schemaArtifactId: string | null; maxBytes: number; };
+export type AiInput = { protocolVersion: number; messages: Array<AiMessage>; inputArtifacts: Array<AiArtifact>; outputSpec: AiOutputSpec; imageDecision: "none" | "attempt"; };
+export type AiStart = { requestId: string; runId: string; fingerprint: string; inputHash: string; consumer: string; bindingId: string; retryOfRunId: string | null; };
+export type AiRunStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+export type AiRun = { runId: string; requestId: string; inputHash: string; configuration: AiResolvedConfig; status: AiRunStatus; attempt: number; error: string | null; result: AiArtifact | null; retryOfRunId: string | null; consumer: string; bindingId: string; usage: AiUsage | null; };
+export type AiUsage = { inputTokens: number | null; outputTokens: number | null; };
+export type AiCompletion = { runId: string; attempt: number; fence: string; inputHash: string; outputHash: string; finishReason: "stop"; usage: AiUsage | null; };
+export type AiWorkerControl = { type: "start"; protocolVersion: number; runId: string; attempt: number; fence: string; inputHash: string; configuration: AiResolvedConfig; operation: "generate" | "discover"; } | { type: "artifact_chunk"; id: string; data: string; } | { type: "artifact_end"; artifact: AiArtifact; } | { type: "credential_lease"; runId: string; fence: string; secret: string | null; } | { type: "dispatch_permit"; runId: string; fence: string; } | { type: "abort"; runId: string; fence: string; };
+export type AiWorkerEvent = { type: "started"; runId: string; attempt: number; fence: string; } | { type: "progress"; runId: string; phase: "validated" | "dispatch_ready"; } | { type: "output_delta"; text: string; } | { type: "output_chunk"; data: string; } | { type: "usage"; usage: AiUsage; } | { type: "completed"; receipt: AiCompletion; } | { type: "failed"; code: string; };
+export type AiSearchEntry = { url: string; title: string; snippet: string; provider: string; retrievedAt: string; };
+export type AiSearchResult = { available: boolean; entries: Array<AiSearchEntry>; reason: string | null; };
+export type AiTestTarget = { providerId: string; modelId: string; tokenField: "max_tokens" | "max_completion_tokens"; };

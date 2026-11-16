@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@scenesparrow/contracts": "workspace:*"
+    "@scenesparrow/contracts": "workspace:*",
+    "@scenesparrow/ai-runtime": "workspace:*"
   }
 }

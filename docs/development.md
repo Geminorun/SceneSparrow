@@ -13,27 +13,68 @@ zero and has no approved baseline. Creating the same request twice is idempotent
 a different request cannot replace the existing project. A file lock prevents two
 core instances from owning the same directory.
 
-The current phase is framework setup, not a business implementation milestone.
-The v0.1 proposal is a preliminary draft; detailed designs are still pending. Script
-editing/Tiptap, assets, revision history, lock enforcement, review acceptance, SSE,
-durable worker jobs, provider authentication, incremental rendering, file pickers,
-packaging, and updates remain to be implemented. The Agent package contains an
-interface only. The sample render does not render project scenes or contain audio.
+Execution step 1 now provides manual manuscript editing: start an empty draft,
+write paragraphs/headings/nested lists with bold, italic, inline code and safe
+links, autosave, and reopen acknowledged content. The shared Tiptap editor adapts
+application-owned canonical blocks; it does not persist editor JSON or HTML.
+Heading navigation derives from the same blocks. Save feedback distinguishes
+pending, saving, saved, error and conflict; failed/uncertain saves retain local
+input and offer retry or explicit copy/discard recovery.
+
+Migration 002 adds immutable content-addressed objects, canonical block identities
+and revisions, request receipts, edit-group metadata and a transactional outbox.
+Bootstrap upgrades use SQLite's consistent backup API. Migration 003 adds a
+persistent project history with five transitions and at most six shared business
+snapshot roots. Its backup directory contains a consistent SQLite database and
+pinned copies of immutable objects. Keep each backup directory intact; copying
+only the live main SQLite file or deleting its objects cannot restore a project.
+The existing project owner lock remains.
+
+The manual command union includes `StartManualDraft`, atomic `ApplyDocumentEdit`,
+`UndoProject`, `RedoProject`, and metadata-only `CloseEditGroup`. Document and
+history-toolbar shortcuts use the same serialized project queue; native dialog
+text inputs retain local undo. Typing batches share one group until 750 ms of
+actual input inactivity or a selection/focus/discrete boundary. Save delivery gaps
+do not decide typing inactivity. Controlled close drains later valid input that
+arrives while group closure is awaiting a receipt. Invalid structure can be
+corrected locally, with an explicit retry before dependent project operations.
+
+Step 3 adds a shared reference panel and prepared manuscript import. Link references
+remain link-only metadata; file references retain copied original bytes and show
+extraction status/text/warnings. Importing TXT, Markdown, DOCX, PDF or pasted text
+prepares a preview before start/append/replace; imports do not add references.
+Sources and imports use the same serialized queue, mutation-policy seam and five-step
+history. Migration 004 extends business roots with backward-compatible source
+membership and adds intake, fenced document jobs, provenance and external object pins.
+
+The supervised non-AI Node utility has pinned parsers, bounded input/output, a
+60-second wall limit and sampled 512 MiB Linux RSS enforcement. Windows/macOS RSS
+budget enforcement remains open; the V8 heap setting is not full OS isolation.
+Authenticated SSE supports replay/resync and desktop subscriptions have scoped cleanup.
+Reopen verifies retained references, fences interrupted work, abandons active previews
+and runs coordinated object GC with a 60-second grace period. Backups own independent
+pinned copies and are never traversed by the collector. See
+[step 3 evidence](validation/step-03.md) for parser behavior, fault/upgrade tests and
+measured performance-budget misses. Steps 4–5 below add shared AI and planning;
+step 6 adds review, step 7 adds locks/finalization and validated replay, and step 8
+adds copy/export and final validation. The procedural motion
+sample remains an independent collapsible example.
 
 ## Pinned tools and prerequisites
 
-| Tool              | Version / policy                                              |
-| ----------------- | ------------------------------------------------------------- |
-| Node.js           | 24.22.1, `.node-version`                                      |
-| pnpm              | 11.25.0, root `packageManager`                                |
-| Rust              | 1.100.0, `rust-toolchain.toml`, with rustfmt and Clippy       |
-| TypeScript        | 5.9.3                                                         |
-| React / Vite      | 19.3.1 / 8.3.8                                                |
-| Electron          | 45.3.2, installed independently of the renderer browser       |
-| Remotion          | 4.0.543 across all Remotion packages                          |
-| Rendering browser | Chrome Headless Shell selected by the pinned Remotion version |
-| FFmpeg            | System prerequisite; cloud validation uses 7.1.5              |
-| SQLite            | Bundled through rusqlite; no database server needed           |
+| Tool              | Version / policy                                                   |
+| ----------------- | ------------------------------------------------------------------ |
+| Node.js           | 24.22.1, `.node-version`                                           |
+| pnpm              | 11.25.0, root `packageManager`                                     |
+| Rust              | 1.100.0, `rust-toolchain.toml`, with rustfmt and Clippy            |
+| Tiptap            | 3.34.0, including the core, React, ProseMirror and used extensions |
+| TypeScript        | 5.9.3                                                              |
+| React / Vite      | 19.3.1 / 8.3.8                                                     |
+| Electron          | 45.3.2, installed independently of the renderer browser            |
+| Remotion          | 4.0.543 across all Remotion packages                               |
+| Rendering browser | Chrome Headless Shell selected by the pinned Remotion version      |
+| FFmpeg            | System prerequisite; cloud validation uses 7.1.5                   |
+| SQLite            | Bundled through rusqlite; no database server needed                |
 
 Install Node, pnpm, Rust/rustfmt/Clippy, a native C compiler, and FFmpeg for local
 development. Windows needs the MSVC build tools; macOS needs Xcode command-line
@@ -92,27 +133,37 @@ pnpm dev:desktop
 ```
 
 The launcher builds the web bundle, desktop code, and Rust core. Electron owns the
-core lifecycle, creates a session token, and exposes only health/read/create
-operations through a sandboxed preload bridge. The renderer cannot read arbitrary
+core lifecycle, creates a session token, and exposes only named project/manuscript reads, closed commands and
+receipt lookup operations through a sandboxed preload bridge. The renderer cannot read arbitrary
 files, run commands, or call arbitrary core endpoints. Electron uses an application
 data directory by default; set `SCENESPARROW_PROJECT_DIR` to share a particular
 development project with the browser, one core instance at a time.
 
+Controlled desktop close waits for a flush and group closure, repeating the drain
+if newer valid input arrives while closure is in flight. Failure keeps the window open for
+retry, cancellation or an explicit discard decision; an unresponsive renderer has
+a separate confirmation path. The handshake/preload lifecycle is unit-tested and
+compiled in the cloud. Actual Windows/macOS launch, IME and close behavior remain
+unverified. Browser unload warns about unsaved edits and cannot guarantee a final
+asynchronous save. Unexpected process/browser failure can lose unacknowledged
+input; no local-storage keystroke replay is used.
+
 ## Commands and verification
 
-| Command                             | Purpose                                                                            |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `pnpm run env:check`                | Report tool versions and Electron binary presence; does not certify desktop launch |
-| `pnpm contracts:generate`           | Generate committed TypeScript and Rust protocol types from JSON Schema             |
-| `pnpm contracts:check`              | Detect stale generated protocol types                                              |
-| `pnpm typecheck`                    | Check all TypeScript packages                                                      |
-| `pnpm format` / `pnpm format:check` | Apply/check Prettier and rustfmt                                                   |
-| `pnpm test`                         | Run locale consistency and Rust domain/storage/HTTP tests                          |
-| `pnpm check`                        | Run contract, format, type, unit, and Clippy checks                                |
-| `pnpm build`                        | Build the browser, Electron shell, and Rust workspaces                             |
-| `pnpm test:integration`             | Create a project via HTTP and verify recovery across actual process restart        |
-| `pnpm test:e2e`                     | Create/reload a project and switch languages in a real browser                     |
-| `pnpm render:smoke`                 | Download the dedicated rendering browser if needed and render 30 H.264 frames      |
+| Command                             | Purpose                                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `pnpm run env:check`                | Report tool versions and Electron binary presence; does not certify desktop launch                           |
+| `pnpm contracts:generate`           | Generate committed TypeScript and Rust protocol types from JSON Schema                                       |
+| `pnpm contracts:check`              | Detect stale generated protocol types                                                                        |
+| `pnpm typecheck`                    | Check all TypeScript packages                                                                                |
+| `pnpm format` / `pnpm format:check` | Apply/check Prettier and rustfmt                                                                             |
+| `pnpm test`                         | Run autosave/bridge/locale and Rust domain/storage/HTTP tests                                                |
+| `pnpm check`                        | Run contract, format, type, unit, and Clippy checks                                                          |
+| `pnpm build`                        | Build the browser, Electron shell, and Rust workspaces                                                       |
+| `pnpm test:integration`             | Save a manuscript/receipts via HTTP and verify actual core restart recovery                                  |
+| `pnpm test:e2e`                     | Exercise structure, formatting, IME events, autosave and recovery in Chromium                                |
+| `pnpm perf:s1`                      | Measure explicit Linux/browser manuscript fixtures; reports budget misses without claiming native acceptance |
+| `pnpm render:smoke`                 | Download the dedicated rendering browser if needed and render 30 H.264 frames                                |
 
 For browser tests, use `pnpm exec playwright install chromium`, or point
 `SCENESPARROW_TEST_BROWSER` to a compatible installed Chromium. The cloud activation
@@ -128,17 +179,185 @@ gain dedicated CI jobs as those workflows mature.
 ## Protocol and change boundaries
 
 `packages/contracts/schema/protocol.schema.json` is the protocol source of truth.
-Its named definitions generate `packages/contracts/src/generated.ts` and
-`crates/service/src/contracts.rs`; generated files are committed and checked for
-drift. Generated Rust structs reject unknown fields for these closed schema
-objects. Domain validation enforces name and request constraints separately.
+Its named definitions generate `packages/contracts/src/generated.ts`, transport-neutral
+canonical/command types in `crates/domain/src/contracts.rs`, and transport DTOs in
+`crates/service/src/contracts.rs`. The small generator retains closed tagged
+command unions, distinguishes required null from missing fields, and rejects
+unsupported schema type constructs. Generated files are committed and checked for
+drift. Core validation separately enforces canonical invariants and named limits.
 
-The initial authenticated endpoints are `GET /v1/health`, `GET /v1/project`, and
-`POST /v1/project`. Creation accepts a request ID and title; it does not accept a
-client-supplied revision or approve a baseline. There is intentionally no edit,
-unlock, or acceptance endpoint until revision and lock validation exist.
+The existing authenticated project/health routes remain compatible. New routes:
 
-The next planning step is detailed design of module responsibilities, domain
-models, protocols, storage, and workflow behavior. The draft M0/M1 roadmap does
-not authorize further feature implementation. Treat the bootstrap's single-project
-API as an integration sample, not a substitute for those detailed designs.
+- `GET /v1/manuscript`: current canonical manuscript and working revision.
+- `GET /v1/history`: current working/history revisions, cursor, counts and operation labels.
+- `POST /v1/manuscript/commands`: the closed manual-edit/history command union.
+- `GET /v1/commands/{requestId}`: resolve an immutable success/rejection receipt.
+- `GET /v1/sources`: cursor-paginated membership/extraction summaries.
+- `POST /v1/intakes`: raw bounded upload with `x-intake-id` and URI-encoded
+  `x-file-name`; `GET`/`DELETE /v1/intakes/{id}` resolves/cancels that intake.
+- `POST /v1/document-jobs`, `GET /v1/document-jobs/{id}`: named preparation,
+  source extraction, retry/cancel and bounded result reads.
+- `GET /v1/source-extractions/{id}?offset=...`: scoped text pages.
+- `GET /v1/project/events?after=...`: authenticated SSE with replay/resync;
+  authentication never appears in the URL.
+
+Manuscript commands have an 8 MiB route limit; small routes retain 16 KiB. Identical
+requests replay their original outcomes before revision checks; changed payloads
+with a reused request ID fail. Successful responses follow object verification and
+an atomic SQLite commit of state, revisions, receipt and outbox metadata. No-op
+edits preserve working/block revisions. History receipts report committed history revision, cursor and undo/redo counts,
+with optional operation-label codes. Label fields remain optional so step 1 success
+receipts replay unchanged. History rejection details contain only stable reasons
+and affected IDs. Undo/redo never restores receipt/event/runtime rows or old
+revision tokens.
+
+See [step 1](validation/step-01.md), [step 2](validation/step-02.md) and
+[step 3 evidence](validation/step-03.md) for the acceptance mapping and
+remaining platform/fault/performance gaps.
+
+The [workbench implementation plan](design/implementation-and-acceptance-v0.1.md)
+orders work by usable manuscript slices. The user has selected the
+[eight-step implementation workflow](implementation-execution.md); preliminary
+media milestones do not expand that scope. The current business paths use the
+detailed domain, history and execution contracts rather than the original
+single-project sample alone. All [stage and shared AI specs](specs/README.md) are
+documented. Follow the shared AI migration/port ledger while keeping manual
+editing/export independent of provider availability.
+
+## Shared AI (execution step 4)
+
+The global AI settings panel is shared by browser and desktop. Add a provider with
+its full compatible API root (no automatic `/v1`), enter a key or explicitly select
+no authentication, then manually enter/discover a model and bind it to text.
+Audio/video and search remain unavailable. Inference tests are explicit quota
+actions against the selected saved provider/manual model; testing another profile
+does not change the global text binding. A duplicate submitted test reuses its
+session receipt; after restart an uncertain old test is not replayed.
+
+Set `SCENESPARROW_APP_DATA_DIR` to a writable application directory outside the
+project. `scripts/cloud-env.sh` defaults it to `/workspace/.local/share/scenesparrow`;
+the desktop launcher uses Electron user data. Settings, nonsecret credential
+revision inventory and execution-origin registry live there, outside project
+undo/backups. Linux/browser development keys are clearly labeled session memory
+and disappear on core restart. Windows/macOS keyring source adapters require actual
+target-host validation; no plaintext credential fallback exists.
+
+Migration 005 stores generic AI execution state. Internal consumer coordinators use
+the application UOW/configuration ports and controlled host tick; no public raw
+prompt route exists. The independent runtime uses OpenAI 7.57.0 with retries and
+SDK logging disabled, system TLS/proxy transport and rejected redirects. Plain
+Node 24 launches `workers/agent/src/entry.mjs` against installed workspace source.
+The process has no project DB API, service/API-key environment or generated-code
+executor. This development path is not a packaged desktop worker runtime.
+
+Named authenticated routes add `/v1/ai/settings`, credential update/delete, model
+discovery, configuration readiness, explicit connection-test prepare/submit and
+scoped run/result/cancel reads/actions. Desktop preload exposes matching named
+methods. Worker control frames stay bounded; artifact content streams in small
+chunks. Blocking settings/credential/project reads run in separate bounded blocking
+slots so a settings file lock does not occupy manual editing's database slots.
+See [step 4 evidence](validation/step-04.md) for dispatch, recovery, redaction and
+platform/provider limitations. Steps 5–6 below connect S2 and the S3 review consumer.
+
+## Planning and initial drafting (execution step 5)
+
+The outline stage now saves a brief, preorder outline and explicit evidence choices.
+Write manually/import as before, or prepare the saved inputs and use the global
+text binding to generate/adjust an outline and confirm one complete initial draft.
+Preparation makes no provider call. Source discovery is unavailable; links and
+files remain manual. File text needs an explicit UTF-8 byte range; images need a
+selected local DOCX image/PDF page preparation, and unknown vision capability needs
+an explicit attempt. Text-only evidence is an explicit choice when images exist.
+
+The core owns script prompts/output interpretation and task applicability. Generic
+execution and the official SDK remain independent. Named planning routes add
+`GET /v1/planning`, `POST /v1/planning/preparations`, scoped task reads, and named
+visual create/read/cancel operations. Planning mutations join the existing manuscript
+command union and desktop allowlist. The host polls durable queue identities at
+250 ms without scanning documents; terminal transitions and a 60-second expiry
+sweep perform retention maintenance, with missed ticks skipped.
+
+Migration 006 and version-3 business roots preserve earlier manual drafts/history.
+Completed drafts retain exact plan/source/visual provenance and supporting hints
+outside spoken text. No S3 review/production locks or S4 exports are introduced.
+See [step 5 validation](validation/step-05.md); real providers and native desktop
+capabilities still require explicit target-system validation.
+
+## Anchored review and candidate decisions (execution step 6)
+
+Drafts support Question/Revision note selection actions, adjacent cards, follow-up
+messages and scoped proposals. Saving user text makes no inference call. Explicit
+AI actions freeze selected conversation/evidence and the global text configuration;
+manual/imported drafts need no planning topic. Complete proposals remain separate
+from the body until individual or exact-set batch acceptance. Acceptance and
+discard use the existing five-transition project history and durable receipts.
+
+Migration 007 adds compact review state and asynchronous evidence. Quotes above
+1 KiB use immutable references; bounded list/detail reads hydrate them. Stable
+history-entry identities retain decision artifacts through cursor movement,
+branching and pruning. Source visual retention includes planning and review
+choices. Cancellation, known rejection and uncertain-command recovery preserve
+input and never issue an automatic paid retry.
+
+Named review reads cover `/v1/reviews`, per-thread messages, candidate detail pages
+and source comparisons. Browser and desktop adapters expose the same narrow
+operations. See [step 6 evidence](validation/step-06.md). Step 7 below adds production
+user locks, lock-aware history rebinding and finalization; copy/export and
+large-document performance remain step 8. Native/real-provider acceptance is open.
+
+## Locks, finalization and validated replay (execution step 7)
+
+`SetUserLocks` joins the existing command/receipt/history boundary for explicit
+block locks, unlock and atomic lock-all. `GET /v1/manuscript/finalization` and its
+desktop counterpart expose exact current locks, temporary use and the derived
+baseline. The core protects actual body/ancestry impact at preparation and commit
+on manual edits, imports, acceptance and replay. Unlock never releases task use,
+and acceptance never locks content. Far-right controls preserve text selection,
+IME and private input through late or uncertain acknowledgments.
+
+Migration 008 retains immutable version-4 business roots with optional lock
+membership. All-locked nonempty body creates/reuses a versioned exact ordered
+manifest. `Project.approvedBaseline` names its current registered sequence;
+`manuscript.readinessChanged` keeps the header and clients in sync. Review-only
+changes preserve body identity. Current, actual history-entry and downstream
+references bound baseline retention. Reopen validates the complete approval graph.
+
+Explicit decision replay can bind retained candidates to fresh tokens after full
+validation, including fill-section IDs above tombstone revisions. Ordinary edit
+undo never revives stale proposals; newer claims block replay atomically. A
+Rust-only future-consumer fixture verifies dependency validity and scoped use
+without creating media jobs. See [step 7 evidence](validation/step-07.md) for
+recovery/race cases, measured large-document budget misses and platform limits.
+
+## Copy, export and verified recovery (execution step 8)
+
+The Draft workspace copies saved body text or generates UTF-8 TXT, Markdown and
+DOCX independently of AI configuration and pending proposals. Capture first flushes
+visible edits and closes the typing group, then checks the ordered body identity.
+One utility generation runs per project with four pending slots; cancellation,
+explicit retained-input retry and explicit recapture have durable identities.
+Generated outputs are intentional artifacts outside business undo. Copy uses a
+separate bounded ten-minute preparation.
+
+Browser delivery distinguishes generated files, requested downloads and clipboard
+permission fallback. Electron uses narrow main-process save/clipboard capabilities;
+the renderer receives identities rather than destination paths. Unknown external
+save receipts survive restart and require explicit checking or reselection. Native
+file contracts are tested with injected ports on Linux; Windows/macOS behavior and
+Word application opening remain unverified.
+
+Migration 009 adds utility/copy/delivery records without rewriting 001–008.
+Consistent backups verify the version-aware retained graph and registered exports,
+then write a completion manifest. Recovery verifies that manifest and creates a
+new copy. Read-only selection preflight, a frozen close handshake, worker quiescence
+and failed-switch rollback preserve the active project. Development CLI tools are
+`scenesparrow-service --inspect-project <directory>` and
+`scenesparrow-service --recover-project <backup-directory> <new-directory>`.
+Run them only against intended fixture/project paths; restore never replaces its
+source.
+
+See [step 8 evidence](validation/step-08.md) for measurements and reproducible
+commands, and the [130-case acceptance matrix](validation/acceptance-matrix.md).
+Large-document and attachment-heavy interaction budgets remain unmet; every body
+edit still verifies referenced source bytes. Native worker resource enforcement,
+packaged desktop behavior and real-provider interoperability remain open.

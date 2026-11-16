@@ -6,20 +6,41 @@ one workspace while preserving approved work.
 
 Windows and macOS are the intended product platforms. A browser entry point will
 validate the same React UI, application protocol, and Rust core during development.
-The initial validation project is a short Chinese-language explanatory video;
-the product architecture and contributor workflow support internationalization.
+The current delivery target is the manuscript workbench; audio/video production
+follows later. The architecture and contributor workflow support internationalization.
 
 ## Repository status
 
-The current phase is framework setup only. The v0.1 technical proposal remains a
-preliminary draft, and detailed design documents will precede production workflow
-implementation. Existing sample models and interfaces are provisional.
+The manuscript workbench is being implemented in eight reviewed steps. Steps 1–3
+provide manual manuscript editing, autosave, recovery and persistent five-step
+undo/redo, including reopening at the current history position.
+[Step 1](docs/validation/step-01.md), [step 2](docs/validation/step-02.md) and
+[step 3 evidence](docs/validation/step-03.md) record checks and limits. References,
+bounded TXT/Markdown/DOCX/PDF extraction, import previews, events and recovery are
+implemented. [Step 4](docs/validation/step-04.md) adds global AI settings,
+credentials, an independent compatible text runtime and durable execution ports.
+[Step 5](docs/validation/step-05.md) adds saved planning, explicit text/visual
+evidence, outline generation/adjustment and one complete initial draft.
+[Step 6](docs/validation/step-06.md) adds anchored questions/follow-ups, scoped
+revision candidates, comparisons and individual/batch decisions.
+[Step 7](docs/validation/step-07.md) adds production locks, derived finalization,
+approved baselines and validated review history rebinding.
+[Step 8](docs/validation/step-08.md) adds clean copy/TXT/Markdown/DOCX export,
+scoped native delivery, verified backups/recovered copies, lifecycle guards and
+cross-stage evidence. The [acceptance matrix](docs/validation/acceptance-matrix.md)
+records all 130 cases and their remaining limits; the
+[workbench and shared AI specifications](docs/design/README.md) define those slices.
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
 the same UI through a restricted preload bridge. A Remotion sample validates the
-separate render pipeline. These are framework integration samples, not completed
-product features or evidence that a business implementation milestone has begun.
+separate render pipeline. The render sample remains a framework example. Native
+Windows/macOS desktop validation and complete-stage acceptance remain open.
+Large-document and attachment-heavy interaction budgets remain unmet after the
+measured optimizations. Release-build results and their causes are recorded in
+step 8. Native document/AI-worker RSS enforcement remains unverified.
+Real-provider interoperability, native credential stores and packaged workers also
+need separate acceptance; local fake endpoints establish the tested behavior only.
 
 See [development setup](docs/development.md) for prerequisites and platform limits.
 After installing the pinned tools:
@@ -40,12 +61,16 @@ workflow here and validate desktop behavior on Windows/macOS.
 - [Agent and contributor rules](AGENTS.md)
 - [Setup, commands, and current implementation](docs/development.md)
 - [Branch, commit, and review workflow](docs/development-workflow.md)
+- [Eight-step implementation, subagent dispatch, and root review](docs/implementation-execution.md)
+- [Manuscript workbench, shared AI, and implementation plan](docs/design/README.md)
+- [Stage specifications and shared AI integration](docs/specs/README.md)
+- [Decision: manuscript first and reusable AI execution](docs/decisions/0001-script-workbench-and-shared-ai.md)
 - [Architecture, planned layout, and milestones](docs/architecture.md)
 - [Original requirements and technical design, v0.1](docs/reference/README.md)
 
-The planned stack is React, TypeScript, Vite, Tiptap/ProseMirror, Electron,
+The stack is React, TypeScript, Vite, Tiptap/ProseMirror, Electron,
 Rust/Tokio/Axum, SQLite, and Node.js/Remotion with a dedicated rendering browser
-and FFmpeg. TypeScript and Rust will use pnpm and Cargo workspaces in one repository.
+and FFmpeg. TypeScript and Rust use pnpm and Cargo workspaces in one repository.
 
 ## Working on SceneSparrow
 
