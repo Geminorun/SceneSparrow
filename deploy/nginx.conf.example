@@ -1,14 +1,15 @@
 # Integrate into the existing HTTPS virtual host; provision its certificate separately.
-# Cloudflare SSL/TLS mode: Full (strict). Bypass Cloudflare caching for the entire host.
+# Configure Full (strict) and cache bypass for scene.mindreview.me only.
+# Preserve the existing mindreview.me virtual host and zone-wide settings.
 server {
     listen 443 ssl;
-    server_name scene.example.com;
-    ssl_certificate /etc/nginx/tls/scene.example.com.pem;
-    ssl_certificate_key /etc/nginx/tls/scene.example.com.key;
+    server_name scene.mindreview.me;
+    ssl_certificate /etc/nginx/tls/scene.mindreview.me.pem;
+    ssl_certificate_key /etc/nginx/tls/scene.mindreview.me.key;
 
     client_max_body_size 25m;
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8070;
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header X-Forwarded-Proto https;

@@ -4,12 +4,16 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { validateOrigin } from "./gateway.mjs";
 
+import { operatorConfiguration } from "./operator-config.mjs";
+
 const env = process.env;
 const host = env.DEPLOY_HOST;
 const user = env.DEPLOY_USER;
 const port = env.DEPLOY_SSH_PORT || "22";
 const directory = env.DEPLOY_DIR || "/srv/scenesparrow";
-const origin = env.PUBLIC_ORIGIN;
+const origin = env.PUBLIC_ORIGIN || "https://scene.mindreview.me";
+// Reject incomplete credentials before opening an SSH connection.
+const operatorAuth = operatorConfiguration(env);
 validateOrigin(origin);
 if (
   !/^[A-Za-z0-9.-]+$/.test(host ?? "") ||
@@ -27,7 +31,7 @@ if (
   !env.GHCR_TOKEN
 )
   throw Error("Invalid deployment configuration");
-const webPort = Number(env.WEB_PORT || 8080);
+const webPort = Number(env.WEB_PORT || 8070);
 if (!Number.isInteger(webPort) || webPort < 1024 || webPort > 65535)
   throw Error("Invalid web port");
 const temporary = await mkdtemp(join(tmpdir(), "scenesparrow-client-"));
@@ -85,9 +89,9 @@ try {
     "deploy/deploy.sh",
     join(temporary, "config.json"),
   ];
-  if (env.OPERATOR_AUTH) {
+  if (operatorAuth) {
     const secret = join(temporary, "operator-auth");
-    await writeFile(secret, env.OPERATOR_AUTH, { mode: 0o600 });
+    await writeFile(secret, operatorAuth, { mode: 0o600 });
     files.push(secret);
   }
   try {

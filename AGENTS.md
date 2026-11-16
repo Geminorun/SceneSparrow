@@ -75,11 +75,19 @@
 ## Git workflow
 
 - Check the current branch and working tree before editing. Preserve existing work.
-- `main` is the integration and release baseline. Do not develop or commit directly
-  on it. Use a short-lived `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`,
-  `build/`, `ci/`, or `perf/` branch, then a pull request targeting `main`.
-- Use lowercase English kebab-case branch descriptions, for example
-  `feat/script-review`. There is no permanent `develop` branch.
+- `main` is the stable, accepted baseline. The active `release/MAJOR.MINOR.PATCH`
+  branch integrates and accepts the next version; currently `release/1.0.0`.
+  Create short-lived `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`,
+  `build/`, `ci/`, or `perf/` branches from that release branch and target it in PRs.
+  After acceptance, PR the release branch into `main`; after main CI passes, an
+  immutable matching `vMAJOR.MINOR.PATCH` tag initiates formal release. Do not
+  develop directly on `main` or create a permanent `develop` branch.
+- Use lowercase English kebab-case task descriptions, e.g. `feat/script-review`.
+  Versioned release branches are integration branches, not isolated deployments.
+  There is one shared Web deployment at `https://scene.mindreview.me`, host port
+  8070; release pushes, optional RC tags and formal tags replace that same instance
+  and operate on the same data. Main pushes only check, never publish or deploy.
+  See ADR 0004 and the deployment runbook before changing release policy.
 - Cloud tasks already have isolated checkouts. Use the existing checkout; do not
   create a Git worktree unless the user explicitly requests one.
 - Write all commit subjects and bodies in English, using Conventional Commits:

@@ -48,7 +48,7 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
         image: "ghcr.io/example/scenesparrow/web@sha256:" + "a".repeat(64),
         origin: "https://scene.example",
         directory,
-        port: 8080,
+        port: 8070,
         actor: "operator",
       }),
     );
@@ -70,6 +70,10 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
     return { ...result, calls: await readFile(log, "utf8") };
   };
   try {
+    const invalid = await attempt({ secret: "operator:" + "x".repeat(15) });
+    assert.notEqual(invalid.status, 0);
+    assert.equal(invalid.calls, "");
+    assert.doesNotMatch(invalid.stderr, /x{15}/);
     const rejected = await attempt({
       pullFail: true,
       secret: "operator:" + "b".repeat(40),
@@ -105,11 +109,11 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
       ),
       "old-config",
     );
-    const success = await attempt({ secret: "operator:" + "c".repeat(40) });
+    const success = await attempt({ secret: "operator:" + "c".repeat(16) });
     assert.equal(success.status, 0, success.stderr);
     assert.match(
       await readFile(join(directory, "secrets", "operator-auth"), "utf8"),
-      /c{40}/,
+      /c{16}/,
     );
     assert.equal((await readdir(join(directory, "backups"))).length, 2);
   } finally {

@@ -59,12 +59,15 @@ handoff before root review, final checks, staging, commit and push.
 
 At each start, inspect/fetch repository state, preserve user changes and identify
 the exact branch/base commit. Use a feature branch and the existing checkout.
-Prefer the latest integrated `main` when prerequisites are there; if accepted
+Use the active version integration branch (`release/1.0.0` initially) as the
+task base and PR target, following `development-workflow.md`; if accepted
 prerequisite work is still on the user's feature branch, retain that reviewed
 dependency explicitly rather than silently dropping it. Root alone manages branch
-transitions. This process does not create a permanent integration branch.
+transitions. After version acceptance, the release PR targets stable `main`.
+There is no permanent `develop` branch.
 
-The current baseline is `feat/script-workbench`. Existing untracked `.agents/`
+The current version integration baseline is `release/1.0.0`; this workflow policy
+is implemented on `ci/release-policy`. Existing untracked `.agents/`
 contains previously installed local interview skills; it is not part of feature
 assignments or commits unless explicitly included. Keep runtime/test outputs in
 ignored scratch locations and real user projects outside the source repository.

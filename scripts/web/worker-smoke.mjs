@@ -5,6 +5,7 @@ import { createServer, request } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 
+const publicOrigin = new URL(process.env.PUBLIC_ORIGIN);
 let calls = 0;
 const server = createServer(async (req, res) => {
   calls++;
@@ -41,9 +42,9 @@ const api = (path, body, method = body ? "POST" : "GET") =>
         path: `/api/v1${path}`,
         method,
         headers: {
-          host: "scene.example",
+          host: publicOrigin.host,
           authorization: `Basic ${Buffer.from(credential).toString("base64")}`,
-          origin: "https://scene.example",
+          origin: publicOrigin.origin,
           "content-type": "application/json",
           ...(bytes ? { "content-length": bytes.length } : {}),
         },

@@ -2,11 +2,12 @@ name: Private Web deployment
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy the verified image to the private workspace (main only)
+        description: Deploy the verified image to the single shared workspace (release branch or version tag only)
         type: boolean
         default: false
 
@@ -18,11 +19,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  policy:
+    if: github.event.deleted != true
+    runs-on: ubuntu-24.04
+    outputs:
+      channel: ${{ steps.policy.outputs.channel }}
+      ref: ${{ steps.policy.outputs.ref }}
+      version: ${{ steps.policy.outputs.version }}
+      should_publish: ${{ steps.policy.outputs.should_publish }}
+      should_deploy: ${{ steps.policy.outputs.should_deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - id: policy
+        run: node scripts/release/policy.mjs
+        env:
+          REQUEST_DEPLOY: ${{ inputs.deploy || false }}
+          EVENT_DELETED: ${{ github.event.deleted || false }}
+
   checks:
+    needs: policy
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -39,7 +67,7 @@ jobs:
       - run: pnpm test:e2e
 
   image:
-    needs: checks
+    needs: [policy, checks]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -50,6 +78,9 @@ jobs:
       digest: ${{ steps.publish.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
@@ -66,9 +97,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: node scripts/web/container-smoke.mjs scenesparrow-web:verified
+      - name: Revalidate tested release ref before publication
+        if: needs.policy.outputs.should_publish == 'true'
+        run: node scripts/release/policy.mjs
+        env:
+          REQUEST_DEPLOY: ${{ inputs.deploy || false }}
+          EVENT_DELETED: ${{ github.event.deleted || false }}
       - name: Publish the tested image
         id: publish
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
+        if: needs.policy.outputs.should_publish == 'true'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
@@ -87,8 +124,8 @@ jobs:
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
 
   deploy:
-    needs: image
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.deploy)
+    needs: [policy, image]
+    if: needs.policy.outputs.should_deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: web-production
@@ -97,9 +134,17 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
+      - name: Revalidate tested release ref before deployment
+        run: node scripts/release/policy.mjs
+        env:
+          REQUEST_DEPLOY: ${{ inputs.deploy || false }}
+          EVENT_DELETED: ${{ github.event.deleted || false }}
       - run: node scripts/web/deploy-client.mjs
         env:
           IMAGE_NAME: ${{ needs.image.outputs.name }}
@@ -110,6 +155,8 @@ jobs:
           DEPLOY_USER: ${{ secrets.WEB_DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.WEB_DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.WEB_DEPLOY_KNOWN_HOSTS }}
+          OPERATOR_USERNAME: ${{ secrets.WEB_OPERATOR_USERNAME }}
+          OPERATOR_PASSWORD: ${{ secrets.WEB_OPERATOR_PASSWORD }}
           OPERATOR_AUTH: ${{ secrets.WEB_OPERATOR_AUTH }}
           PUBLIC_ORIGIN: ${{ vars.WEB_PUBLIC_ORIGIN }}
           DEPLOY_SSH_PORT: ${{ vars.WEB_DEPLOY_SSH_PORT }}

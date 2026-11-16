@@ -21,7 +21,7 @@ Linux AI credentials retain the current session-memory backend: restart/deploy
 requires entering keys again. No plaintext AI credential fallback is introduced.
 
 GitHub Actions checks, builds and exercises the final image before publication.
-Main deployment uses its immutable GHCR digest, pinned SSH host keys and temporary
+Deployment uses its immutable GHCR digest, pinned SSH host keys and temporary
 registry authentication. Both persistent volumes receive offline backups after
 graceful stop and before a replacement starts. Failed startup preserves backups
 and never automatically restores databases or rolls back migrated state.
@@ -31,3 +31,13 @@ architecture and current business/schema boundaries. The cost is planned downtim
 for consistent backups, operator-managed backup retention/recovery, an image that
 retains workspace dependencies, and no automatic recovery of acknowledged writes
 after a failed deployment. See [the runbook](../web-deployment.md).
+
+## Release policy refinement
+
+[ADR 0004](0004-release-policy.md) supersedes the original main-push deployment
+policy: release branches and version tags deploy to one shared environment; main
+pushes only check. The single public origin is `https://scene.mindreview.me` and
+the default host loopback port is 8070. Separate operator username/password
+secrets accept a 16–256 character printable ASCII password, retaining the same
+Basic authentication and secure mounted-file implementation. AI keys remain in
+session memory.
