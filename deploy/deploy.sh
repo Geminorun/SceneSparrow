@@ -45,7 +45,7 @@ next_auth=$auth_file
 python3 - "$next_auth" <<'PYAUTH'
 import re, sys
 s = open(sys.argv[1]).read().removesuffix('\n')
-assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{16,256}', s), 'Invalid operator configuration'
+assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{6,256}', s), 'Invalid operator configuration'
 PYAUTH
 printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
   "$image" "$origin" "$port" "$next_auth" > "$incoming/runtime.env"

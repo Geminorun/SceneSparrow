@@ -70,10 +70,44 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
     return { ...result, calls: await readFile(log, "utf8") };
   };
   try {
-    const invalid = await attempt({ secret: "operator:" + "x".repeat(15) });
-    assert.notEqual(invalid.status, 0);
-    assert.equal(invalid.calls, "");
-    assert.doesNotMatch(invalid.stderr, /x{15}/);
+    for (const password of [
+      "x".repeat(5),
+      "x".repeat(257),
+      "with space",
+      "é".repeat(6),
+      "xxx\nxxx",
+      "xxxxxx\n\n",
+      "xxxxxx\x7f",
+    ]) {
+      const invalid = await attempt({ secret: `operator:${password}` });
+      assert.notEqual(invalid.status, 0);
+      assert.equal(invalid.calls, "");
+      assert.match(invalid.stderr, /Invalid operator configuration/);
+      assert.ok(!invalid.stderr.includes(password));
+    }
+    await writeFile(
+      join(directory, "secrets", "operator-auth"),
+      "operator:pvte5",
+    );
+    const provisioned = await attempt();
+    assert.notEqual(provisioned.status, 0);
+    assert.equal(provisioned.calls, "");
+    assert.doesNotMatch(provisioned.stderr, /pvte5/);
+    await writeFile(
+      join(directory, "secrets", "operator-auth"),
+      "operator:" + "a".repeat(40),
+    );
+    for (const length of [16, 32, 256]) {
+      const password = "d".repeat(length);
+      const accepted = await attempt({
+        secret: `operator:${password}\n`,
+        pullFail: true,
+      });
+      assert.equal(accepted.status, 1);
+      assert.match(accepted.calls, / pull /);
+      assert.ok(!accepted.stderr.includes(password));
+      assert.ok(!accepted.calls.includes(password));
+    }
     const rejected = await attempt({
       pullFail: true,
       secret: "operator:" + "b".repeat(40),
@@ -109,11 +143,11 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
       ),
       "old-config",
     );
-    const success = await attempt({ secret: "operator:" + "c".repeat(16) });
+    const success = await attempt({ secret: "operator:" + "c".repeat(6) });
     assert.equal(success.status, 0, success.stderr);
     assert.match(
       await readFile(join(directory, "secrets", "operator-auth"), "utf8"),
-      /c{16}/,
+      /c{6}/,
     );
     assert.equal((await readdir(join(directory, "backups"))).length, 2);
   } finally {

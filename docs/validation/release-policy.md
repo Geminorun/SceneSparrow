@@ -4,6 +4,10 @@ Implementation evidence on 2026-11-16, managed Linux x86_64. This refines
 [the existing private Web delivery](web-deployment.md); it does not establish
 accepted application 1.0.0 or a real online deployment.
 
+A subsequent [operator password minimum amendment](operator-password-minimum.md)
+records the change to six characters and its separate validation. The measured
+16-character credential evidence below describes the earlier implementation.
+
 The application target is now 1.0.0 across private pnpm manifests, Cargo workspace
 and four Cargo.lock entries. ProtocolVersion, schema IDs, migrations and design
 v0.1 remain independent. Dependency versions were not changed. Branch workflow,

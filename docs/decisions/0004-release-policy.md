@@ -40,7 +40,7 @@ configured explicitly; this policy does not create tags or change remote setting
 Operator configuration uses separate GitHub username/password secrets, rejecting
 an incomplete pair before SSH. A complete pair takes precedence over optional
 legacy combined auth; legacy fallback applies only if both new secrets are unset.
-Passwords accept 16–256 printable ASCII characters without spaces and usernames
+Passwords accept 6–256 printable ASCII characters without spaces and usernames
 1–64 ASCII letters, digits, underscore or hyphen. This preserves browser Basic
 auth, secure mounted secret files and constant-time authentication, with no new
 accounts/login UI. AI credentials retain session-memory behavior.

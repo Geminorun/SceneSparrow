@@ -8,8 +8,8 @@ import { operatorConfiguration } from "../../scripts/web/operator-config.mjs";
 import { readOperator } from "../../scripts/web/gateway.mjs";
 
 test("operator pair overrides legacy, rejects partial pairs and enforces shared ASCII bounds", async () => {
-  const password = "memorable-pass16";
-  assert.equal(password.length, 16);
+  const password = "pass6!";
+  assert.equal(password.length, 6);
   const pair = { OPERATOR_USERNAME: "Operator_1", OPERATOR_PASSWORD: password };
   assert.equal(operatorConfiguration(pair), `Operator_1:${password}`);
   assert.equal(
@@ -36,29 +36,62 @@ test("operator pair overrides legacy, rejects partial pairs and enforces shared 
       operatorConfiguration({ ...pair, OPERATOR_USERNAME: username }),
     );
   for (const invalid of [
-    "a".repeat(15),
+    "a".repeat(5),
     "a".repeat(257),
     "pass with spaces",
-    "é".repeat(16),
-    "a".repeat(16) + "\n",
+    "é".repeat(6),
+    "aaa\naaa",
+    password + "\n",
+    password + "\x7f",
   ])
-    assert.throws(() =>
-      operatorConfiguration({ ...pair, OPERATOR_PASSWORD: invalid }),
+    assert.throws(
+      () => operatorConfiguration({ ...pair, OPERATOR_PASSWORD: invalid }),
+      { message: "Invalid operator configuration" },
     );
-  assert.ok(
-    operatorConfiguration({
-      OPERATOR_USERNAME: "a".repeat(64),
-      OPERATOR_PASSWORD: "a".repeat(256),
-    }),
-  );
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-operator-"));
   try {
-    for (const value of [`operator:${password}`, `operator:${password}\n`]) {
-      await writeFile(join(directory, "auth"), value);
-      assert.equal((await readOperator(join(directory, "auth"))).length, 32);
+    for (const length of [6, 16, 32, 256]) {
+      const accepted = "a".repeat(length);
+      for (const username of ["a", "a".repeat(64)]) {
+        const credential = `${username}:${accepted}`;
+        assert.equal(
+          operatorConfiguration({
+            OPERATOR_USERNAME: username,
+            OPERATOR_PASSWORD: accepted,
+          }),
+          credential,
+        );
+        for (const value of [credential, credential + "\n"]) {
+          assert.equal(
+            operatorConfiguration({ OPERATOR_AUTH: value }),
+            credential,
+          );
+          await writeFile(join(directory, "auth"), value);
+          assert.equal(
+            (await readOperator(join(directory, "auth"))).length,
+            32,
+          );
+        }
+      }
     }
-    await writeFile(join(directory, "auth"), "operator:" + "a".repeat(15));
-    await assert.rejects(readOperator(join(directory, "auth")));
+    for (const invalid of [
+      "a".repeat(5),
+      "a".repeat(257),
+      "with space",
+      "é".repeat(6),
+      "aaa\naaa",
+      password + "\n\n",
+      password + "\x7f",
+    ]) {
+      assert.throws(
+        () => operatorConfiguration({ OPERATOR_AUTH: `operator:${invalid}` }),
+        { message: "Invalid operator configuration" },
+      );
+      await writeFile(join(directory, "auth"), `operator:${invalid}`);
+      await assert.rejects(readOperator(join(directory, "auth")), {
+        message: "Invalid operator configuration",
+      });
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -68,7 +101,7 @@ test("incomplete or invalid deployment auth fails before any SSH without secret 
   for (const auth of [
     { OPERATOR_USERNAME: "partial" },
     { OPERATOR_PASSWORD: "private-do-not-log" },
-    { OPERATOR_USERNAME: "operator", OPERATOR_PASSWORD: "short-private" },
+    { OPERATOR_USERNAME: "operator", OPERATOR_PASSWORD: "pvte5" },
   ]) {
     const result = spawnSync(
       process.execPath,
@@ -79,7 +112,7 @@ test("incomplete or invalid deployment auth fails before any SSH without secret 
     assert.match(result.stderr, /operator/);
     assert.doesNotMatch(
       result.stderr,
-      /private-do-not-log|short-private|spawnSync ssh/,
+      /private-do-not-log|pvte5|spawnSync ssh/,
     );
   }
 });

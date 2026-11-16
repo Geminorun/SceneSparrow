@@ -70,8 +70,8 @@ no second instance is needed. Set `WEB_PUBLIC_ORIGIN` to the exact public origin
 or remove it to use the known default. Do not edit the root-domain virtual host.
 
 The operator file contains `username:password` with an optional final newline.
-Username: 1–64 ASCII letters, digits, `_` or `-`. Password: 16–256 printable ASCII
-characters without spaces. A memorable password of at least 16 characters is
+Username: 1–64 ASCII letters, digits, `_` or `-`. Password: 6–256 printable ASCII
+characters without spaces. A memorable password of at least 6 characters is
 accepted; use a unique strong password and store it
 in a password manager. There is no default password, reset endpoint or account
 database. Set the separate `WEB_OPERATOR_USERNAME` and `WEB_OPERATOR_PASSWORD` GitHub
