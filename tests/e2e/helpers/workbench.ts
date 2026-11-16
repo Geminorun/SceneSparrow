@@ -12,13 +12,7 @@ export async function openWorkbench(page: Page) {
 }
 
 export async function startManualDraft(page: Page) {
-  const start = page.getByRole("button", {
-    name: "Start writing",
-    exact: true,
-  });
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
-  await expect(start.or(editor)).toBeVisible();
-  if (await start.isVisible()) await start.click();
   await expect(editor).toBeVisible();
 }
 
@@ -28,4 +22,19 @@ export async function openAiSettings(page: Page) {
   await expect(
     page.getByRole("region", { name: "AI & models", exact: true }),
   ).toBeVisible();
+}
+
+export async function openPanel(
+  page: Page,
+  name: "Structure" | "Planning" | "Review" | "Sources",
+) {
+  const open = page.getByRole("button", {
+    name: "Open auxiliary panel",
+    exact: true,
+  });
+  if (await open.isVisible()) await open.click();
+  await page.getByRole("tab", { name, exact: true }).click();
+}
+export async function openExports(page: Page) {
+  await page.locator(".export-menu > summary").click();
 }

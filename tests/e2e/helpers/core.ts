@@ -9,7 +9,16 @@ import { once } from "node:events";
 // @ts-expect-error Existing process fixture is plain ESM.
 import { waitFor } from "../../../scripts/processes.mjs";
 
-type Core = { request: (path: string, body?: unknown) => Promise<any> };
+type Core = {
+  request: (path: string, body?: unknown) => Promise<any>;
+  intercept: (
+    handler: (
+      path: string,
+      body: any,
+      phase: "before" | "after",
+    ) => Promise<void>,
+  ) => void;
+};
 export const test = base.extend<{ core: Core }>({
   core: [
     async ({ context }, use) => {
@@ -34,6 +43,11 @@ export const test = base.extend<{ core: Core }>({
         },
         stdio: "ignore",
       });
+      let intercept: (
+        path: string,
+        body: any,
+        phase: "before" | "after",
+      ) => Promise<void> = async () => {};
       try {
         await waitFor(
           `${url}/health`,
@@ -50,6 +64,11 @@ export const test = base.extend<{ core: Core }>({
             });
             return;
           }
+          const body =
+            route.request().method() === "POST"
+              ? route.request().postDataJSON()
+              : null;
+          await intercept(target.pathname, body, "before");
           const response = await route.fetch({
             url: url + target.pathname.replace("/api/v1", "") + target.search,
             headers: {
@@ -57,9 +76,13 @@ export const test = base.extend<{ core: Core }>({
               Authorization: `Bearer ${token}`,
             },
           });
+          await intercept(target.pathname, body, "after");
           await route.fulfill({ response });
         });
         await use({
+          intercept: (handler) => {
+            intercept = handler;
+          },
           request: async (path, body) => {
             const response = await fetch(url + path, {
               method: body ? "POST" : "GET",

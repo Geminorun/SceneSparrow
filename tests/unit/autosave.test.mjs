@@ -1147,3 +1147,147 @@ test("only proven command absence allows replay with the identical original requ
   assert.deepEqual(queries, [calls[0].requestId]);
   save.dispose();
 });
+
+for (const planningType of ["SavePlanning", "UsePlanningResult"])
+  test(`${planningType} same-body receipt retains later body typing and IME without a false conflict`, async () => {
+    const { save, state, client } = setup();
+    let release;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    client.executeManuscript = async (command) => {
+      if (command.type === planningType) {
+        state.workingRevision++;
+        await held;
+      }
+      return {
+        ...receipt(command),
+        historyRevision: save.history.historyRevision,
+        workingRevision: state.workingRevision,
+      };
+    };
+    const pending = save.businessCore(
+      (revision) => ({
+        type: planningType,
+        requestId: id(),
+        projectId: id(),
+        expectedWorkingRevision: revision,
+        payload: { content: {} },
+      }),
+      { bodyPreserving: true },
+    );
+    await settle();
+    save.update(local(save, "Later manuscript typing"));
+    save.composition(true);
+    const visible = save.local;
+    release();
+    assert.equal(await pending, true);
+    assert.equal(save.local, visible);
+    assert.equal(save.local[0].runs[0].text, "Later manuscript typing");
+    assert.equal(save.state.blocks[0].runs[0].text, "Text");
+    assert.equal(save.composing, true);
+    assert.equal(save.status, "pending");
+    save.dispose();
+  });
+
+test("planning group-close preflight settles later body typing without a false visible-input conflict", async () => {
+  const { save, client } = setup();
+  let release, entered;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  const seen = new Promise((resolve) => {
+    entered = resolve;
+  });
+  let first = true;
+  client.executeManuscript = async (command) => {
+    if (first && command.type === "ApplyDocumentEdit") {
+      first = false;
+      entered();
+      await held;
+    }
+    return receipt(command);
+  };
+  save.update(local(save, "Before planning close"));
+  const closing = save.businessCore(
+    (revision) => ({
+      type: "CloseEditGroup",
+      requestId: id(),
+      projectId: id(),
+      expectedWorkingRevision: revision,
+      expectedHistoryRevision: save.history.historyRevision,
+      expectedCursor: save.history.cursor,
+      payload: { clientSessionId: id(), groupId: id(), groupSequence: 1 },
+    }),
+    { bodyPreserving: true },
+  );
+  await seen;
+  save.update(local(save, "Later body typing while planning close settles"));
+  release();
+  assert.equal(await closing, true);
+  assert.equal(
+    save.local[0].runs[0].text,
+    "Later body typing while planning close settles",
+  );
+  assert.notEqual(save.status, "conflict");
+  save.dispose();
+});
+
+for (const laterInput of [false, true])
+  test(`initial draft completed during StartPlanningTask receipt ${laterInput ? "keeps newer local text fenced" : "adopts safely when no input changed"}`, async () => {
+    const { save, state, client } = setup();
+    state.workspaceStage = "outline";
+    state.blocks = [];
+    save.local = [];
+    let release, entered;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const seen = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const generated = {
+      ...state,
+      workspaceStage: "draft",
+      workingRevision: state.workingRevision + 2,
+      blocks: [block("Complete generated draft")],
+    };
+    client.readManuscript = async () => structuredClone(generated);
+    client.readHistory = async () => ({
+      ...save.history,
+      workingRevision: generated.workingRevision,
+    });
+    client.executeManuscript = async (command) => {
+      entered();
+      await held;
+      return receipt(command);
+    };
+    const starting = save.businessCore(
+      (revision) => ({
+        type: "StartPlanningTask",
+        requestId: id(),
+        projectId: id(),
+        expectedWorkingRevision: revision,
+        payload: { preparationId: id(), retryOfTaskId: null },
+      }),
+      { bodyPreserving: true },
+    );
+    await seen;
+    if (laterInput)
+      save.update([
+        {
+          id: id(),
+          kind: "paragraph",
+          attrs: {},
+          runs: [{ text: "Private later input", marks: [] }],
+        },
+      ]);
+    release();
+    assert.equal(await starting, !laterInput);
+    assert.equal(
+      save.local[0].runs[0].text,
+      laterInput ? "Private later input" : "Complete generated draft",
+    );
+    assert.equal(save.canonicalVersion, laterInput ? 0 : 1);
+    save.dispose();
+  });

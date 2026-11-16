@@ -1,6 +1,7 @@
 import { test, expect } from "./helpers/core";
 import {
   openWorkbench,
+  openPanel,
   startManualDraft,
   openAiSettings,
 } from "./helpers/workbench";
@@ -27,7 +28,7 @@ test("fresh storage opens one persisted workspace across tabs and reload, with s
     project.id,
   );
   await expect(
-    page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
+    page.getByRole("textbox", { name: "Manuscript", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   expect(settingsReads).toBe(0);
@@ -58,6 +59,7 @@ test("Unicode rename preserves identity, manuscript, history and editor through 
   core,
 }) => {
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   const closedGroup = page.waitForResponse(
@@ -73,6 +75,7 @@ test("Unicode rename preserves identity, manuscript, history and editor through 
     "saved",
   );
   const node = await editor.elementHandle();
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -108,6 +111,7 @@ test("settings trap focus, preserve local failed saves, clear unsaved keys and e
   core,
 }) => {
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   const closedGroup = page.waitForResponse(
@@ -246,6 +250,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   core,
 }) => {
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   await editor.fill("Before rename");
@@ -281,6 +286,7 @@ test("rename retries retain command identity, refresh stale titles and never red
       await route.fallback();
     }
   });
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -303,6 +309,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   await expect(page.locator(".project-meta")).toHaveText(
     `Working revision ${revision}`,
   );
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -333,6 +340,7 @@ test("rename retries retain command identity, refresh stale titles and never red
     previousTitle: project.title,
     title: "External title",
   });
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -377,6 +385,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   // The isolated event stream reconnects with resync_required, starting this
   // read before the next metadata command without mutating the manuscript.
   await pendingRead;
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -464,6 +473,7 @@ test("desktop recent navigation renders safe titles and preserves the editor on 
     };
   });
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   await editor.fill("Original project remains available");
@@ -505,6 +515,7 @@ test("a long project name stays compact at desktop and narrow widths with the fu
   page,
 }) => {
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   await startManualDraft(page);
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   await editor.fill(
@@ -515,6 +526,7 @@ test("a long project name stays compact at desktop and narrow widths with the fu
     "saved",
   );
   const title = "鸟鸣与城市的故事 🐦 ".repeat(8);
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();
@@ -558,6 +570,7 @@ test("planning retains the same local input through settings, rename and languag
   core,
 }) => {
   await openWorkbench(page);
+  await openPanel(page, "Planning");
   const topic = page.getByLabel("Topic", { exact: true });
   const node = await topic.elementHandle();
   const saved = await core.request("/planning");
@@ -567,14 +580,13 @@ test("planning retains the same local input through settings, rename and languag
     else await route.fallback();
   });
   await topic.fill("Local planning 中文 🐦");
-  await expect(
-    page.getByText(
-      "Planning could not be saved. Your local input remains available below.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveAttribute(
+    "data-state",
+    "error",
+  );
   await openAiSettings(page);
   await page.keyboard.press("Escape");
+  await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Rename project", exact: true })
     .click();

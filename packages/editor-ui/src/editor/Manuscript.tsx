@@ -4,15 +4,22 @@ import StarterKit from "@tiptap/starter-kit";
 import Code from "@tiptap/extension-code";
 import { CanonicalIdentity } from "./identity";
 import type { Editor } from "@tiptap/core";
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type SelectionBookmark } from "@tiptap/pm/state";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Review } from "./Review";
+import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
+import { SaveStatus } from "./SaveStatus";
+import { DocumentToolbar } from "./DocumentToolbar";
 import { Locks } from "./Locks";
-import { ContentProtection } from "./content-protection";
+import { ContentProtection, contentProtectionKey } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
-import { Planning, GeneratedDraftEvidence } from "./Planning";
+import {
+  Planning,
+  GeneratedDraftEvidence,
+  type PlanningFeedback,
+} from "./Planning";
 import { Exports } from "./Exports";
 import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
@@ -111,12 +118,15 @@ function Draft({
   beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
   const [recovery, setRecovery] = useState(false);
-  const [protectionReady, setProtectionReady] = useState(false);
+  const [protectionReady, setProtectionReady] = useState(
+    initial.workspaceStage === "outline",
+  );
+  const pane = useAuxiliaryPane();
+  const [planningFeedback, setPlanningFeedback] =
+    useState<PlanningFeedback | null>(null);
   const protectionReadyRef = useRef(false);
   protectionReadyRef.current = protectionReady;
   const [lockHeader, setLockHeader] = useState<HTMLDivElement | null>(null);
-  const [link, setLink] = useState("");
-  const [linkOpen, setLinkOpen] = useState(false);
   const [save] = useState(
     () =>
       new Autosave(
@@ -129,6 +139,10 @@ function Draft({
   );
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
+  const deferredToolbar = useRef<
+    Array<{ action: () => unknown; bookmark: SelectionBookmark }>
+  >([]);
+  const resumeToolbar = useRef(() => {});
   const editor = useEditor(
     useMemo<UseEditorOptions>(
       () => ({
@@ -305,6 +319,7 @@ function Draft({
                   }
                 }
                 save.composition(false);
+                resumeToolbar.current();
               });
               return false;
             },
@@ -338,6 +353,35 @@ function Draft({
     ),
   );
   liveEditor.current = editor;
+  useEffect(() => {
+    if (!save.composing) resumeToolbar.current();
+  }, [save, save.composing]);
+  useEffect(() => {
+    if (!editor) return;
+    const map = ({
+      transaction,
+    }: {
+      transaction: import("@tiptap/pm/state").Transaction;
+    }) => {
+      for (const intent of deferredToolbar.current)
+        intent.bookmark = intent.bookmark.map(transaction.mapping);
+    };
+    editor.on("transaction", map);
+    return () => {
+      editor.off("transaction", map);
+      deferredToolbar.current = [];
+    };
+  }, [editor]);
+  useEffect(() => {
+    if (editor && save.state.workspaceStage === "outline") {
+      // Empty Outline projects have no locks; Draft still loads its lock projection.
+      editor.view.dispatch(
+        editor.state.tr.setMeta(contentProtectionKey, new Set<string>()),
+      );
+      editor.setEditable(true, false);
+      setProtectionReady(true);
+    }
+  }, [editor, save.state.workspaceStage]);
   const applyCanonical = () => {
     const editor = liveEditor.current;
     if (!editor || editor.isDestroyed || !save.canPresentCanonical) return;
@@ -434,6 +478,10 @@ function Draft({
   async function reload() {
     const closeAfter = closing;
     freeze(true);
+    if (!window.confirm(t.workspaceDiscardConfirm)) {
+      freeze(false);
+      return;
+    }
     if (await save.reload()) {
       applyCanonical();
       setRecovery(false);
@@ -458,11 +506,54 @@ function Draft({
               : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
   const toolbar = (action: () => unknown) => {
+    if (save.composing && editor) {
+      deferredToolbar.current.push({
+        action,
+        bookmark: editor.state.selection.getBookmark(),
+      });
+      return;
+    }
     void save.discrete(() => {
-      editor?.view.focus();
+      const active = document.activeElement;
+      const mayFocus =
+        active === document.body ||
+        active === editor?.view.dom ||
+        !!active?.closest(".editor-toolbar,.history-toolbar");
       action();
-      editor?.view.focus();
+      // A later queued command must never take focus from another input.
+      if (mayFocus && document.activeElement === active) editor?.view.focus();
     });
+  };
+  resumeToolbar.current = () => {
+    if (!editor || editor.isDestroyed || save.composing) return;
+    while (deferredToolbar.current.length) {
+      const intent = deferredToolbar.current.shift()!;
+      void save.discrete(() => {
+        // Apply to the mapped original range without taking focus from a new input.
+        let restore = editor.state.selection.getBookmark();
+        const map = ({
+          transaction,
+        }: {
+          transaction: import("@tiptap/pm/state").Transaction;
+        }) => {
+          restore = restore.map(transaction.mapping);
+        };
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            intent.bookmark.resolve(editor.state.doc),
+          ),
+        );
+        editor.on("transaction", map);
+        try {
+          intent.action();
+        } finally {
+          editor.off("transaction", map);
+          editor.view.dispatch(
+            editor.state.tr.setSelection(restore.resolve(editor.state.doc)),
+          );
+        }
+      });
+    }
   };
   return (
     <section className="manuscript-workspace">
@@ -475,13 +566,13 @@ function Draft({
       >
         <div className="manuscript-header">
           <h3>{t.manuscript}</h3>
-          <span
-            role="status"
-            data-testid="save-status"
-            data-state={save.status}
-          >
-            {t[`save_${save.status}`]}
-          </span>
+          <SaveStatus
+            save={save}
+            planning={planningFeedback}
+            openPlanning={() => pane.open("planning")}
+            t={t}
+            recover={() => setRecovery(true)}
+          />
           {save.state.workspaceStage === "draft" && (
             <span className="approval-status" data-testid="approval-status">
               {approvedBaseline !== null ? t.finalized : t.notApproved}
@@ -490,9 +581,17 @@ function Draft({
           <div ref={setLockHeader} className="lock-header-target" />
         </div>
         {save.state.workspaceStage === "draft" && (
-          <Exports client={client} save={save} t={t} />
+          <details className="export-menu">
+            <summary>{t.exportTitle}</summary>
+            <Exports client={client} save={save} t={t} />
+          </details>
         )}
-        <div className="history-toolbar" role="toolbar" aria-label={t.history}>
+        <div
+          className="history-toolbar"
+          role="toolbar"
+          aria-label={t.history}
+          inert={pane.narrow && !pane.collapsed}
+        >
           <button
             disabled={
               save.busy ||
@@ -528,130 +627,11 @@ function Draft({
             {t.redo}
           </button>
         </div>
-        {save.state.workspaceStage === "outline" ? (
-          <Planning client={client} save={save} projectId={projectId} t={t} />
-        ) : (
-          <>
-            <div
-              className="editor-toolbar"
-              role="toolbar"
-              aria-label={t.formatting}
-            >
-              <select
-                aria-label={t.blockStyle}
-                value=""
-                onChange={(e) =>
-                  toolbar(() =>
-                    e.target.value === "paragraph"
-                      ? editor?.chain().setParagraph().run()
-                      : editor
-                          ?.chain()
-                          .setHeading({
-                            level: Number(e.target.value) as
-                              1 | 2 | 3 | 4 | 5 | 6,
-                          })
-                          .run(),
-                  )
-                }
-              >
-                <option value="" disabled>
-                  {t.blockStyle}
-                </option>
-                <option value="paragraph">{t.paragraph}</option>
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>
-                    {t.heading} {n}
-                  </option>
-                ))}
-              </select>
-              <button
-                aria-label={t.bold}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleBold().run())
-                }
-              >
-                <strong>B</strong>
-              </button>
-              <button
-                aria-label={t.italic}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleItalic().run())
-                }
-              >
-                <em>I</em>
-              </button>
-              <button
-                aria-label={t.inlineCode}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleCode().run())
-                }
-              >
-                {"</>"}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleBulletList().run())
-                }
-              >
-                {t.bulletList}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleOrderedList().run())
-                }
-              >
-                {t.orderedList}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setLink(String(editor?.getAttributes("link").href ?? ""));
-                  setLinkOpen(!linkOpen);
-                }}
-              >
-                {t.link}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => toolbar(() => editor?.chain().unsetLink().run())}
-              >
-                {t.removeLink}
-              </button>
-            </div>
-            {linkOpen && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (/^(https?:\/\/|mailto:)/i.test(link)) {
-                    toolbar(() =>
-                      editor
-                        ?.chain()
-                        .extendMarkRange("link")
-                        .setLink({ href: link })
-                        .run(),
-                    );
-                    setLinkOpen(false);
-                  }
-                }}
-              >
-                <label>
-                  {t.linkUrl}
-                  <input
-                    value={link}
-                    onChange={(e) => setLink(e.target.value)}
-                    required
-                    pattern="(https?://|mailto:).*"
-                  />
-                </label>
-                <button type="submit">{t.applyLink}</button>
-              </form>
-            )}
-            <div className="document-layout">
+        <WorkspacePane
+          pane={pane}
+          t={t}
+          panels={{
+            structure: (
               <nav aria-label={t.headings}>
                 {headings.length ? (
                   headings.map((b) => (
@@ -676,14 +656,53 @@ function Draft({
                   <p className="muted">{t.noHeadings}</p>
                 )}
               </nav>
-              <EditorContent editor={editor} />
-              <Review
+            ),
+            planning: (
+              <>
+                <Planning
+                  onStatus={setPlanningFeedback}
+                  client={client}
+                  save={save}
+                  projectId={projectId}
+                  t={t}
+                />
+                {save.state.workspaceStage === "draft" && (
+                  <GeneratedDraftEvidence
+                    client={client}
+                    blockIds={save.state.blocks.map((b) => b.id)}
+                    t={t}
+                  />
+                )}
+              </>
+            ),
+            review:
+              save.state.workspaceStage === "draft" ? (
+                <Review
+                  client={client}
+                  save={save}
+                  editor={editor}
+                  projectId={projectId}
+                  t={t}
+                  onOpen={() => pane.open("review")}
+                  visible={!pane.collapsed && pane.tab === "review"}
+                />
+              ) : (
+                <p className="muted">{t.workspaceReviewEmpty}</p>
+              ),
+            sources: (
+              <Sources
                 client={client}
                 save={save}
-                editor={editor}
                 projectId={projectId}
                 t={t}
               />
+            ),
+          }}
+        >
+          <DocumentToolbar editor={editor} t={t} toolbar={toolbar} />
+          <div className="document-layout">
+            <EditorContent editor={editor} />
+            {save.state.workspaceStage === "draft" && (
               <Locks
                 client={client}
                 save={save}
@@ -693,17 +712,9 @@ function Draft({
                 headerTarget={lockHeader}
                 onReady={setProtectionReady}
               />
-            </div>
-          </>
-        )}
-        {save.state.workspaceStage === "draft" && (
-          <GeneratedDraftEvidence
-            client={client}
-            blockIds={save.state.blocks.map((b) => b.id)}
-            t={t}
-          />
-        )}
-        <Sources client={client} save={save} projectId={projectId} t={t} />
+            )}
+          </div>
+        </WorkspacePane>
         {save.operationError && (
           <p role="status">
             {save.operationError.code === "UNSENT_REVIEW"
@@ -714,34 +725,13 @@ function Draft({
             </code>
           </p>
         )}
-        {(save.status === "error" || save.status === "conflict") && (
-          <div role="alert" className="error">
-            <p>
-              {save.status === "conflict" ? t.conflictHelp : t.saveErrorHelp}{" "}
-              <span data-testid="save-error-code" data-error-code={save.error}>
-                {save.error === "DOCUMENT_TOO_LARGE"
-                  ? t.documentTooLarge
-                  : save.error === "DOCUMENT_INVALID"
-                    ? t.documentInvalid
-                    : save.error === "HISTORY_BLOCKED"
-                      ? t.historyBlocked
-                      : save.error === "HISTORY_EMPTY"
-                        ? t.historyEmpty
-                        : save.error === "HISTORY_CONFLICT"
-                          ? t.historyConflict
-                          : ""}
-              </span>
-            </p>
-            {save.status !== "conflict" && (
-              <button onClick={() => void save.flush(true)}>{t.retry}</button>
-            )}
-            <button onClick={() => setRecovery(true)}>{t.recover}</button>
-          </div>
-        )}
       </fieldset>
       {recovery && (
         <div className="recovery" role="dialog" aria-label={t.recover}>
           <p>{t.recoveryHelp}</p>
+          {save.error === "COMMAND_UNRESOLVED" && (
+            <p role="status">{t.workspaceDiscardBlocked}</p>
+          )}
           <textarea
             aria-label={t.localCopy}
             readOnly

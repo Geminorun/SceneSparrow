@@ -1,9 +1,14 @@
-import { openWorkbench, startManualDraft } from "./helpers/workbench";
+import {
+  openWorkbench,
+  startManualDraft,
+  openPanel,
+} from "./helpers/workbench";
 import { test, expect, type Page } from "@playwright/test";
 import { docx, pdf } from "../fixtures/documents.mjs";
 async function workspace(page: Page) {
   await openWorkbench(page);
   await startManualDraft(page);
+  await openPanel(page, "Sources");
 }
 const state = async (page: Page) =>
   (await page.request.get("/api/v1/manuscript")).json();
@@ -103,13 +108,13 @@ test("real DOCX preview cancels unchanged, replaces atomically, appends once and
   await dialog.getByRole("button", { name: "Prepare preview" }).click();
   await dialog.getByRole("button", { name: "Append", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  expect((await state(page)).blocks.length).toBe(3);
+  await expect.poll(async () => (await state(page)).blocks.length).toBe(3);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   expect((await state(page)).blocks.map((b: any) => b.id)).toEqual(
     replaced.blocks.map((b: any) => b.id),
   );
   await page.getByRole("button", { name: "Redo", exact: true }).click();
-  expect((await state(page)).blocks.length).toBe(3);
+  await expect.poll(async () => (await state(page)).blocks.length).toBe(3);
 });
 test("stale preview rejects after visible editing and scanned PDFs never offer a destructive commit", async ({
   page,

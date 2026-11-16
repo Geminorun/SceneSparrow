@@ -1,4 +1,8 @@
-import { openWorkbench, startManualDraft } from "./helpers/workbench";
+import {
+  openWorkbench,
+  startManualDraft,
+  openExports,
+} from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 test("offline export flushes visible input, copy permission fallback and uncertain format receipts remain explicit", async ({
@@ -94,6 +98,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
   await page.reload();
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   await expect(editor).toBeVisible();
+  await openExports(page);
   await editor.fill("Visible unsaved 中文 👩‍💻 é 🔒 comment");
   const exports = page.getByRole("region", {
     name: "Export manuscript",
@@ -282,6 +287,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
   });
   await page.reload();
   await page.setViewportSize({ width: 360, height: 800 });
+  await openExports(page);
   const format = page.getByLabel("Export format", { exact: true });
   for (
     let n = 0;
@@ -352,6 +358,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
     },
   });
   await page.reload();
+  await openExports(page);
   const beforeEmpty = await (
     await page.request.get("/api/v1/manuscript/exports")
   ).json();
@@ -423,6 +430,7 @@ test("lost Cancel and retained Retry responses resolve their original control id
     await route.fulfill({ json: job });
   });
   await page.reload();
+  await openExports(page);
   const exports = page.getByRole("region", {
     name: "Export manuscript",
     exact: true,
@@ -441,6 +449,7 @@ test("lost Cancel and retained Retry responses resolve their original control id
   ).toBeVisible();
   job = { ...job, status: "failed", attempt: 1, inputRetained: true };
   await page.reload();
+  await openExports(page);
   await exports
     .getByRole("button", { name: "Retry captured input", exact: true })
     .click();
@@ -529,6 +538,7 @@ test("restart exposes an unknown native receipt and reselect requires a fresh ex
   await page
     .getByRole("combobox", { name: /^(Language|语言)$/, exact: true })
     .selectOption("en");
+  await openExports(page);
   const exports = page.getByRole("region", {
     name: "Export manuscript",
     exact: true,

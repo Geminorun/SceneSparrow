@@ -27,6 +27,12 @@ export class Autosave {
   local: NewBlock[];
   status: SaveStatus = "saved";
   error = "";
+  errorOwner: "manuscript" | "planning" = "manuscript";
+  get failureOwner() {
+    return this.unresolved || this.conversionError
+      ? "manuscript"
+      : this.errorOwner;
+  }
   operationError: {
     code: string;
     details: import("@scenesparrow/contracts").HistoryErrorDetails | undefined;
@@ -357,6 +363,7 @@ export class Autosave {
       validIntent?: () => boolean;
       replayCommand?: () => ManuscriptCommand | null;
       requestedVisible?: string;
+      bodyPreserving?: boolean;
     },
   ) {
     const requestedVisible =
@@ -375,7 +382,10 @@ export class Autosave {
         return false;
       }
       if (this.composing || !(await this.settle())) return false;
-      if (JSON.stringify(this.local) !== requestedVisible) {
+      if (
+        !options?.bodyPreserving &&
+        JSON.stringify(this.local) !== requestedVisible
+      ) {
         this.error = "REVISION_CONFLICT";
         this.status = "conflict";
         this.notify();
@@ -569,6 +579,7 @@ export class Autosave {
           "StartReviewTask",
           "CancelReviewTask",
         ].includes(command.type);
+        let planningControl = false;
         let canonical: ManuscriptState | undefined;
         let sameBody = true;
         if (command.type !== "CloseEditGroup") {
@@ -577,6 +588,16 @@ export class Autosave {
             JSON.stringify(canonical.blocks) ===
               JSON.stringify(this.state.blocks) &&
             canonical.workspaceStage === this.state.workspaceStage;
+          planningControl =
+            sameBody &&
+            [
+              "SavePlanning",
+              "StartPlanningTask",
+              "CancelPlanningTask",
+              "UsePlanningResult",
+            ].includes(command.type);
+          if (command.type === "SavePlanning" && !sameBody)
+            throw new ApiError("REVISION_CONFLICT");
           if (
             (!taskControl &&
               !reviewControl &&
@@ -599,8 +620,8 @@ export class Autosave {
           throw new ApiError("HISTORY_CONFLICT");
         if (
           canonical &&
-          (JSON.stringify(this.local) !== visible ||
-            this.conversionError ||
+          ((!planningControl && JSON.stringify(this.local) !== visible) ||
+            (!planningControl && this.conversionError) ||
             (!sameBody &&
               (this.composing ||
                 this.compositionGeneration !== compositionGeneration)) ||
@@ -612,7 +633,8 @@ export class Autosave {
         // one synchronous operation; a proven receipt never acknowledges newer input.
         if (canonical) {
           this.state = canonical;
-          this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
+          if (!planningControl)
+            this.local = canonical.blocks.map(({ revision: _, ...b }) => b);
           if (!sameBody) this.canonicalVersion++;
         }
         if (command.type === "CloseEditGroup") {
@@ -621,7 +643,7 @@ export class Autosave {
           for (const segment of this.segments)
             if (segment.group === command.payload.groupId)
               segment.group = this.group;
-        } else {
+        } else if (!planningControl) {
           this.acknowledgedGroup = null;
           this.segments = [];
           this.freshGroup();
@@ -638,6 +660,14 @@ export class Autosave {
         }
         return true;
       } catch (error) {
+        this.errorOwner = [
+          "SavePlanning",
+          "StartPlanningTask",
+          "CancelPlanningTask",
+          "UsePlanningResult",
+        ].includes(command.type)
+          ? "planning"
+          : "manuscript";
         this.businessErrorDetails =
           error instanceof ApiError ? error.details : undefined;
         this.error =
@@ -714,19 +744,22 @@ export class Autosave {
     };
     this.local = state.blocks.map(({ revision: _, ...b }) => b);
   }
-  acknowledgeBusinessRejection() {
+  acknowledgeBusinessRejection(preserveLocal = false) {
     if (
       !this.controlPending &&
       !this.unresolved &&
-      this.same() &&
+      (preserveLocal || this.same()) &&
       !this.conversionError &&
       this.status === "error"
     ) {
-      this.status = "saved";
+      this.status = this.same() ? "saved" : "pending";
       this.error = "";
       this.notify();
+      if (this.status === "pending") this.schedule();
     }
-    return this.status === "saved";
+    return (
+      this.status === "saved" || (preserveLocal && this.status === "pending")
+    );
   }
   private same() {
     const same =
@@ -737,6 +770,7 @@ export class Autosave {
     return same;
   }
   invalidate(error: string, rawText: string) {
+    this.errorOwner = "manuscript";
     clearTimeout(this.timer);
     this.conversionError = error;
     this.recoveryText = rawText;
@@ -904,6 +938,7 @@ export class Autosave {
       try {
         payload = edits(this.state.blocks, segment.blocks);
       } catch (error) {
+        this.errorOwner = "manuscript";
         this.status = "error";
         this.error =
           error instanceof Error ? error.message : "DOCUMENT_INVALID";
@@ -979,6 +1014,7 @@ export class Autosave {
         this.unresolved = null;
         this.firstPending = 0;
         if (this.conversionError) {
+          this.errorOwner = "manuscript";
           this.status = "error";
           this.error = this.conversionError;
           return false;
@@ -987,6 +1023,7 @@ export class Autosave {
         this.status = this.same() ? "saved" : "pending";
         return true;
       } catch (error) {
+        this.errorOwner = "manuscript";
         this.error =
           error instanceof Error ? error.message : "STORAGE_UNAVAILABLE";
         this.status =
@@ -1014,6 +1051,7 @@ export class Autosave {
         this.inFlight = null;
         // An older transport outcome cannot acknowledge unconvertible visible input.
         if (this.conversionError) {
+          this.errorOwner = "manuscript";
           this.status = "error";
           this.error = this.conversionError;
         }
@@ -1034,7 +1072,18 @@ export class Autosave {
     return this.enqueue(() => this.reloadSaved());
   }
   private async reloadSaved() {
-    if (this.inFlight) return false;
+    // A read cannot prove that an ambiguous command will never commit later.
+    // Keep its original identity and local buffer until Retry resolves it.
+    if (
+      this.inFlight ||
+      this.unresolved ||
+      this.controlPending ||
+      this.metadataPending
+    ) {
+      this.error = "COMMAND_UNRESOLVED";
+      this.notify();
+      return false;
+    }
     try {
       const state = await this.client.readManuscript();
       const history = await this.client.readHistory();
@@ -1042,10 +1091,6 @@ export class Autosave {
         throw new ApiError("REVISION_CONFLICT");
       this.state = state;
       this.history = history;
-      if (this.controlPending)
-        this.pendingReceipts.delete(this.controlPending.requestId);
-      if (this.unresolved)
-        this.pendingReceipts.delete(this.unresolved.command.requestId);
       this.controlPending = null;
       this.controlVisible = null;
       this.local = this.state.blocks.map(({ revision: _, ...b }) => b);

@@ -1,4 +1,4 @@
-import { openWorkbench } from "./helpers/workbench";
+import { openPanel, openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -169,9 +169,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
       await route.fulfill({ response });
     });
     await openWorkbench(page);
-    await page
-      .getByRole("button", { name: "Start writing", exact: true })
-      .click();
+
     const editor = page.getByRole("textbox", {
       name: "Manuscript",
       exact: true,
@@ -187,6 +185,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await editor.press("ArrowRight");
     await editor.press("ArrowRight");
     await editor.press("Control+Shift+End");
+    await openPanel(page, "Review");
     await page
       .getByRole("complementary", { name: "Review", exact: true })
       .getByRole("toolbar", { name: "Review selection", exact: true })
@@ -487,7 +486,10 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     const nodeBox = await nestedBlock.boundingBox(),
       lockBox = await unlock.boundingBox();
     expect(Math.abs(nodeBox!.y - lockBox!.y)).toBeLessThan(3);
-    expect(lockBox!.x).toBeGreaterThan((await panel.boundingBox())!.x);
+    expect(lockBox!.x).toBeGreaterThan(nodeBox!.x + nodeBox!.width);
+    expect(lockBox!.x + lockBox!.width).toBeLessThanOrEqual(
+      (await panel.boundingBox())!.x,
+    );
     await page
       .getByRole("combobox", { name: "Language", exact: true })
       .selectOption("zh-CN");
@@ -500,6 +502,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await expect(page.locator("[data-lock-block]").first()).toBeVisible();
     await page.screenshot({ path: ".artifacts/locks-wide.png" });
     await page.setViewportSize({ width: 390, height: 900 });
+    await page.getByRole("button", { name: "Close auxiliary panel" }).click();
     await editor.locator("[data-blockid]").first().scrollIntoViewIfNeeded();
     const firstId = (await req("/manuscript")).data.blocks[0].id;
     await expect(page.locator(`[data-lock-block="${firstId}"]`)).toBeVisible();
@@ -513,7 +516,8 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
         .getByRole("toolbar", { name: "Text formatting" })
         .boundingBox();
     expect(allBox!.y + allBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
-    expect(allBox!.width).toBeGreaterThan(100);
+    expect(allBox!.width).toBeGreaterThanOrEqual(28);
+    expect(allBox!.x + allBox!.width).toBeLessThanOrEqual(390);
     await editor.locator("[data-blockid]").first().scrollIntoViewIfNeeded();
     await editor.focus();
     await editor
@@ -549,6 +553,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     expect(Math.abs(narrowNode!.y - narrowLock!.y)).toBeLessThan(3);
     expect(narrowLock!.x).toBeGreaterThan(narrowNode!.x + narrowNode!.width);
     await page.screenshot({ path: ".artifacts/locks-narrow-nested.png" });
+    await openPanel(page, "Review");
     await expect(panel).toBeVisible();
     await page.screenshot({
       path: ".artifacts/review-narrow.png",

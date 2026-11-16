@@ -206,9 +206,35 @@ export function Locks({
             </span>
             <button
               disabled={!state || busy}
+              aria-label={t.lockAll}
+              title={t.lockAll}
               onClick={() => void change(null, true)}
             >
-              {t.lockAll}
+              <svg
+                className="lock-all-icon"
+                aria-hidden="true"
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+              >
+                <rect
+                  x="5"
+                  y="10"
+                  width="14"
+                  height="11"
+                  rx="2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                />
+                <path
+                  d="M8 10V7a4 4 0 0 1 8 0v3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                />
+              </svg>
+              <span className="lock-all-label">{t.lockAll}</span>
             </button>
           </div>,
           headerTarget,
@@ -239,7 +265,19 @@ export function Locks({
                       aria-label={t.taskUsingContent}
                       title={t.taskUsingContent}
                     >
-                      ⌛
+                      <svg
+                        aria-hidden="true"
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          d="M7 3h10M7 21h10M8 3v5l8 8v5M16 3v5l-8 8v5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                        />
+                      </svg>
                     </span>
                   )}
                   <button
@@ -251,7 +289,38 @@ export function Locks({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => void change(block.id, !locked)}
                   >
-                    {locked ? "🔒" : "🔓"}
+                    <svg
+                      aria-hidden="true"
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                    >
+                      <rect
+                        x="5"
+                        y="10"
+                        width="14"
+                        height="11"
+                        rx="2"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                      />
+                      <path
+                        d={
+                          locked
+                            ? "M8 10V7a4 4 0 0 1 8 0v3"
+                            : "M8 10V7a4 4 0 0 1 8 0"
+                        }
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                      />
+                      <path
+                        d="M12 14v3"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                      />
+                    </svg>
                   </button>
                 </div>
               );

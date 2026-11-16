@@ -21,10 +21,11 @@ test("writes Unicode, formatting, headings and nested lists and reopens without 
 }) => {
   await draft(page);
   const input = editor(page);
+  await input.pressSequentially("First manual input");
+  await saved(page);
   await page.getByRole("button", { name: "Undo", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Start writing", exact: true }),
-  ).toBeVisible();
+  await expect(input).toBeEmpty();
+  await expect(input).toBeVisible();
   await page.getByRole("button", { name: "Redo", exact: true }).click();
   await expect(input).toBeVisible();
   await input.fill("中文 English 🐦");
@@ -217,9 +218,7 @@ test("failure retains local input for retry and conflict offers explicit discard
     "conflict",
   );
   await expect(input).toContainText("conflict kept");
-  await page
-    .getByRole("button", { name: "Recover local edits", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "Local text to copy" }),
   ).toContainText("conflict kept");
@@ -227,12 +226,11 @@ test("failure retains local input for retry and conflict offers explicit discard
     .getByRole("button", { name: "Keep local edits", exact: true })
     .click();
   await expect(input).toContainText("conflict kept");
-  await page
-    .getByRole("button", { name: "Recover local edits", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  page.once("dialog", (dialog) => void dialog.accept());
   await page
     .getByRole("button", {
-      name: "Discard local edits and reload saved document",
+      name: "Discard unsaved changes",
       exact: true,
     })
     .click();
@@ -512,9 +510,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     .getByRole("button", { name: "Retry save and close", exact: true })
     .click();
   expect(await page.evaluate(() => (window as any).__closeResults)).toEqual([]);
+  page.once("dialog", (dialog) => void dialog.accept());
   await page
     .getByRole("button", {
-      name: "Discard local edits and reload saved document",
+      name: "Discard unsaved changes",
       exact: true,
     })
     .click();
