@@ -9,6 +9,23 @@ use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::{Error, ProjectRepository};
 use scenesparrow_domain::Project;
 
+struct ProjectOwner(File);
+
+impl ProjectOwner {
+    fn acquire(file: File) -> Result<Self, Error> {
+        storage(file.try_lock())?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for ProjectOwner {
+    fn drop(&mut self) {
+        // A forked utility can retain this file description until exec. Closing
+        // our descriptor alone would leave the project locked in that interval.
+        let _ = self.0.unlock();
+    }
+}
+
 pub struct SqliteProjectRepository {
     #[cfg(test)]
     business_read_count: std::sync::atomic::AtomicUsize,
@@ -19,18 +36,25 @@ pub struct SqliteProjectRepository {
     workers: std::sync::atomic::AtomicUsize,
     directory: std::path::PathBuf,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
-    // Holding the file lock prevents a second core from owning this project.
-    _owner: File,
     ai_consumers: Mutex<
         std::collections::BTreeMap<
             String,
             Arc<dyn scenesparrow_application::ai::ConsumerCoordinator>,
         >,
     >,
+    // Drop the connection and consumers before releasing single-owner exclusion.
+    _owner: Option<ProjectOwner>,
 }
 
+#[cfg_attr(test, track_caller)]
 fn storage<T>(result: Result<T, impl std::fmt::Debug>) -> Result<T, Error> {
-    result.map_err(|_| Error::Storage)
+    #[cfg(test)]
+    let caller = std::panic::Location::caller();
+    result.map_err(|_| {
+        #[cfg(test)]
+        eprintln!("storage failure at {caller}");
+        Error::Storage
+    })
 }
 
 fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
@@ -80,7 +104,7 @@ impl SqliteProjectRepository {
                 .truncate(false)
                 .open(directory.join(".core.lock")),
         )?;
-        storage(owner.try_lock())?;
+        let owner = ProjectOwner::acquire(owner)?;
         let mut connection = storage(Connection::open(directory.join("project.sqlite")))?;
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
@@ -178,8 +202,8 @@ impl SqliteProjectRepository {
             workers: std::sync::atomic::AtomicUsize::new(0),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
-            _owner: owner,
             ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
+            _owner: Some(owner),
         };
         if version < 5 {
             repository
@@ -317,6 +341,45 @@ mod tests {
         connection.pragma_update(None, "user_version", 99).unwrap();
         drop(connection);
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reopen_releases_owner_lock_even_while_an_inherited_descriptor_remains_open() {
+        let directory = tempfile::tempdir().unwrap();
+        let repository = SqliteProjectRepository::open(directory.path()).unwrap();
+        // A forked utility holds the same open file description until exec closes it.
+        let inherited = repository._owner.as_ref().unwrap().0.try_clone().unwrap();
+        assert!(SqliteProjectRepository::open(directory.path()).is_err());
+        drop(repository);
+        let reopened = SqliteProjectRepository::open(directory.path()).unwrap();
+        assert!(SqliteProjectRepository::open(directory.path()).is_err());
+        drop(inherited);
+        assert!(SqliteProjectRepository::open(directory.path()).is_err());
+        drop(reopened);
+        assert!(SqliteProjectRepository::open(directory.path()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_initialization_releases_owner_lock_with_an_inherited_descriptor() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(directory.path().join(".core.lock"))
+            .unwrap();
+        let mut inherited = None;
+        let result: Result<(), Error> = (|| {
+            let owner = ProjectOwner::acquire(file)?;
+            inherited = Some(owner.0.try_clone().unwrap());
+            // Startup may fail after acquisition, before a repository exists.
+            Err(Error::SchemaUnsupported)
+        })();
+        assert!(matches!(result, Err(Error::SchemaUnsupported)));
+        assert!(SqliteProjectRepository::open(directory.path()).is_ok());
+        drop(inherited);
     }
 }
 
