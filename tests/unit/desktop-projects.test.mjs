@@ -67,6 +67,7 @@ async function desktop(t, fixture, options = {}) {
   const handlers = new Map(),
     sent = [],
     spawns = [],
+    modes = [],
     inspections = [],
     prompts = [];
   const metadata = options.metadata ?? new Map();
@@ -182,6 +183,7 @@ async function desktop(t, fixture, options = {}) {
           active = child;
           child.directory = config.env.SCENESPARROW_PROJECT_DIR;
           child.running = !failures.has(child.directory);
+          modes.push(config.env.SCENESPARROW_PROJECT_OPEN_MODE);
           if (
             child.running &&
             !existsSync(join(child.directory, "project.sqlite"))
@@ -235,6 +237,7 @@ async function desktop(t, fixture, options = {}) {
     handlers,
     sent,
     spawns,
+    modes,
     inspections,
     failures,
     refused,
@@ -266,6 +269,7 @@ test("desktop first run opens default and ensure/rename update persisted identit
   const fixtureData = await fixture(t);
   const host = await desktop(t, fixtureData);
   assert.deepEqual(host.spawns, [fixtureData.defaultDirectory]);
+  assert.deepEqual(host.modes, ["create"]);
   assert.equal((await host.saved()).entries[0].title, null);
   await host.call("project:ensure", { title: "Untitled" });
   const first = await host.call("project:recents");
@@ -332,6 +336,7 @@ test("desktop restores last selection, gates recent switches on close, and recor
   host.reply();
   await settled(() => host.window.reloads === 1);
   assert.deepEqual(host.spawns, [old, candidate, old]);
+  assert.deepEqual(host.modes, ["existing", "existing", "existing"]);
   assert.equal(await readFile(registry.path, "utf8"), before);
   host.failures.clear();
   await host.call("project:open-recent", recent.id);
@@ -385,6 +390,7 @@ test("explicit default choice and env override activate only their selected dire
     env: { SCENESPARROW_PROJECT_DIR: override },
   });
   assert.deepEqual(second.spawns, [override]);
+  assert.deepEqual(second.modes, ["existing"]);
   assert.equal(second.prompts.length, 0);
 });
 
@@ -437,6 +443,7 @@ test("startup inspection refusal preserves the corrupt/owned original and explic
   });
   assert.equal(host.prompts.length, 1);
   assert.equal(host.spawns.length, 1);
+  assert.deepEqual(host.modes, ["existing"]);
   assert.match(host.spawns[0], /recovered-[0-9a-f]{32}$/);
   assert.notEqual(host.spawns[0], old);
   assert.equal(await readFile(join(old, "project.sqlite"), "utf8"), "corrupt");
@@ -532,4 +539,23 @@ test("an owned remembered project is never spawned, and cancelled native selecti
     await readFile(join(old, "project.sqlite"), "utf8"),
     "healthy fixture",
   );
+});
+
+test("empty first-run default/override folders initialize once then reopen with existing mode", async (t) => {
+  for (const override of [false, true]) {
+    const fixtureData = await fixture(t);
+    const directory = override
+      ? join(fixtureData.root, "empty-override")
+      : fixtureData.defaultDirectory;
+    await mkdir(directory, { recursive: true });
+    const env = override ? { SCENESPARROW_PROJECT_DIR: directory } : {};
+    const first = await desktop(t, fixtureData, { env });
+    assert.deepEqual(first.spawns, [directory]);
+    assert.deepEqual(first.modes, ["create"]);
+    assert.equal(first.prompts.length, 0);
+    const second = await desktop(t, fixtureData, { env });
+    assert.deepEqual(second.spawns, [directory]);
+    assert.deepEqual(second.modes, ["existing"]);
+    assert.equal(second.prompts.length, 0);
+  }
 });

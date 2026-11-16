@@ -28,6 +28,7 @@ import type {
 import { intakeSelectedFile } from "./file-intake.js";
 import {
   ProjectRegistry,
+  type ProjectOpenMode,
   inspectRememberedProject,
   prepareInitialProject,
 } from "./project-registry.js";
@@ -98,7 +99,7 @@ async function main() {
     registryRefresh = update.catch(() => {});
     return registryRefresh;
   }
-  function spawnCore() {
+  function spawnCore(mode: ProjectOpenMode) {
     token = randomBytes(32).toString("hex");
     nativeToken = randomBytes(32).toString("hex");
     core = spawn(binary!, [], {
@@ -110,6 +111,7 @@ async function main() {
         SCENESPARROW_APP_DATA_DIR:
           process.env.SCENESPARROW_APP_DATA_DIR ?? app.getPath("userData"),
         SCENESPARROW_PROJECT_DIR: projectDirectory,
+        SCENESPARROW_PROJECT_OPEN_MODE: mode,
       },
     });
     core.on("error", (error) => {
@@ -187,7 +189,11 @@ async function main() {
     });
   const inspectProject = (path: string) =>
     runProjectTool(["--inspect-project", path]);
-  async function startInitial(directory: string, create = false) {
+  async function startInitial(
+    directory: string,
+    create = false,
+    mode: ProjectOpenMode = "existing",
+  ) {
     if (create) {
       await mkdir(dirname(directory), { recursive: true });
       // Exclusive creation refuses a directory that appeared since preflight.
@@ -195,7 +201,7 @@ async function main() {
     }
     await inspectProject(directory);
     projectDirectory = directory;
-    spawnCore();
+    spawnCore(mode);
     if (!(await waitCoreReady())) {
       await stopCore();
       throw Error("PROJECT_INTEGRITY_FAILED");
@@ -209,7 +215,7 @@ async function main() {
       process.env.SCENESPARROW_PROJECT_DIR,
       inspectProject,
     );
-    await startInitial(initial.directory, initial.create);
+    await startInitial(initial.directory, initial.create, initial.mode);
     ready = true;
   } catch {
     /* A failed locator never initializes replacement data. */
@@ -237,7 +243,7 @@ async function main() {
           defaultDirectory,
           inspectProject,
         );
-        await startInitial(initial.directory, initial.create);
+        await startInitial(initial.directory, initial.create, initial.mode);
       } else {
         const selected = await dialog.showOpenDialog({
           title: choice.response === 1 ? t.recoverProject : t.openProject,
@@ -849,7 +855,7 @@ async function main() {
                 start: async (directory) => {
                   await inspectRememberedProject(directory, inspectProject);
                   projectDirectory = directory;
-                  spawnCore();
+                  spawnCore("existing");
                   if (!(await waitCoreReady()))
                     throw Error("PROJECT_INTEGRITY_FAILED");
                 },

@@ -14,6 +14,8 @@ interface RegistryData {
   lastId: string;
   entries: Entry[];
 }
+export type ProjectOpenMode = "existing" | "create";
+
 export interface RecentProject {
   id: string;
   title: string;
@@ -185,13 +187,13 @@ export async function inspectRememberedProject(
   await inspect(directory);
 }
 
-/** Only a genuinely absent first-run default/explicit override may be initialized. */
+/** Only an unremembered missing/empty default or explicit override may initialize. */
 export async function prepareInitialProject(
   registry: ProjectRegistry,
   defaultDirectory: string,
   override: string | undefined,
   inspect: (directory: string) => Promise<void>,
-): Promise<{ directory: string; create: boolean }> {
+): Promise<{ directory: string; create: boolean; mode: ProjectOpenMode }> {
   if (!override && registry.status === "corrupt")
     throw Error("REGISTRY_INVALID");
   const directory = resolve(
@@ -202,14 +204,21 @@ export async function prepareInitialProject(
     registry.hasDirectory(directory)
   ) {
     await inspectRememberedProject(directory, inspect);
-    return { directory, create: false };
+    return { directory, create: false, mode: "existing" };
   }
   try {
     await lstat(directory);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return { directory, create: true };
+    return { directory, create: true, mode: "create" };
+  }
+  let mode: ProjectOpenMode = "existing";
+  try {
+    await lstat(join(directory, "project.sqlite"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    mode = "create";
   }
   await inspect(directory);
-  return { directory, create: false };
+  return { directory, create: false, mode };
 }

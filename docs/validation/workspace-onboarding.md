@@ -62,9 +62,9 @@ All commands sourced `scripts/cloud-env.sh`. Browser service builds used
 | `node --test tests/unit/locales.test.mjs`                                       | 1 passed; English/Chinese keys and nonempty strings match                                                                 |
 | Changed-file `pnpm exec prettier --check ...` and `git diff --check`            | Passed; validation note formatting checked separately after writing                                                       |
 
-The final full suite is left for root's integrated review after its separate
-existing-project-open race correction. No full Cargo/integration suite, performance
-benchmark, native desktop flow or real-provider inference was run in this UI slice.
+The final integrated results, including the separate existing-project-open race
+correction, are recorded below. No performance benchmark, native desktop flow or
+real-provider inference was run in this UI slice.
 
 Screenshots remain ignored local artifacts:
 
@@ -86,3 +86,63 @@ changes made after that snapshot are absent there and must remain preserved in t
 current copy. Do not delete rename receipts, lower the schema ledger or copy a live
 SQLite main file as a rollback shortcut. Global AI settings/credential storage stays
 outside project backups and keeps its existing schema and recovery rules.
+
+## Existing-project open correction
+
+Root review identified a gap between desktop preflight and the actual child-process
+SQLite open: removing a remembered database during that interval could let ordinary
+create/open initialization produce an empty replacement. The correction adds a shared
+repository `open_existing` path and validated service environment mode
+`SCENESPARROW_PROJECT_OPEN_MODE=existing|create`. Existing mode creates no project
+root, uses SQLite read/write without `SQLITE_OPEN_CREATE`, and refuses schema zero
+before WAL setup or migrations. Supported legacy migrations still use the same
+implementation and verified backups. Unset mode retains Web/development CLI behavior.
+
+Desktop explicitly selects existing mode for remembered, picked, recovered and
+rollback activation. Only unremembered missing/empty default or explicit-override
+folders initialize in create mode; an empty existing folder does not require a
+second directory creation. Once recorded, a missing database cannot become a new
+initialization on retry. This changes no protocol or applied migration.
+
+Focused evidence on the final correction tree:
+
+- `cargo test --locked -p scenesparrow-infrastructure existing_open -- --nocapture`:
+  2 passed; missing directory/database refusal, exact zero-schema byte preservation,
+  and valid schema-1 migration with stable project identity and backup.
+- `cargo build --locked -p scenesparrow-service` and
+  `node --test tests/integration/project-open-mode.test.mjs`: build passed,
+  3 integration tests passed. A real service inspected a valid project before its
+  database/directory was deleted or moved; existing-mode child startup failed
+  without replacement data. Also verified zero-byte refusal, invalid-mode rejection,
+  unset/create compatibility and successful existing-mode identity restore.
+- `node --import tsx --test tests/unit/project-registry.test.mjs tests/unit/desktop-projects.test.mjs`:
+  18 passed; includes explicit spawn-mode assertions for restore/recent/rollback and
+  recovery, initial empty-folder create compatibility, and existing mode after a
+  database disappears during inspection.
+- Desktop TypeScript and scoped Prettier/Rust format checks passed; `git diff --check`
+  passed. Commands sourced `scripts/cloud-env.sh`; Rust checks used
+  `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0`.
+
+This supplements S4-T09/T10 and S4-AC18/20/21/22 safeguards. Native Windows/macOS
+filesystem/dialog behavior remains unverified; these Linux tests do not close that
+platform acceptance gap.
+
+## Final integrated review
+
+Root independently reviewed the implementation and screenshots, requested the
+existing-only open correction, and verified the combined tree on 2026-11-16. All
+commands sourced `scripts/cloud-env.sh` and used `CARGO_PROFILE_DEV_DEBUG=0` and
+`CARGO_PROFILE_TEST_DEBUG=0` with system Chromium.
+
+| Command                 | Result                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------- |
+| `pnpm check`            | Passed: contracts, formatting, TypeScript, 128 Node tests, 168 Rust tests, and Clippy |
+| `pnpm build`            | Passed: shared Web renderer, Electron main/preload, and Rust workspace                |
+| `pnpm test:integration` | 10 passed, including real-process restart and existing-only open refusal              |
+| `pnpm test:e2e`         | 33 passed; three opt-in performance benchmarks skipped                                |
+
+The build retains Vite's non-blocking large-chunk warning. Screenshots cover the
+initial planning workspace, Settings, and draft/review/paragraph-lock layouts at
+375, 768 and 1200 pixels, including long titles. No native Windows/macOS launch,
+packaging/signing, live-provider inference or cross-device synchronization was
+validated or introduced by this change.

@@ -76,6 +76,18 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        Self::open_with_mode(directory, false)
+    }
+
+    /// Reopening must never replace a database removed after desktop preflight.
+    pub fn open_existing(directory: &Path) -> Result<Self, Error> {
+        Self::open_with_mode(directory, true)
+    }
+
+    fn open_with_mode(directory: &Path, require_existing: bool) -> Result<Self, Error> {
+        if require_existing && !storage(std::fs::metadata(directory))?.is_dir() {
+            return Err(Error::Storage);
+        }
         for component in ["objects", "staging", "exports"] {
             let path = directory.join(component);
             if path.exists()
@@ -95,7 +107,9 @@ impl SqliteProjectRepository {
                 return Err(Error::Storage);
             }
         }
-        storage(std::fs::create_dir_all(directory))?;
+        if !require_existing {
+            storage(std::fs::create_dir_all(directory))?;
+        }
         let owner = storage(
             File::options()
                 .read(true)
@@ -105,11 +119,18 @@ impl SqliteProjectRepository {
                 .open(directory.join(".core.lock")),
         )?;
         let owner = ProjectOwner::acquire(owner)?;
-        let mut connection = storage(Connection::open(directory.join("project.sqlite")))?;
+        let mut flags = rusqlite::OpenFlags::default();
+        if require_existing {
+            flags.remove(rusqlite::OpenFlags::SQLITE_OPEN_CREATE);
+        }
+        let mut connection = storage(Connection::open_with_flags(
+            directory.join("project.sqlite"),
+            flags,
+        ))?;
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 10 {
+        if version > 10 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -666,6 +687,60 @@ mod tests {
                 .id,
             project.id
         );
+    }
+
+    #[test]
+    fn existing_open_never_creates_missing_paths_or_initializes_schema_zero() {
+        let root = tempfile::tempdir().unwrap();
+        let missing = root.path().join("missing");
+        assert!(SqliteProjectRepository::open_existing(&missing).is_err());
+        assert!(!missing.exists());
+        let database = root.path().join("project.sqlite");
+        assert!(SqliteProjectRepository::open_existing(root.path()).is_err());
+        assert!(!database.exists());
+        std::fs::write(&database, []).unwrap();
+        assert!(matches!(
+            SqliteProjectRepository::open_existing(root.path()),
+            Err(Error::SchemaUnsupported)
+        ));
+        assert!(std::fs::read(&database).unwrap().is_empty());
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE preserved(value TEXT); INSERT INTO preserved VALUES('original');",
+            )
+            .unwrap();
+        drop(connection);
+        let before = std::fs::read(&database).unwrap();
+        assert!(matches!(
+            SqliteProjectRepository::open_existing(root.path()),
+            Err(Error::SchemaUnsupported)
+        ));
+        assert_eq!(std::fs::read(&database).unwrap(), before);
+        assert!(!root.path().join("objects").exists());
+    }
+
+    #[test]
+    fn existing_open_migrates_supported_legacy_database_without_changing_project_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let connection = Connection::open(directory.path().join("project.sqlite")).unwrap();
+        connection
+            .execute_batch(include_str!("../migrations/001_project.sql"))
+            .unwrap();
+        connection.execute("INSERT INTO project VALUES(1,'legacy-id','Legacy project','legacy-request',0,NULL)", []).unwrap();
+        let original = read_project(&connection).unwrap().unwrap();
+        drop(connection);
+        SqliteProjectRepository::inspect_available_project(directory.path()).unwrap();
+        let repository = SqliteProjectRepository::open_existing(directory.path()).unwrap();
+        assert_eq!(repository.read().unwrap(), Some(original));
+        let connection = repository.connection.lock().unwrap();
+        assert_eq!(
+            connection
+                .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
+                .unwrap(),
+            10
+        );
+        assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
 
     #[test]

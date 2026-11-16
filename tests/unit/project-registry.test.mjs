@@ -45,6 +45,7 @@ test("first-run default and explicit override preserve native directory compatib
     {
       directory: defaultDirectory,
       create: true,
+      mode: "create",
     },
   );
   assert.deepEqual(inspected, []);
@@ -54,6 +55,7 @@ test("first-run default and explicit override preserve native directory compatib
     {
       directory: defaultDirectory,
       create: false,
+      mode: "existing",
     },
   );
   const remembered = await project(join(root, "写作 project 🌱"));
@@ -65,6 +67,7 @@ test("first-run default and explicit override preserve native directory compatib
     {
       directory: remembered,
       create: false,
+      mode: "existing",
     },
   );
   const override = join(root, "explicit");
@@ -73,6 +76,7 @@ test("first-run default and explicit override preserve native directory compatib
     {
       directory: override,
       create: true,
+      mode: "create",
     },
   );
   assert.equal(reopened.lastDirectory, remembered);
@@ -204,7 +208,7 @@ test("corrupt/unsupported registry requires explicit selection and preserves exa
       selected,
       async () => {},
     ),
-    { directory: selected, create: false },
+    { directory: selected, create: false, mode: "existing" },
   );
   await registry.record(selected, { id: "selected", title: "Selected" });
   assert.equal(registry.status, "ready");
@@ -236,4 +240,67 @@ test("failed atomic promotion preserves last good bytes, removes temporary file,
   fail = false;
   await reopened.record(join(root, "candidate"), { id: "new", title: "New" });
   assert.equal(reopened.lastDirectory, join(root, "candidate"));
+});
+
+test("unremembered empty default/override selects create mode without recreating the folder; remembered empty is refused", async (t) => {
+  const { root, registry, defaultDirectory } = await fixture(t);
+  await mkdir(defaultDirectory, { recursive: true });
+  assert.deepEqual(
+    await prepareInitialProject(
+      registry,
+      defaultDirectory,
+      undefined,
+      async () => {},
+    ),
+    {
+      directory: defaultDirectory,
+      create: false,
+      mode: "create",
+    },
+  );
+  const override = join(root, "empty-override");
+  await mkdir(override);
+  assert.deepEqual(
+    await prepareInitialProject(
+      registry,
+      defaultDirectory,
+      override,
+      async () => {},
+    ),
+    {
+      directory: override,
+      create: false,
+      mode: "create",
+    },
+  );
+  await registry.record(defaultDirectory, {
+    id: "remembered",
+    title: "Remembered",
+  });
+  await assert.rejects(
+    prepareInitialProject(
+      registry,
+      defaultDirectory,
+      undefined,
+      async () => {},
+    ),
+  );
+});
+
+test("a database removed during final inspection retains existing mode", async (t) => {
+  const { registry, defaultDirectory } = await fixture(t);
+  await project(defaultDirectory);
+  const prepared = await prepareInitialProject(
+    registry,
+    defaultDirectory,
+    undefined,
+    async () => {
+      await rm(join(defaultDirectory, "project.sqlite"));
+    },
+  );
+  assert.deepEqual(prepared, {
+    directory: defaultDirectory,
+    create: false,
+    mode: "existing",
+  });
 });
