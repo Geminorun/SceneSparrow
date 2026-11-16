@@ -1,27 +1,12 @@
+import {
+  openWorkbench,
+  startManualDraft,
+  openAiSettings,
+} from "./helpers/workbench";
 import { test, expect, type Page } from "@playwright/test";
 async function draft(page: Page) {
-  await page.goto("/");
-  await expect(
-    page
-      .getByLabel("Project name")
-      .or(page.getByRole("heading", { name: "幕雀 project", exact: true })),
-  ).toBeVisible();
-  if (await page.getByLabel("Project name").isVisible()) {
-    await page.getByLabel("Project name").fill("幕雀 project");
-    await page.getByRole("button", { name: "Create project" }).click();
-  }
-  await page
-    .getByRole("combobox", { name: "Language", exact: true })
-    .selectOption("en");
-  const start = page.getByRole("button", {
-    name: "Start writing",
-    exact: true,
-  });
-  await expect(start.or(editor(page))).toBeVisible();
-  if (await start.isVisible()) await start.click();
-  await expect(
-    page.getByRole("textbox", { name: "Manuscript", exact: true }),
-  ).toBeVisible();
+  await openWorkbench(page);
+  await startManualDraft(page);
 }
 const editor = (page: Page) =>
   page.getByRole("textbox", { name: "Manuscript", exact: true });
@@ -441,6 +426,9 @@ test("invalid visible structure blocks retry/close and discard reload completes 
       onCloseAborted: () => () => {},
       health: () => request("/health"),
       readProject: () => request("/project"),
+      ensureProject: (command: unknown) => request("/project/ensure", command),
+      renameProject: (command: unknown) => request("/project/rename", command),
+      readAiSettings: () => request("/ai/settings"),
       createProject: (command: unknown) => request("/project", command),
       readManuscript: () => request("/manuscript"),
       readPlanning: () => request("/planning"),
@@ -505,9 +493,13 @@ test("invalid visible structure blocks retry/close and discard reload completes 
   );
   expect(writes).toBe(0);
   await expect(input).toContainText("Invalid depth four");
+  await openAiSettings(page);
   await page.evaluate(() => {
     (window as any).__requestClose();
   });
+  await expect(
+    page.getByRole("dialog", { name: "Settings", exact: true }),
+  ).not.toBeVisible();
   await expect(
     page.getByRole("dialog", { name: "Recover local edits" }),
   ).toBeVisible();

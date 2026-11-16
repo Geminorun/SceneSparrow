@@ -1,30 +1,9 @@
+import { openWorkbench, startManualDraft } from "./helpers/workbench";
 import { test, expect, type Page } from "@playwright/test";
 import { docx, pdf } from "../fixtures/documents.mjs";
 async function workspace(page: Page) {
-  await page.goto("/");
-  await expect(
-    page
-      .getByLabel("Project name")
-      .or(page.getByRole("heading", { name: "幕雀 project", exact: true })),
-  ).toBeVisible();
-  if (await page.getByLabel("Project name").isVisible()) {
-    await page.getByLabel("Project name").fill("幕雀 project");
-    await page.getByRole("button", { name: "Create project" }).click();
-  }
-  await page
-    .getByRole("combobox", { name: "Language", exact: true })
-    .selectOption("en");
-  const start = page.getByRole("button", {
-    name: "Start writing",
-    exact: true,
-  });
-  await expect(
-    start.or(page.getByRole("textbox", { name: "Manuscript", exact: true })),
-  ).toBeVisible();
-  if (await start.isVisible()) await start.click();
-  await expect(
-    page.getByRole("textbox", { name: "Manuscript", exact: true }),
-  ).toBeVisible();
+  await openWorkbench(page);
+  await startManualDraft(page);
 }
 const state = async (page: Page) =>
   (await page.request.get("/api/v1/manuscript")).json();

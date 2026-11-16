@@ -586,3 +586,18 @@ clipboard denial retains selectable prepared text. Both clients distinguish
 captured body identity from later local input. All feedback uses English/Chinese
 localization keys. The exact runnable evidence and remaining native/provider cases
 belong to the linked validation documents, not this normative acceptance table.
+
+## 13. Desktop recent-project follow-up
+
+The shared workbench conditionally exposes desktop recent projects through
+`readRecentProjects` and `openRecentProject`. Entries use opaque host locator IDs
+and titles; paths stay outside renderer contracts. The desktop host restores a
+remembered project and controls switching through the original flush/close path.
+Cancellation or failed opening leaves the current editor available. Explicit
+verified-backup recovery and backup creation remain separate actions; recents do
+not turn ordinary opening into recovery or synchronize project databases.
+
+Settings and rename dialogs dismiss through the existing manuscript close handler
+before its recovery decision is shown. Browser bridge fixtures cover this
+composition; native Windows/macOS lifecycle and restore acceptance remain open.
+See the [follow-up evidence](../validation/workspace-onboarding.md).

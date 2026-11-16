@@ -624,3 +624,16 @@ The generic runtime, SDK adapter and worker remain independent of editor types.
 No read/status query starts inference. The localhost counted SDK and restart/race
 coverage is described in [step 6 evidence](../validation/step-06.md); this is partial
 SAI-T14/15 integration, not real-provider/native or full S3 acceptance.
+
+## 17. Shared Settings navigation follow-up
+
+The global configuration UI now lives under the workbench gear → Settings →
+**AI & models**, with General as a sibling section. Opening the workbench does not
+read credentials/settings or run inference. AI settings load on first activation;
+advanced capability/token/temperature declarations start collapsed. Dismissal
+clears an unsaved key while preserving uncertain test action/receipt identity, so
+resolving a submitted test never becomes an implicit new paid test.
+All endpoint templates, including Gemini, use the existing OpenAI-compatible Chat
+Completions adapter; there are no native vendor integrations or new media features.
+This navigation change preserves SAI-AC01/02/03/04/05 contracts. See
+[the follow-up evidence](../validation/workspace-onboarding.md).

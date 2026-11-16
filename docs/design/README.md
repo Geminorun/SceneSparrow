@@ -35,6 +35,10 @@ The feature branch is `feat/script-workbench`, created directly from remote
    settings/execution ports, secure credential lifecycle, one-dispatch invariant,
    recovery modes and the initial migration sequence shared with S1–S4.
 
+The later [shared creator workbench](workspace-onboarding.md) follow-up replaces
+the creation gate and locates global AI configuration under Settings while
+preserving the manuscript stage boundaries.
+
 ## Authority and status
 
 The user's interview decisions Q1–Q31 and subsequent corrections take precedence

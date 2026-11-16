@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   AiSettingsView,
   AiSettings,
@@ -25,9 +25,11 @@ const presets = [
 export function AiSettings({
   client,
   t,
+  active,
 }: {
   client: PlatformClient;
   t: typeof en;
+  active: boolean;
 }) {
   const [view, setView] = useState<AiSettingsView | null>(null),
     [selected, setSelected] = useState(""),
@@ -65,6 +67,14 @@ export function AiSettings({
     run(async () => {
       setView(await client.readAiSettings());
     });
+  const activated = useRef(false);
+  useEffect(() => {
+    if (active && !activated.current) {
+      activated.current = true;
+      void load();
+    }
+    if (!active) setKey("");
+  }, [active]);
   const choose = (id: string) => {
     setSelected(id);
     setKey("");
@@ -202,17 +212,14 @@ export function AiSettings({
                 .fingerprint,
             };
       setAction(submitted);
+      if (!repeat) setReceipt(null);
       setReceipt(await client.testAiConnection(submitted));
     });
   const profile = view?.settings.providers.find((p) => p.id === selected);
   return (
-    <details
-      className="ai-settings"
-      onToggle={(e) => {
-        if (e.currentTarget.open && !view && !busy) void load();
-      }}
-    >
-      <summary>{t.aiSettings}</summary>
+    <section className="ai-settings" hidden={!active} aria-label={t.aiModels}>
+      <h3>{t.aiModels}</h3>
+      <p className="ai-protocol">{t.aiProtocol}</p>
       {error && (
         <p role="alert">
           {t[error as keyof typeof en]}{" "}
@@ -363,62 +370,71 @@ export function AiSettings({
                 {t.aiDiscover}
               </button>
               <p>{t.aiDiscoveryHint}</p>
-              {(
-                [
-                  [t.aiImages, images, setImages],
-                  [t.aiStreaming, streaming, setStreaming],
-                  [t.aiNativeJson, native, setNative],
-                ] as const
-              ).map(([name, value, set]) => (
-                <label key={name}>
-                  {name}
-                  <select
-                    value={value}
-                    onChange={(e) => set(e.target.value as AiEvidence["state"])}
-                  >
-                    <option value="unknown">{t.aiUnknown}</option>
-                    <option value="supported">{t.aiDeclaredSupported}</option>
-                    <option value="unsupported">
-                      {t.aiDeclaredUnsupported}
-                    </option>
-                  </select>
-                </label>
-              ))}
-              <label>
-                {t.aiTokens}
-                <input
-                  type="number"
-                  min={16}
-                  max={1000000}
-                  value={tokens}
-                  onChange={(e) => setTokens(Number(e.target.value))}
-                />
-              </label>
-              <label>
-                {t.aiTokenField}
-                <select
-                  value={tokenField}
-                  onChange={(e) =>
-                    setTokenField(e.target.value as typeof tokenField)
-                  }
-                >
-                  <option value="max_tokens">max_tokens</option>
-                  <option value="max_completion_tokens">
-                    max_completion_tokens
-                  </option>
-                </select>
-              </label>
-              <label>
-                {t.aiTemperature}
-                <input
-                  type="number"
-                  min={0}
-                  max={2}
-                  step={0.1}
-                  value={temperature}
-                  onChange={(e) => setTemperature(e.target.value)}
-                />
-              </label>
+              <details className="ai-advanced">
+                <summary>{t.aiAdvanced}</summary>
+                <div>
+                  {(
+                    [
+                      [t.aiImages, images, setImages],
+                      [t.aiStreaming, streaming, setStreaming],
+                      [t.aiNativeJson, native, setNative],
+                    ] as const
+                  ).map(([name, value, set]) => (
+                    <label key={name}>
+                      {name}
+                      <select
+                        value={value}
+                        onChange={(e) =>
+                          set(e.target.value as AiEvidence["state"])
+                        }
+                      >
+                        <option value="unknown">{t.aiUnknown}</option>
+                        <option value="supported">
+                          {t.aiDeclaredSupported}
+                        </option>
+                        <option value="unsupported">
+                          {t.aiDeclaredUnsupported}
+                        </option>
+                      </select>
+                    </label>
+                  ))}
+                  <label>
+                    {t.aiTokens}
+                    <input
+                      type="number"
+                      min={16}
+                      max={1000000}
+                      value={tokens}
+                      onChange={(e) => setTokens(Number(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    {t.aiTokenField}
+                    <select
+                      value={tokenField}
+                      onChange={(e) =>
+                        setTokenField(e.target.value as typeof tokenField)
+                      }
+                    >
+                      <option value="max_tokens">max_tokens</option>
+                      <option value="max_completion_tokens">
+                        max_completion_tokens
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    {t.aiTemperature}
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={temperature}
+                      onChange={(e) => setTemperature(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </details>
               <button disabled={!model.trim()} onClick={() => void bind()}>
                 {t.aiBindText}
               </button>
@@ -457,6 +473,6 @@ export function AiSettings({
           <p>{t.aiVideoReserved}</p>
         </fieldset>
       )}
-    </details>
+    </section>
   );
 }

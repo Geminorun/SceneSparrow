@@ -1,3 +1,4 @@
+import { openWorkbench, startManualDraft } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 test("offline export flushes visible input, copy permission fallback and uncertain format receipts remain explicit", async ({
@@ -14,26 +15,8 @@ test("offline export flushes visible input, copy permission fallback and uncerta
       configurable: true,
     });
   });
-  await page.goto("/");
-  await expect(
-    page
-      .getByLabel("Project name")
-      .or(page.getByRole("heading", { name: "幕雀 project", exact: true })),
-  ).toBeVisible();
-  if (await page.getByLabel("Project name").isVisible()) {
-    await page.getByLabel("Project name").fill("幕雀 project");
-    await page
-      .getByRole("button", { name: "Create project", exact: true })
-      .click();
-  }
-  const start = page.getByRole("button", {
-    name: "Start writing",
-    exact: true,
-  });
-  await expect(
-    start.or(page.getByRole("textbox", { name: "Manuscript", exact: true })),
-  ).toBeVisible();
-  if (await start.isVisible()) await start.click();
+  await openWorkbench(page);
+  await startManualDraft(page);
   const project = (await (await page.request.get("/api/v1/project")).json())
     .project;
   const command = async (type: string, payload: unknown) => {
@@ -493,6 +476,9 @@ test("restart exposes an unknown native receipt and reselect requires a fresh ex
     host.sceneSparrow = {
       health: () => request("/health"),
       readProject: () => request("/project"),
+      ensureProject: (command: unknown) => request("/project/ensure", command),
+      renameProject: (command: unknown) => request("/project/rename", command),
+      readAiSettings: () => request("/ai/settings"),
       readManuscript: () => request("/manuscript"),
       readHistory: () => request("/history"),
       readPlanning: () => request("/planning"),

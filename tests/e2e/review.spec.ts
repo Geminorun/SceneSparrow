@@ -1,3 +1,4 @@
+import { openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -167,14 +168,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
       }
       await route.fulfill({ response });
     });
-    await page.goto("/");
-    await page
-      .getByRole("combobox", { name: "Language", exact: true })
-      .selectOption("en");
-    await page.getByLabel("Project name").fill("Review browser");
-    await page
-      .getByRole("button", { name: "Create project", exact: true })
-      .click();
+    await openWorkbench(page);
     await page
       .getByRole("button", { name: "Start writing", exact: true })
       .click();
