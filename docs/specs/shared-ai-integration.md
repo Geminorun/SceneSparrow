@@ -77,7 +77,11 @@ The eight-step delivery sequence uses append-only project migrations:
 `003_history.sql` bounded history (step 2), `004` sources/import (step 3),
 `005` shared AI execution (step 4), `006` S2 planning (step 5),
 `007` S3 review (step 6), `008` S3 finalization (step 7), and
-`009` S4 export (step 8). Applied `001`/`002` retain their original numbers and
+`009` S4 export (step 8), and `010` project metadata rename receipts. The latter
+supports default-workspace onboarding without changing manuscript revisions or AI
+execution. Compact rename receipts remain for the project lifetime so ambiguous
+retries cannot overwrite a later rename, including an intervening title cycle.
+Applied `001`/`002` retain their original numbers and
 bytes. Steps 2 and 3 append applied 003 and 004 with their migration/recovery tests.
 Migrations 005–009 are implemented with their delivery evidence in steps 4–8. Each
 delivery adds its own migration instead of rewriting an earlier step. Additional migrations append

@@ -38,6 +38,8 @@ import type {
   ProjectEvent,
   HistoryState,
   CreateProject,
+  EnsureProject,
+  RenameProject,
   ManuscriptState,
   ManuscriptCommand,
   CommandReceipt,
@@ -114,6 +116,8 @@ export interface PlatformClient {
   health(): Promise<Health>;
   readProject(): Promise<ProjectResponse>;
   createProject(command: CreateProject): Promise<ProjectResponse>;
+  ensureProject(command: EnsureProject): Promise<ProjectResponse>;
+  renameProject(command: RenameProject): Promise<ProjectResponse>;
 }
 
 export class ApiError extends Error {
@@ -136,6 +140,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       | PlanningPreparationRequest
       | PlanningVisualAction
       | CreateProject
+      | EnsureProject
+      | RenameProject
       | ManuscriptCommand
       | DocumentAction
       | AiSettingsUpdate
@@ -362,6 +368,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     health: () => request("/v1/health"),
     readProject: () => request("/v1/project"),
     createProject: (command) => request("/v1/project", command),
+    ensureProject: (command) => request("/v1/project/ensure", command),
+    renameProject: (command) => request("/v1/project/rename", command),
   };
 }
 
@@ -451,6 +459,8 @@ export interface DesktopBridge {
   health(): Promise<BridgeResult<Health>>;
   readProject(): Promise<BridgeResult<ProjectResponse>>;
   createProject(command: CreateProject): Promise<BridgeResult<ProjectResponse>>;
+  ensureProject(command: EnsureProject): Promise<BridgeResult<ProjectResponse>>;
+  renameProject(command: RenameProject): Promise<BridgeResult<ProjectResponse>>;
   readHistory(): Promise<BridgeResult<HistoryState>>;
   readManuscript(): Promise<BridgeResult<ManuscriptState>>;
   executeManuscript(
@@ -544,6 +554,8 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     health: () => unwrap(bridge.health()),
     readProject: () => unwrap(bridge.readProject()),
     createProject: (c) => unwrap(bridge.createProject(c)),
+    ensureProject: (c) => unwrap(bridge.ensureProject(c)),
+    renameProject: (c) => unwrap(bridge.renameProject(c)),
     readHistory: () => unwrap(bridge.readHistory()),
     readManuscript: () => unwrap(bridge.readManuscript()),
     executeManuscript: (c) => unwrap(bridge.executeManuscript(c)),

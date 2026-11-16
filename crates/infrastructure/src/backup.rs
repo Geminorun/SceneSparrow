@@ -153,7 +153,7 @@ impl SqliteProjectRepository {
             source.join("manifest.json"),
         ))?))?;
         if manifest.version != 1
-            || manifest.schema > 9
+            || manifest.schema > 10
             || !manifest.files.contains_key("project.sqlite")
         {
             return Err(Error::Storage);
@@ -274,7 +274,7 @@ impl SqliteProjectRepository {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         ))?;
         let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if !(1..=9).contains(&version) {
+        if !(1..=10).contains(&version) {
             return Err(Error::SchemaUnsupported);
         }
         let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
@@ -377,6 +377,7 @@ mod tests {
         let c = repo.connection.lock().unwrap();
         c.pragma_update(None, "foreign_keys", false).unwrap();
         let migrations = [
+            (10, include_str!("../migrations/010_project_metadata.sql")),
             (9, include_str!("../migrations/009_exports.sql")),
             (8, include_str!("../migrations/008_finalization.sql")),
             (7, include_str!("../migrations/007_review.sql")),
@@ -443,9 +444,9 @@ mod tests {
         }
     }
     #[test]
-    fn every_supported_legacy_schema_upgrades_to_nine_and_backup_manifest_verifies_its_actual_graph()
-     {
-        for version in 1..=8 {
+    fn every_supported_legacy_schema_upgrades_to_ten_and_backup_manifest_verifies_its_actual_graph()
+    {
+        for version in 1..=9 {
             let d = tempfile::tempdir().unwrap();
             let r = SqliteProjectRepository::open(d.path()).unwrap();
             r.create("legacy", "Legacy direct upgrade").unwrap();
@@ -482,7 +483,7 @@ mod tests {
                     .unwrap()
                     .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
                     .unwrap(),
-                9
+                10
             );
             let backup = opened.verified_backup().unwrap();
             assert!(backup.join("manifest.json").is_file());

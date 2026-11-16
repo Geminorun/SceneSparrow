@@ -182,6 +182,8 @@ async function main() {
     ["project:health", "/health"],
     ["project:read", "/project"],
     ["project:create", "/project"],
+    ["project:ensure", "/project/ensure"],
+    ["project:rename", "/project/rename"],
     ["manuscript:history", "/history"],
     ["manuscript:identity", "/manuscript/identity"],
     ["manuscript:read", "/manuscript"],
@@ -197,7 +199,10 @@ async function main() {
       }
       return request(
         path,
-        channel === "project:create" || channel === "manuscript:command"
+        channel === "project:create" ||
+          channel === "project:ensure" ||
+          channel === "project:rename" ||
+          channel === "manuscript:command"
           ? command
           : undefined,
       );

@@ -7,6 +7,8 @@
     "project",
     "health",
     "createProject",
+    "ensureProject",
+    "renameProject",
     "projectResponse",
     "apiError",
     "manuscriptState",
@@ -22,6 +24,12 @@
     },
     "createProject": {
       "$ref": "#/definitions/CreateProject"
+    },
+    "ensureProject": {
+      "$ref": "#/definitions/EnsureProject"
+    },
+    "renameProject": {
+      "$ref": "#/definitions/RenameProject"
     },
     "projectResponse": {
       "$ref": "#/definitions/ProjectResponse"
@@ -85,6 +93,48 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "EnsureProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "title"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "RenameProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "projectId", "previousTitle", "title"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "previousTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
         },
         "title": {
           "type": "string",

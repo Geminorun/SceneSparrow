@@ -128,6 +128,10 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
   },
   health: () => ipcRenderer.invoke("project:health"),
   readProject: () => ipcRenderer.invoke("project:read"),
+  ensureProject: (command: unknown) =>
+    ipcRenderer.invoke("project:ensure", command),
+  renameProject: (command: unknown) =>
+    ipcRenderer.invoke("project:rename", command),
   createProject: (command: unknown) =>
     ipcRenderer.invoke("project:create", command),
 });

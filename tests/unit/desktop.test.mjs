@@ -149,6 +149,8 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "subscribeEvents",
       "commandReceipt",
       "createProject",
+      "ensureProject",
+      "renameProject",
       "executeManuscript",
       "health",
       "onCloseRequested",
@@ -157,6 +159,17 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
       "readProject",
     ].sort(),
   );
+  const ensure = { requestId: "first-open", title: "Untitled project" };
+  await exposed.ensureProject(ensure);
+  assert.deepEqual(calls.pop(), ["project:ensure", ensure]);
+  const rename = {
+    requestId: "rename",
+    projectId: "stable-id",
+    previousTitle: "Untitled project",
+    title: "Named project",
+  };
+  await exposed.renameProject(rename);
+  assert.deepEqual(calls.pop(), ["project:rename", rename]);
   await exposed.prepareAiTest({
     providerId: "fixture",
     modelId: "manual",

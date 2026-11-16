@@ -224,6 +224,39 @@ test("a real core process restores the same project after restart", async () => 
     );
     assert.ok(middle.blocks[0].revision > manuscript.blocks[0].revision);
     assert.equal(middleHistory.redoCount, 1);
+    const rename = {
+      requestId: randomUUID(),
+      projectId: original.project.id,
+      previousTitle: original.project.title,
+      title: "Renamed after writing 中文",
+    };
+    const metadataPost = (path, command) =>
+      fetch(`${base}/project/${path}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(command),
+      });
+    assert.equal((await metadataPost("rename", rename)).status, 200);
+    for (let n = 0; n < 6; n++) {
+      const current = await (
+        await metadataPost("ensure", {
+          requestId: `browser-${n}`,
+          title: "Untitled project",
+        })
+      ).json();
+      assert.equal(current.project.id, original.project.id);
+      assert.equal(current.project.title, rename.title);
+      assert.equal(current.project.workingRevision, middle.workingRevision);
+    }
+    assert.deepEqual(
+      await (await fetch(`${base}/history`, { headers })).json(),
+      middleHistory,
+    );
+    assert.deepEqual(
+      await (await fetch(`${base}/manuscript`, { headers })).json(),
+      middle,
+    );
+
     await stop();
     await launch();
     assert.deepEqual(
@@ -233,6 +266,29 @@ test("a real core process restores the same project after restart", async () => 
     assert.deepEqual(
       await (await fetch(`${base}/history`, { headers })).json(),
       middleHistory,
+    );
+    const reopenedProject = await (
+      await fetch(`${base}/project`, { headers })
+    ).json();
+    assert.equal(reopenedProject.project.id, original.project.id);
+    assert.equal(reopenedProject.project.title, rename.title);
+    assert.equal((await metadataPost("rename", rename)).status, 200);
+    assert.equal(
+      (
+        await metadataPost("rename", {
+          ...rename,
+          requestId: randomUUID(),
+          previousTitle: rename.title,
+          title: "Later name",
+        })
+      ).status,
+      200,
+    );
+    assert.equal((await metadataPost("rename", rename)).status, 409);
+    assert.equal(
+      (await (await fetch(`${base}/project`, { headers })).json()).project
+        .title,
+      "Later name",
     );
     assert.deepEqual(await (await send(undo)).json(), undoReceipt);
     const changed = await send({
