@@ -155,6 +155,11 @@ avoid pointless repetition when nothing changed. Use fake providers for ordinary
 checks. A code review is not an independent human GitHub approval or proof of an
 untested OS/provider capability.
 
+Ordinary PRs and main pushes do not trigger CI. This keeps local validation and
+root review as the implementation gate. The single Web deployment workflow runs
+full checks before release-branch/tag deployment; manual dispatch also supports
+checks/build/smoke without deployment. See the [deployment runbook](web-deployment.md).
+
 Report findings with severity, file/location, concrete failure, expected behavior
 and an acceptance/test reference. Return blocking issues to the implementation
 agent and repeat until resolved. There is no fixed round count that turns an

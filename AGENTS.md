@@ -79,14 +79,17 @@
   branch integrates and accepts the next version; currently `release/1.0.0`.
   Create short-lived `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`,
   `build/`, `ci/`, or `perf/` branches from that release branch and target it in PRs.
-  After acceptance, PR the release branch into `main`; after main CI passes, an
-  immutable matching `vMAJOR.MINOR.PATCH` tag initiates formal release. Do not
+  After acceptance, PR the release branch into `main`; an immutable matching
+  `vMAJOR.MINOR.PATCH` tag runs full checks before formal release. Do not
   develop directly on `main` or create a permanent `develop` branch.
 - Use lowercase English kebab-case task descriptions, e.g. `feat/script-review`.
   Versioned release branches are integration branches, not isolated deployments.
   There is one shared Web deployment at `https://scene.mindreview.me`, host port
   8070; release pushes, optional RC tags and formal tags replace that same instance
-  and operate on the same data. Main pushes only check, never publish or deploy.
+  and operate on the same data. Ordinary PRs and main pushes do not trigger CI;
+  local validation and root review remain required. Release pushes and version
+  tags run full checks before deployment through the single Web workflow. Manual
+  dispatch defaults to checks/build/smoke and supports main without deployment.
   See ADR 0004 and the deployment runbook before changing release policy.
 - Cloud tasks already have isolated checkouts. Use the existing checkout; do not
   create a Git worktree unless the user explicitly requests one.

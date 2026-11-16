@@ -35,9 +35,11 @@ after a failed deployment. See [the runbook](../web-deployment.md).
 ## Release policy refinement
 
 [ADR 0004](0004-release-policy.md) supersedes the original main-push deployment
-policy: release branches and version tags deploy to one shared environment; main
-pushes only check. The single public origin is `https://scene.mindreview.me` and
-the default host loopback port is 8070. Separate operator username/password
+policy: release branches and version tags run full checks before deploying to one
+shared environment. Ordinary PRs and main pushes do not trigger CI; local
+validation and review remain required. The Web workflow also supports manual
+checks/build/smoke without deployment. The single public origin is
+`https://scene.mindreview.me` and the default host loopback port is 8070. Separate operator username/password
 secrets accept a 6–256 character printable ASCII password, retaining the same
 Basic authentication and secure mounted-file implementation. AI keys remain in
 session memory.
