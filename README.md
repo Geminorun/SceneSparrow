@@ -4,8 +4,9 @@ SceneSparrow is a local-first, AI-assisted video creation application. It brings
 script writing, review, storyboarding, editable video, and targeted revisions into
 one workspace while preserving approved work.
 
-Windows and macOS are the intended product platforms. A browser entry point will
-validate the same React UI, application protocol, and Rust core during development.
+Windows and macOS remain intended desktop platforms. The browser shares the same
+React UI, application protocol and Rust core, with a
+[private self-hosted Web deployment](docs/web-deployment.md) path for one operator workspace.
 The current delivery target is the manuscript workbench; audio/video production
 follows later. The architecture and contributor workflow support internationalization.
 

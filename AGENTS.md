@@ -66,6 +66,11 @@
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
   `pnpm render:smoke` exercises rendering. Never claim unrun platform checks.
+- Private self-hosted Web delivery is documented in `docs/web-deployment.md` and
+  ADR 0003. Preserve operator authentication, exact-origin write checks, private
+  core tokens and the loopback core boundary. One deployment shares one project
+  and global AI configuration; it does not provide user isolation. Keep Docker's
+  build/runtime workspace layout consistent with compiled Rust worker paths.
 
 ## Git workflow
 

@@ -28,9 +28,12 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     releasePlanning: () => void = () => {};
   let planningGate: Promise<void> = Promise.resolve();
   let holdLock = false,
+    holdLockProjection = false,
     enterLock: () => void = () => {},
-    releaseLock: () => void = () => {};
-  let lockGate: Promise<void> = Promise.resolve();
+    releaseLock: () => void = () => {},
+    releaseLockProjection: () => void = () => {};
+  let lockGate: Promise<void> = Promise.resolve(),
+    lockProjectionGate: Promise<void> = Promise.resolve();
   let holdUndo = false,
     enterUndo: () => void = () => {},
     releaseUndo: () => void = () => {},
@@ -134,6 +137,11 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
         return;
       }
       if (freezeReviews && url.pathname.endsWith("/reviews")) await reviewsGate;
+      if (
+        holdLockProjection &&
+        url.pathname.endsWith("/manuscript/finalization")
+      )
+        await lockProjectionGate;
       const response = await route.fetch({
         url: base + url.pathname.replace("/api/v1", "") + url.search,
         headers: {
@@ -386,22 +394,29 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     expect(nestedCard.thread.anchor.ranges[0].blockId).toBe(nestedId);
     expect(nestedCard.thread.anchor.ranges[0].quote).toBe("Nested 👩‍💻\nsoft");
     expect(provider.calls).toHaveLength(2);
-    // Hold the actual committed lock response while the editor receives newer private input.
+    const raceBlock = editor.locator(`[data-blockid="${nestedId}"]`);
+    const nestedLock = page.locator(`[data-lock-block="${nestedId}"]`);
+    await raceBlock.scrollIntoViewIfNeeded();
+    await expect(nestedLock).toBeEnabled();
+    // Hold both acknowledgment and projection so the fixture deterministically
+    // enters private input before the committed lock becomes visible.
     const entering = new Promise<void>((r) => (enterLock = r));
     lockGate = new Promise<void>((r) => (releaseLock = r));
-    holdLock = true;
-    await page.locator(`[data-lock-block="${nestedId}"]`).click();
+    lockProjectionGate = new Promise<void>((r) => (releaseLockProjection = r));
+    holdLock = holdLockProjection = true;
+    await nestedLock.click();
     await entering;
-    const raceBlock = editor.locator(`[data-blockid="${nestedId}"]`);
     await raceBlock.click();
     await page.keyboard.press("End");
     await page.keyboard.insertText("!");
-    holdLock = false;
+    await expect(raceBlock).toContainText("!");
+    holdLock = holdLockProjection = false;
     releaseLock();
-    await expect(
-      page.locator(`[data-lock-block="${nestedId}"]`),
-    ).toHaveAttribute("aria-pressed", "true");
-    await page.locator(`[data-lock-block="${nestedId}"]`).click();
+    releaseLockProjection();
+    await raceBlock.scrollIntoViewIfNeeded();
+    await expect(nestedLock).toHaveAttribute("aria-pressed", "true");
+    await expect(nestedLock).toBeEnabled();
+    await nestedLock.click();
     await expect(raceBlock).not.toHaveAttribute("contenteditable", "false");
     await page
       .getByRole("heading", { name: "Manuscript", exact: true })
@@ -621,12 +636,31 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
       expect(provider.calls).toHaveLength(0);
     }
   } finally {
-    if (child.exitCode === null) {
-      const exit = once(child, "exit");
-      child.kill("SIGINT");
-      await exit;
+    blockPlanning =
+      holdLock =
+      holdLockProjection =
+      holdUndo =
+      freezeReviews =
+        false;
+    releasePlanning();
+    releaseLock();
+    releaseLockProjection();
+    releaseUndo();
+    releaseReviews();
+    try {
+      // Drain intercepted requests while their fixture core is still available.
+      if (!page.isClosed()) {
+        await page.unrouteAll({ behavior: "wait" });
+        await page.goto("about:blank");
+      }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exit = once(child, "exit");
+        child.kill("SIGINT");
+        await exit;
+      }
+      await provider.close();
+      await rm(dir, { recursive: true, force: true });
     }
-    await provider.close();
-    await rm(dir, { recursive: true, force: true });
   }
 });
