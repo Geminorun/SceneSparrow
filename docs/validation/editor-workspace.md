@@ -156,3 +156,12 @@ titles are now valid saved draft input; older binaries that reject such partial
 plans may fail to read them. Audio/video workflows and native platform acceptance
 remain outside this follow-up. The task branch targets `release/1.0.0`; this work
 does not merge or deploy it.
+
+## Subsequent Markdown and layout correction
+
+The user's later Obsidian reference supersedes this report's original framed
+paper, permanent formatting controls and screenshot styling. The current design
+uses a gray document-tab shell, continuous manuscript and document-menu actions.
+The [follow-up report](notion-visual-refresh.md) records Markdown input/paste,
+normalized read-only source, updated screenshots and independent final checks.
+The earlier command/history/lock evidence above remains relevant.

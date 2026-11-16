@@ -36,5 +36,42 @@ export async function openPanel(
   await page.getByRole("tab", { name, exact: true }).click();
 }
 export async function openExports(page: Page) {
-  await page.locator(".export-menu > summary").click();
+  await openDocumentMenu(page);
+  const menu = page.locator(".export-menu");
+  if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open)))
+    await menu.locator(":scope > summary").click();
+}
+
+export async function openDocumentMenu(page: Page) {
+  const main = page.locator(".manuscript-main");
+  if ((await main.getAttribute("inert")) !== null) {
+    await page
+      .getByRole("button", { name: "Close auxiliary panel", exact: true })
+      .click();
+    await expect(main).not.toHaveAttribute("inert");
+  }
+  const menu = page.locator(".document-menu");
+  if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open)))
+    await menu.locator(":scope > summary").click();
+}
+export async function projectHistory(page: Page, direction: "Undo" | "Redo") {
+  await openDocumentMenu(page);
+  await page.getByRole("button", { name: direction, exact: true }).click();
+}
+export async function pasteMarkdown(page: Page, source: string, html = "") {
+  await page.locator(".tiptap").evaluate(
+    (element, data) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", data.source);
+      if (data.html) clipboard.setData("text/html", data.html);
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: clipboard,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { source, html },
+  );
 }

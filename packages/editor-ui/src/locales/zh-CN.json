@@ -420,5 +420,11 @@
   "workspacePlanPreservesBody": "规划修改不会替换现有正文。",
   "workspaceCopyRecovery": "复制恢复文本",
   "workspaceCopyFailed": "复制失败。请选中下方文本手动复制。",
-  "workspaceDiscardBlocked": "上次保存结果尚未确认。请重试确认后再丢弃修改。本地文本已保留。"
+  "workspaceDiscardBlocked": "上次保存结果尚未确认。请重试确认后再丢弃修改。本地文本已保留。",
+  "documentMenu": "文稿操作",
+  "viewMarkdownSource": "查看 Markdown 源码",
+  "markdownSourceTitle": "Markdown 源码（规范化）",
+  "markdownSourceHelp": "当前文稿的只读 Markdown。语法和间距经过规范化；不支持的 Markdown 保留为普通文本。",
+  "closeMarkdownSource": "关闭 Markdown 源码",
+  "markdownSourceRecovery": "文稿结构需要修正。此处保留当前本地文本，暂时无法显示 Markdown 格式。"
 }

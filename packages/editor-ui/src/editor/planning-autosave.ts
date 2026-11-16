@@ -366,7 +366,15 @@ export class PlanningAutosave {
         tasks: current.tasks,
         reserved: current.reserved,
       };
-      if (changed) {
+      // A committed save can still await its canonical read after a read failure.
+      // Refresh must not classify that exact acknowledged payload as external;
+      // flush retains ownership of settling its pending receipt and segments.
+      const ownAcknowledgedContent =
+        this.pendingReceiptAcknowledged &&
+        this.pendingSave?.type === "SavePlanning" &&
+        contentKey(current.content) ===
+          contentKey(this.pendingSave.payload.content);
+      if (changed && !ownAcknowledgedContent) {
         this.status = "conflict";
         this.error = "REVISION_CONFLICT";
       }

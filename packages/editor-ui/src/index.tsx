@@ -287,6 +287,20 @@ export function App({ client }: { client: PlatformClient }) {
           <span>{t.appName}</span>
         </div>
         <div className="project-heading">
+          <svg
+            className="document-tab-icon"
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            aria-hidden="true"
+          >
+            <path
+              d="M6 3h9l4 4v14H6zM9 11h7M9 15h7M14 3v5h5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+          </svg>
           <h1 data-testid="project-title" title={project?.title}>
             {project?.title ?? t.appName}
           </h1>

@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import { openPanel, openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
@@ -143,7 +144,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       path: ".artifacts/planning-draft.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await projectHistory(page, "Undo");
     await expect(
       page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
     ).toBeVisible();

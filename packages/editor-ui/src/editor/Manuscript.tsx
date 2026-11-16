@@ -4,14 +4,17 @@ import StarterKit from "@tiptap/starter-kit";
 import Code from "@tiptap/extension-code";
 import { CanonicalIdentity } from "./identity";
 import type { Editor } from "@tiptap/core";
-import { TextSelection, type SelectionBookmark } from "@tiptap/pm/state";
+import { TextSelection } from "@tiptap/pm/state";
+import { Slice } from "@tiptap/pm/model";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Review } from "./Review";
 import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 import { SaveStatus } from "./SaveStatus";
-import { DocumentToolbar } from "./DocumentToolbar";
+import { parseMarkdown, serializeMarkdown } from "./markdown";
+import { MarkdownLink } from "./markdown-link";
+import { WorkspaceIcon } from "../WorkspaceIcon";
 import { Locks } from "./Locks";
 import { ContentProtection, contentProtectionKey } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
@@ -139,10 +142,11 @@ function Draft({
   );
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
-  const deferredToolbar = useRef<
-    Array<{ action: () => unknown; bookmark: SelectionBookmark }>
-  >([]);
-  const resumeToolbar = useRef(() => {});
+  const documentMenu = useRef<HTMLDetailsElement>(null);
+  const sourceDialog = useRef<HTMLDialogElement>(null);
+  const sourceVisible = useRef(false);
+  const [source, setSource] = useState("");
+  const [sourceRecovery, setSourceRecovery] = useState(false);
   const editor = useEditor(
     useMemo<UseEditorOptions>(
       () => ({
@@ -166,6 +170,7 @@ function Draft({
             },
           }),
           Code.extend({ excludes: "" }),
+          MarkdownLink,
           CanonicalIdentity.configure({
             attributeName: "blockId",
             types: ["paragraph", "heading"],
@@ -173,6 +178,37 @@ function Draft({
         ],
         content: toEditor(initial.blocks),
         editorProps: {
+          handlePaste: (view, event) => {
+            const data = event.clipboardData;
+            // Keep the established internal clipboard path (including ID repair).
+            // External mixed-MIME copies use their explicit plain Markdown text.
+            if (
+              !data ||
+              /\bdata-(?:pm-slice|blockid)\s*=/i.test(data.getData("text/html"))
+            )
+              return false;
+            const text = data.getData("text/plain");
+            if (!text) return false;
+            const document = view.state.schema.nodeFromJSON(
+              toEditor(parseMarkdown(text)),
+            );
+            const slice =
+              view.state.selection.$from.parent.content.size === 0
+                ? new Slice(document.content, 0, 0)
+                : Slice.maxOpen(document.content);
+            void save.discrete(() =>
+              view.dispatch(
+                view.state.tr
+                  .replaceSelection(slice)
+                  .scrollIntoView()
+                  // The codec already interpreted the source. Do not run the
+                  // generic inline paste rules/autolinker over literal fallback.
+                  .setMeta("uiEvent", "markdownPaste")
+                  .setMeta("preventAutolink", true),
+              ),
+            );
+            return true;
+          },
           handleKeyDown: (view, event) => {
             if (
               forwardingKey.current ||
@@ -294,6 +330,21 @@ function Draft({
             "aria-label": t.manuscript,
           },
           handleDOMEvents: {
+            paste: (view, event) => {
+              if (!save.composing) return false;
+              const text = event.clipboardData?.getData("text/plain");
+              if (!text) return false;
+              // ProseMirror bypasses handlePaste during composition. Preserve
+              // explicit clipboard text here without conversion or an early save.
+              event.preventDefault();
+              view.dispatch(
+                view.state.tr
+                  .insertText(text.replace(/\r\n?/g, "\n"))
+                  .setMeta("uiEvent", "markdownPaste")
+                  .setMeta("preventAutolink", true),
+              );
+              return true;
+            },
             compositionstart: () => {
               save.composition(true);
               return false;
@@ -319,11 +370,16 @@ function Draft({
                   }
                 }
                 save.composition(false);
-                resumeToolbar.current();
               });
               return false;
             },
-            blur: () => {
+            blur: (_view, event) => {
+              if (
+                sourceVisible.current ||
+                (event.relatedTarget instanceof Element &&
+                  event.relatedTarget.closest(".document-menu"))
+              )
+                return false;
               void save.boundary();
               return false;
             },
@@ -353,25 +409,6 @@ function Draft({
     ),
   );
   liveEditor.current = editor;
-  useEffect(() => {
-    if (!save.composing) resumeToolbar.current();
-  }, [save, save.composing]);
-  useEffect(() => {
-    if (!editor) return;
-    const map = ({
-      transaction,
-    }: {
-      transaction: import("@tiptap/pm/state").Transaction;
-    }) => {
-      for (const intent of deferredToolbar.current)
-        intent.bookmark = intent.bookmark.map(transaction.mapping);
-    };
-    editor.on("transaction", map);
-    return () => {
-      editor.off("transaction", map);
-      deferredToolbar.current = [];
-    };
-  }, [editor]);
   useEffect(() => {
     if (editor && save.state.workspaceStage === "outline") {
       // Empty Outline projects have no locks; Draft still loads its lock projection.
@@ -456,6 +493,8 @@ function Draft({
     };
     window.addEventListener("beforeunload", warning);
     const remove = client.onCloseRequested?.(async () => {
+      sourceDialog.current?.close();
+      sourceVisible.current = false;
       beforeClose.current();
       freeze(true);
       const ok = await save.controlledClose();
@@ -505,55 +544,36 @@ function Draft({
               ? t.historyImport
               : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
-  const toolbar = (action: () => unknown) => {
-    if (save.composing && editor) {
-      deferredToolbar.current.push({
-        action,
-        bookmark: editor.state.selection.getBookmark(),
-      });
-      return;
+  const openSource = () => {
+    // Read the visible local editor, including pending/IME input. Viewing source
+    // does not call a core command, flush, or replace the mounted editor.
+    let current: string;
+    setSourceRecovery(false);
+    try {
+      current = serializeMarkdown(
+        editor
+          ? fromEditorNode(
+              editor.state.doc,
+              new Set(save.local.map((b) => b.id)),
+            )
+          : save.local,
+      );
+    } catch {
+      setSourceRecovery(true);
+      current =
+        editor?.getText({ blockSeparator: "\n\n" }) ?? save.recoveryText ?? "";
     }
-    void save.discrete(() => {
-      const active = document.activeElement;
-      const mayFocus =
-        active === document.body ||
-        active === editor?.view.dom ||
-        !!active?.closest(".editor-toolbar,.history-toolbar");
-      action();
-      // A later queued command must never take focus from another input.
-      if (mayFocus && document.activeElement === active) editor?.view.focus();
-    });
+    setSource(current);
+    sourceVisible.current = true;
+    if (documentMenu.current) documentMenu.current.open = false;
+    sourceDialog.current?.showModal();
   };
-  resumeToolbar.current = () => {
-    if (!editor || editor.isDestroyed || save.composing) return;
-    while (deferredToolbar.current.length) {
-      const intent = deferredToolbar.current.shift()!;
-      void save.discrete(() => {
-        // Apply to the mapped original range without taking focus from a new input.
-        let restore = editor.state.selection.getBookmark();
-        const map = ({
-          transaction,
-        }: {
-          transaction: import("@tiptap/pm/state").Transaction;
-        }) => {
-          restore = restore.map(transaction.mapping);
-        };
-        editor.view.dispatch(
-          editor.state.tr.setSelection(
-            intent.bookmark.resolve(editor.state.doc),
-          ),
-        );
-        editor.on("transaction", map);
-        try {
-          intent.action();
-        } finally {
-          editor.off("transaction", map);
-          editor.view.dispatch(
-            editor.state.tr.setSelection(restore.resolve(editor.state.doc)),
-          );
-        }
-      });
-    }
+  const closeSource = () => {
+    sourceVisible.current = false;
+    sourceDialog.current?.close();
+    requestAnimationFrame(() =>
+      documentMenu.current?.querySelector("summary")?.focus(),
+    );
   };
   return (
     <section className="manuscript-workspace">
@@ -564,69 +584,6 @@ function Draft({
         inert={frozen}
         className="manuscript-freeze"
       >
-        <div className="manuscript-header">
-          <h3>{t.manuscript}</h3>
-          <SaveStatus
-            save={save}
-            planning={planningFeedback}
-            openPlanning={() => pane.open("planning")}
-            t={t}
-            recover={() => setRecovery(true)}
-          />
-          {save.state.workspaceStage === "draft" && (
-            <span className="approval-status" data-testid="approval-status">
-              {approvedBaseline !== null ? t.finalized : t.notApproved}
-            </span>
-          )}
-          <div ref={setLockHeader} className="lock-header-target" />
-        </div>
-        {save.state.workspaceStage === "draft" && (
-          <details className="export-menu">
-            <summary>{t.exportTitle}</summary>
-            <Exports client={client} save={save} t={t} />
-          </details>
-        )}
-        <div
-          className="history-toolbar"
-          role="toolbar"
-          aria-label={t.history}
-          inert={pane.narrow && !pane.collapsed}
-        >
-          <button
-            disabled={
-              save.busy ||
-              save.composing ||
-              (!save.history.undoCount && save.status === "saved") ||
-              ["error", "conflict"].includes(save.status)
-            }
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void historyAction("UndoProject")}
-            title={
-              save.history.undoLabel
-                ? `${t.undo}: ${operationLabel(save.history.undoLabel)}`
-                : t.undo
-            }
-          >
-            {t.undo}
-          </button>
-          <button
-            disabled={
-              save.busy ||
-              save.composing ||
-              !save.history.redoCount ||
-              ["error", "conflict"].includes(save.status)
-            }
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void historyAction("RedoProject")}
-            title={
-              save.history.redoLabel
-                ? `${t.redo}: ${operationLabel(save.history.redoLabel)}`
-                : t.redo
-            }
-          >
-            {t.redo}
-          </button>
-        </div>
         <WorkspacePane
           pane={pane}
           t={t}
@@ -699,7 +656,82 @@ function Draft({
             ),
           }}
         >
-          <DocumentToolbar editor={editor} t={t} toolbar={toolbar} />
+          <div className="manuscript-header">
+            <div className="manuscript-context">
+              <h3>{t.manuscript}</h3>
+              <SaveStatus
+                save={save}
+                planning={planningFeedback}
+                openPlanning={() => pane.open("planning")}
+                t={t}
+                recover={() => setRecovery(true)}
+              />
+              {save.state.workspaceStage === "draft" && (
+                <span className="approval-status" data-testid="approval-status">
+                  {approvedBaseline !== null ? t.finalized : t.notApproved}
+                </span>
+              )}
+            </div>
+            <div ref={setLockHeader} className="lock-header-target" />
+            <details className="document-menu" ref={documentMenu}>
+              <summary
+                aria-label={t.documentMenu}
+                title={t.documentMenu}
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <WorkspaceIcon name="menu" />
+              </summary>
+              <div className="document-menu-content">
+                <button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openSource}
+                >
+                  {t.viewMarkdownSource}
+                </button>
+                {(["UndoProject", "RedoProject"] as const).map((type) => {
+                  const undo = type === "UndoProject";
+                  const label = undo ? t.undo : t.redo;
+                  const operation = undo
+                    ? save.history.undoLabel
+                    : save.history.redoLabel;
+                  return (
+                    <button
+                      key={type}
+                      aria-label={label}
+                      title={
+                        operation
+                          ? `${label}: ${operationLabel(operation)}`
+                          : label
+                      }
+                      disabled={
+                        save.busy ||
+                        save.composing ||
+                        (undo
+                          ? !save.history.undoCount && save.status === "saved"
+                          : !save.history.redoCount) ||
+                        ["error", "conflict"].includes(save.status)
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        if (documentMenu.current)
+                          documentMenu.current.open = false;
+                        void historyAction(type);
+                      }}
+                    >
+                      <span>{label}</span>
+                      <kbd>{undo ? "Ctrl/⌘ Z" : "Ctrl/⌘ ⇧ Z"}</kbd>
+                    </button>
+                  );
+                })}
+                {save.state.workspaceStage === "draft" && (
+                  <details className="export-menu">
+                    <summary>{t.exportTitle}</summary>
+                    <Exports client={client} save={save} t={t} />
+                  </details>
+                )}
+              </div>
+            </details>
+          </div>
           <div className="document-layout">
             <EditorContent editor={editor} />
             {save.state.workspaceStage === "draft" && (
@@ -726,6 +758,35 @@ function Draft({
           </p>
         )}
       </fieldset>
+      <dialog
+        ref={sourceDialog}
+        className="markdown-source-dialog"
+        aria-labelledby="markdown-source-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeSource();
+        }}
+      >
+        <div className="dialog-heading">
+          <h2 id="markdown-source-title">{t.markdownSourceTitle}</h2>
+          <button
+            className="quiet-button"
+            aria-label={t.closeMarkdownSource}
+            onClick={closeSource}
+          >
+            <WorkspaceIcon name="close" />
+          </button>
+        </div>
+        <p className="muted">
+          {sourceRecovery ? t.markdownSourceRecovery : t.markdownSourceHelp}
+        </p>
+        <textarea
+          aria-label={t.markdownSourceTitle}
+          readOnly
+          value={source}
+          spellCheck={false}
+        />
+      </dialog>
       {recovery && (
         <div className="recovery" role="dialog" aria-label={t.recover}>
           <p>{t.recoveryHelp}</p>

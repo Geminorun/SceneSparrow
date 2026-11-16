@@ -420,5 +420,11 @@
   "workspacePlanPreservesBody": "Planning changes do not replace your manuscript.",
   "workspaceCopyRecovery": "Copy recovery text",
   "workspaceCopyFailed": "Copy failed. Select and copy the text below.",
-  "workspaceDiscardBlocked": "A previous save is unresolved. Retry to resolve it before discarding. Your local text is retained."
+  "workspaceDiscardBlocked": "A previous save is unresolved. Retry to resolve it before discarding. Your local text is retained.",
+  "documentMenu": "Document actions",
+  "viewMarkdownSource": "View Markdown source",
+  "markdownSourceTitle": "Markdown source (normalized)",
+  "markdownSourceHelp": "Read-only Markdown from your current document. Syntax and spacing are normalized; unsupported Markdown remains literal text.",
+  "closeMarkdownSource": "Close Markdown source",
+  "markdownSourceRecovery": "The document structure needs correction. This view preserves your current local text; Markdown formatting is unavailable."
 }

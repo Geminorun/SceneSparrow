@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type en from "../locales/en.json";
+import { WorkspaceIcon } from "../WorkspaceIcon";
 
 export type AuxiliaryTab = "structure" | "planning" | "review" | "sources";
 const tabs: AuxiliaryTab[] = ["structure", "planning", "review", "sources"];
@@ -79,6 +80,7 @@ export function WorkspacePane({
         className="auxiliary-toggle quiet-button"
         ref={opener}
         aria-label={t.workspaceOpenPanel}
+        title={t.workspaceOpenPanel}
         aria-expanded={!pane.collapsed}
         onClick={() => {
           pane.open(pane.tab);
@@ -194,9 +196,10 @@ export function WorkspacePane({
           <button
             className="quiet-button pane-close"
             aria-label={t.workspaceClosePanel}
+            title={t.workspaceClosePanel}
             onClick={close}
           >
-            ×
+            <WorkspaceIcon name="close" />
           </button>
         </div>
         {tabs.map((tab) => (

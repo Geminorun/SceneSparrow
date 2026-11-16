@@ -585,7 +585,9 @@ export function Review({
               {t.reviewReanchor}
             </button>
           )}
-          <button disabled={busy || !text.trim()}>{t.reviewSave}</button>
+          <button className="primary-button" disabled={busy || !text.trim()}>
+            {t.reviewSave}
+          </button>
           <button
             type="button"
             onClick={() => {

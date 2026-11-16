@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import {
   openWorkbench,
   startManualDraft,
@@ -43,9 +44,9 @@ test("references retain copied files, link-only metadata and source membership h
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await file.getByRole("button", { name: "Remove reference" }).click();
   await expect(file).toHaveCount(0);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await projectHistory(page, "Undo");
   await expect(file).toContainText("Text ready");
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await projectHistory(page, "Redo");
   await expect(file).toHaveCount(0);
   expect((await state(page)).blocks).toEqual(before.blocks);
 });
@@ -109,11 +110,11 @@ test("real DOCX preview cancels unchanged, replaces atomically, appends once and
   await dialog.getByRole("button", { name: "Append", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect.poll(async () => (await state(page)).blocks.length).toBe(3);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await projectHistory(page, "Undo");
   expect((await state(page)).blocks.map((b: any) => b.id)).toEqual(
     replaced.blocks.map((b: any) => b.id),
   );
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await projectHistory(page, "Redo");
   await expect.poll(async () => (await state(page)).blocks.length).toBe(3);
 });
 test("stale preview rejects after visible editing and scanned PDFs never offer a destructive commit", async ({

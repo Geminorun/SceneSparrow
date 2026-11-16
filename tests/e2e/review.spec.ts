@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import { openPanel, openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
@@ -303,7 +304,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     undoGate = new Promise<void>((r) => (releaseUndo = r));
     reviewsGate = new Promise<void>((r) => (releaseReviews = r));
     holdUndo = true;
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await projectHistory(page, "Undo");
     await undoEntered;
     await expect(
       note.getByRole("button", { name: "Accept change", exact: true }),
@@ -319,7 +320,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     ).not.toHaveCount(0);
     freezeReviews = false;
     releaseReviews();
-    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await projectHistory(page, "Redo");
     await expect(editor).toContainText("Clearer 中文 🐦");
     const current = (await req("/manuscript")).data,
       project = (await req("/project")).data.project,
@@ -469,7 +470,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
       .getByLabel("Your question or instruction")
       .fill("Unsent locked note");
     const historyBefore = (await req("/history")).data;
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await projectHistory(page, "Undo");
     await expect(panel.getByLabel("Your question or instruction")).toHaveValue(
       "Unsent locked note",
     );
@@ -512,10 +513,11 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     });
     await allButton.scrollIntoViewIfNeeded();
     const allBox = await allButton.boundingBox(),
-      toolbarBox = await page
-        .getByRole("toolbar", { name: "Text formatting" })
-        .boundingBox();
-    expect(allBox!.y + allBox!.height).toBeLessThanOrEqual(toolbarBox!.y);
+      documentBox = await page.locator(".document-layout").boundingBox();
+    expect(allBox!.y + allBox!.height).toBeLessThanOrEqual(documentBox!.y);
+    await expect(
+      page.getByRole("toolbar", { name: "Text formatting" }),
+    ).toHaveCount(0);
     expect(allBox!.width).toBeGreaterThanOrEqual(28);
     expect(allBox!.x + allBox!.width).toBeLessThanOrEqual(390);
     await editor.locator("[data-blockid]").first().scrollIntoViewIfNeeded();

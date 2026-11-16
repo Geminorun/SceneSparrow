@@ -524,6 +524,12 @@ test("a proven planning write with a failed read retries only the read, even aft
     f.save.invalidate("STORAGE_UNAVAILABLE", "Private body recovery");
     assert.equal(f.save.failureOwner, "manuscript");
     fail = false;
+    await f.planning.refresh();
+    assert.equal(f.planning.status, "error");
+    assert.equal(f.planning.error, "STORAGE_UNAVAILABLE");
+    assert.equal(f.planning.state.content.brief.topic, "Topic");
+    assert.equal(f.planning.local.brief.topic, "Acknowledged plan");
+    assert.equal(f.save.failureOwner, "manuscript");
     assert.equal(await f.planning.flush(false, true), true);
     assert.equal(
       f.commands.filter((command) => command.type === "SavePlanning").length,
@@ -533,6 +539,31 @@ test("a proven planning write with a failed read retries only the read, even aft
     assert.equal(f.save.error, "STORAGE_UNAVAILABLE");
     assert.equal(f.save.failureOwner, "manuscript");
     assert.equal(f.save.recoveryText, "Private body recovery");
+  } finally {
+    f.dispose();
+  }
+});
+test("refresh still conflicts on different canonical content after an acknowledged plan read failure", async () => {
+  const f = fixture();
+  try {
+    const read = f.client.readPlanning;
+    f.client.readPlanning = async () => {
+      throw new ApiError("STORAGE_UNAVAILABLE");
+    };
+    topic(f, "Acknowledged plan");
+    assert.equal(await f.planning.flush(false), false);
+    f.client.readPlanning = read;
+    f.state.content.brief.topic = "External canonical plan";
+    f.state.revision++;
+    await f.planning.refresh();
+    assert.equal(f.planning.status, "conflict");
+    assert.equal(f.planning.error, "REVISION_CONFLICT");
+    assert.equal(f.planning.local.brief.topic, "Acknowledged plan");
+    assert.equal(await f.planning.flush(false, true), false);
+    assert.equal(
+      f.commands.filter((command) => command.type === "SavePlanning").length,
+      1,
+    );
   } finally {
     f.dispose();
   }

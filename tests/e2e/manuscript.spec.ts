@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import {
   openWorkbench,
   startManualDraft,
@@ -23,21 +24,18 @@ test("writes Unicode, formatting, headings and nested lists and reopens without 
   const input = editor(page);
   await input.pressSequentially("First manual input");
   await saved(page);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await projectHistory(page, "Undo");
   await expect(input).toBeEmpty();
   await expect(input).toBeVisible();
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await projectHistory(page, "Redo");
   await expect(input).toBeVisible();
-  await input.fill("中文 English 🐦");
   await input.press("ControlOrMeta+a");
-  await page.getByRole("button", { name: "Bold", exact: true }).click();
-  await page.getByLabel("Block style").selectOption("2");
+  await input.pressSequentially("## **中文 English 🐦**");
   await input.press("End");
   await input.press("Enter");
   await input.pressSequentially("Second paragraph");
   await input.press("Enter");
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
-  await input.pressSequentially("Parent item");
+  await input.pressSequentially("- Parent item");
   await input.press("Enter");
   await input.press("Tab");
   await input.pressSequentially("Nested item");
@@ -299,12 +297,12 @@ test("canonical combined marks and soft breaks survive the actual editor schema 
   );
   const ids = after.blocks.map((b: any) => b.id);
   await input.press("ControlOrMeta+End");
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+8");
   await saved(page);
   const list = await (await page.request.get("/api/v1/manuscript")).json();
   expect(list.blocks.at(-1).id).toBe(blockId);
   expect(list.blocks.map((b: any) => b.id)).toEqual(ids);
-  await page.getByRole("button", { name: "Ordered list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+7");
   await saved(page);
   const ordered = await (await page.request.get("/api/v1/manuscript")).json();
   expect(ordered.blocks.at(-1).id).toBe(blockId);
@@ -318,7 +316,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
   await draft(page);
   const input = editor(page);
   await input.fill("Identity boundary text");
-  await page.getByLabel("Block style").selectOption("paragraph");
+  await input.press("ControlOrMeta+Alt+0");
   await saved(page);
   const read = async () =>
     (await page.request.get("/api/v1/manuscript")).json();
@@ -350,7 +348,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
   const merged = await read();
   expect(merged.blocks).toHaveLength(1);
   expect(merged.blocks[0].id).toBe(original);
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+8");
   await saved(page);
   await input.press("ControlOrMeta+Home");
   await input.press("Enter");
@@ -379,7 +377,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
   expect(listMerged.blocks[0].runs.map((run: any) => run.text).join("")).toBe(
     "Identity boundary text",
   );
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+8");
   await saved(page);
   await input.press("ControlOrMeta+End");
   await input.evaluate((element, tombstone) => {
@@ -462,10 +460,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
   await draft(page);
   const input = editor(page);
   await input.fill("Recovery parent");
-  await page.getByLabel("Block style").selectOption("paragraph");
+  await input.press("ControlOrMeta+Alt+0");
   await saved(page);
   await input.press("ControlOrMeta+End");
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+8");
   for (let depth = 1; depth <= 4; depth++) {
     await input.press("Enter");
     await input.press("Tab");
@@ -543,13 +541,13 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     .toEqual([true, true]);
 });
 
-test("five retained operations share toolbar and shortcuts, preserve redo on navigation, and branch on a real edit", async ({
+test("five retained operations share document-menu actions and shortcuts, preserve redo on navigation, and branch on a real edit", async ({
   page,
 }) => {
   await draft(page);
   const input = editor(page);
   await input.fill("History 0");
-  await page.getByLabel("Block style").selectOption("paragraph");
+  await input.press("ControlOrMeta+Alt+0");
   await saved(page);
   await page.waitForTimeout(800);
   for (let n = 1; n <= 6; n++) {
@@ -569,17 +567,17 @@ test("five retained operations share toolbar and shortcuts, preserve redo on nav
       documentWrites++;
   });
   for (let n = 5; n >= 1; n--) {
-    if (n % 2)
-      await page.getByRole("button", { name: "Undo", exact: true }).click();
+    if (n % 2) await projectHistory(page, "Undo");
     else await input.press("ControlOrMeta+z");
     await expect(input).toHaveText(`History ${n}`);
   }
+  await openDocumentMenu(page);
   await expect(
     page.getByRole("button", { name: "Undo", exact: true }),
   ).toBeDisabled();
   for (let n = 2; n <= 6; n++) {
     if (n % 2) await input.press("Control+y");
-    else await page.getByRole("button", { name: "Redo", exact: true }).click();
+    else await projectHistory(page, "Redo");
     await expect(input).toHaveText(`History ${n}`);
   }
   expect(documentWrites).toBe(0);
@@ -597,6 +595,7 @@ test("five retained operations share toolbar and shortcuts, preserve redo on nav
   await input.fill("Branched history");
   await saved(page);
   expect((await history()).redoCount).toBe(0);
+  await openDocumentMenu(page);
   await expect(
     page.getByRole("button", { name: "Redo", exact: true }),
   ).toBeDisabled();
@@ -610,7 +609,7 @@ test("continuous typing spans saved batches while selection and idle create new 
   await draft(page);
   const input = editor(page);
   await input.fill("Typing base");
-  await page.getByLabel("Block style").selectOption("paragraph");
+  await input.press("ControlOrMeta+Alt+0");
   await saved(page);
   await page.waitForTimeout(800);
   const groups: any[] = [];
@@ -665,8 +664,11 @@ test("native unsubmitted dialog input keeps local undo and IME shortcuts issue n
       historyWrites++;
   });
   const before = await (await page.request.get("/api/v1/manuscript")).json();
-  await page.getByRole("button", { name: "Link", exact: true }).click();
-  const url = page.getByLabel("Link URL");
+  await page.locator(".project-menu > summary").click();
+  await page
+    .getByRole("button", { name: "Rename project", exact: true })
+    .click();
+  const url = page.getByLabel("Project name", { exact: true });
   await url.fill("");
   await url.pressSequentially("https://example.com/local-input");
   await url.press("ControlOrMeta+z");
@@ -675,7 +677,10 @@ test("native unsubmitted dialog input keeps local undo and IME shortcuts issue n
   expect(await (await page.request.get("/api/v1/manuscript")).json()).toEqual(
     before,
   );
-  await page.getByRole("button", { name: "Link", exact: true }).click();
+  await page
+    .locator(".rename-dialog")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
   await input.click();
   await input.dispatchEvent("compositionstart", { data: "中" });
   await input.pressSequentially(" composition text");
@@ -707,10 +712,10 @@ test("invalid list depth can be corrected locally with ShiftTab before explicit 
   await draft(page);
   const input = editor(page);
   await input.fill("Correctable parent");
-  await page.getByLabel("Block style").selectOption("paragraph");
+  await input.press("ControlOrMeta+Alt+0");
   await saved(page);
   await input.press("ControlOrMeta+End");
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
+  await input.press("ControlOrMeta+Shift+8");
   for (let depth = 1; depth <= 4; depth++) {
     await input.press("Enter");
     await input.press("Tab");

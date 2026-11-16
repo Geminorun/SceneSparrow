@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import { openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { readFile, readdir, stat, writeFile, mkdir } from "node:fs/promises";
@@ -126,8 +127,9 @@ test("measures Linux manuscript fixtures with real browser input and core receip
             r.url().endsWith("/manuscript/commands") &&
             r.request().postDataJSON()?.type === "UndoProject",
         ),
-        page.getByRole("button", { name: "Undo", exact: true }).click(),
+        projectHistory(page, "Undo"),
       ]);
+      await openDocumentMenu(page);
       await expect(
         page.getByRole("button", { name: "Redo", exact: true }),
       ).toBeEnabled({ timeout: 30000 });
@@ -138,8 +140,9 @@ test("measures Linux manuscript fixtures with real browser input and core receip
             r.url().endsWith("/manuscript/commands") &&
             r.request().postDataJSON()?.type === "RedoProject",
         ),
-        page.getByRole("button", { name: "Redo", exact: true }).click(),
+        projectHistory(page, "Redo"),
       ]);
+      await openDocumentMenu(page);
       await expect(
         page.getByRole("button", { name: "Undo", exact: true }),
       ).toBeEnabled({ timeout: 30000 });

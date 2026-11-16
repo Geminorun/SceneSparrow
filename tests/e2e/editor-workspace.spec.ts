@@ -1,5 +1,6 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import { test, expect } from "./helpers/core";
-import { openWorkbench, openPanel } from "./helpers/workbench";
+import { openWorkbench, openPanel, pasteMarkdown } from "./helpers/workbench";
 const input = (page: import("@playwright/test").Page) =>
   page.getByRole("textbox", { name: "Manuscript", exact: true });
 const saved = (page: import("@playwright/test").Page) =>
@@ -61,13 +62,13 @@ test("real continuous typing across save acknowledgements retains node, focus an
       );
     }),
   ).toBe(true);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await projectHistory(page, "Undo");
   await expect(editor).toBeEmpty();
   expect((await core.request("/manuscript")).workspaceStage).toBe("outline");
   expect(
     await editor.evaluate((current, original) => current === original, node),
   ).toBe(true);
-  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await projectHistory(page, "Redo");
   await expect(editor).toContainText(text);
   await page.reload();
   await expect(editor).toContainText(text);
@@ -199,7 +200,7 @@ test("older receipts during IME and formatting cannot steal Planning focus", asy
   await saved(page);
   await editor.press("End");
   await page.keyboard.type(" delayed formatting");
-  await page.getByRole("button", { name: "Bold", exact: true }).click();
+  await input(page).press("ControlOrMeta+b");
   const topic = page.getByLabel("Topic", { exact: true });
   await topic.focus();
   await topic.dispatchEvent("compositionstart", { data: "规" });
@@ -315,21 +316,25 @@ test("a committed plan read failure and later body failure with the same code ke
   );
 });
 
-test("formatting requested during synthetic body composition is deferred and keeps later Planning focus", async ({
+test("plain Markdown paste stays local during composition and previews on completion without stealing Planning focus", async ({
   page,
   core,
 }) => {
   await openWorkbench(page);
   await openPanel(page, "Planning");
   const editor = input(page);
-  await editor.fill("Formatting intent through IME");
+  await editor.fill("IME base");
   await saved(page);
+  const before = await core.request("/manuscript");
   await editor.focus();
-  await page.keyboard.press("ControlOrMeta+a");
+  await editor.press("End");
   await editor.dispatchEvent("compositionstart", { data: "中" });
-  await page.getByRole("button", { name: "Bold", exact: true }).click();
-  await page.getByRole("button", { name: "Bullet list", exact: true }).click();
-  expect((await core.request("/manuscript")).blocks[0].kind).toBe("paragraph");
+  await pasteMarkdown(page, " **输入中的文字**");
+  await expect(editor).toContainText("IME base **输入中的文字**");
+  await page.waitForTimeout(400);
+  expect((await core.request("/manuscript")).workingRevision).toBe(
+    before.workingRevision,
+  );
   const topic = page.getByLabel("Topic", { exact: true });
   await topic.focus();
   await topic.fill("Later input keeps focus");
@@ -337,29 +342,22 @@ test("formatting requested during synthetic body composition is deferred and kee
   await saved(page);
   await expect(topic).toBeFocused();
   const canonical = await core.request("/manuscript");
-  expect(canonical.blocks[0].kind).toBe("list_item");
+  expect(canonical.blocks[0].runs.map((run: any) => run.text).join("")).toBe(
+    "IME base 输入中的文字",
+  );
   expect(
-    canonical.blocks[0].runs.some((run: any) =>
-      run.marks.some((mark: any) => mark.type === "bold"),
+    canonical.blocks[0].runs.some(
+      (run: any) =>
+        run.text === "输入中的文字" &&
+        run.marks.some((mark: any) => mark.type === "bold"),
     ),
   ).toBe(true);
-
   await topic.dispatchEvent("compositionstart", { data: "规" });
-  await page.getByRole("button", { name: "Italic", exact: true }).click();
+  await topic.fill("规划中的输入");
+  await page.waitForTimeout(400);
   await expect(topic).toBeFocused();
-  expect(
-    (await core.request("/manuscript")).blocks[0].runs.some((run: any) =>
-      run.marks.some((mark: any) => mark.type === "italic"),
-    ),
-  ).toBe(false);
   await topic.dispatchEvent("compositionend", { data: "规" });
-  await expect
-    .poll(async () =>
-      (await core.request("/manuscript")).blocks[0].runs.some((run: any) =>
-        run.marks.some((mark: any) => mark.type === "italic"),
-      ),
-    )
-    .toBe(true);
+  await saved(page);
   await expect(topic).toBeFocused();
 });
 
