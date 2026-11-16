@@ -961,7 +961,9 @@ export class Autosave {
           this.state = {
             ...this.state,
             workspaceStage:
-              sent.command.type === "StartManualDraft"
+              sent.command.type === "StartManualDraft" ||
+              (sent.command.type === "ApplyDocumentEdit" &&
+                sent.blocks.length > 0)
                 ? "draft"
                 : this.state.workspaceStage,
             workingRevision: receipt.workingRevision,

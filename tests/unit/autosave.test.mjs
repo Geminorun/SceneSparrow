@@ -73,6 +73,77 @@ test("reopened editor flush without typing sends no command", async () => {
   assert.equal(calls.length, 0);
   save.dispose();
 });
+test("first edit adopts Draft on acknowledgment while retaining later composition", async () => {
+  const { save, state, client, calls } = setup();
+  state.workspaceStage = "outline";
+  state.blocks = [];
+  state.workingRevision = 0;
+  save.local = [];
+  assert.equal(await save.flush(), true);
+  assert.equal(calls.length, 0);
+  assert.equal(save.state.workspaceStage, "outline");
+  let release;
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    if (calls.length === 1)
+      return new Promise((resolve) => (release = () => resolve(receipt(c))));
+    return receipt(c);
+  };
+  const { revision: _, ...first } = block("First");
+  save.update([first]);
+  const pending = save.flush();
+  await settle();
+  assert.equal(calls[0].type, "ApplyDocumentEdit");
+  assert.equal(save.state.workspaceStage, "outline");
+  save.composition(true);
+  save.update(local(save, "First 中文输入"));
+  const visible = save.local;
+  const canonicalVersion = save.canonicalVersion;
+  release();
+  await pending;
+  assert.equal(save.state.workspaceStage, "draft");
+  assert.equal(save.state.blocks[0].runs[0].text, "First");
+  assert.equal(save.state.blocks[0].id, first.id);
+  assert.equal(save.local, visible);
+  assert.equal(save.canonicalVersion, canonicalVersion);
+  assert.equal(save.composing, true);
+  assert.equal(save.status, "pending");
+  assert.equal(calls.length, 1);
+  assert.equal(await save.flush(), false);
+  save.composition(false);
+  assert.equal(await save.flush(), true);
+  assert.equal(calls[1].expectedWorkingRevision, 1);
+  assert.equal(save.state.blocks[0].runs[0].text, "First 中文输入");
+  assert.equal(save.status, "saved");
+  save.dispose();
+});
+test("ambiguous first edit resolves the same receipt before adopting Draft", async () => {
+  const { save, state, client, calls } = setup();
+  state.workspaceStage = "outline";
+  state.blocks = [];
+  state.workingRevision = 0;
+  save.local = [];
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    throw new TypeError("Lost committed first edit response");
+  };
+  client.commandReceipt = async () => {
+    throw new ApiError("SERVICE_UNAVAILABLE");
+  };
+  const { revision: _, ...first } = block("First");
+  save.update([first]);
+  assert.equal(await save.flush(), false);
+  assert.equal(save.state.workspaceStage, "outline");
+  client.commandReceipt = async (requestId) => {
+    assert.equal(requestId, calls[0].requestId);
+    return receipt(calls[0]);
+  };
+  assert.equal(await save.flush(true), true);
+  assert.equal(calls.length, 1);
+  assert.equal(save.state.workspaceStage, "draft");
+  assert.equal(save.local[0].runs[0].text, "First");
+  save.dispose();
+});
 test("serialized delayed receipt preserves later input and disposed controller schedules no work", async () => {
   const { save, client, calls } = setup();
   let release;
