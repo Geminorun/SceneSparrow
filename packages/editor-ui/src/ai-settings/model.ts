@@ -93,7 +93,14 @@ export function modelLabel(id: string) {
   }
   return label;
 }
-export function newModel(providerId: string, id: string): AiModel {
+export function newModel(
+  providerId: string,
+  id: string,
+  limits: Pick<AiModel, "contextTokens" | "outputTokens"> = {
+    contextTokens: null,
+    outputTokens: null,
+  },
+): AiModel {
   return {
     providerId,
     id,
@@ -103,12 +110,16 @@ export function newModel(providerId: string, id: string): AiModel {
       streaming: unknownEvidence(),
       nativeJson: unknownEvidence(),
     },
-    contextTokens: null,
-    outputTokens: null,
+    contextTokens: limits.contextTokens,
+    outputTokens: limits.outputTokens,
     tokenField: "max_tokens",
     defaultParameters: {
       temperatureMilli: null,
-      maxOutputTokens: 4096,
+      maxOutputTokens: Math.min(
+        8192,
+        limits.outputTokens ?? 8192,
+        limits.contextTokens ?? 8192,
+      ),
       requestStreaming: false,
       requestNativeJson: false,
     },

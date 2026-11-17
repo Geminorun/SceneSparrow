@@ -1,4 +1,5 @@
 import type { AiEvidence, AiModel } from "@scenesparrow/contracts";
+import { useId } from "react";
 import type en from "../locales/en.json";
 import {
   bindText,
@@ -22,6 +23,7 @@ export function ModelDetails({
   t: typeof en;
   providerDirty: boolean;
 }) {
+  const tokensHintId = useId();
   const settings = c.view!.settings;
   const id = modelKey(model.providerId, model.id);
   const saved = {
@@ -208,6 +210,8 @@ export function ModelDetails({
             <label>
               {t.aiTokens}
               <input
+                aria-label={t.aiTokens}
+                aria-describedby={tokensHintId}
                 type="number"
                 min={16}
                 max={draft.outputTokens ?? 1000000}
@@ -221,6 +225,7 @@ export function ModelDetails({
                   })
                 }
               />
+              <small id={tokensHintId}>{t.aiTokensHint}</small>
             </label>
             <label>
               {t.aiTokenField}

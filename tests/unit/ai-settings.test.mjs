@@ -117,7 +117,39 @@ test("manual Unicode IDs remain exact while labels respect the core UTF-8 budget
   assert.equal(validModelId("model\ncontrol"), false);
   assert.equal(validModelId(" "), false);
   assert.equal(model.capabilities.images.state, "unknown");
-  assert.deepEqual(model.defaultParameters, parameters(4096));
+  assert.deepEqual(model.defaultParameters, parameters(8192));
+});
+
+test("new output allowances clamp only to explicit limits while saved and legacy budgets stay intact", () => {
+  const s = settings();
+  for (const [contextTokens, outputTokens, expected] of [
+    [null, null, 8192],
+    [32768, 4096, 4096],
+    [2048, 16384, 2048],
+    [32768, 16384, 8192],
+  ]) {
+    const model = newModel("p", "any-name", { contextTokens, outputTokens });
+    assert.equal(model.defaultParameters.maxOutputTokens, expected);
+    assert.equal(model.capabilities.nativeJson.state, "unknown");
+    assert.equal(model.capabilities.streaming.state, "unknown");
+  }
+  const saved = newModel("p", "saved");
+  saved.defaultParameters = parameters(4096);
+  s.models = [saved];
+  bindText(s, saved);
+  assert.deepEqual(modelParameters(s, saved), parameters(4096));
+  assert.deepEqual(s.bindings[0].parameters, parameters(4096));
+  delete saved.defaultParameters;
+  s.bindings = [];
+  assert.deepEqual(modelParameters(s, saved), parameters(4096));
+  s.bindings.push({
+    category: "audio",
+    providerId: "p",
+    modelId: "saved",
+    parameters: parameters(128),
+  });
+  assert.deepEqual(modelParameters(s, saved), parameters(128));
+  assert.equal(saved.defaultParameters, undefined);
 });
 
 test("secret entry is masked on first render, with secure password fallback and explicit reveal", async () => {

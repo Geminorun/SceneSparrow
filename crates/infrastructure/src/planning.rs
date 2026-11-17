@@ -263,8 +263,11 @@ impl SqliteProjectRepository {
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 ))?;
                 ensure(
-                    prompt == scenesparrow_application::planning::PROMPT_VERSION
-                        && interpreter == scenesparrow_application::planning::PROMPT_VERSION,
+                    matches!(
+                        prompt.as_str(),
+                        "scenesparrow-planning/1"
+                            | scenesparrow_application::planning::PROMPT_VERSION
+                    ) && interpreter == scenesparrow_application::planning::INTERPRETER_VERSION,
                     "INVALID_OUTPUT",
                 )?;
                 let run = ai(Self::ai_run(c, &run_id))?;
@@ -1081,7 +1084,7 @@ impl SqliteProjectRepository {
             ensure(!db(c.query_row("SELECT EXISTS(SELECT 1 FROM script_ai_tasks t JOIN ai_runs r ON t.run_id=r.run_id WHERE t.application='pending' AND r.status IN ('queued','running','succeeded'))",[],|r|r.get::<_,bool>(0)))?,"PLANNING_TASK_ACTIVE")?;
             if let Some(old)=&payload.retry_of_task_id{let old_operation:String=db(c.query_row("SELECT operation FROM script_ai_tasks WHERE id=?1",[old],|r|r.get(0)).optional())?.ok_or(ManuscriptError("INVALID_RETRY",None))?;ensure(old_operation==operation,"INVALID_RETRY")?;}
             ai(uow.stage_consumer_record("script-planning",request,&run.run_id,"script-planning/1"))?;
-            db(c.execute("INSERT INTO script_ai_tasks(id,run_id,operation,planning_revision,dependencies_hash,history_revision,content_hash,manifest_json,application_command_id,prompt_version,interpreter_version) VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,'scenesparrow-planning/1','scenesparrow-planning/1')",params![request,operation,revision,dep,epoch,content_hash,manifest,uuid::Uuid::new_v4().to_string()]))?;
+            db(c.execute("INSERT INTO script_ai_tasks(id,run_id,operation,planning_revision,dependencies_hash,history_revision,content_hash,manifest_json,application_command_id,prompt_version,interpreter_version) VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![request,operation,revision,dep,epoch,content_hash,manifest,uuid::Uuid::new_v4().to_string(),scenesparrow_application::planning::PROMPT_VERSION,scenesparrow_application::planning::INTERPRETER_VERSION]))?;
             if operation=="generate_initial_draft"{db(c.execute("INSERT INTO outline_confirmations VALUES(?1,?2,?1)",params![request,content_hash]))?;}
             db(c.execute("INSERT OR IGNORE INTO external_object_pins SELECT ?1,object_hash FROM external_object_pins WHERE owner_id=?2",params![format!("script:{request}"),payload.preparation_id]))?;
             Self::planning_event(c,"planningTask.changed",Some(request))?;

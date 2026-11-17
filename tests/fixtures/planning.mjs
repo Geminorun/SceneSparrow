@@ -88,7 +88,11 @@ export async function planningProvider() {
       }),
   };
 }
-export async function configurePlanning(req, root) {
+export async function configurePlanning(
+  req,
+  root,
+  { maxOutputTokens = 2048 } = {},
+) {
   const view = (await req("/ai/settings")).data;
   const id = crypto.randomUUID();
   const unknown = {
@@ -132,7 +136,7 @@ export async function configurePlanning(req, root) {
         modelId: "planning-fixture",
         parameters: {
           temperatureMilli: null,
-          maxOutputTokens: 2048,
+          maxOutputTokens,
           requestStreaming: false,
           requestNativeJson: false,
         },
