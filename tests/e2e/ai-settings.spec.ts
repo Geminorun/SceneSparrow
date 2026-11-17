@@ -562,6 +562,75 @@ test("legacy configurations stay readable and usable; explicit assignment preser
   await page.screenshot({ path: ".artifacts/model-services-legacy.png" });
 });
 
+test("reassigning a newly created service retires its creation alias and keeps later service drafts independent", async ({
+  page,
+  core,
+}) => {
+  const provider = await fixture();
+  try {
+    await openWorkbench(page);
+    await openAiSettings(page);
+    await configure(page, provider.root);
+    const original = (await core.request("/ai/settings")).settings.providers[0];
+    await page
+      .getByRole("button", { name: "Manage saved configurations", exact: true })
+      .click();
+    const manager = page.getByRole("dialog", {
+      name: "Manage saved configurations",
+      exact: true,
+    });
+    await manager
+      .getByRole("button", { name: "Assign to DeepSeek", exact: true })
+      .click();
+    await expect(
+      manager.getByRole("button", { name: "Assign to DeepSeek", exact: true }),
+    ).toBeDisabled();
+    await manager.getByRole("button", { name: "Close", exact: true }).click();
+    await selectService(page, "DeepSeek");
+    await page
+      .getByLabel("New API key", { exact: true })
+      .fill("UNSAVED_REASSIGNED_SERVICE_CANARY");
+    await page
+      .getByLabel("API root", { exact: true })
+      .fill("https://unsaved-deepseek.example/v1");
+    await selectService(page, "OpenAI");
+    await expect(page.getByLabel("API root", { exact: true })).toHaveValue(
+      "https://api.openai.com/v1",
+    );
+    await expect(page.getByLabel("New API key", { exact: true })).toHaveValue(
+      "",
+    );
+    await configure(page, `${provider.root}/new`, "NEW_SERVICE_KEY_CANARY");
+    const settings = (await core.request("/ai/settings")).settings;
+    expect(settings.providers).toHaveLength(2);
+    expect(
+      settings.providers.find(
+        (profile: { id: string }) => profile.id === original.id,
+      ),
+    ).toMatchObject({
+      servicePreset: "deepseek",
+      baseUrl: original.baseUrl,
+      credentialRevision: original.credentialRevision,
+    });
+    expect(
+      settings.providers.find(
+        (profile: { servicePreset: string }) =>
+          profile.servicePreset === "openai",
+      ).id,
+    ).not.toBe(original.id);
+    await selectService(page, "DeepSeek");
+    await expect(page.getByLabel("New API key", { exact: true })).toHaveValue(
+      "UNSAVED_REASSIGNED_SERVICE_CANARY",
+    );
+    await expect(page.getByLabel("API root", { exact: true })).toHaveValue(
+      "https://unsaved-deepseek.example/v1",
+    );
+    expect(provider.calls()).toHaveLength(0);
+  } finally {
+    await provider.close();
+  }
+});
+
 test("credential response loss refreshes saved status without retry and reopening refreshes clean drafts", async ({
   page,
   core,

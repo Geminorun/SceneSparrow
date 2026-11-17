@@ -148,6 +148,12 @@ export function useAiSettings(
           }),
         ),
       );
+    // Creation aliases must not follow a saved profile when its preset changes.
+    // Once authoritative, the provider UUID owns its draft and queued operations.
+    for (const [preset, id] of Object.entries(pendingProviders.current)) {
+      if (next.settings.providers.some((provider) => provider.id === id))
+        delete pendingProviders.current[preset];
+    }
     viewRef.current = next;
     setView(next);
   };
