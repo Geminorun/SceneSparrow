@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { mkdtemp, writeFile, chmod, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,6 +78,10 @@ try {
   const auth = join(temporary, "auth");
   await writeFile(auth, credential, { mode: 0o444 });
   await chmod(auth, 0o444);
+  const master = join(temporary, "master");
+  const masterEncoded = randomBytes(32).toString("base64");
+  await writeFile(master, masterEncoded, { mode: 0o444 });
+  await chmod(master, 0o444);
   run([
     "run",
     "-d",
@@ -88,6 +92,8 @@ try {
     "127.0.0.1::8080",
     "--mount",
     `type=bind,src=${auth},dst=/run/secrets/operator_auth,readonly`,
+    "--mount",
+    `type=bind,src=${master},dst=/run/secrets/ai_master_key,readonly`,
     "--mount",
     `type=volume,src=${volumes[0]},dst=/data/project`,
     "--mount",
@@ -244,16 +250,35 @@ try {
   run(["exec", "-i", id, "node", "--input-type=module"], {
     input: `const credential = ${JSON.stringify(credential)};\n${workerSmoke}`,
   });
+  const aiSettings = await api("/ai/settings");
+  assert.equal(aiSettings.credentialBackend, "encrypted_file");
+  assert.equal(aiSettings.presentCredentialRevisions.length, 1);
+  const inspectVault =
+    'const fs=require("node:fs"); const p="/data/app/credentials-v1"; const data=fs.readdirSync(p).filter(n=>n!==".lock").map(n=>fs.readFileSync(p+"/"+n,"utf8")).join(""); if(data.includes("SYNTHETIC_CONTAINER_API_KEY_CANARY")) process.exit(1);';
+  run(["exec", id, "node", "-e", inspectVault]);
   state = await api("/manuscript");
   run(["restart", "--time", "60", id]);
   port = Number(run(["port", id, "8080/tcp"]).split(":").at(-1));
   await wait();
   assert.equal((await api("/project")).project.id, project.id);
   assert.deepEqual(await api("/manuscript"), state);
+  const reopenedSettings = await api("/ai/settings");
+  assert.deepEqual(reopenedSettings.settings, aiSettings.settings);
+  assert.deepEqual(
+    reopenedSettings.presentCredentialRevisions,
+    aiSettings.presentCredentialRevisions,
+  );
+  assert.equal(reopenedSettings.credentialBackend, "encrypted_file");
+  const finalBundle = await send("/diagnostics/v1/bundle");
+  assert.equal(finalBundle.status, 200);
+  for (const canary of [masterEncoded, "SYNTHETIC_CONTAINER_API_KEY_CANARY"]) {
+    assert.ok(!finalBundle.bytes.includes(Buffer.from(canary)));
+    assert.ok(!run(["logs", id]).includes(canary));
+  }
   run(["stop", "--time", "60", id]);
   assert.equal(run(["inspect", "--format", "{{.State.ExitCode}}", id]), "0");
   console.log(
-    "Container smoke passed: real core, authenticated built Web, document workers, exports, AI SDK, graceful restart and persistence.",
+    "Container smoke passed: real core, authenticated built Web, document workers, exports, AI SDK, encrypted credentials, graceful restart and persistence.",
   );
 } catch (error) {
   const logs = spawnSync("docker", ["logs", "--tail", "20", id], {

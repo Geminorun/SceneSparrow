@@ -333,6 +333,110 @@ fn credential_rotation_retirement_orphan_inventory_and_session_restart_are_expli
     );
 }
 #[test]
+fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisions() {
+    use base64::Engine;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("app");
+    let master = root.path().join("master");
+    std::fs::write(
+        &master,
+        base64::engine::general_purpose::STANDARD.encode([11; 32]),
+    )
+    .unwrap();
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    let view = configured(&store, "bearer");
+    let provider = view.settings.providers[0].id.clone();
+    let view = store
+        .update_credential(
+            view.settings.revision,
+            &provider,
+            Some("ENCRYPTED_SETTINGS_CANARY_A"),
+        )
+        .unwrap();
+    let before = config(&store);
+    let lease = store.lease(&before).unwrap();
+    assert_eq!(
+        view.credential_backend,
+        AiSettingsViewCredentialBackend::Encryptedfile
+    );
+    drop(store);
+    assert!(SettingsStore::open_with_master_key_file(&directory, None).is_err());
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    assert_eq!(
+        store.lease(&config(&store)).unwrap().expose(),
+        Some("ENCRYPTED_SETTINGS_CANARY_A")
+    );
+    store.fail_next_write.store(true, Ordering::SeqCst);
+    assert_eq!(
+        store
+            .update_credential(
+                view.settings.revision,
+                &provider,
+                Some("FAILED_ENCRYPTED_CANARY")
+            )
+            .unwrap_err()
+            .0,
+        "STORAGE_UNAVAILABLE"
+    );
+    assert_eq!(store.read_settings().unwrap().settings, view.settings);
+    let rotated = store
+        .update_credential(
+            view.settings.revision,
+            &provider,
+            Some("ENCRYPTED_SETTINGS_CANARY_B"),
+        )
+        .unwrap();
+    assert!(store.lease(&before).is_err());
+    assert_eq!(lease.expose(), Some("ENCRYPTED_SETTINGS_CANARY_A"));
+    assert_eq!(
+        std::fs::read_dir(directory.join("credentials-v1"))
+            .unwrap()
+            .count(),
+        3
+    );
+    // Model a crash after secure insertion but before settings publication.
+    let orphan =
+        crate::credentials::encrypted::EncryptedCredentials::open(&directory, &master).unwrap();
+    orphan
+        .put_new_revision("orphan-fixture", "ORPHAN_ENCRYPTED_CANARY")
+        .unwrap();
+    let inventory_file = directory.join("owned-credential-revisions.json");
+    let mut inventory: Vec<String> =
+        serde_json::from_slice(&std::fs::read(&inventory_file).unwrap()).unwrap();
+    inventory.push("orphan-fixture".into());
+    std::fs::write(&inventory_file, serde_json::to_vec(&inventory).unwrap()).unwrap();
+    drop(store);
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    assert!(!orphan.present("orphan-fixture"));
+    assert_eq!(
+        store.lease(&config(&store)).unwrap().expose(),
+        Some("ENCRYPTED_SETTINGS_CANARY_B")
+    );
+    let deleted = store
+        .update_credential(rotated.settings.revision, &provider, None)
+        .unwrap();
+    assert!(deleted.present_credential_revisions.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.join("credentials-v1"))
+            .unwrap()
+            .count(),
+        2
+    );
+    let inventory: Vec<String> = serde_json::from_slice(
+        &std::fs::read(directory.join("owned-credential-revisions.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(inventory.is_empty());
+    for filename in ["ai-settings.json", "owned-credential-revisions.json"] {
+        assert!(
+            !std::fs::read_to_string(directory.join(filename))
+                .unwrap()
+                .contains("CANARY")
+        );
+    }
+}
+
+#[test]
 fn independent_consumer_start_is_atomic_idempotent_and_configuration_checked_before_commit() {
     let (_dir, repo) = project();
     let sd = tempfile::tempdir().unwrap();

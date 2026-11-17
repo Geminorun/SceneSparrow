@@ -210,6 +210,8 @@ Adopt the provider/model/configuration pattern, not BiliNote's Python applicatio
 plain-key storage patterns, retry behavior, or business workflows. Its popularity
 does not establish endpoint compatibility. Recheck preset URLs when implementing;
 real credentials and a selected model are needed for an actual connection test.
+The current [model-services design](ai-model-services.md) limits new-service
+presets to OpenAI and DeepSeek; this broader BiliNote list remains reference data.
 Use a small supported output budget, not universally hardcoded temperature/token
 parameters. A successful text test proves neither vision nor all other capabilities.
 Any copied code must preserve the applicable MIT notice; this design copies no
@@ -398,8 +400,17 @@ URLs, logs, command-line arguments, or task exports.
 The shared UI may accept an initial key entry, send it through the restricted
 settings operation, then clear it. Settings queries return masked presence/status,
 not the saved secret. Browser development uses authenticated loopback transport;
-when no supported secure store is available, keep keys in process memory for that
-session and label them as nonpersistent. Do not silently fall back to plaintext.
+an explicit `SCENESPARROW_AI_MASTER_KEY_FILE` selects the AES-256-GCM encrypted-file
+adapter described in [model services](ai-model-services.md). It retains private
+versioned ciphertext revisions and an authenticated header under app-data, with
+the 32-byte base64 master outside project/app-data backups. Wrong or missing keys
+never downgrade an existing vault to memory/plaintext; isolated entry corruption
+makes only that credential unavailable. Ordinary nonnative development with neither
+a configured master nor existing encrypted data uses labeled session memory.
+Views distinguish native, encrypted-file and session-only persistence. The private
+Web deployment provisions one host master and reuses it across builds/restarts;
+backup/restore of that key is separate from app-data archives. Native adapters
+still require actual Windows/macOS verification.
 
 Resolve a credential lease immediately before execution and pass it through a
 dedicated controlled pipe/message to the worker, never through a shell command or

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createDiagnostics, collectChild } from "./diagnostics.mjs";
 import { pathToFileURL } from "node:url";
 import { createGateway, readOperator, validateOrigin } from "./gateway.mjs";
+import { validateMasterKeyFile } from "./master-key.mjs";
 
 // Injectable process/socket locations let lifecycle tests exercise real child processes.
 export async function startRuntime({
@@ -17,6 +18,7 @@ export async function startRuntime({
   gatewayPort = 8080,
   projectDir = "/data/project",
   appDataDir = "/data/app",
+  masterKeyFile,
   signals = process,
   onExit = (code) => {
     process.exitCode = code;
@@ -28,6 +30,7 @@ export async function startRuntime({
   buildSha = "unknown",
 }) {
   validateOrigin(origin);
+  if (masterKeyFile !== undefined) await validateMasterKeyFile(masterKeyFile);
   const token = randomBytes(32).toString("hex");
   const native = randomBytes(32).toString("hex");
   // Use an explicit environment so operator configuration cannot reach the core or workers.
@@ -40,6 +43,9 @@ export async function startRuntime({
     SCENESPARROW_WEB_ORIGIN: origin,
     SCENESPARROW_PROJECT_DIR: projectDir,
     SCENESPARROW_APP_DATA_DIR: appDataDir,
+    ...(masterKeyFile !== undefined
+      ? { SCENESPARROW_AI_MASTER_KEY_FILE: masterKeyFile }
+      : {}),
   };
   let ready = false;
   const diagnostics = createDiagnostics({
@@ -206,6 +212,9 @@ if (
     await startRuntime({
       origin,
       operator,
+      masterKeyFile:
+        process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
+        "/run/secrets/ai_master_key",
       version,
       buildSha: process.env.SCENESPARROW_BUILD_SHA ?? "unknown",
     });

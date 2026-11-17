@@ -292,9 +292,12 @@ editing/export independent of provider availability.
 
 ## Shared AI (execution step 4)
 
-The global AI settings panel is shared by browser and desktop. Add a provider with
-its full compatible API root (no automatic `/v1`), enter a key or explicitly select
-no authentication, then manually enter/discover a model and bind it to text.
+The global AI settings panel is shared by browser and desktop. Model services
+offers OpenAI and DeepSeek with editable compatible API roots (no automatic `/v1`),
+key entry and independently added manual/discovered models. Default models selects
+the shared text/manuscript binding. Manage saved configurations preserves existing
+custom profiles/auth modes and supports explicit preset assignment; see
+[the model-services design](design/ai-model-services.md).
 Audio/video and search remain unavailable. Inference tests are explicit quota
 actions against the selected saved provider/manual model; testing another profile
 does not change the global text binding. A duplicate submitted test reuses its
@@ -304,9 +307,16 @@ Set `SCENESPARROW_APP_DATA_DIR` to a writable application directory outside the
 project. `scripts/cloud-env.sh` defaults it to `/workspace/.local/share/scenesparrow`;
 the desktop launcher uses Electron user data. Settings, nonsecret credential
 revision inventory and execution-origin registry live there, outside project
-undo/backups. Linux/browser development keys are clearly labeled session memory
-and disappear on core restart. Windows/macOS keyring source adapters require actual
-target-host validation; no plaintext credential fallback exists.
+undo/backups. Set `SCENESPARROW_AI_MASTER_KEY_FILE` to a bounded regular file containing
+standard base64 encoding of 32 random bytes to enable the encrypted-file backend.
+The master must not be group/world writable; Docker read-only `0444` secrets are
+supported. Private `credentials-v1` files in app data contain authenticated AES-GCM
+ciphertext, never plaintext keys. Keep the master outside app data/project backups.
+Existing encrypted data requires its original key; wrong/missing keys fail closed.
+Without a configured master or existing vault, Linux/browser development remains
+clearly labeled session memory and loses keys on core restart. An upgrade preserves
+provider/model configuration but needs one-time API-key entry after session loss.
+Windows/macOS keyring source adapters require actual target-host validation.
 
 Migration 005 stores generic AI execution state. Internal consumer coordinators use
 the application UOW/configuration ports and controlled host tick; no public raw

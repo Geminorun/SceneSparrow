@@ -38,6 +38,7 @@ flock -x 9
 mkdir -p -- "$directory/secrets" "$directory/backups"
 chmod 700 "$directory/secrets" "$directory/backups"
 auth_file=$directory/secrets/operator-auth
+master_file=$directory/secrets/ai-master-key
 [[ -f $auth_file || -f $incoming/operator-auth ]] || { echo 'Provision operator-auth first' >&2; exit 2; }
 next_auth=$auth_file
 [[ ! -f $incoming/operator-auth ]] || next_auth=$incoming/operator-auth
@@ -47,8 +48,24 @@ import re, sys
 s = open(sys.argv[1]).read().removesuffix('\n')
 assert re.fullmatch(r'[A-Za-z0-9_-]{1,64}:[!-~]{6,256}', s), 'Invalid operator configuration'
 PYAUTH
-printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
-  "$image" "$origin" "$port" "$next_auth" > "$incoming/runtime.env"
+validate_master_key() {
+  python3 - "$master_file" <<'PYKEY'
+import base64, os, stat, sys
+try:
+    fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as f:
+        info = os.fstat(f.fileno())
+        assert stat.S_ISREG(info.st_mode) and not info.st_mode & 0o022 and info.st_size <= 128
+        encoded = f.read(129).strip()
+        key = base64.b64decode(encoded, validate=True)
+        assert len(key) == 32 and base64.b64encode(key) == encoded
+except Exception:
+    sys.exit('Invalid AI master key configuration; restore the original key file.')
+PYKEY
+}
+if [[ -e $master_file || -L $master_file ]]; then validate_master_key; fi
+printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
+  "$image" "$origin" "$port" "$next_auth" "$master_file" > "$incoming/runtime.env"
 docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" config --quiet
 registry_config=$(mktemp -d /tmp/scenesparrow-registry.XXXXXXXX)
 export DOCKER_CONFIG=$registry_config
@@ -57,6 +74,46 @@ docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" pu
 rm -rf -- "$registry_config"
 unset DOCKER_CONFIG
 registry_config=
+
+# Inspect only an already-existing volume, so checking a first deployment never
+# creates data. A header-only vault is encrypted data; an empty/lock-only folder
+# can be left by interrupted initialization. Unknown contents fail closed.
+if [[ ! -e $master_file && ! -L $master_file ]]; then
+  existing_appdata=$(docker volume ls --filter 'name=^scenesparrow-appdata$' --format '{{.Name}}') || {
+    echo 'Cannot inspect app-data volumes; master key was not generated.' >&2
+    exit 1
+  }
+  [[ -z $existing_appdata || $existing_appdata == scenesparrow-appdata ]] || {
+    echo 'Unexpected app-data volume inventory; master key was not generated.' >&2
+    exit 1
+  }
+  if [[ $existing_appdata == scenesparrow-appdata ]]; then
+    if ! docker run --rm --user 0 --entrypoint node \
+      --mount 'type=volume,src=scenesparrow-appdata,dst=/source,readonly' \
+      "$image" -e 'const fs=require("node:fs"); const p="/source/credentials-v1"; try { const s=fs.lstatSync(p); if(!s.isDirectory() || s.isSymbolicLink() || fs.readdirSync(p).some(n=>n!==".lock")) process.exit(42); } catch(e) { if(e.code!=="ENOENT") process.exit(43); }'; then
+      echo 'AI vault exists or cannot be inspected. Restore its original master key before deployment.' >&2
+      exit 1
+    fi
+  fi
+  python3 - "$master_file" <<'PYCREATE'
+import base64, os, secrets, sys
+try:
+    fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o444)
+    with os.fdopen(fd, 'wb') as f:
+        f.write(base64.b64encode(secrets.token_bytes(32)) + b'\n')
+        os.fchmod(f.fileno(), 0o444)
+        f.flush()
+        os.fsync(f.fileno())
+    parent = os.open(os.path.dirname(sys.argv[1]), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+except Exception:
+    sys.exit('Cannot provision AI master key; inspect the protected host secrets directory.')
+PYCREATE
+fi
+validate_master_key
 
 # Stop with the currently active definition before copying every byte of both volumes.
 # A failed backup leaves the old service stopped; it never starts a migration without a backup.
@@ -83,8 +140,8 @@ for volume in scenesparrow-project scenesparrow-appdata; do
 done
 printf '%s\n' "$image" > "$backup/requested-image"
 if [[ -f $incoming/operator-auth ]]; then install -m 0444 "$incoming/operator-auth" "$auth_file"; fi
-printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\n' \
-  "$image" "$origin" "$port" "$auth_file" > "$incoming/runtime.env"
+printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
+  "$image" "$origin" "$port" "$auth_file" "$master_file" > "$incoming/runtime.env"
 install -m 0600 "$incoming/compose.yaml" "$directory/compose.yaml"
 install -m 0600 "$incoming/runtime.env" "$directory/runtime.env"
 if ! docker compose --env-file "$directory/runtime.env" -f "$directory/compose.yaml" up -d --force-recreate --pull never --wait --wait-timeout 120; then

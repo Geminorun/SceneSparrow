@@ -6,10 +6,12 @@ import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 
 const publicOrigin = new URL(process.env.PUBLIC_ORIGIN);
+const syntheticApiKey = "SYNTHETIC_CONTAINER_API_KEY_CANARY";
 let calls = 0;
 const server = createServer(async (req, res) => {
   calls++;
   assert.equal(req.url, "/v1/chat/completions");
+  assert.equal(req.headers.authorization, `Bearer ${syntheticApiKey}`);
   let body = "";
   for await (const chunk of req) body += chunk;
   assert.equal(JSON.parse(body).model, "smoke-model");
@@ -70,6 +72,7 @@ server.listen(0, "127.0.0.1");
 await once(server, "listening");
 try {
   const view = await api("/ai/settings");
+  assert.equal(view.credentialBackend, "encrypted_file");
   const evidence = {
     state: "unknown",
     source: "unknown",
@@ -77,7 +80,7 @@ try {
     observedAt: null,
   };
   const providerId = randomUUID();
-  await api(
+  const saved = await api(
     "/ai/settings",
     {
       expectedRevision: view.settings.revision,
@@ -89,7 +92,7 @@ try {
             label: "Local fake",
             adapter: "openai_compatible",
             baseUrl: `http://127.0.0.1:${server.address().port}/v1`,
-            authMode: "none",
+            authMode: "bearer",
             credentialRevision: null,
             revision: 1,
           },
@@ -127,6 +130,12 @@ try {
     },
     "PUT",
   );
+  const credentialView = await api("/ai/credentials", {
+    expectedRevision: saved.settings.revision,
+    providerId,
+    secret: syntheticApiKey,
+  });
+  assert.equal(credentialView.presentCredentialRevisions.length, 1);
   const project = (await api("/project")).project;
   const command = async (type, payload) => {
     const state = await api("/manuscript");

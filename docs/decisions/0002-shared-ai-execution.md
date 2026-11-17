@@ -29,7 +29,11 @@ network permit; an ambiguous attempt never receives another permit for that run.
 
 Global settings use `atomic-write-file` 0.3.1 and an OS file lock. Keyring 3.6.3
 provides Windows Credential Manager/macOS Keychain source adapters; neither target
-backend has been run here. Linux uses an explicit session-only in-memory store.
+backend has been run here. Nonnative local development defaults to explicit session
+memory. The approved [model-services follow-up](../design/ai-model-services.md)
+adds a configured AES-256-GCM encrypted-file adapter and authenticated vault header;
+the private Web deployment provisions/reuses its external master key. Existing
+encrypted data cannot silently downgrade when that key is missing or invalid.
 A nonsecret revision inventory is persisted before secure insertion and retains
 failed cleanup IDs for startup reconciliation. Logical retirement checks current
 settings references before acquiring a lease. Already issued leases may finish.

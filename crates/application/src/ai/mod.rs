@@ -70,6 +70,13 @@ pub trait CredentialStore: Send + Sync {
     fn delete(&self, revision: &str) -> Result<()>;
     fn present(&self, revision: &str) -> bool;
     fn persistent(&self) -> bool;
+    fn backend_kind(&self) -> AiSettingsViewCredentialBackend {
+        if self.persistent() {
+            AiSettingsViewCredentialBackend::Native
+        } else {
+            AiSettingsViewCredentialBackend::Sessiononly
+        }
+    }
 }
 pub trait AiExecutionPort: Send + Sync {
     fn read_run(&self, run_id: &str) -> Result<AiRun>;

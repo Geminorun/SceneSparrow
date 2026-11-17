@@ -1,6 +1,25 @@
 //! Native backends are source-integrated; target-host validation is tracked separately.
 use scenesparrow_application::ai::{CredentialLease, CredentialStore};
 use scenesparrow_domain::ai::{AiError, Result, ensure};
+use std::{path::Path, sync::Arc};
+pub mod encrypted;
+
+/// Explicit configuration keeps tests and embedders independent of process-global environment.
+pub fn for_application(
+    directory: &Path,
+    master_key_file: Option<&Path>,
+) -> Result<Arc<dyn CredentialStore>> {
+    if let Some(key) = master_key_file {
+        return Ok(Arc::new(encrypted::EncryptedCredentials::open(
+            directory, key,
+        )?));
+    }
+    ensure(
+        !encrypted::has_vault_data(directory)?,
+        "CREDENTIAL_UNAVAILABLE",
+    )?;
+    Ok(Arc::new(PlatformCredentials::default()))
+}
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 use std::{collections::BTreeMap, sync::Mutex};
 
