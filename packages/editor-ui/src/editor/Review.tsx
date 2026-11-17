@@ -1,5 +1,10 @@
 import { createPortal } from "react-dom";
 import {
+  useErrorNotification,
+  useTaskNotifications,
+} from "../NotificationPresenter";
+import { notifyFailure, errorMessage, safeErrorCode } from "../notifications";
+import {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -68,6 +73,22 @@ export function Review({
       top: number;
       left: number;
     } | null>(null);
+  useErrorNotification(error);
+  const [loaded, setLoaded] = useState(false);
+  useTaskNotifications(
+    cards.flatMap((card) =>
+      card.task
+        ? [
+            {
+              id: card.task.run.runId,
+              status: card.task.error ? "failed" : card.task.run.status,
+              error: card.task.error ?? card.task.run.error,
+            },
+          ]
+        : [],
+    ),
+    !loaded,
+  );
   const floating = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!selectionToolbar || !floating.current) return;
@@ -103,6 +124,7 @@ export function Review({
       const page = await client.readReviews();
       if (!disposed.current && n === generation.current) {
         setCards(page.cards);
+        setLoaded(true);
         setCursor(page.nextCursor);
       }
     } catch {
@@ -245,6 +267,7 @@ export function Review({
       await refresh();
       return result.ok;
     } catch (e) {
+      notifyFailure(e);
       setError(e instanceof Error ? e.message : "INVALID_REQUEST");
       return false;
     } finally {
@@ -272,6 +295,7 @@ export function Review({
       setFill(false);
       setError("");
     } catch (e) {
+      notifyFailure(e);
       setError(e instanceof Error ? e.message : "ANCHOR_INVALID");
     }
   };
@@ -602,7 +626,7 @@ export function Review({
       )}
       {error && (
         <p role="alert">
-          {t.reviewConflict} <code>{error}</code>
+          {errorMessage(error, t)} <code>{safeErrorCode(error)}</code>
           {conflicts.map((c) => (
             <span key={c.id} className="review-conflict-item">
               {c.id} · {c.version} · {c.reason}
@@ -778,8 +802,8 @@ export function Review({
                 <p role="status">
                   {task.error === "NO_CHANGE"
                     ? t.reviewNoChange
-                    : t.reviewTaskTip}{" "}
-                  <code>{task.error}</code>
+                    : errorMessage(task.error, t)}{" "}
+                  <code>{safeErrorCode(task.error)}</code>
                 </p>
               )}
               {c && (

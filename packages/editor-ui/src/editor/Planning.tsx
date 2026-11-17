@@ -11,6 +11,13 @@ import type {
 } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Autosave, type SaveStatus } from "./autosave";
+import {
+  useErrorNotification,
+  useTaskNotifications,
+  useOpenSettings,
+} from "../NotificationPresenter";
+import { notifyFailure } from "../notifications";
+import { useSavedAiView } from "../ai-settings/saved-view";
 export type PlanningFeedback = {
   status: SaveStatus;
   error: string;
@@ -39,6 +46,7 @@ export function Planning({
 }) {
   const [initial, setInitial] = useState<PlanningState | null>(null);
   const [error, setError] = useState("");
+  useErrorNotification(error);
   useEffect(() => {
     let active = true;
     void client.readPlanning().then(
@@ -184,6 +192,19 @@ function PlanningEditor({
       },
     });
   }, [planning.status, planning.error, onStatus]);
+  useErrorNotification(planning.error);
+  useTaskNotifications(
+    planning.state.tasks.map((task) => ({
+      id: task.id,
+      status: task.error ? "failed" : task.run.status,
+      error: task.error ?? task.run.error,
+    })),
+  );
+  const openSettings = useOpenSettings();
+  const savedAiView = useSavedAiView();
+  const manuscriptModel = savedAiView?.settings.bindings.find(
+    (binding) => binding.category === "text",
+  );
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [prepared, setPrepared] = useState<PlanningPreparation | null>(null);
   const [operation, setOperation] = useState<
@@ -196,6 +217,7 @@ function PlanningEditor({
       : "generate_outline",
   );
   const [error, setError] = useState("");
+  useErrorNotification(error);
   const [acting, setActing] = useState(false);
   const active = useRef(true);
   async function refreshSources() {
@@ -331,6 +353,7 @@ function PlanningEditor({
       setPrepared(value);
       return value;
     } catch (e) {
+      notifyFailure(e);
       setError(e instanceof Error ? e.message : "error");
       return null;
     } finally {
@@ -355,6 +378,9 @@ function PlanningEditor({
         payload: { preparationId: value.id, retryOfTaskId },
       }));
       setPrepared(null);
+    } catch (failure) {
+      notifyFailure(failure);
+      setError(failure instanceof Error ? failure.message : "error");
     } finally {
       setActing(false);
     }
@@ -762,6 +788,16 @@ function PlanningEditor({
             {t.libraryOpen}
           </button>
         </section>
+        <div className="planning-model-settings">
+          <button
+            className="quiet-button"
+            onClick={() => openSettings("defaults")}
+          >
+            {manuscriptModel
+              ? t.aiCurrentModel.replace("{model}", manuscriptModel.modelId)
+              : t.aiModelSettings}
+          </button>
+        </div>
         <div className="planning-primary">
           {!p.nodes.length && (
             <button
@@ -921,6 +957,7 @@ export function GeneratedDraftEvidence({
   const [state, setState] = useState<PlanningState | null>(null);
   const [error, setError] = useState(false),
     [retry, setRetry] = useState(0);
+  useErrorNotification(error ? "error" : "");
   useEffect(() => {
     let active = true;
     void Promise.resolve()

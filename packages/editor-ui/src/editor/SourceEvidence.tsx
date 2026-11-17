@@ -1,3 +1,7 @@
+import {
+  useErrorNotification,
+  useTaskNotifications,
+} from "../NotificationPresenter";
 import { useEffect, useRef, useState } from "react";
 import type {
   PlanningEvidenceChoice,
@@ -27,12 +31,18 @@ export function SourceEvidence({
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  useErrorNotification(error);
   const [preview, setPreview] = useState<{
     text: string;
     truncated: boolean;
   } | null>(null);
   const [visual, setVisual] = useState<PlanningVisual | null>(null),
     [index, setIndex] = useState(1);
+  useTaskNotifications(
+    visual
+      ? [{ id: visual.id, status: visual.status, error: visual.error }]
+      : [],
+  );
   const textarea = useRef<HTMLTextAreaElement>(null),
     active = useRef(true),
     epoch = useRef(0);

@@ -49,20 +49,28 @@ async function fixture(list = false) {
     },
   };
 }
+async function fillKey(page: Page, key: string) {
+  const replace = page.getByRole("button", {
+    name: "Replace key",
+    exact: true,
+  });
+  if (await replace.isVisible()) await replace.click();
+  await page.getByLabel("New API key", { exact: true }).fill(key);
+}
 async function configure(
   page: Page,
   root: string,
   key = "SYNTHETIC_UI_KEY_CANARY",
 ) {
   await page.getByLabel("API root", { exact: true }).fill(root);
-  await page.getByLabel("New API key", { exact: true }).fill(key);
+  await fillKey(page, key);
   await page
     .getByRole("button", { name: "Save configuration", exact: true })
     .click();
   await expect(
     page.getByText("Configuration saved.", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByLabel("New API key", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("New API key", { exact: true })).toHaveCount(0);
 }
 async function addModel(page: Page, id: string) {
   await page.getByRole("button", { name: "Add model", exact: true }).click();
@@ -119,7 +127,7 @@ test("two bilingual services support manual models after discovery failure and e
       name: "Discover models",
       exact: true,
     });
-    await expect(discovery.getByRole("alert")).toBeVisible();
+    await expect(discovery.locator(".ai-operation-error")).toBeVisible();
     await discovery.getByRole("button", { name: "Close", exact: true }).click();
     await addModel(page, "manual-fixture");
     expect((await core.request("/ai/settings")).settings.bindings).toEqual([]);
@@ -587,9 +595,7 @@ test("reassigning a newly created service retires its creation alias and keeps l
     ).toBeDisabled();
     await manager.getByRole("button", { name: "Close", exact: true }).click();
     await selectService(page, "DeepSeek");
-    await page
-      .getByLabel("New API key", { exact: true })
-      .fill("UNSAVED_REASSIGNED_SERVICE_CANARY");
+    await fillKey(page, "UNSAVED_REASSIGNED_SERVICE_CANARY");
     await page
       .getByLabel("API root", { exact: true })
       .fill("https://unsaved-deepseek.example/v1");
@@ -654,12 +660,15 @@ test("credential response loss refreshes saved status without retry and reopenin
     .click();
   await expect(
     page.getByText(
-      "Configuration saved. The key could not be confirmed; check its saved status before trying again.",
+      "Configuration saved. The key write could not be confirmed; no key write was retried.",
       { exact: true },
     ),
   ).toBeVisible();
-  await expect(page.getByText("Key saved ••••", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("New API key", { exact: true })).toHaveValue("");
+  await expect(page.locator(".ai-key-status")).toContainText(
+    "The key write could not be confirmed.",
+  );
+  await expect(page.locator(".ai-key-mask")).toHaveText("••••••••");
+  await expect(page.getByLabel("New API key", { exact: true })).toHaveCount(0);
   expect(writes).toBe(1);
   await page.keyboard.press("Escape");
   const view = await core.request("/ai/settings");

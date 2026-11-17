@@ -9,6 +9,7 @@ import { Slice } from "@tiptap/pm/model";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
+import { useErrorNotification } from "../NotificationPresenter";
 import { Review } from "./Review";
 import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 import { SaveStatus } from "./SaveStatus";
@@ -56,6 +57,7 @@ export function Manuscript({
     return { document, history };
   };
   const [loadError, setLoadError] = useState(false);
+  useErrorNotification(loadError ? "error" : "");
   useEffect(() => {
     let active = true;
     void load().then(
@@ -143,6 +145,7 @@ function Draft({
         history,
       ),
   );
+  useErrorNotification(save.error);
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
   const documentMenu = useRef<HTMLDetailsElement>(null);

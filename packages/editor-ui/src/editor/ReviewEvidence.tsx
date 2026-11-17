@@ -1,3 +1,4 @@
+import { useErrorNotification } from "../NotificationPresenter";
 import { useEffect, useRef, useState } from "react";
 import type {
   PlanningEvidenceChoice,
@@ -19,6 +20,7 @@ export function ReviewEvidence({
 }) {
   const [sources, setSources] = useState<SourceSummary[]>([]),
     [error, setError] = useState("");
+  useErrorNotification(error);
   const latest = useRef(value),
     notify = useRef(onChange);
   latest.current = value;

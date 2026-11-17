@@ -5,6 +5,7 @@ import { modelKey, newModel, validModelId } from "./model";
 import { ModelDetails } from "./ModelDetails";
 import { OperationStatus } from "./OperationStatus";
 import { SettingsModal } from "./SettingsModal";
+import { savedDiscoveryTarget } from "../notifications";
 import type { AiSettingsController } from "./useAiSettings";
 
 export function ServiceDetails({
@@ -27,6 +28,7 @@ export function ServiceDetails({
   const [manuals, setManuals] = useState<Record<string, string>>({});
   const [manualOpen, setManualOpen] = useState(false);
   const [picker, setPicker] = useState<string | null>(null);
+  const [pickerTarget, setPickerTarget] = useState<string>();
   useEffect(() => {
     if (!open) {
       setPicker(null);
@@ -37,13 +39,15 @@ export function ServiceDetails({
   const [choices, setChoices] = useState<string[]>([]);
   const draft = c.providerDraft(selection);
   const dirty = !provider || draft.root !== provider.baseUrl || !!draft.key;
-  const busy = c.providerOperation(selection)?.busy;
+  const operation = c.providerOperation(selection);
+  const busy = operation?.busy;
   const added = c.view!.settings.models.filter(
     (model) => model.providerId === provider?.id,
   );
   const keyPresent =
     provider?.credentialRevision &&
     c.view!.presentCredentialRevisions.includes(provider.credentialRevision);
+  const editingKey = !keyPresent || !!draft.editingKey || !!draft.key;
   const manual = manuals[selection] ?? "";
   const add = (ids: string[]) =>
     provider &&
@@ -82,33 +86,85 @@ export function ServiceDetails({
       ) : (
         <>
           <p className="ai-key-status" role="status">
-            {keyPresent ? t.aiKeyPresent : t.aiKeyMissing}
+            {operation?.credential === "unknown"
+              ? t.aiKeyUnknown
+              : operation?.credential === "saving"
+                ? t.aiKeySaving
+                : operation?.credential === "failed"
+                  ? t.aiKeyFailed
+                  : draft.key
+                    ? t.aiKeyEditing
+                    : keyPresent
+                      ? t.aiKeyPresent
+                      : t.aiKeyMissing}
           </p>
-          <label>
-            {t.aiKey}
-            <span className="ai-key-input">
-              <input
-                type={draft.reveal ? "text" : "password"}
-                aria-label={t.aiKey}
-                autoComplete="new-password"
-                maxLength={8192}
-                value={draft.key}
-                onChange={(event) =>
-                  c.editProvider(selection, { key: event.target.value })
-                }
-              />
-              <button
-                className="quiet-button"
-                disabled={!draft.key}
-                aria-pressed={draft.reveal}
-                onClick={() =>
-                  c.editProvider(selection, { reveal: !draft.reveal })
-                }
-              >
-                {draft.reveal ? t.aiHideKey : t.aiShowKey}
-              </button>
-            </span>
-          </label>
+          {keyPresent && (
+            <div className="ai-saved-key">
+              <span className="ai-key-mask" aria-label={t.aiKeyPresent}>
+                ••••••••
+              </span>
+              {!editingKey && (
+                <button
+                  className="quiet-button"
+                  disabled={busy}
+                  onClick={() =>
+                    c.editProvider(selection, {
+                      editingKey: true,
+                      reveal: false,
+                    })
+                  }
+                >
+                  {t.aiReplaceKey}
+                </button>
+              )}
+            </div>
+          )}
+          {keyPresent && <p className="muted">{t.aiKeyUnverified}</p>}
+          {editingKey && (
+            <label>
+              {t.aiKey}
+              <span className="ai-key-input">
+                <input
+                  type={draft.reveal ? "text" : "password"}
+                  aria-label={t.aiKey}
+                  autoComplete="new-password"
+                  maxLength={8192}
+                  value={draft.key}
+                  onChange={(event) =>
+                    c.editProvider(selection, {
+                      key: event.target.value,
+                      editingKey: true,
+                    })
+                  }
+                />
+                <button
+                  className="quiet-button"
+                  disabled={!draft.key}
+                  aria-pressed={draft.reveal}
+                  onClick={() =>
+                    c.editProvider(selection, { reveal: !draft.reveal })
+                  }
+                >
+                  {draft.reveal ? t.aiHideKey : t.aiShowKey}
+                </button>
+              </span>
+            </label>
+          )}
+          {keyPresent && editingKey && (
+            <button
+              className="quiet-button"
+              disabled={busy}
+              onClick={() =>
+                c.editProvider(selection, {
+                  key: "",
+                  reveal: false,
+                  editingKey: false,
+                })
+              }
+            >
+              {t.aiCancelReplacement}
+            </button>
+          )}
         </>
       )}
       <label>
@@ -164,6 +220,7 @@ export function ServiceDetails({
               }
               onClick={() => {
                 setPicker(provider!.id);
+                setPickerTarget(savedDiscoveryTarget(provider!.baseUrl));
                 setSearch("");
                 setChoices([]);
                 void c.discover(provider!.id);
@@ -175,6 +232,12 @@ export function ServiceDetails({
         </div>
         {!provider && <p>{t.aiSaveServiceFirst}</p>}
         <p>{t.aiDiscoveryHint}</p>
+        {provider && (
+          <p className="ai-discovery-target">
+            {t.aiDiscoveryTarget}:{" "}
+            <code>{savedDiscoveryTarget(provider.baseUrl)}</code>
+          </p>
+        )}
         <OperationStatus
           operation={c.operations[`catalog:${provider?.id}`]}
           t={t}
@@ -245,6 +308,18 @@ export function ServiceDetails({
           onClose={() => setPicker(null)}
         >
           <p>{t.aiDiscoveryHint}</p>
+          <p className="ai-discovery-target">
+            {t.aiDiscoveryTarget}: <code>{pickerTarget}</code>
+          </p>
+          <button
+            className="quiet-button"
+            onClick={() => {
+              setPicker(null);
+              setManualOpen(true);
+            }}
+          >
+            {t.aiAddModel}
+          </button>
           <label>
             {t.aiSearchModels}
             <input

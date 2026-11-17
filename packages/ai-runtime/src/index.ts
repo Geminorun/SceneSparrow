@@ -129,6 +129,7 @@ export function transport(
 export function normalizeError(
   error: unknown,
   signal?: AbortSignal,
+  operation: "generate" | "discovery" = "generate",
 ): AiFailure {
   if (signal?.aborted)
     return new AiFailure(
@@ -143,16 +144,31 @@ export function normalizeError(
   if (error instanceof OpenAI.APIConnectionTimeoutError)
     return new AiFailure("REQUEST_TIMEOUT");
   if (error instanceof OpenAI.APIError) {
+    // Only known machine codes carry quota meaning. Vendor prose is untrusted.
+    const quota = new Set([
+      "insufficient_quota",
+      "billing_hard_limit_reached",
+      "balance_insufficient",
+    ]);
     return new AiFailure(
-      error.status === 401 || error.status === 403
+      error.status === 401
         ? "AUTH_REJECTED"
-        : error.status === 429
-          ? "RATE_LIMITED"
-          : error.status === 404
-            ? "MODEL_UNAVAILABLE"
-            : error.status === 400 || error.status === 422
-              ? "PROVIDER_REJECTED"
-              : "NETWORK_FAILED",
+        : error.status === 403
+          ? "ACCESS_REJECTED"
+          : (error.status === 429 || error.status === 402) &&
+              quota.has(error.code ?? "")
+            ? "QUOTA_EXCEEDED"
+            : error.status === 429
+              ? "RATE_LIMITED"
+              : operation === "discovery" && error.status === 404
+                ? "MODEL_LIST_NOT_FOUND"
+                : operation === "discovery" && error.status === 405
+                  ? "MODEL_LIST_UNSUPPORTED"
+                  : error.status === 404
+                    ? "MODEL_UNAVAILABLE"
+                    : error.status !== undefined && error.status >= 500
+                      ? "PROVIDER_SERVER_FAILED"
+                      : "PROVIDER_REJECTED",
     );
   }
   return new AiFailure("NETWORK_FAILED");
@@ -663,7 +679,7 @@ export async function discoverModels(
       ),
     ];
   } catch (error) {
-    throw normalizeError(error, signal);
+    throw normalizeError(error, signal, "discovery");
   }
 }
 export const unavailableSearch = () => ({

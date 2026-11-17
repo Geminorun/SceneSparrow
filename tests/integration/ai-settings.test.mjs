@@ -25,6 +25,8 @@ for (const encrypted of [false, true]) {
     await writeFile(masterKeyFile, masterEncoded, { mode: 0o444 });
     let keyLocator = encrypted ? masterKeyFile : undefined;
     let expectedKey = "SYNTHETIC_HTTP_KEY_CANARY";
+    let listStatus = 405,
+      listCode = null;
     let calls = 0,
       lists = 0,
       inspectedWorkers = 0;
@@ -33,8 +35,15 @@ for (const encrypted of [false, true]) {
       for await (const bytes of req) body += bytes;
       if (req.url === "/root/models") {
         lists++;
-        res.writeHead(405, { "content-type": "application/json" });
-        res.end('{"error":{"message":"no listing"}}');
+        res.writeHead(listStatus, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: {
+              code: listCode,
+              message: "SECRET_LISTING_CANARY private provider body",
+            },
+          }),
+        );
         return;
       }
       calls++;
@@ -258,9 +267,25 @@ for (const encrypted of [false, true]) {
         JSON.stringify(view).includes("SYNTHETIC_HTTP_KEY_CANARY"),
         false,
       );
-      const listed = await req("/ai/models/discover", { providerId: id });
-      assert.equal(listed.status, 422);
-      assert.equal(lists, 1);
+      for (const [status, providerCode, expected] of [
+        [401, null, "AUTH_REJECTED"],
+        [403, null, "ACCESS_REJECTED"],
+        [404, null, "MODEL_LIST_NOT_FOUND"],
+        [405, null, "MODEL_LIST_UNSUPPORTED"],
+        [429, "insufficient_quota", "QUOTA_EXCEEDED"],
+        [503, null, "PROVIDER_SERVER_FAILED"],
+      ]) {
+        listStatus = status;
+        listCode = providerCode;
+        const listed = await req("/ai/models/discover", { providerId: id });
+        assert.equal(listed.status, 422); // Core response status, distinct from upstream.
+        assert.equal(listed.data.code, expected);
+        assert.doesNotMatch(
+          JSON.stringify(listed.data),
+          /SECRET_LISTING_CANARY|private provider body/,
+        );
+      }
+      assert.equal(lists, 6);
       assert.equal(calls, 0);
       const target = {
         providerId: id,
