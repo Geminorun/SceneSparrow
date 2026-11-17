@@ -85,6 +85,28 @@ Root limited modal filtering to each control's ancestors, avoiding repeated
 whole-catalog scans. The reassignment regression failed before its fix and passed
 afterward; no automatic inference was introduced.
 
+## CI worker ownership regression
+
+The [release CI run](https://github.com/Geminorun/SceneSparrow/actions/runs/44030260732)
+failed during integration checks: the encrypted case observed 6 inspected worker
+processes instead of 4, while its separate SDK-request counter still passed at 4.
+The old Linux `/proc` scan selected the shared agent entry point across the whole
+host, so workers from other concurrently running integration files affected the
+count. Image/deploy jobs were skipped in that run.
+
+Inspection now matches the current core's PID against each process's `PPid`, then
+matches the entry-point argument. It never reads unrelated worker environments.
+The original exact inspection/request counts, missing-worker assertion, secret
+canaries and transport flags remain checked.
+
+The encrypted fixture keeps an unrelated real agent worker alive on an open stdin
+without sending any execution frames. This deterministically reproduced 8 versus
+4 before the fix and passes afterward; its teardown removes only that child.
+The focused session/encrypted cases passed 2/2, and `pnpm test:integration` passed
+11/11 with the default parallel test-file execution. Logs are local ignored files:
+`.artifacts/ai-worker-scope-{before,after,integration}.log`. No application runtime,
+credential format, settings, dependencies or deployment policy changed.
+
 ## Compatibility and limits
 
 The two provider/model fields are optional and generated from the AI schema;
