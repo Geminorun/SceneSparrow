@@ -15,8 +15,15 @@ test("blank workspace and Planning use compact editor geometry at desktop, table
   await expect(input(page)).toBeVisible();
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    const close = page.getByRole("button", { name: "Close auxiliary panel" });
-    if (await close.isVisible()) await close.click();
+    await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+      "data-layout",
+      width <= 1050 ? "drawer" : "split",
+    );
+    const close = page.getByRole("button", {
+      name: /Close (assistant|navigator)/,
+    });
+    for (const button of await close.all())
+      if (await button.isVisible()) await button.click();
     await page.screenshot({
       path: `.artifacts/editor-workspace-blank-${width}.png`,
     });
@@ -146,7 +153,7 @@ test("planning validation correction resumes autosave, error geometry is stable 
   );
   await page
     .locator(".planning-recovery-actions")
-    .getByRole("button", { name: "Details", exact: true })
+    .locator(":scope > summary")
     .click();
   await topic.focus();
   page.once("dialog", (dialog) => void dialog.dismiss());
@@ -365,40 +372,37 @@ test("pane keyboard navigation, resizing, close focus and saved preferences rema
   page,
 }) => {
   await openWorkbench(page);
-  const structure = page.getByRole("tab", { name: "Structure", exact: true });
-  await structure.focus();
+  await openPanel(page, "Create");
+  const create = page.getByRole("tab", { name: "Create", exact: true });
+  await create.focus();
   await page.keyboard.press("ArrowRight");
   await expect(
-    page.getByRole("tab", { name: "Planning", exact: true }),
+    page.getByRole("tab", { name: "Review", exact: true }),
   ).toBeFocused();
-  const separator = page.getByRole("separator", {
-    name: "Resize auxiliary panel",
-  });
+  const separator = page.getByRole("separator", { name: "Resize assistant" });
   const prior = Number(await separator.getAttribute("aria-valuenow"));
   await separator.focus();
   await page.keyboard.press("ArrowLeft");
   await expect(separator).toHaveAttribute("aria-valuenow", String(prior + 16));
+  await openPanel(page, "Create");
   await page.getByLabel("Topic", { exact: true }).focus();
-  await page.getByRole("tab", { name: "Sources", exact: true }).click();
-  await expect(
-    page.getByRole("tab", { name: "Sources", exact: true }),
-  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("button", { name: "Open auxiliary panel" }),
+    page.getByRole("button", { name: "Open assistant", exact: true }),
   ).toBeFocused();
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Open auxiliary panel" }),
+    page.getByRole("button", { name: "Open assistant", exact: true }),
   ).toBeVisible();
-  await openPanel(page, "Planning");
+  await openPanel(page, "Create");
   await expect(separator).toHaveAttribute("aria-valuenow", String(prior + 16));
   await page.setViewportSize({ width: 375, height: 900 });
+  await openPanel(page, "Create");
   await expect(page.locator(".manuscript-main")).toHaveAttribute("inert", "");
   await page.getByLabel("Topic", { exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("button", { name: "Open auxiliary panel" }),
+    page.getByRole("button", { name: "Open assistant", exact: true }),
   ).toBeFocused();
   await expect(page.locator(".manuscript-main")).not.toHaveAttribute("inert");
 });
@@ -423,8 +427,15 @@ test("Draft, Review, Sources and Settings remain usable across screenshot sizes"
   await page.getByRole("button", { name: "Save comment", exact: true }).click();
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    const close = page.getByRole("button", { name: "Close auxiliary panel" });
-    if (await close.isVisible()) await close.click();
+    await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+      "data-layout",
+      width <= 1050 ? "drawer" : "split",
+    );
+    const close = page.getByRole("button", {
+      name: /Close (assistant|navigator)/,
+    });
+    for (const button of await close.all())
+      if (await button.isVisible()) await button.click();
     await page.locator("[data-lock-block]").first().click();
     await page.screenshot({
       path: `.artifacts/editor-workspace-draft-locks-${width}.png`,

@@ -360,9 +360,7 @@ test("supplements review performance with 2000 short blocks, sources, Redo, expo
           ),
         );
         const saveStart = performance.now();
-        await page
-          .getByRole("heading", { name: "Manuscript", exact: true })
-          .click();
+        await page.getByTestId("manuscript-title").click();
         await expect(page.getByTestId("save-status")).toHaveAttribute(
           "data-state",
           "saved",

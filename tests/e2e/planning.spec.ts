@@ -73,15 +73,14 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
     await openWorkbench(page);
     await openPanel(page, "Planning");
     await expect(
-      page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
+      page.getByRole("heading", { name: "Create", exact: true }),
     ).toBeVisible();
-    await page.getByText("Evidence sent to AI", { exact: true }).click();
     await expect(
-      page.getByText(
-        "Source discovery is unavailable. Add links or files manually below.",
-        { exact: true },
-      ),
+      page.getByRole("button", { name: "Open library", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.locator(".planning-reference-summary input[type=checkbox]"),
+    ).toHaveCount(0);
     await page
       .getByLabel("Topic", { exact: true })
       .fill("Why do sparrows sing? 鸟鸣");
@@ -107,7 +106,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       .getByRole("combobox", { name: "Language", exact: true })
       .selectOption("zh-CN");
     await expect(
-      page.getByRole("heading", { name: "规划文稿", exact: true }),
+      page.getByRole("heading", { name: "创作", exact: true }),
     ).toBeVisible();
     await expect(page.getByLabel("文稿语言", { exact: true })).toHaveValue(
       "zh-CN",
@@ -146,7 +145,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
     });
     await projectHistory(page, "Undo");
     await expect(
-      page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
+      page.getByRole("heading", { name: "Create", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("textbox", { name: "Manuscript", exact: true }),

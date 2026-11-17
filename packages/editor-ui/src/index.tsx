@@ -286,25 +286,6 @@ export function App({ client }: { client: PlatformClient }) {
           </svg>
           <span>{t.appName}</span>
         </div>
-        <div className="project-heading">
-          <svg
-            className="document-tab-icon"
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            aria-hidden="true"
-          >
-            <path
-              d="M6 3h9l4 4v14H6zM9 11h7M9 15h7M14 3v5h5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            />
-          </svg>
-          <h1 data-testid="project-title" title={project?.title}>
-            {project?.title ?? t.appName}
-          </h1>
-        </div>
         <div className="workspace-actions">
           {project && (
             <details
@@ -319,8 +300,15 @@ export function App({ client }: { client: PlatformClient }) {
                 }
               }}
             >
-              <summary>{t.projectFiles}</summary>
-              <nav aria-label={t.projectFiles}>
+              <summary>{t.applicationMenu}</summary>
+              <nav aria-label={t.applicationMenu}>
+                <p
+                  className="application-project-title"
+                  title={project.title}
+                  data-testid="project-title"
+                >
+                  {project.title}
+                </p>
                 {project && (
                   <button
                     className="quiet-button rename-trigger"
@@ -332,6 +320,7 @@ export function App({ client }: { client: PlatformClient }) {
                       renameDialog.current?.showModal();
                     }}
                   >
+                    <span>{t.renameProject}</span>
                     <svg
                       aria-hidden="true"
                       viewBox="0 0 24 24"

@@ -50,6 +50,28 @@ Sources and imports use the same serialized queue, mutation-policy seam and five
 history. Migration 004 extends business roots with backward-compatible source
 membership and adds intake, fenced document jobs, provenance and external object pins.
 
+The [reference workspace](design/reference-workspace.md) organizes heading
+navigation and the reference library in the left pane, and creation/review in the
+right. Web supports multiple files and folder uploads with portable relative
+paths; desktop can associate one reference directory per project and refresh it
+explicitly. Directory intake is bounded to 100 files, 100 MiB per batch and
+25 MiB per file. Folder refresh does not delete originals or automatically remove
+library entries for missing files. Changed files keep their source identity but
+receive new immutable bytes and clear old AI selections. Running tasks retain
+their original input and reject stale applicability. Completed extraction retention
+follows current/history source hashes, rather than retaining every version of a
+live source ID. No existing migration changes are required.
+
+Library membership does not select content for AI. Text selection supports full
+extracted text or a user-selected excerpt; the shared UI bounds a selection to
+128 KiB on UTF-8 boundaries and discloses omitted text. PDF pages/DOCX images need
+explicit visual preparation. Links remain title/URL only. The creation panel shows
+selected references once and guides idea, outline and initial draft generation;
+an existing manuscript remains editable and cannot be replaced by initial drafting.
+The editor engine remains Tiptap with canonical block storage, Markdown input/paste
+and a clearly labeled normalized read-only source view. This layout change does
+not introduce byte-exact editable Markdown source storage.
+
 The supervised non-AI Node utility has pinned parsers, bounded input/output, a
 60-second wall limit and sampled 512 MiB Linux RSS enforcement. Windows/macOS RSS
 budget enforcement remains open; the V8 heap setting is not full OS isolation.

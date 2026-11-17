@@ -63,7 +63,7 @@ test("writes Unicode, formatting, headings and nested lists and reopens without 
     if (r.url().endsWith("/manuscript/commands")) writes++;
   });
   await input.click();
-  await page.getByRole("heading", { name: "Manuscript", exact: true }).click();
+  await page.getByTestId("manuscript-title").click();
   await page.waitForTimeout(700);
   expect(writes).toBe(0);
   const after = await (await page.request.get("/api/v1/manuscript")).json();
@@ -180,6 +180,24 @@ test("failure retains local input for retry and conflict offers explicit discard
   const current = await (await page.request.get("/api/v1/manuscript")).json();
   const project = (await (await page.request.get("/api/v1/project")).json())
     .project;
+  // Keep this browser on its old base until its next edit is dispatched. If SSE
+  // adopts the other writer first, the edit is valid and no conflict is expected.
+  let holdProjection = true;
+  const oldHistory = await (await page.request.get("/api/v1/history")).json();
+  await page.route("**/api/v1/manuscript", async (route) => {
+    if (holdProjection) await route.fulfill({ json: current });
+    else await route.continue();
+  });
+  await page.route("**/api/v1/history", async (route) => {
+    if (holdProjection) await route.fulfill({ json: oldHistory });
+    else await route.continue();
+  });
+  await page.route("**/api/v1/manuscript/commands", async (route) => {
+    if (route.request().postDataJSON()?.type === "ApplyDocumentEdit") {
+      holdProjection = false;
+    }
+    await route.continue();
+  });
   const other = await page.request.post("/api/v1/manuscript/commands", {
     data: {
       type: "ApplyDocumentEdit",
@@ -215,6 +233,7 @@ test("failure retains local input for retry and conflict offers explicit discard
     "data-state",
     "conflict",
   );
+  holdProjection = false;
   await expect(input).toContainText("conflict kept");
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(
@@ -588,7 +607,7 @@ test("five retained operations share document-menu actions and shortcuts, preser
   const before = await history();
   await input.press("Home");
   await input.press("ArrowRight");
-  await page.getByRole("heading", { name: "Manuscript", exact: true }).click();
+  await page.getByTestId("manuscript-title").click();
   await page.waitForTimeout(850);
   expect(await history()).toEqual(before);
   expect(documentWrites).toBe(0);

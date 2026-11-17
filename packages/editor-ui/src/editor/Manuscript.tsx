@@ -24,7 +24,8 @@ import {
   type PlanningFeedback,
 } from "./Planning";
 import { Exports } from "./Exports";
-import { Sources } from "./Sources";
+import { Sources, ImportDialog } from "./Sources";
+import type { PlanningEvidenceBridge } from "./evidence";
 import { Autosave } from "./autosave";
 import { canonicalTransaction } from "./canonical-transaction";
 import { fromEditorNode, toEditor } from "./canonical";
@@ -125,6 +126,8 @@ function Draft({
     initial.workspaceStage === "outline",
   );
   const pane = useAuxiliaryPane();
+  const [evidence, setEvidence] = useState<PlanningEvidenceBridge | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [planningFeedback, setPlanningFeedback] =
     useState<PlanningFeedback | null>(null);
   const protectionReadyRef = useRef(false);
@@ -538,11 +541,13 @@ function Draft({
         ? t.historyStartDraft
         : label === "addSource"
           ? t.historyAddSource
-          : label === "removeSource"
-            ? t.historyRemoveSource
-            : label === "import"
-              ? t.historyImport
-              : t.historyEdit;
+          : label === "refreshSource"
+            ? t.historyRefreshSource
+            : label === "removeSource"
+              ? t.historyRemoveSource
+              : label === "import"
+                ? t.historyImport
+                : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
   const openSource = () => {
     // Read the visible local editor, including pending/IME input. Viewing source
@@ -618,6 +623,9 @@ function Draft({
               <>
                 <Planning
                   onStatus={setPlanningFeedback}
+                  onEvidence={setEvidence}
+                  openLibrary={() => pane.open("sources")}
+                  openReview={() => pane.open("review")}
                   client={client}
                   save={save}
                   projectId={projectId}
@@ -641,13 +649,14 @@ function Draft({
                   projectId={projectId}
                   t={t}
                   onOpen={() => pane.open("review")}
-                  visible={!pane.collapsed && pane.tab === "review"}
+                  visible={pane.visible("right") && pane.right.tab === "review"}
                 />
               ) : (
                 <p className="muted">{t.workspaceReviewEmpty}</p>
               ),
             sources: (
               <Sources
+                evidence={evidence}
                 client={client}
                 save={save}
                 projectId={projectId}
@@ -658,7 +667,16 @@ function Draft({
         >
           <div className="manuscript-header">
             <div className="manuscript-context">
-              <h3>{t.manuscript}</h3>
+              <h3
+                data-testid="manuscript-title"
+                title={
+                  headings[0]?.runs.map((run) => run.text).join("") ||
+                  t.manuscript
+                }
+              >
+                {headings[0]?.runs.map((run) => run.text).join("") ||
+                  t.manuscript}
+              </h3>
               <SaveStatus
                 save={save}
                 planning={planningFeedback}
@@ -682,6 +700,14 @@ function Draft({
                 <WorkspaceIcon name="menu" />
               </summary>
               <div className="document-menu-content">
+                <button
+                  onClick={() => {
+                    if (documentMenu.current) documentMenu.current.open = false;
+                    setImportOpen(true);
+                  }}
+                >
+                  {t.importManuscript}
+                </button>
                 <button
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={openSource}
@@ -747,6 +773,15 @@ function Draft({
             )}
           </div>
         </WorkspacePane>
+        {importOpen && (
+          <ImportDialog
+            client={client}
+            save={save}
+            projectId={projectId}
+            t={t}
+            close={() => setImportOpen(false)}
+          />
+        )}
         {save.operationError && (
           <p role="status">
             {save.operationError.code === "UNSENT_REVIEW"

@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type {
-  ExtractionPage,
   OutlineNode,
   PlanningContent,
   PlanningEvidenceChoice,
   PlanningPreparation,
   PlanningPreparationRequest,
   PlanningState,
-  PlanningVisual,
   SourceSummary,
 } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
@@ -18,6 +16,7 @@ export type PlanningFeedback = {
   error: string;
   retry: () => void;
 };
+import type { PlanningEvidenceBridge } from "./evidence";
 import { PlanningAutosave } from "./planning-autosave";
 export function Planning({
   client,
@@ -25,12 +24,18 @@ export function Planning({
   projectId,
   t,
   onStatus,
+  onEvidence,
+  openLibrary,
+  openReview,
 }: {
   client: PlatformClient;
   save: Autosave;
   projectId: string;
   t: typeof en;
   onStatus: (feedback: PlanningFeedback) => void;
+  onEvidence: (bridge: PlanningEvidenceBridge) => void;
+  openLibrary: () => void;
+  openReview: () => void;
 }) {
   const [initial, setInitial] = useState<PlanningState | null>(null);
   const [error, setError] = useState("");
@@ -81,6 +86,9 @@ export function Planning({
   return (
     <PlanningEditor
       initial={initial}
+      onEvidence={onEvidence}
+      openLibrary={openLibrary}
+      openReview={openReview}
       onStatus={onStatus}
       client={client}
       save={save}
@@ -146,6 +154,9 @@ function PlanningEditor({
   projectId,
   t,
   onStatus,
+  onEvidence,
+  openLibrary,
+  openReview,
 }: {
   initial: PlanningState;
   client: PlatformClient;
@@ -153,6 +164,9 @@ function PlanningEditor({
   projectId: string;
   t: typeof en;
   onStatus: (feedback: PlanningFeedback) => void;
+  onEvidence: (bridge: PlanningEvidenceBridge) => void;
+  openLibrary: () => void;
+  openReview: () => void;
 }) {
   const [, render] = useState(0);
   const [planning] = useState(
@@ -181,9 +195,6 @@ function PlanningEditor({
   );
   const [error, setError] = useState("");
   const [acting, setActing] = useState(false);
-  const [extracted, setExtracted] = useState<ExtractionPage | null>(null);
-  const [visuals, setVisuals] = useState<Record<string, PlanningVisual>>({});
-  const [indexes, setIndexes] = useState<Record<string, number>>({});
   const active = useRef(true);
   async function refreshSources() {
     const items: SourceSummary[] = [];
@@ -296,9 +307,11 @@ function PlanningEditor({
     sourceId: string,
     choice: PlanningEvidenceChoice | null,
   ) => {
-    const evidence = p.evidence.filter((e) => e.sourceId !== sourceId);
+    if (planning.state.reserved || save.stageTransitionPending) return;
+    const current = planning.local;
+    const evidence = current.evidence.filter((e) => e.sourceId !== sourceId);
     if (choice) evidence.push(choice);
-    update({ ...p, evidence }, "evidence", true);
+    update({ ...current, evidence }, "evidence", true);
   };
   async function prepare(op = operation) {
     setError("");
@@ -344,38 +357,11 @@ function PlanningEditor({
       setActing(false);
     }
   }
-  async function prepareVisual(sourceId: string) {
-    if (!(await planning.flush())) return;
-    setError("");
-    try {
-      const visual = await client.preparePlanningVisual({
-        id: crypto.randomUUID(),
-        sourceId,
-        index: indexes[sourceId] ?? 1,
-      });
-      setVisuals((v) => ({ ...v, [sourceId]: visual }));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "error");
-    }
-  }
-  useEffect(() => {
-    const pending = Object.values(visuals).filter((v) =>
-      ["queued", "running"].includes(v.status),
-    );
-    if (!pending.length) return;
-    const timer = setInterval(() => {
-      for (const v of pending)
-        void client.planningVisual(v.id).then((current) => {
-          if (active.current)
-            setVisuals((old) => ({ ...old, [current.sourceId]: current }));
-        });
-    }, 400);
-    return () => clearInterval(timer);
-  }, [client, visuals]);
   const inputLocked = reserved || save.stageTransitionPending;
   const locked = inputLocked || acting;
   const initialEligible =
     save.state.workspaceStage === "outline" && !save.state.blocks.length;
+  const [assistanceOpen, setAssistanceOpen] = useState(initialEligible);
   const ready =
     !!p.brief.topic.trim() && p.nodes.every((node) => !!node.title.trim());
   const briefInvalid = (field: keyof PlanningContent["brief"]) =>
@@ -383,7 +369,17 @@ function PlanningEditor({
   const validationError = ["BRIEF_INVALID", "OUTLINE_INVALID"].includes(
     planning.error,
   );
-  const [details, setDetails] = useState(false);
+  useEffect(() => {
+    onEvidence({
+      choices: p.evidence,
+      locked: inputLocked,
+      update: (sourceId, choice) => {
+        if (planning.composing)
+          planning.afterComposition(() => updateEvidence(sourceId, choice));
+        else updateEvidence(sourceId, choice);
+      },
+    });
+  }, [p, inputLocked, onEvidence]);
   const [discardBlocked, setDiscardBlocked] = useState(false);
   async function discard() {
     if (!window.confirm(t.workspaceDiscardConfirm)) return;
@@ -408,7 +404,14 @@ function PlanningEditor({
     >
       <div className="planning-heading">
         <div>
-          <h2>{t.planningTitle}</h2>
+          <h2>{t.workspaceTab_planning}</h2>
+          <p className="creation-steps">
+            {initialEligible
+              ? p.nodes.length
+                ? t.createOutlineStep
+                : t.createIdeaStep
+              : t.createDraftStep}
+          </p>
           <p>
             {initialEligible
               ? t.planningDescription
@@ -440,7 +443,8 @@ function PlanningEditor({
             : message(planning.error)}
         </p>
       )}
-      <div className="planning-recovery-actions">
+      <details className="planning-recovery-actions">
+        <summary>{t.workspaceRecoveryDetails}</summary>
         {["error", "conflict"].includes(planning.status) && (
           <button
             className="quiet-button"
@@ -449,589 +453,455 @@ function PlanningEditor({
             {t.planningSaveRetry}
           </button>
         )}
-        <button
-          className="quiet-button"
-          onClick={() => setDetails(!details)}
-          aria-expanded={details}
-        >
-          {t.workspaceRecoveryDetails}
-        </button>
-        {details && (
-          <div className="planning-recovery-details">
-            <button className="quiet-button" onClick={() => void discard()}>
-              {t.planningReload}
-            </button>
-            {discardBlocked && <p role="status">{t.workspaceDiscardBlocked}</p>}
-            <label htmlFor="planning-recovery-copy">
-              {t.planningSavedPlan}
-            </label>
-            <textarea
-              id="planning-recovery-copy"
-              readOnly
-              value={JSON.stringify(p, null, 2)}
-            />
-          </div>
-        )}
-      </div>
-      <fieldset
-        className="planning-brief"
-        disabled={inputLocked}
-        onCompositionStart={() => planning.composition(true)}
-        onCompositionEnd={() => planning.composition(false)}
-      >
-        {(
-          [
-            ["topic", t.planningTopic],
-            ["audience", t.planningAudience],
-            ["style", t.planningStyle],
-            ["lengthHint", t.planningLength],
-          ] as const
-        ).map(([field, label]) => (
-          <div className="planning-field" key={field}>
-            <label htmlFor={`planning-brief-${field}`}>{label}</label>
-            <input
-              id={`planning-brief-${field}`}
-              aria-invalid={briefInvalid(field)}
-              aria-describedby={
-                briefInvalid(field) ? `planning-error-${field}` : undefined
-              }
-              value={p.brief[field]}
-              onChange={(e) => patchBrief(field, e.target.value)}
-              onBlur={() => void planning.flush(false)}
-            />
-            {briefInvalid(field) && (
-              <p id={`planning-error-${field}`} className="field-error">
-                {t.workspaceValidationLength}
-              </p>
-            )}
-          </div>
-        ))}
-        <div className="planning-field">
-          <label htmlFor="planning-language">{t.planningLanguage}</label>
-          <select
-            id="planning-language"
-            value={p.brief.language}
-            onChange={(event) => patchBrief("language", event.target.value)}
-          >
-            {!["zh-CN", "en"].includes(p.brief.language) && (
-              <option value={p.brief.language}>
-                {t.workspaceUnsupportedLanguage.replace(
-                  "{language}",
-                  p.brief.language,
-                )}
-              </option>
-            )}
-            <option value="zh-CN">中文</option>
-            <option value="en">English</option>
-          </select>
+        <div className="planning-recovery-details">
+          <button className="quiet-button" onClick={() => void discard()}>
+            {t.planningReload}
+          </button>
+          {discardBlocked && <p role="status">{t.workspaceDiscardBlocked}</p>}
+          <label htmlFor="planning-recovery-copy">{t.planningSavedPlan}</label>
+          <textarea
+            id="planning-recovery-copy"
+            readOnly
+            value={JSON.stringify(p, null, 2)}
+          />
         </div>
-      </fieldset>
-      <div className="planning-outline">
-        <h3>{t.planningOutline}</h3>
-        {p.nodes.map((node, i) => (
-          <div
-            className="outline-node"
-            key={node.id}
-            style={{ marginInlineStart: `${node.depth * 1.2}rem` }}
-            onCompositionStart={() => planning.composition(true)}
-            onCompositionEnd={() => planning.composition(false)}
-          >
-            <div>
-              <label htmlFor={`outline-title-${node.id}`}>
-                {t.planningOutline} {i + 1}
-              </label>
-              <input
-                id={`outline-title-${node.id}`}
-                aria-invalid={[...node.title].length > 300}
-                aria-describedby={
-                  [...node.title].length > 300
-                    ? `outline-title-error-${node.id}`
-                    : undefined
-                }
-                disabled={inputLocked}
-                aria-label={`${t.planningOutline} ${i + 1}`}
-                value={node.title}
-                onChange={(e) =>
-                  update(
-                    {
-                      ...p,
-                      nodes: p.nodes.map((n) =>
-                        n.id === node.id ? { ...n, title: e.target.value } : n,
-                      ),
-                    },
-                    `${node.id}:title`,
-                  )
-                }
-                onBlur={() => void planning.flush(false)}
-              />
-              {[...node.title].length > 300 && (
-                <p
-                  id={`outline-title-error-${node.id}`}
-                  className="field-error"
-                >
-                  {t.workspaceValidationLength}
-                </p>
-              )}
-            </div>
-            <div>
-              <label htmlFor={`outline-points-${node.id}`}>
-                {t.planningKeyPoints}
-              </label>
-              <textarea
-                id={`outline-points-${node.id}`}
-                aria-invalid={
-                  node.keyPoints.length > 20 ||
-                  node.keyPoints.some((point) => [...point].length > 1000)
-                }
-                aria-describedby={
-                  node.keyPoints.length > 20 ||
-                  node.keyPoints.some((point) => [...point].length > 1000)
-                    ? `outline-points-error-${node.id}`
-                    : undefined
-                }
-                disabled={inputLocked}
-                value={node.keyPoints.join("\n")}
-                onChange={(e) =>
-                  update(
-                    {
-                      ...p,
-                      nodes: p.nodes.map((n) =>
-                        n.id === node.id
-                          ? {
-                              ...n,
-                              keyPoints: e.target.value
-                                ? e.target.value.split("\n")
-                                : [],
-                            }
-                          : n,
-                      ),
-                    },
-                    `${node.id}:points`,
-                  )
-                }
-                onBlur={() => void planning.flush(false)}
-              />
-              {(node.keyPoints.length > 20 ||
-                node.keyPoints.some((point) => [...point].length > 1000)) && (
-                <p
-                  id={`outline-points-error-${node.id}`}
-                  className="field-error"
-                >
-                  {t.workspaceValidationLength}
-                </p>
-              )}
-            </div>
-            <div className="outline-actions">
-              {(
-                [
-                  ["up", t.planningUp],
-                  ["down", t.planningDown],
-                  ["indent", t.planningIndent],
-                  ["outdent", t.planningOutdent],
-                  ["delete", t.planningDelete],
-                ] as const
-              ).map(([action, label]) => (
-                <button
-                  key={action}
-                  disabled={locked}
-                  onClick={() =>
-                    update(
-                      { ...p, nodes: changeStructure(p.nodes, i, action) },
-                      "structure",
-                      true,
-                    )
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <button
-          disabled={locked}
-          onClick={() =>
-            update(
-              {
-                ...p,
-                nodes: [
-                  ...p.nodes,
-                  {
-                    id: crypto.randomUUID(),
-                    revision: 0,
-                    title: t.planningNewNode,
-                    depth: 0,
-                    keyPoints: [],
-                  },
-                ],
-              },
-              "structure",
-              true,
-            )
-          }
-        >
-          {t.planningAddNode}
-        </button>
-      </div>
-      <div>
-        <label htmlFor="planning-instruction">{t.planningInstruction}</label>
-        <textarea
-          id="planning-instruction"
-          aria-invalid={new TextEncoder().encode(p.instruction).length > 8192}
-          aria-describedby={
-            new TextEncoder().encode(p.instruction).length > 8192
-              ? "planning-instruction-error"
-              : undefined
-          }
+      </details>
+      {!initialEligible && (
+        <div className="creation-complete">
+          <p>{t.createDraftComplete}</p>
+          <button onClick={openReview}>{t.createOpenReview}</button>
+        </div>
+      )}
+      <details
+        className="creation-assistance"
+        open={assistanceOpen}
+        onToggle={(event) => setAssistanceOpen(event.currentTarget.open)}
+      >
+        <summary>{t.createPlanningAssistance}</summary>
+        <fieldset
+          className="planning-brief"
           disabled={inputLocked}
-          value={p.instruction}
           onCompositionStart={() => planning.composition(true)}
           onCompositionEnd={() => planning.composition(false)}
-          onChange={(e) =>
-            update({ ...p, instruction: e.target.value }, "instruction")
-          }
-          onBlur={() => void planning.flush(false)}
-        />
-        {new TextEncoder().encode(p.instruction).length > 8192 && (
-          <p id="planning-instruction-error" className="field-error">
-            {t.workspaceValidationLength}
-          </p>
-        )}
-      </div>
-      <details className="planning-evidence">
-        <summary>{t.planningEvidence}</summary>
-        <p>{t.planningSearchUnavailable}</p>
-        {!p.evidence.length && <p>{t.planningNoEvidence}</p>}
-        {sources.map(({ source, ...summary }) => {
-          const choice = p.evidence.find((e) => e.sourceId === source.id);
-          const visual = visuals[source.id];
-          return (
-            <article key={source.id}>
-              <label>
+        >
+          {([["topic", t.planningTopic]] as const).map(([field, label]) => (
+            <div className="planning-field" key={field}>
+              <label htmlFor={`planning-brief-${field}`}>{label}</label>
+              <input
+                id={`planning-brief-${field}`}
+                aria-invalid={briefInvalid(field)}
+                aria-describedby={
+                  briefInvalid(field) ? `planning-error-${field}` : undefined
+                }
+                value={p.brief[field]}
+                onChange={(e) => patchBrief(field, e.target.value)}
+                onBlur={() => void planning.flush(false)}
+              />
+              {briefInvalid(field) && (
+                <p id={`planning-error-${field}`} className="field-error">
+                  {t.workspaceValidationLength}
+                </p>
+              )}
+            </div>
+          ))}
+          <details className="planning-preferences">
+            <summary>{t.createPreferences}</summary>
+            {(
+              [
+                ["audience", t.planningAudience],
+                ["style", t.planningStyle],
+                ["lengthHint", t.planningLength],
+              ] as const
+            ).map(([field, label]) => (
+              <div className="planning-field" key={field}>
+                <label htmlFor={`planning-brief-${field}`}>{label}</label>
                 <input
-                  type="checkbox"
-                  disabled={locked}
-                  checked={!!choice}
+                  id={`planning-brief-${field}`}
+                  value={p.brief[field]}
+                  aria-invalid={briefInvalid(field)}
+                  onChange={(event) => patchBrief(field, event.target.value)}
+                  onBlur={() => void planning.flush(false)}
+                />
+                {briefInvalid(field) && (
+                  <p className="field-error">{t.workspaceValidationLength}</p>
+                )}
+              </div>
+            ))}
+          </details>
+          <div className="planning-field">
+            <label htmlFor="planning-language">{t.planningLanguage}</label>
+            <select
+              id="planning-language"
+              value={p.brief.language}
+              onChange={(event) => patchBrief("language", event.target.value)}
+            >
+              {!["zh-CN", "en"].includes(p.brief.language) && (
+                <option value={p.brief.language}>
+                  {t.workspaceUnsupportedLanguage.replace(
+                    "{language}",
+                    p.brief.language,
+                  )}
+                </option>
+              )}
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </fieldset>
+        <details className="planning-outline" open={!!p.nodes.length}>
+          <summary>{t.planningOutline}</summary>
+          <h3>{t.planningOutline}</h3>
+          {p.nodes.map((node, i) => (
+            <div
+              className="outline-node"
+              key={node.id}
+              style={{ marginInlineStart: `${node.depth * 1.2}rem` }}
+              onCompositionStart={() => planning.composition(true)}
+              onCompositionEnd={() => planning.composition(false)}
+            >
+              <div>
+                <label htmlFor={`outline-title-${node.id}`}>
+                  {t.planningOutline} {i + 1}
+                </label>
+                <input
+                  id={`outline-title-${node.id}`}
+                  aria-invalid={[...node.title].length > 300}
+                  aria-describedby={
+                    [...node.title].length > 300
+                      ? `outline-title-error-${node.id}`
+                      : undefined
+                  }
+                  disabled={inputLocked}
+                  aria-label={`${t.planningOutline} ${i + 1}`}
+                  value={node.title}
                   onChange={(e) =>
-                    updateEvidence(
-                      source.id,
-                      e.target.checked
-                        ? {
-                            sourceId: source.id,
-                            mode:
-                              source.kind === "link"
-                                ? "link_only"
-                                : "extracted_text",
-                            start: 0,
-                            end: 0,
-                            visualId: "",
-                            allowUnknownImages: false,
-                          }
-                        : null,
+                    update(
+                      {
+                        ...p,
+                        nodes: p.nodes.map((n) =>
+                          n.id === node.id
+                            ? { ...n, title: e.target.value }
+                            : n,
+                        ),
+                      },
+                      `${node.id}:title`,
                     )
                   }
+                  onBlur={() => void planning.flush(false)}
                 />
-                {source.title} —{" "}
-                {source.kind === "link"
-                  ? t.planningLinkOnly
-                  : message(summary.status)}
-              </label>
-              {source.kind === "file" && (
-                <>
-                  <button
-                    onClick={() => {
-                      if (summary.jobId)
-                        void client.extractionPage(summary.jobId).then(
-                          (page) => setExtracted(page),
-                          (e) => setError(e.message),
-                        );
-                    }}
+                {[...node.title].length > 300 && (
+                  <p
+                    id={`outline-title-error-${node.id}`}
+                    className="field-error"
                   >
-                    {t.planningEvidencePreview}
-                  </button>
-                  <label>
-                    {t.planningVisualIndex}
-                    <input
-                      type="number"
-                      min={1}
-                      value={indexes[source.id] ?? 1}
-                      onChange={(e) =>
-                        setIndexes((v) => ({
-                          ...v,
-                          [source.id]: Number(e.target.value),
-                        }))
-                      }
-                    />
-                  </label>
-                  <button
-                    disabled={locked}
-                    onClick={() => void prepareVisual(source.id)}
+                    {t.workspaceValidationLength}
+                  </p>
+                )}
+              </div>
+              <div>
+                <label htmlFor={`outline-points-${node.id}`}>
+                  {t.planningKeyPoints}
+                </label>
+                <textarea
+                  id={`outline-points-${node.id}`}
+                  aria-invalid={
+                    node.keyPoints.length > 20 ||
+                    node.keyPoints.some((point) => [...point].length > 1000)
+                  }
+                  aria-describedby={
+                    node.keyPoints.length > 20 ||
+                    node.keyPoints.some((point) => [...point].length > 1000)
+                      ? `outline-points-error-${node.id}`
+                      : undefined
+                  }
+                  disabled={inputLocked}
+                  value={node.keyPoints.join("\n")}
+                  onChange={(e) =>
+                    update(
+                      {
+                        ...p,
+                        nodes: p.nodes.map((n) =>
+                          n.id === node.id
+                            ? {
+                                ...n,
+                                keyPoints: e.target.value
+                                  ? e.target.value.split("\n")
+                                  : [],
+                              }
+                            : n,
+                        ),
+                      },
+                      `${node.id}:points`,
+                    )
+                  }
+                  onBlur={() => void planning.flush(false)}
+                />
+                {(node.keyPoints.length > 20 ||
+                  node.keyPoints.some((point) => [...point].length > 1000)) && (
+                  <p
+                    id={`outline-points-error-${node.id}`}
+                    className="field-error"
                   >
-                    {t.planningPrepareVisual}
-                  </button>
-                  {visual && (
-                    <p role="status">
-                      {message(visual.status)} · {visual.width}×{visual.height}{" "}
-                      · {visual.size} {visual.transformation}
-                      {["queued", "running"].includes(visual.status) && (
-                        <button
-                          onClick={() =>
-                            void client
-                              .cancelPlanningVisual(visual.id)
-                              .then((v) =>
-                                setVisuals((old) => ({
-                                  ...old,
-                                  [source.id]: v,
-                                })),
-                              )
-                          }
-                        >
-                          {t.cancel}
-                        </button>
-                      )}
-                      {visual.error && message(visual.error)}
-                    </p>
-                  )}
-                </>
-              )}
-              {choice && source.kind === "file" && (
-                <>
-                  <select
+                    {t.workspaceValidationLength}
+                  </p>
+                )}
+              </div>
+              <div className="outline-actions">
+                {(
+                  [
+                    ["up", t.planningUp],
+                    ["down", t.planningDown],
+                    ["indent", t.planningIndent],
+                    ["outdent", t.planningOutdent],
+                    ["delete", t.planningDelete],
+                  ] as const
+                ).map(([action, label]) => (
+                  <button
+                    key={action}
                     disabled={locked}
-                    aria-label={t.planningEvidence}
-                    value={choice.mode}
-                    onChange={(e) =>
-                      updateEvidence(source.id, {
-                        ...choice,
-                        mode: e.target.value as PlanningEvidenceChoice["mode"],
-                        visualId: visual?.id ?? choice.visualId,
-                      })
+                    onClick={() =>
+                      update(
+                        { ...p, nodes: changeStructure(p.nodes, i, action) },
+                        "structure",
+                        true,
+                      )
                     }
                   >
-                    <option value="extracted_text">
-                      {t.planningExtracted}
-                    </option>
-                    <option value="text_only">{t.planningTextOnly}</option>
-                    <option value="visual_input">{t.planningVisual}</option>
-                  </select>
-                  {choice.mode === "visual_input" ? (
-                    <>
-                      <label>
-                        <input
-                          type="checkbox"
-                          disabled={locked}
-                          checked={choice.allowUnknownImages}
-                          onChange={(e) =>
-                            updateEvidence(source.id, {
-                              ...choice,
-                              allowUnknownImages: e.target.checked,
-                              visualId: visual?.id ?? choice.visualId,
-                            })
-                          }
-                        />
-                        {t.planningAllowUnknown}
-                      </label>
-                      <button
-                        disabled={locked || visual?.status !== "ready"}
-                        onClick={() =>
-                          updateEvidence(source.id, {
-                            ...choice,
-                            visualId: visual?.id ?? "",
-                          })
-                        }
-                      >
-                        {t.planningIncluded}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {(["start", "end"] as const).map((field) => (
-                        <label key={field}>
-                          {field === "start"
-                            ? t.planningStartByte
-                            : t.planningEndByte}
-                          <input
-                            type="number"
-                            min={0}
-                            disabled={locked}
-                            value={choice[field]}
-                            onChange={(e) =>
-                              updateEvidence(source.id, {
-                                ...choice,
-                                [field]: Number(e.target.value),
-                              })
-                            }
-                          />
-                        </label>
-                      ))}
-                    </>
-                  )}
-                </>
-              )}
-            </article>
-          );
-        })}
-        {extracted && (
-          <div>
-            <p>
-              {t.planningExcerptPage
-                .replace("{start}", String(extracted.offset))
-                .replace(
-                  "{end}",
-                  String(
-                    extracted.offset +
-                      new TextEncoder().encode(extracted.text).length,
-                  ),
-                )}
-            </p>
-            <pre className="evidence-text">{extracted.text}</pre>
-            {extracted.next !== null && (
-              <button
-                onClick={() =>
-                  void client
-                    .extractionPage(extracted.jobId, extracted.next!)
-                    .then(setExtracted, (e) => setError(e.message))
-                }
-              >
-                {t.planningNextPage}
-              </button>
-            )}
-          </div>
-        )}
-      </details>
-      <div className="planning-primary">
-        <button
-          disabled={locked || !!activeTask || !!p.nodes.length || !ready}
-          onClick={() => void start("generate_outline")}
-        >
-          {t.planningGenerateOutline}
-        </button>
-        <button
-          disabled={
-            locked ||
-            !!activeTask ||
-            !p.nodes.length ||
-            !p.instruction.trim() ||
-            !ready
-          }
-          onClick={() => void start("adjust_outline")}
-        >
-          {t.planningAdjust}
-        </button>
-        {initialEligible && (
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
           <button
-            disabled={locked || !!activeTask || !p.nodes.length || !ready}
-            onClick={() => void start("generate_initial_draft")}
+            disabled={locked}
+            onClick={() =>
+              update(
+                {
+                  ...p,
+                  nodes: [
+                    ...p.nodes,
+                    {
+                      id: crypto.randomUUID(),
+                      revision: 0,
+                      title: t.planningNewNode,
+                      depth: 0,
+                      keyPoints: [],
+                    },
+                  ],
+                },
+                "structure",
+                true,
+              )
+            }
           >
-            {t.planningDraft}
+            {t.planningAddNode}
           </button>
-        )}
-        <button
-          disabled={locked}
-          onClick={() =>
-            void prepare(
-              p.nodes.length
-                ? initialEligible
-                  ? "generate_initial_draft"
-                  : "adjust_outline"
-                : "generate_outline",
-            )
-          }
-        >
-          {t.planningPrepare}
-        </button>
-      </div>
-      {prepared && (
-        <details open>
-          <summary>{t.planningPrepared}</summary>
-          <p>
-            {t.planningConfig}: {prepared.configuration.provider.label} /{" "}
-            {prepared.configuration.model.id}
-          </p>
-          <p>
-            {t.planningTokens}: {prepared.estimatedInputTokens} /{" "}
-            {prepared.outputTokens}
-          </p>
-          {prepared.warnings.map((w) => (
-            <p key={w}>{message(w)}</p>
-          ))}
-          {prepared.evidence.map((e) => (
-            <p key={e.id}>
-              {e.sourceId} · {message(e.level)} · {e.location} · {e.contentHash}
-            </p>
-          ))}
         </details>
-      )}
-      <section className="planning-tasks">
-        <h3>{t.planningTasks}</h3>
-        {planning.state.tasks.map((task) => (
-          <article key={task.id}>
-            <p>
-              {message(task.operation)} · {message(task.run.status)} ·{" "}
-              {message(task.application)}
+        <div hidden={!p.nodes.length}>
+          <label htmlFor="planning-instruction">{t.planningInstruction}</label>
+          <textarea
+            id="planning-instruction"
+            aria-invalid={new TextEncoder().encode(p.instruction).length > 8192}
+            aria-describedby={
+              new TextEncoder().encode(p.instruction).length > 8192
+                ? "planning-instruction-error"
+                : undefined
+            }
+            disabled={inputLocked}
+            value={p.instruction}
+            onCompositionStart={() => planning.composition(true)}
+            onCompositionEnd={() => planning.composition(false)}
+            onChange={(e) =>
+              update({ ...p, instruction: e.target.value }, "instruction")
+            }
+            onBlur={() => void planning.flush(false)}
+          />
+          {new TextEncoder().encode(p.instruction).length > 8192 && (
+            <p id="planning-instruction-error" className="field-error">
+              {t.workspaceValidationLength}
             </p>
-            {task.error && <p role="alert">{message(task.error)}</p>}
-            <p>
-              {t.planningConfig}: {task.run.configuration.provider.label} /{" "}
-              {task.run.configuration.model.id}
-            </p>
-            {["pending", "not_applied"].includes(task.application) && (
-              <button
-                disabled={acting}
-                onClick={() =>
-                  void planning.control((revision) => ({
-                    type: "CancelPlanningTask",
-                    requestId: crypto.randomUUID(),
-                    projectId,
-                    expectedWorkingRevision: revision,
-                    payload: { taskId: task.id },
-                  }))
-                }
-              >
-                {t.planningTaskCancel}
-              </button>
+          )}
+        </div>
+        <section
+          className="planning-reference-summary"
+          aria-label={t.planningEvidence}
+        >
+          <h3>
+            {t.librarySelectedCount.replace(
+              "{count}",
+              String(p.evidence.length),
             )}
-            {!activeTask &&
-              !["pending", "applied"].includes(task.application) && (
+          </h3>
+          {!p.evidence.length && (
+            <p className="muted">{t.planningNoEvidence}</p>
+          )}
+          <ul>
+            {p.evidence.map((choice) => (
+              <li key={choice.sourceId}>
+                <span>
+                  {sources.find((item) => item.source.id === choice.sourceId)
+                    ?.source.title ?? t.sources}
+                </span>
+                <button
+                  className="quiet-button"
+                  disabled={locked}
+                  aria-label={`${t.removeReference}: ${sources.find((item) => item.source.id === choice.sourceId)?.source.title ?? t.sources}`}
+                  onClick={() => updateEvidence(choice.sourceId, null)}
+                >
+                  {t.removeReference}
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button className="quiet-button" onClick={openLibrary}>
+            {t.libraryOpen}
+          </button>
+        </section>
+        <div className="planning-primary">
+          {!p.nodes.length && (
+            <button
+              className="primary-action"
+              disabled={locked || !!activeTask || !ready}
+              onClick={() => void start("generate_outline")}
+            >
+              {t.planningGenerateOutline}
+            </button>
+          )}
+          {!!p.nodes.length && (
+            <button
+              className="quiet-button"
+              disabled={
+                locked || !!activeTask || !p.instruction.trim() || !ready
+              }
+              onClick={() => void start("adjust_outline")}
+            >
+              {t.planningAdjust}
+            </button>
+          )}
+          {initialEligible && !!p.nodes.length && (
+            <button
+              className="primary-action"
+              disabled={locked || !!activeTask || !p.nodes.length || !ready}
+              onClick={() => void start("generate_initial_draft")}
+            >
+              {t.planningDraft}
+            </button>
+          )}
+        </div>
+        <details className="planning-technical">
+          <summary>{t.planningPrepared}</summary>
+          <button
+            disabled={locked}
+            onClick={() =>
+              void prepare(
+                p.nodes.length
+                  ? initialEligible
+                    ? "generate_initial_draft"
+                    : "adjust_outline"
+                  : "generate_outline",
+              )
+            }
+          >
+            {t.planningPrepare}
+          </button>
+
+          {prepared && (
+            <div>
+              <p>
+                {t.planningConfig}: {prepared.configuration.provider.label} /{" "}
+                {prepared.configuration.model.id}
+              </p>
+              <p>
+                {t.planningTokens}: {prepared.estimatedInputTokens} /{" "}
+                {prepared.outputTokens}
+              </p>
+              {prepared.warnings.map((w) => (
+                <p key={w}>{message(w)}</p>
+              ))}
+              {prepared.evidence.map((e) => (
+                <p key={e.id}>
+                  {e.sourceId} · {message(e.level)} · {e.location} ·{" "}
+                  {e.contentHash}
+                </p>
+              ))}
+            </div>
+          )}
+        </details>
+      </details>
+      {!!planning.state.tasks.length && (
+        <section className="planning-tasks">
+          <h3>{t.planningTasks}</h3>
+          {planning.state.tasks.map((task) => (
+            <article key={task.id}>
+              <p>
+                {message(task.operation)} · {message(task.run.status)} ·{" "}
+                {message(task.application)}
+              </p>
+              {task.error && <p role="alert">{message(task.error)}</p>}
+
+              {["pending", "not_applied"].includes(task.application) && (
                 <button
                   disabled={acting}
                   onClick={() =>
-                    void start(
-                      task.operation as PlanningPreparationRequest["operation"],
-                      task.id,
-                    )
+                    void planning.control((revision) => ({
+                      type: "CancelPlanningTask",
+                      requestId: crypto.randomUUID(),
+                      projectId,
+                      expectedWorkingRevision: revision,
+                      payload: { taskId: task.id },
+                    }))
                   }
                 >
-                  {t.planningTaskRetry}
+                  {t.planningTaskCancel}
                 </button>
               )}
-            {task.application === "not_applied" && (
-              <button
-                disabled={acting || reserved}
-                onClick={() =>
-                  void planning.control((revision) => ({
-                    type: "UsePlanningResult",
-                    requestId: crypto.randomUUID(),
-                    projectId,
-                    expectedWorkingRevision: revision,
-                    payload: {
-                      taskId: task.id,
-                      expectedHistoryRevision: save.history.historyRevision,
-                      explicit: true,
-                    },
-                  }))
-                }
-              >
-                {t.planningUseResult}
-              </button>
-            )}
-            <details>
-              <summary>{t.planningTaskDetails}</summary>
-              <pre>{task.preview}</pre>
-            </details>
-          </article>
-        ))}
-      </section>
+              {!activeTask &&
+                !["pending", "applied"].includes(task.application) && (
+                  <button
+                    disabled={acting}
+                    onClick={() =>
+                      void start(
+                        task.operation as PlanningPreparationRequest["operation"],
+                        task.id,
+                      )
+                    }
+                  >
+                    {t.planningTaskRetry}
+                  </button>
+                )}
+              {task.application === "not_applied" && (
+                <button
+                  disabled={acting || reserved}
+                  onClick={() =>
+                    void planning.control((revision) => ({
+                      type: "UsePlanningResult",
+                      requestId: crypto.randomUUID(),
+                      projectId,
+                      expectedWorkingRevision: revision,
+                      payload: {
+                        taskId: task.id,
+                        expectedHistoryRevision: save.history.historyRevision,
+                        explicit: true,
+                      },
+                    }))
+                  }
+                >
+                  {t.planningUseResult}
+                </button>
+              )}
+              <details>
+                <summary>{t.planningTaskDetails}</summary>
+                <p>
+                  {t.planningConfig}: {task.run.configuration.provider.label} /{" "}
+                  {task.run.configuration.model.id}
+                </p>
+                <pre>{task.preview}</pre>
+              </details>
+            </article>
+          ))}
+        </section>
+      )}
     </section>
   );
 }

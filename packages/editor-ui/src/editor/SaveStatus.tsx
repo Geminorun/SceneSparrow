@@ -33,6 +33,7 @@ export function SaveStatus({
         role="status"
         data-testid="save-status"
         data-state={status}
+        title={t[`save_${status}`]}
         data-owner={planOwns ? "planning" : "manuscript"}
       >
         {t[`save_${status}`]}
