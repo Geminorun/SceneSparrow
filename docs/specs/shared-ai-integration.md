@@ -50,7 +50,7 @@ execution, tool agents, embeddings and hosted multitenancy are outside this rele
 | `crates/application/src/ai/`             | Settings/execution/credential ports and generic use cases                                     |
 | `crates/application/src/script/ai/`      | Consumer prompts, evidence, domain validators and bindings; no provider SDK                   |
 | `crates/infrastructure/src/ai/`          | Settings file, SQLite execution repository and worker transport                               |
-| `crates/infrastructure/src/credentials/` | Platform credential-store adapters and session-only development implementation                |
+| `crates/infrastructure/src/credentials/` | Native keyring, configured encrypted-file and session-only credential adapters                |
 | `packages/contracts/schema/ai/`          | Planned schema organization for generic DTOs, integrated into the existing protocol generator |
 | `packages/ai-runtime/`                   | New Node/TypeScript library, normalized request/result and provider adapters                  |
 | `workers/agent/`                         | Thin supervised process host for that library, without database access                        |
@@ -113,11 +113,12 @@ temporary file/atomic finalize; never partially update a binding and its profile
 Removing a profile clears dangling bindings in the same settings revision. Profile
 IDs are never silently recycled. Settings are outside project undo/redo and backups.
 
-Normalize the explicit API root without guessing/appending `/v1`. Presets may
-offer OpenAI, DeepSeek, Qwen-compatible, Gemini-compatible, Groq and local Ollama
-roots after URL verification during implementation; manual custom roots always
-remain possible. A placeholder Claude URL is not a working native adapter. Keep
-the BiliNote reference/limitations in the technical design; no Python stack is added.
+Normalize the explicit API root without guessing/appending `/v1`. The Model
+services UI offers OpenAI and DeepSeek presets with editable roots; both use the
+compatible adapter. Existing other/duplicate profiles remain accessible through
+Manage saved configurations, with explicit identity-preserving preset assignment.
+The [model-services design](../design/ai-model-services.md) defines this follow-up;
+the BiliNote preset list is reference material, not the application's current menu.
 
 Validate URL syntax and reject user-info or secret-bearing query parameters.
 Honor an explicitly configured HTTP endpoint where needed; HTTPS always verifies
@@ -191,9 +192,23 @@ A queued task whose revision has been retired fails `CREDENTIAL_UNAVAILABLE`;
 it never substitutes the new key. Settings edits/removal affect future resolution,
 not accepted run snapshots; a user cancels an active task through the task action.
 
-When no supported secure store is available in browser/Linux development, use a
-clearly labeled process-memory-only store. Restart loses that key and queued work
-must report its absence. No plaintext fallback. Explicit local `authMode = none`
+An explicit `SCENESPARROW_AI_MASTER_KEY_FILE` selects the encrypted-file adapter.
+It uses AES-256-GCM with a fresh OS-random 96-bit nonce, authenticated context and
+revision, SHA-256-derived filenames, bounded private atomic files and an authenticated
+vault header under app-data `credentials-v1`. The external bounded master file
+contains standard base64 encoding of 32 random bytes. Wrong/missing/malformed keys
+and incompatible headers fail `CREDENTIAL_UNAVAILABLE`; no session/plaintext
+downgrade occurs once encrypted data exists. Per-entry corruption makes that
+revision unavailable and preserves other entries. Settings remains the owner of
+revision inventory and orphan cleanup. Views distinguish `native`, `encrypted_file`
+and `session_only`; no key characters are returned.
+
+Without a configured key or existing encrypted data, nonnative local development
+uses a clearly labeled process-memory-only store. Restart loses that key and queued
+work must report its absence. Upgrading from session-only storage preserves saved
+profiles/models, but requires entering API keys once in the new durable store.
+The Web deployment provisions its master once outside app-data backups; see
+[deployment and separate key recovery](../web-deployment.md). Explicit local `authMode = none`
 requires no fictitious stored key; any SDK-required placeholder is nonsecret and
 internal to that adapter.
 
@@ -627,13 +642,14 @@ SAI-T14/15 integration, not real-provider/native or full S3 acceptance.
 
 ## 17. Shared Settings navigation follow-up
 
-The global configuration UI now lives under the workbench gear → Settings →
-**AI & models**, with General as a sibling section. Opening the workbench does not
-read credentials/settings or run inference. AI settings load on first activation;
-advanced capability/token/temperature declarations start collapsed. Dismissal
-clears an unsaved key while preserving uncertain test action/receipt identity, so
-resolving a submitted test never becomes an implicit new paid test.
-All endpoint templates, including Gemini, use the existing OpenAI-compatible Chat
-Completions adapter; there are no native vendor integrations or new media features.
-This navigation change preserves SAI-AC01/02/03/04/05 contracts. See
-[the follow-up evidence](../validation/workspace-onboarding.md).
+The global configuration UI lives under the workbench gear → Settings, with
+General, Model services and Default models sections. The OpenAI/DeepSeek service
+presets, independent saved-model catalog, shared text default and legacy profile
+management follow the [model-services design](../design/ai-model-services.md).
+Opening the workbench does not read credentials/settings or run inference.
+Advanced capability/token/temperature declarations start collapsed. Dismissal
+clears unsaved secret input while preserving uncertain test action/receipt identity,
+so resolving an action never becomes an implicit new paid test. Both presets use
+the existing compatible Chat Completions adapter; no native vendor/media adapter
+is implied. The earlier [navigation evidence](../validation/workspace-onboarding.md)
+records the prior presentation and its unchanged SAI-AC01/02/03/04/05 invariants.

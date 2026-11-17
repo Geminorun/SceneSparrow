@@ -158,15 +158,26 @@ test("settings trap focus, preserve local failed saves, clear unsaved keys and e
   await started;
   await openAiSettings(page);
   await expect(
-    page.getByText("All providers use the OpenAI-compatible", { exact: false }),
+    page.getByRole("button", {
+      name: "Manage saved configurations",
+      exact: true,
+    }),
   ).toBeVisible();
-  await page.getByLabel("Profile name", { exact: true }).fill("Local fixture");
   await page
     .getByLabel("API root", { exact: true })
     .fill("http://localhost:11434/v1");
   await page
-    .getByRole("button", { name: "Save provider", exact: true })
+    .getByRole("button", { name: "Save configuration", exact: true })
     .click();
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
+  const addModel = page.getByRole("dialog", { name: "Add model", exact: true });
+  await addModel
+    .getByLabel("Model ID (manual entry supported)", { exact: true })
+    .fill("local-fixture");
+  await addModel
+    .getByRole("button", { name: "Add model", exact: true })
+    .click();
+  await expect(addModel).not.toBeVisible();
   const advanced = page.locator(".ai-advanced");
   await expect(advanced).not.toHaveAttribute("open", "");
   await expect(

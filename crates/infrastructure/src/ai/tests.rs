@@ -25,6 +25,7 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
     let mut view = store.read_settings().unwrap();
     let id = uuid();
     view.settings.providers.push(AiProvider {
+        service_preset: None,
         id: id.clone(),
         label: "Fixture".into(),
         adapter: AiProviderAdapter::Openaicompatible,
@@ -34,6 +35,7 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
         revision: 1,
     });
     view.settings.models.push(AiModel {
+        default_parameters: None,
         provider_id: id.clone(),
         id: "manual-model".into(),
         label: "Manual".into(),
@@ -330,6 +332,110 @@ fn credential_rotation_retirement_orphan_inventory_and_session_restart_are_expli
         "CREDENTIAL_UNAVAILABLE"
     );
 }
+#[test]
+fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisions() {
+    use base64::Engine;
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("app");
+    let master = root.path().join("master");
+    std::fs::write(
+        &master,
+        base64::engine::general_purpose::STANDARD.encode([11; 32]),
+    )
+    .unwrap();
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    let view = configured(&store, "bearer");
+    let provider = view.settings.providers[0].id.clone();
+    let view = store
+        .update_credential(
+            view.settings.revision,
+            &provider,
+            Some("ENCRYPTED_SETTINGS_CANARY_A"),
+        )
+        .unwrap();
+    let before = config(&store);
+    let lease = store.lease(&before).unwrap();
+    assert_eq!(
+        view.credential_backend,
+        AiSettingsViewCredentialBackend::Encryptedfile
+    );
+    drop(store);
+    assert!(SettingsStore::open_with_master_key_file(&directory, None).is_err());
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    assert_eq!(
+        store.lease(&config(&store)).unwrap().expose(),
+        Some("ENCRYPTED_SETTINGS_CANARY_A")
+    );
+    store.fail_next_write.store(true, Ordering::SeqCst);
+    assert_eq!(
+        store
+            .update_credential(
+                view.settings.revision,
+                &provider,
+                Some("FAILED_ENCRYPTED_CANARY")
+            )
+            .unwrap_err()
+            .0,
+        "STORAGE_UNAVAILABLE"
+    );
+    assert_eq!(store.read_settings().unwrap().settings, view.settings);
+    let rotated = store
+        .update_credential(
+            view.settings.revision,
+            &provider,
+            Some("ENCRYPTED_SETTINGS_CANARY_B"),
+        )
+        .unwrap();
+    assert!(store.lease(&before).is_err());
+    assert_eq!(lease.expose(), Some("ENCRYPTED_SETTINGS_CANARY_A"));
+    assert_eq!(
+        std::fs::read_dir(directory.join("credentials-v1"))
+            .unwrap()
+            .count(),
+        3
+    );
+    // Model a crash after secure insertion but before settings publication.
+    let orphan =
+        crate::credentials::encrypted::EncryptedCredentials::open(&directory, &master).unwrap();
+    orphan
+        .put_new_revision("orphan-fixture", "ORPHAN_ENCRYPTED_CANARY")
+        .unwrap();
+    let inventory_file = directory.join("owned-credential-revisions.json");
+    let mut inventory: Vec<String> =
+        serde_json::from_slice(&std::fs::read(&inventory_file).unwrap()).unwrap();
+    inventory.push("orphan-fixture".into());
+    std::fs::write(&inventory_file, serde_json::to_vec(&inventory).unwrap()).unwrap();
+    drop(store);
+    let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    assert!(!orphan.present("orphan-fixture"));
+    assert_eq!(
+        store.lease(&config(&store)).unwrap().expose(),
+        Some("ENCRYPTED_SETTINGS_CANARY_B")
+    );
+    let deleted = store
+        .update_credential(rotated.settings.revision, &provider, None)
+        .unwrap();
+    assert!(deleted.present_credential_revisions.is_empty());
+    assert_eq!(
+        std::fs::read_dir(directory.join("credentials-v1"))
+            .unwrap()
+            .count(),
+        2
+    );
+    let inventory: Vec<String> = serde_json::from_slice(
+        &std::fs::read(directory.join("owned-credential-revisions.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(inventory.is_empty());
+    for filename in ["ai-settings.json", "owned-credential-revisions.json"] {
+        assert!(
+            !std::fs::read_to_string(directory.join(filename))
+                .unwrap()
+                .contains("CANARY")
+        );
+    }
+}
+
 #[test]
 fn independent_consumer_start_is_atomic_idempotent_and_configuration_checked_before_commit() {
     let (_dir, repo) = project();
@@ -854,4 +960,61 @@ fn verified_backup_recovered_copy_fences_every_queued_run_and_quiesce_preserves_
     assert!(repo.claim_ai().unwrap().is_none());
     repo.resume();
     assert_eq!(repo.claim_ai().unwrap().unwrap().0.run_id, queued.run_id);
+}
+
+#[test]
+fn model_service_metadata_legacy_compatibility_preferences_and_semantic_fingerprints() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::open(dir.path()).unwrap();
+    let first = configured(&store, "none");
+    let fingerprint = config(&store).fingerprint;
+    let legacy_json = serde_json::to_value(&first.settings).unwrap();
+    assert!(legacy_json["providers"][0].get("servicePreset").is_none());
+    assert!(legacy_json["models"][0].get("defaultParameters").is_none());
+    let legacy: AiSettings = serde_json::from_value(legacy_json).unwrap();
+    validate_settings(&legacy).unwrap();
+    let mut settings = legacy.clone();
+    settings.providers[0].service_preset = Some(AiProviderServicePreset::Openai);
+    let mut preferences = settings.bindings[0].parameters.clone();
+    preferences.max_output_tokens = 512;
+    settings.models[0].default_parameters = Some(preferences.clone());
+    let saved = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: first.settings.revision,
+            settings,
+        })
+        .unwrap();
+    assert_eq!(config(&store).fingerprint, fingerprint);
+    assert_eq!(saved.settings.bindings, legacy.bindings);
+    let mut duplicate = saved.settings.clone();
+    let mut other = duplicate.providers[0].clone();
+    other.id = uuid();
+    duplicate.providers.push(other);
+    assert_eq!(
+        validate_settings(&duplicate).unwrap_err().0,
+        "INVALID_SETTINGS"
+    );
+    let mut invalid = saved.settings.clone();
+    invalid.models[0].output_tokens = Some(128);
+    assert_eq!(
+        validate_settings(&invalid).unwrap_err().0,
+        "INVALID_SETTINGS"
+    );
+    let mut selected = saved.settings.clone();
+    selected.bindings[0].parameters = preferences;
+    let next = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: saved.settings.revision,
+            settings: selected,
+        })
+        .unwrap();
+    assert_ne!(config(&store).fingerprint, fingerprint);
+    assert_eq!(next.settings.providers[0].id, legacy.providers[0].id);
+    assert_eq!(
+        next.settings.providers[0].auth_mode,
+        legacy.providers[0].auth_mode
+    );
+    let backend: AiSettingsViewCredentialBackend =
+        serde_json::from_str("\"encrypted_file\"").unwrap();
+    assert_eq!(word(&backend), "encrypted_file");
 }

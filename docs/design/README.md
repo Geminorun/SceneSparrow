@@ -17,6 +17,12 @@ The feature branch is `feat/script-workbench`, created directly from remote
 
 ## Reading order
 
+The [model services and durable credentials follow-up](ai-model-services.md)
+defines the current Settings navigation, two compatible service presets, saved
+model catalog, shared manuscript default and encrypted Web credentials. It
+supersedes earlier settings presentation and session-only Web storage statements;
+see [implementation validation](../validation/ai-model-services.md).
+
 The [reference and creation workspace](reference-workspace.md) is the latest
 approved layout follow-up: Contents/Library navigation on the left, a continuous
 warm-gray manuscript, and Create/Review assistance on the right. It replaces the

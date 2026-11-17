@@ -28,16 +28,19 @@ function trapDialogFocus(event: ReactKeyboardEvent<HTMLDialogElement>) {
     event.currentTarget.querySelectorAll<HTMLElement>(
       'button, input, select, textarea, summary, a[href], [tabindex]:not([tabindex="-1"])',
     ),
-  ).filter(
-    (element) =>
-      !element.matches(":disabled") &&
-      element.getClientRects().length > 0 &&
-      (!element.closest("details:not([open])") ||
-        element ===
-          element
-            .closest("details:not([open])")
-            ?.querySelector(":scope > summary")),
-  );
+  ).filter((element) => {
+    if (element.matches(":disabled") || !element.getClientRects().length)
+      return false;
+    // Walk only this control's ancestors, even when the model catalog is large.
+    for (
+      let details = element.closest("details:not([open])");
+      details;
+      details = details.parentElement?.closest("details:not([open])") ?? null
+    ) {
+      if (element !== details.querySelector(":scope > summary")) return false;
+    }
+    return true;
+  });
   const first = controls[0],
     last = controls.at(-1);
   if (
@@ -76,7 +79,9 @@ export function App({ client }: { client: PlatformClient }) {
   const gear = useRef<HTMLButtonElement>(null);
   const projectMenu = useRef<HTMLDetailsElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [section, setSection] = useState<"general" | "ai">("general");
+  const [section, setSection] = useState<"general" | "services" | "defaults">(
+    "general",
+  );
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState("");
@@ -531,10 +536,16 @@ export function App({ client }: { client: PlatformClient }) {
               {t.generalSettings}
             </button>
             <button
-              aria-current={section === "ai" ? "page" : undefined}
-              onClick={() => setSection("ai")}
+              aria-current={section === "services" ? "page" : undefined}
+              onClick={() => setSection("services")}
             >
               {t.aiModels}
+            </button>
+            <button
+              aria-current={section === "defaults" ? "page" : undefined}
+              onClick={() => setSection("defaults")}
+            >
+              {t.aiDefaultModels}
             </button>
           </nav>
           <div className="settings-content">
@@ -555,7 +566,9 @@ export function App({ client }: { client: PlatformClient }) {
             <AiSettings
               client={client}
               t={t}
-              active={settingsOpen && section === "ai"}
+              active={settingsOpen && section !== "general"}
+              open={settingsOpen}
+              section={section === "defaults" ? "defaults" : "services"}
             />
           </div>
         </div>

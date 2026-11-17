@@ -8,6 +8,7 @@ import {
   mkdir,
   rm,
   copyFile,
+  stat,
 } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -34,6 +35,12 @@ set -eu
 printf '%s\\n' "$*" >> "$TEST_LOG"
 if [[ $1 == login ]]; then cat >/dev/null; fi
 if [[ $1 == ps && \$TEST_RUNNING == 1 ]]; then echo container-still-running; fi
+if [[ $1 == volume && $2 == ls ]]; then
+  if [[ \$TEST_VOLUME_ERROR == 1 ]]; then exit 1; fi
+  if [[ \$TEST_VOLUME_EXISTS == 1 ]]; then echo scenesparrow-appdata; fi
+fi
+if [[ $1 == volume && $2 == inspect && \$TEST_VOLUME_EXISTS == 0 ]]; then exit 1; fi
+if [[ $* == *'--entrypoint node'* && \$TEST_VAULT == 1 ]]; then exit 42; fi
 if [[ $* == *' pull '* && \$TEST_PULL_FAIL == 1 ]]; then exit 1; fi
 if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
 `,
@@ -65,6 +72,9 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
         TEST_RUNNING: options.running ? "1" : "0",
         TEST_PULL_FAIL: options.pullFail ? "1" : "0",
         TEST_UP_FAIL: options.upFail ? "1" : "0",
+        TEST_VOLUME_EXISTS: options.noVolumes ? "0" : "1",
+        TEST_VAULT: options.vault ? "1" : "0",
+        TEST_VOLUME_ERROR: options.volumeError ? "1" : "0",
       },
     });
     return { ...result, calls: await readFile(log, "utf8") };
@@ -120,7 +130,34 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
     );
     const live = await attempt({ running: true });
     assert.equal(live.status, 1);
-    assert.doesNotMatch(live.calls, /run --rm| up /);
+    assert.doesNotMatch(live.calls, /--entrypoint tar| up /);
+    const masterFile = join(directory, "secrets", "ai-master-key");
+    const master = await readFile(masterFile, "utf8");
+    assert.equal(Buffer.from(master.trim(), "base64").length, 32);
+    assert.equal((await stat(masterFile)).mode & 0o777, 0o444);
+    assert.equal((await stat(join(directory, "secrets"))).mode & 0o777, 0o700);
+    await rm(masterFile);
+    const daemonFailure = await attempt({ volumeError: true });
+    assert.notEqual(daemonFailure.status, 0);
+    assert.match(daemonFailure.stderr, /master key was not generated/);
+    await assert.rejects(readFile(masterFile), { code: "ENOENT" });
+    const lost = await attempt({ vault: true });
+    assert.equal(lost.status, 1);
+    assert.match(lost.stderr, /Restore its original master key/);
+    assert.doesNotMatch(lost.calls, / stop | up |--entrypoint tar/);
+    await assert.rejects(readFile(masterFile), { code: "ENOENT" });
+    await writeFile(masterFile, "INVALID_MASTER_CANARY", { mode: 0o444 });
+    const malformed = await attempt();
+    assert.notEqual(malformed.status, 0);
+    assert.equal(malformed.calls, "");
+    assert.doesNotMatch(malformed.stderr, /INVALID_MASTER_CANARY/);
+    await rm(masterFile);
+    // A first deployment with no volumes generates a key without creating a
+    // volume merely to inspect it, even if a later live-container guard fails.
+    const first = await attempt({ noVolumes: true, running: true });
+    assert.equal(first.status, 1);
+    assert.doesNotMatch(first.calls, /run --rm|volume create/);
+    const generated = await readFile(masterFile, "utf8");
     const failed = await attempt({ upFail: true });
     assert.equal(failed.status, 1);
     assert.match(failed.stderr, /No database restore or image rollback/);
@@ -150,6 +187,15 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
       /c{6}/,
     );
     assert.equal((await readdir(join(directory, "backups"))).length, 2);
+    assert.equal(await readFile(masterFile, "utf8"), generated);
+    const runtimeEnv = await readFile(join(directory, "runtime.env"), "utf8");
+    assert.match(runtimeEnv, /AI_MASTER_KEY_FILE=.*\/secrets\/ai-master-key/);
+    for (const value of [master.trim(), generated.trim()]) {
+      assert.ok(!runtimeEnv.includes(value));
+      assert.ok(
+        !(success.stdout + success.stderr + success.calls).includes(value),
+      );
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

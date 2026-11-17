@@ -8,6 +8,7 @@ services:
     stop_grace_period: 60s
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the HTTPS public origin}
+      SCENESPARROW_AI_MASTER_KEY_FILE: /run/secrets/ai_master_key
     ports:
       - "127.0.0.1:${WEB_PORT:-8070}:8080"
     volumes:
@@ -15,6 +16,7 @@ services:
       - appdata:/data/app
     secrets:
       - operator_auth
+      - ai_master_key
     healthcheck:
       test:
         [
@@ -33,6 +35,8 @@ services:
 secrets:
   operator_auth:
     file: ${OPERATOR_AUTH_FILE:?Set the operator secret file path}
+  ai_master_key:
+    file: ${AI_MASTER_KEY_FILE:?Set the AI master key file path}
 volumes:
   project:
     name: scenesparrow-project

@@ -1,5 +1,10 @@
 # Shared creator workbench
 
+Historical follow-up: the later [reference workspace](reference-workspace.md)
+supersedes this layout, and [model services](ai-model-services.md) supersedes its
+Settings presentation. The lifecycle and recovery invariants below remain in
+force; the older visual tokens and provider menu are not the current UI.
+
 This follow-up replaces the project-name creation gate with a workbench that opens
 immediately. It keeps the existing S1/S2/S3 boundaries: a new project starts in
 planning; **Start writing** is still explicit. Opening or initializing the workbench does not submit a new AI task.

@@ -1978,3 +1978,280 @@ select:focus {
     padding: 28px 8px 80px 20px;
   }
 }
+
+/* Settings keeps the workbench's compact, quiet visual hierarchy. */
+.settings-dialog {
+  width: 1080px;
+  height: min(760px, calc(100dvh - 32px));
+  overflow: hidden;
+  display: none;
+  flex-direction: column;
+}
+.settings-dialog[open] {
+  display: flex;
+}
+.settings-layout {
+  flex: 1;
+  min-height: 0;
+  gap: 20px;
+}
+.settings-content {
+  overflow: auto;
+  min-height: 0;
+}
+.settings-layout > nav button[aria-current="page"],
+.ai-service-list > button[aria-current="page"] {
+  background: var(--hover);
+  color: var(--ink);
+}
+.ai-settings {
+  height: 100%;
+}
+.ai-services {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+.ai-service-list {
+  padding-right: 16px;
+  border-right: 1px solid var(--border);
+  overflow: auto;
+}
+.ai-service-list h3 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 0;
+}
+.ai-service-list > button {
+  width: 100%;
+  text-align: start;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  background: transparent;
+  padding: 10px;
+  margin-bottom: 4px;
+}
+.ai-service-list small,
+.ai-model-heading small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.ai-service-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.ai-service-list .ai-manage {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 16px;
+  border-radius: 0;
+}
+.ai-service-detail {
+  padding-inline: 24px 4px;
+  overflow: auto;
+  min-width: 0;
+}
+.ai-service-detail p,
+.ai-model-detail p,
+.ai-picker-dialog p {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.ai-service-detail > label {
+  margin-block: 16px 6px;
+  font-size: 0.875rem;
+}
+.ai-service-title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.ai-service-title h3 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+.ai-key-input {
+  display: flex;
+  gap: 8px;
+}
+.ai-key-input input {
+  min-width: 0;
+  flex: 1;
+}
+.ai-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ai-service-detail button,
+.ai-picker-dialog button {
+  font-size: 0.8125rem;
+}
+.ai-catalog {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.ai-catalog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ai-catalog-heading h4 {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.ai-manual-model {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+}
+.ai-manual-model label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8125rem;
+}
+.ai-empty {
+  padding-block: 16px;
+}
+.ai-model-row {
+  padding-block: 14px;
+  border-top: 1px solid var(--border);
+}
+.ai-model-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 8px;
+}
+.ai-model-heading > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+.ai-model-heading > button {
+  flex-shrink: 0;
+  max-width: 50%;
+}
+.ai-model-detail {
+  margin-top: 12px;
+  font-size: 0.8125rem;
+}
+.ai-model-detail summary,
+.ai-advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.ai-model-detail .ai-advanced {
+  margin-block: 16px;
+}
+.ai-advanced label {
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+.ai-advanced > button {
+  margin-top: 16px;
+}
+.ai-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+.ai-checkbox input {
+  width: auto;
+}
+.ai-services-back {
+  display: none;
+}
+.ai-default-models {
+  padding-right: 20px;
+}
+.ai-default-models > label {
+  max-width: 440px !important;
+}
+.ai-picker-dialog {
+  width: 600px;
+}
+.ai-discovery-list {
+  display: grid;
+  gap: 12px;
+  margin-block: 16px;
+  max-height: 300px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.ai-saved-profile {
+  padding-block: 16px;
+  border-top: 1px solid var(--border);
+}
+.ai-saved-profile p {
+  margin-block: 6px 12px;
+}
+@media (max-width: 850px) {
+  .settings-layout {
+    grid-template-columns: 135px minmax(0, 1fr);
+  }
+  .ai-services {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ai-service-list {
+    border: 0;
+    padding: 0;
+  }
+  .ai-service-detail {
+    display: none;
+    padding: 0 4px 0 0;
+  }
+  .ai-show-detail > .ai-service-list {
+    display: none;
+  }
+  .ai-show-detail > .ai-service-detail {
+    display: block;
+  }
+  .ai-services-back {
+    display: inline-flex;
+    margin-bottom: 16px;
+  }
+}
+@media (max-width: 600px) {
+  .settings-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .settings-layout > nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .settings-layout > nav button {
+    font-size: 0.8125rem;
+  }
+  .settings-content {
+    flex: 1;
+  }
+  .ai-advanced > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

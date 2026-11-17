@@ -39,9 +39,16 @@ pub fn app_data_directory() -> PathBuf {
 }
 impl SettingsStore {
     pub fn open(directory: &Path) -> Result<Self> {
+        let key = std::env::var_os("SCENESPARROW_AI_MASTER_KEY_FILE").map(PathBuf::from);
+        Self::open_with_master_key_file(directory, key.as_deref())
+    }
+    pub fn open_with_master_key_file(
+        directory: &Path,
+        master_key_file: Option<&Path>,
+    ) -> Result<Self> {
         Self::with_credentials(
             directory,
-            Arc::new(crate::credentials::PlatformCredentials::default()),
+            crate::credentials::for_application(directory, master_key_file)?,
         )
     }
     pub fn with_credentials(
@@ -115,11 +122,7 @@ impl SettingsStore {
             .collect();
         AiSettingsView {
             settings,
-            credential_backend: if self.credentials.persistent() {
-                AiSettingsViewCredentialBackend::Native
-            } else {
-                AiSettingsViewCredentialBackend::Sessiononly
-            },
+            credential_backend: self.credentials.backend_kind(),
             present_credential_revisions,
             session_id: self.session_id.clone(),
         }
@@ -233,6 +236,7 @@ impl SettingsStore {
             capability: AiCapability::Textgenerate,
             provider,
             model: AiModel {
+                default_parameters: None,
                 provider_id: id.into(),
                 id: "discovery-only".into(),
                 label: "".into(),
@@ -287,6 +291,7 @@ impl SettingsStore {
                     observed_at: None,
                 };
                 AiModel {
+                    default_parameters: None,
                     provider_id: target.provider_id.clone(),
                     id: target.model_id.clone(),
                     label: target.model_id.clone(),

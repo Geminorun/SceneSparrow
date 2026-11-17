@@ -18,9 +18,11 @@ export async function startManualDraft(page: Page) {
 
 export async function openAiSettings(page: Page) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "AI & models", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Model services", exact: true })
+    .click();
   await expect(
-    page.getByRole("region", { name: "AI & models", exact: true }),
+    page.getByRole("region", { name: "Model services", exact: true }),
   ).toBeVisible();
 }
 

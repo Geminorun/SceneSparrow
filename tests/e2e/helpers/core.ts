@@ -10,13 +10,13 @@ import { once } from "node:events";
 import { waitFor } from "../../../scripts/processes.mjs";
 
 type Core = {
-  request: (path: string, body?: unknown) => Promise<any>;
+  request: (path: string, body?: unknown, method?: string) => Promise<any>;
   intercept: (
     handler: (
       path: string,
       body: any,
       phase: "before" | "after",
-    ) => Promise<void>,
+    ) => Promise<void | "abort">,
   ) => void;
 };
 export const test = base.extend<{ core: Core }>({
@@ -47,7 +47,7 @@ export const test = base.extend<{ core: Core }>({
         path: string,
         body: any,
         phase: "before" | "after",
-      ) => Promise<void> = async () => {};
+      ) => Promise<void | "abort"> = async () => {};
       try {
         await waitFor(
           `${url}/health`,
@@ -80,16 +80,17 @@ export const test = base.extend<{ core: Core }>({
               Authorization: `Bearer ${token}`,
             },
           });
-          await intercept(target.pathname, body, "after");
-          await route.fulfill({ response });
+          if ((await intercept(target.pathname, body, "after")) === "abort")
+            await route.abort("failed");
+          else await route.fulfill({ response });
         });
         await use({
           intercept: (handler) => {
             intercept = handler;
           },
-          request: async (path, body) => {
+          request: async (path, body, method) => {
             const response = await fetch(url + path, {
-              method: body ? "POST" : "GET",
+              method: method ?? (body ? "POST" : "GET"),
               headers: {
                 Authorization: `Bearer ${token}`,
                 "content-type": "application/json",

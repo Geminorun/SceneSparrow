@@ -214,11 +214,36 @@ archives. A backup failure leaves the old service stopped and needs operator
 inspection. Same-commit redeployment is safe and still creates a fresh backup.
 
 Backups include the previous Compose/runtime configuration and requested image
-digest; they intentionally exclude operator credentials. Backups are never deleted
+digest; they intentionally exclude operator credentials and the AI master key. Backups are never deleted
 automatically. Monitor disk space, export encrypted copies off-server, and choose
 retention explicitly. No unrelated Docker images, containers or volumes are pruned.
-Linux AI keys remain in core session memory, not these volumes: enter keys again
-after a container/core restart. Global provider/model settings persist in app data.
+Global provider/model settings and encrypted API credential revisions persist in
+app data. The deployment provisions `<DEPLOY_DIR>/secrets/ai-master-key` once,
+using 32 cryptographically random bytes encoded as standard base64. It reuses that
+file on redeploy, sets its mode to `0444` within the host's `0700` secrets directory,
+and mounts it read-only as `/run/secrets/ai_master_key` for uid 1000. Runtime env
+contains only its host locator (`AI_MASTER_KEY_FILE`), while the supervisor passes
+only the container locator (`SCENESPARROW_AI_MASTER_KEY_FILE`) to the core. Worker
+environments receive neither locator nor master contents. No additional GitHub
+secret is required and builds never rotate the master.
+
+Back up the master separately to protected off-server secret storage, retaining
+the key corresponding to each app-data archive. Never bundle it in the app-data
+archive or print it in diagnostics. An app-data archive contains ciphertext and
+requires that original master to recover saved credentials. If the host key is
+missing while the existing app-data volume contains a vault header, entries or
+unknown vault contents, deployment stops before service downtime and asks the
+operator to restore the original key. It never generates a replacement over an
+existing encrypted vault. Empty/lock-only initialization directories do not count
+as encrypted data. Unreadable volume inventory also stops provisioning.
+
+First deployment and upgrade from an unencrypted app-data volume may provision a
+new master. Existing provider/model references survive; session-only API keys
+cannot be recovered after the old core exits, so enter those keys once after
+upgrade. The settings view reports the encrypted-file backend. Wrong, malformed,
+missing or unreadable configured keys fail with a stable credential error rather
+than falling back to session memory/plaintext. Ordinary local development without
+a master or existing encrypted vault remains session-only.
 
 A failed replacement may already have migrated databases or accepted writes.
 The helper preserves the failed container/data and backup, reports failure and
@@ -235,7 +260,10 @@ docker compose --env-file runtime.env -f compose.yaml logs --tail 100
 For recovery, stop all containers using both volumes and retain an additional
 offline copy of the failed state. Decide explicitly whether to repair forward
 with compatible code, or restore both complete archives into **new empty volumes**
-and use the matching prior image/configuration. Restoration loses every write
+and use the matching prior image/configuration. Restore the corresponding master
+separately to the protected host secrets directory before starting an encrypted
+app-data restore; preserve its original bytes and read-only mode. A wrong master
+fails authenticated header validation and is never overwritten. Restoration loses every write
 after that backup; obtain the operator's decision first. Verify archive integrity,
 ownership, project identity and exports in an isolated recovery deployment before
 switching traffic. Do not unpack an old archive over a live or nonempty migrated
@@ -250,7 +278,7 @@ and the later [release policy validation](validation/release-policy.md).
 No real SSH host, GHCR publication, GitHub workflow execution, domain/proxy change
 or paid provider call is performed by implementation checks. Run an authorized real release
 workflow and verify HTTPS, operator rejection, SSE reconnect, project persistence,
-backup retention and restart key re-entry on the actual server before accepting
+backup retention and encrypted-key availability after restart on the actual server before accepting
 online deployment. Desktop Windows/macOS compatibility, real provider behavior,
 multiuser isolation and full production video rendering remain separate work.
 
