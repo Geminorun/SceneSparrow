@@ -26,14 +26,54 @@ export async function openAiSettings(page: Page) {
 
 export async function openPanel(
   page: Page,
-  name: "Structure" | "Planning" | "Review" | "Sources",
+  name:
+    | "Structure"
+    | "Planning"
+    | "Review"
+    | "Sources"
+    | "Contents"
+    | "Create"
+    | "Library",
 ) {
+  const label =
+    (
+      {
+        Structure: "Contents",
+        Planning: "Create",
+        Sources: "Library",
+      } as Record<string, string>
+    )[name] ?? name;
+  const left = ["Contents", "Library"].includes(label);
+  const closeOther = page.getByRole("button", {
+    name: left ? "Close assistant" : "Close navigator",
+    exact: true,
+  });
+  if (
+    (await page.locator(".manuscript-main").getAttribute("inert")) !== null &&
+    (await closeOther.isVisible())
+  )
+    await closeOther.click();
   const open = page.getByRole("button", {
-    name: "Open auxiliary panel",
+    name: left ? "Open navigator" : "Open assistant",
     exact: true,
   });
   if (await open.isVisible()) await open.click();
-  await page.getByRole("tab", { name, exact: true }).click();
+  await page.getByRole("tab", { name: label, exact: true }).click();
+  // Legacy callers exercise optional planning tools on an existing manuscript.
+  if (name === "Planning") {
+    for (const selector of [
+      ".creation-assistance",
+      ".planning-preferences",
+      ".planning-outline",
+    ]) {
+      const details = page.locator(selector);
+      if (
+        (await details.count()) &&
+        !(await details.evaluate((node: HTMLDetailsElement) => node.open))
+      )
+        await details.locator(":scope > summary").click();
+    }
+  }
 }
 export async function openExports(page: Page) {
   await openDocumentMenu(page);
@@ -46,7 +86,7 @@ export async function openDocumentMenu(page: Page) {
   const main = page.locator(".manuscript-main");
   if ((await main.getAttribute("inert")) !== null) {
     await page
-      .getByRole("button", { name: "Close auxiliary panel", exact: true })
+      .getByRole("button", { name: /Close (assistant|navigator)/, exact: true })
       .click();
     await expect(main).not.toHaveAttribute("inert");
   }

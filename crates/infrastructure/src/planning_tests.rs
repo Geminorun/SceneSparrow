@@ -1164,3 +1164,84 @@ fn superseded_evidence_context_is_removed_from_sql_and_unpinned_after_expiry() {
     assert!(r.read_object(&runs[0].input_hash).is_err());
     assert!(r.read_object(&runs[4].input_hash).is_ok());
 }
+
+#[test]
+fn refresh_clears_reference_consent_but_preserves_running_task_input_and_rejects_stale_draft() {
+    let (dir, r, s, p) = setup();
+    plan(&r, &p, true);
+    let intake = id();
+    r.begin_intake(&intake, "source.txt", "text/plain").unwrap();
+    r.append_intake(&intake, b"Original evidence").unwrap();
+    let original = r.complete_intake(&intake).unwrap();
+    let source = id();
+    r.execute_manuscript(&cmd(&r, &p, "AddSourceFile", json!({"sourceId":source,"intakeId":intake,"hash":original.hash,"relativePath":"research/source.txt"}))).unwrap();
+    let job = id();
+    r.document_action(&DocumentAction::ExtractSource {
+        job_id: job.clone(),
+        source_id: source.clone(),
+    })
+    .unwrap();
+    r.run_document(&job).unwrap();
+    let mut content = r.read_planning().unwrap().content;
+    content.evidence.push(PlanningEvidenceChoice {
+        source_id: source.clone(),
+        mode: PlanningEvidenceChoiceMode::Extractedtext,
+        start: 0,
+        end: 17,
+        visual_id: String::new(),
+        allow_unknown_images: false,
+    });
+    save(&r, &p, &content);
+    let (task, _) = start(&r, &s, &p, "generate_initial_draft");
+    let run = r.read_run(&task).unwrap();
+    let pinned_input = r.ai_input_bytes(&run).unwrap();
+    let intake = id();
+    r.begin_intake(&intake, "source.txt", "text/plain").unwrap();
+    r.append_intake(&intake, b"New reference material").unwrap();
+    let changed = r.complete_intake(&intake).unwrap();
+    let refresh = cmd(
+        &r,
+        &p,
+        "RefreshSourceFile",
+        json!({"sourceId":source,"expectedSourceRevision":1,"intakeId":intake,"hash":changed.hash}),
+    );
+    r.execute_manuscript(&refresh).unwrap();
+    assert!(r.read_planning().unwrap().content.evidence.is_empty());
+    assert_eq!(r.ai_input_bytes(&run).unwrap(), pinned_input);
+    assert_eq!(r.read_run(&task).unwrap().status, AiRunStatus::Queued);
+    // Evict the refresh/add history so only the active task can retain the old file.
+    for n in 0..7 {
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "AddSourceLink",
+            json!({"sourceId":id(),"url":"https://example.com","title":format!("Unrelated {n}")}),
+        ))
+        .unwrap();
+    }
+    r.collect_objects(std::time::Duration::ZERO).unwrap();
+    assert_eq!(r.read_object(&original.hash).unwrap(), b"Original evidence");
+    complete(&r, draft(&r));
+    r.reconcile_planning().unwrap();
+    assert_eq!(r.planning_task(&task).unwrap().application, "stale");
+    assert!(r.read_manuscript().unwrap().blocks.is_empty());
+    assert!(!r.has_queued_ai().unwrap());
+    drop(r);
+    let r = SqliteProjectRepository::open(&dir.path().join("project")).unwrap();
+    assert_eq!(r.ai_input_bytes(&run).unwrap(), pinned_input);
+    assert!(r.read_planning().unwrap().content.evidence.is_empty());
+    // A newly selected range must refer to an extraction of the new content hash.
+    let current = r.read_planning().unwrap().content;
+    let mut selected = current.clone();
+    selected.evidence = content.evidence.clone();
+    save(&r, &p, &selected);
+    assert_eq!(
+        r.prepare_planning(
+            &s,
+            &serde_json::from_value(json!({"operation":"generate_initial_draft"})).unwrap()
+        )
+        .unwrap_err()
+        .0,
+        "EVIDENCE_NOT_READY"
+    );
+}

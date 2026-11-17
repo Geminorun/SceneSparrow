@@ -483,9 +483,9 @@ test("desktop recent navigation renders safe titles and preserves the editor on 
   );
   const node = await editor.elementHandle(),
     project = (await core.request("/project")).project;
-  await page.getByText("Project files", { exact: true }).click();
+  await page.getByText("Application menu", { exact: true }).click();
   const files = page.getByRole("navigation", {
-    name: "Project files",
+    name: "Application menu",
     exact: true,
   });
   await files
@@ -538,9 +538,16 @@ test("a long project name stays compact at desktop and narrow widths with the fu
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBe(width);
+    const menu = page.locator(".project-menu");
+    if (!(await menu.evaluate((node: HTMLDetailsElement) => node.open)))
+      await menu.locator(":scope > summary").click();
     const heading = page.getByTestId("project-title");
     await expect(heading).toHaveAttribute("title", title.trim());
-    expect((await heading.boundingBox())!.height).toBeLessThan(32);
+    expect((await heading.boundingBox())!.width).toBeLessThanOrEqual(
+      width - 40,
+    );
+    await menu.locator(":scope > summary").click();
+    await expect(page.locator(".project-heading")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Lock block", exact: true }).first(),
     ).toBeVisible();

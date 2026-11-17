@@ -314,9 +314,7 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
           ),
         );
         const saveStart = performance.now();
-        await page
-          .getByRole("heading", { name: "Manuscript", exact: true })
-          .click();
+        await page.getByTestId("manuscript-title").click();
         await expect(page.getByTestId("save-status")).toHaveAttribute(
           "data-state",
           "saved",

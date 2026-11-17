@@ -111,9 +111,7 @@ test("measures Linux manuscript fixtures with real browser input and core receip
         ),
       );
       const start = performance.now();
-      await page
-        .getByRole("heading", { name: "Manuscript", exact: true })
-        .click();
+      await page.getByTestId("manuscript-title").click();
       await expect(page.getByTestId("save-status")).toHaveAttribute(
         "data-state",
         "saved",

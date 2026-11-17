@@ -32,6 +32,8 @@ import type {
   HistoryErrorDetails,
   SourcePage,
   Intake,
+  ReferenceDirectoryAssociation,
+  ReferenceDirectoryBatch,
   DocumentAction,
   DocumentJob,
   ExtractionPage,
@@ -91,6 +93,14 @@ export interface PlatformClient {
   cancelAiRun(runId: string): Promise<AiRun>;
 
   readSources(after?: string): Promise<SourcePage>;
+  readReferenceDirectory?(): Promise<ReferenceDirectoryAssociation | null>;
+  pickReferenceDirectory?(
+    signal?: AbortSignal,
+  ): Promise<ReferenceDirectoryBatch | null>;
+  refreshReferenceDirectory?(
+    capabilityId: string,
+    signal?: AbortSignal,
+  ): Promise<ReferenceDirectoryBatch>;
   uploadFile(
     file: File,
     signal?: AbortSignal,
@@ -478,6 +488,19 @@ export interface DesktopBridge {
   cancelAiRun(runId: string): Promise<BridgeResult<AiRun>>;
 
   readSources(after?: string): Promise<BridgeResult<SourcePage>>;
+  readReferenceDirectory?(): Promise<
+    BridgeResult<ReferenceDirectoryAssociation | null>
+  >;
+  pickReferenceDirectory?(
+    operationId: string,
+  ): Promise<BridgeResult<ReferenceDirectoryBatch | null>>;
+  refreshReferenceDirectory?(
+    operationId: string,
+    capabilityId: string,
+  ): Promise<BridgeResult<ReferenceDirectoryBatch>>;
+  cancelReferenceDirectoryBatch?(
+    operationId: string,
+  ): Promise<BridgeResult<null>>;
   pickFileIntake(id: string): Promise<BridgeResult<Intake | null>>;
   cancelFileSelection(id: string): Promise<BridgeResult<null>>;
   onFileIntakeProgress(
@@ -521,7 +544,56 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     if (!result.ok) throw new ApiError(result.code, result.details);
     return result.data;
   }
+  async function directoryBatch<T extends ReferenceDirectoryBatch | null>(
+    start: (id: string) => Promise<BridgeResult<T>>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (signal?.aborted) throw new ApiError("DOCUMENT_JOB_INTERRUPTED");
+    const id = crypto.randomUUID();
+    const cancel = () => {
+      void bridge.cancelReferenceDirectoryBatch?.(id).catch(() => {});
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const batch = await unwrap(start(id));
+      if (signal?.aborted) {
+        await Promise.allSettled(
+          (batch?.entries ?? []).map(({ intake }) =>
+            bridge.cancelIntake(intake.id),
+          ),
+        );
+        throw new ApiError("DOCUMENT_JOB_INTERRUPTED");
+      }
+      return batch;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+    }
+  }
   return {
+    ...(bridge.readReferenceDirectory
+      ? {
+          readReferenceDirectory: () =>
+            unwrap(bridge.readReferenceDirectory!()),
+        }
+      : {}),
+    ...(bridge.pickReferenceDirectory
+      ? {
+          pickReferenceDirectory: (signal?: AbortSignal) =>
+            directoryBatch((id) => bridge.pickReferenceDirectory!(id), signal),
+        }
+      : {}),
+    ...(bridge.refreshReferenceDirectory
+      ? {
+          refreshReferenceDirectory: (
+            capabilityId: string,
+            signal?: AbortSignal,
+          ) =>
+            directoryBatch(
+              (id) => bridge.refreshReferenceDirectory!(id, capabilityId),
+              signal,
+            ),
+        }
+      : {}),
     ...(bridge.readManuscriptIdentity
       ? {
           readManuscriptIdentity: () =>

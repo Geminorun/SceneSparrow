@@ -97,7 +97,7 @@ impl SqliteProjectRepository {
                 }
             }
         }
-        let mut source_ids = BTreeSet::new();
+        let mut source_versions: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         let mut block_ids = BTreeSet::new();
         if version >= 3 {
             let mut histories = db(c.prepare(
@@ -113,8 +113,11 @@ impl SqliteProjectRepository {
                     }
                 }
                 for source in root.sources {
-                    source_ids.insert(source.id);
                     if let Some(h) = source.object_hash {
+                        source_versions
+                            .entry(source.id)
+                            .or_default()
+                            .insert(h.clone());
                         roots.insert(h);
                     }
                 }
@@ -125,8 +128,11 @@ impl SqliteProjectRepository {
         }
         if version >= 4 {
             for source in Self::source_members(c)? {
-                source_ids.insert(source.id);
                 if let Some(h) = source.object_hash {
+                    source_versions
+                        .entry(source.id)
+                        .or_default()
+                        .insert(h.clone());
                     roots.insert(h);
                 }
             }
@@ -155,7 +161,12 @@ impl SqliteProjectRepository {
                 let (input, result, source, status, purpose) = db(row)?;
                 if matches!(status.as_str(), "queued" | "running")
                     || (purpose == "import" && status == "ready")
-                    || source.as_ref().is_some_and(|s| source_ids.contains(s))
+                    // A refreshed source keeps its ID, not all previous byte snapshots.
+                    || source.as_ref().is_some_and(|s| {
+                        source_versions
+                            .get(s)
+                            .is_some_and(|hashes| hashes.contains(&input))
+                    })
                 {
                     roots.insert(input);
                     if let Some(h) = result {
@@ -319,6 +330,7 @@ impl SqliteProjectRepository {
             }
             ManuscriptCommand::AddSourceLink { .. }
             | ManuscriptCommand::AddSourceFile { .. }
+            | ManuscriptCommand::RefreshSourceFile { .. }
             | ManuscriptCommand::RemoveSource { .. }
             | ManuscriptCommand::CommitManuscriptImport { .. } => {
                 return self.source_transition(c, command, before, identities);
@@ -539,6 +551,7 @@ impl SqliteProjectRepository {
                         label: match command {
                             ManuscriptCommand::AddSourceLink { .. }
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
+                            ManuscriptCommand::RefreshSourceFile { .. } => "refreshSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
                             ManuscriptCommand::SavePlanning { .. } => "planning",
                             ManuscriptCommand::SetUserLocks { .. } => "locks",

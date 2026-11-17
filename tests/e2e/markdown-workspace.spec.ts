@@ -227,6 +227,10 @@ test("Chinese manuscript keeps the continuous document, auxiliary panels and sou
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openWorkbench(page);
+  await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+    "data-layout",
+    "split",
+  );
   const editor = input(page);
   await editor.focus();
   await pasteMarkdown(
@@ -245,7 +249,12 @@ test("Chinese manuscript keeps the continuous document, auxiliary panels and sou
   await saved(page);
   for (const width of [1440, 1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.getByRole("button", { name: "Close auxiliary panel" }).click();
+    await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+      "data-layout",
+      width <= 1050 ? "drawer" : "split",
+    );
+    const close = page.getByRole("button", { name: "Close assistant" });
+    if (await close.isVisible()) await close.click();
     await page.screenshot({ path: `.artifacts/notion-document-${width}.png` });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth),
@@ -269,7 +278,12 @@ test("Chinese manuscript keeps the continuous document, auxiliary panels and sou
     ).toBe(width);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("button", { name: "Close auxiliary panel" }).click();
+  await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+    "data-layout",
+    "split",
+  );
+  const close = page.getByRole("button", { name: "Close assistant" });
+  if (await close.isVisible()) await close.click();
   await editor
     .locator("p")
     .first()
@@ -293,5 +307,9 @@ test("Chinese manuscript keeps the continuous document, auxiliary panels and sou
   await expect(page.locator(".review-card").first()).toBeVisible();
   await page.screenshot({ path: ".artifacts/notion-review-1280.png" });
   await page.setViewportSize({ width: 375, height: 900 });
+  await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+    "data-layout",
+    "drawer",
+  );
   await page.screenshot({ path: ".artifacts/notion-review-375.png" });
 });

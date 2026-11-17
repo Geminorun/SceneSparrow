@@ -17,7 +17,15 @@ The feature branch is `feat/script-workbench`, created directly from remote
 
 ## Reading order
 
-The [editor-first workspace follow-up](editor-workspace.md) records the latest
+The [reference and creation workspace](reference-workspace.md) is the latest
+approved layout follow-up: Contents/Library navigation on the left, a continuous
+warm-gray manuscript, and Create/Review assistance on the right. It replaces the
+fake project tab and four-tab right panel described below. Directory intake and
+explicit reference selection remain separate from manuscript import. Planning
+and architecture are handled by the primary agent; delegation is limited to
+substantial coding work.
+
+The [editor-first workspace follow-up](editor-workspace.md) records the earlier
 confirmed single-manuscript layout, planning coexistence and input-stability
 requirements. It supersedes mutually exclusive planning/editor presentation.
 The latest correction follows the user's Obsidian screenshot, removes permanent

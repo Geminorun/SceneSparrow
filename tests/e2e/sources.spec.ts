@@ -9,6 +9,14 @@ import { docx, pdf } from "../fixtures/documents.mjs";
 async function workspace(page: Page) {
   await openWorkbench(page);
   await startManualDraft(page);
+  const editor = page.locator(".tiptap");
+  if (!(await editor.innerText()).trim()) {
+    await editor.fill("Existing manuscript for reference and import checks.");
+    await expect(page.getByTestId("save-status")).toHaveAttribute(
+      "data-state",
+      "saved",
+    );
+  }
   await openPanel(page, "Sources");
 }
 const state = async (page: Page) =>
@@ -19,6 +27,11 @@ test("references retain copied files, link-only metadata and source membership h
 }) => {
   await workspace(page);
   const before = await state(page);
+  await page
+    .locator(".source-panel > details")
+    .filter({ has: page.getByText("Add link reference", { exact: true }) })
+    .locator(":scope > summary")
+    .click();
   await page
     .getByLabel("Reference URL")
     .fill("https://example.com/reference-only");
@@ -37,6 +50,7 @@ test("references retain copied files, link-only metadata and source membership h
     .filter({ hasText: "reference.md" });
   await expect(file).toContainText("Text ready");
   expect((await state(page)).blocks).toEqual(before.blocks);
+  await file.locator(":scope > details > summary").click();
   await file.getByRole("button", { name: "View extracted text" }).click();
   await expect(
     page.getByRole("dialog", { name: "Extracted text", exact: true }),
@@ -56,6 +70,7 @@ test("real DOCX preview cancels unchanged, replaces atomically, appends once and
   await workspace(page);
   const before = await state(page);
   const h = (await page.request.get("/api/v1/history")).json();
+  await openDocumentMenu(page);
   await page
     .getByRole("button", { name: "Import manuscript", exact: true })
     .click();
@@ -81,6 +96,7 @@ test("real DOCX preview cancels unchanged, replaces atomically, appends once and
   expect(await (await page.request.get("/api/v1/history")).json()).toEqual(
     await h,
   );
+  await openDocumentMenu(page);
   await page
     .getByRole("button", { name: "Import manuscript", exact: true })
     .click();
@@ -101,6 +117,7 @@ test("real DOCX preview cancels unchanged, replaces atomically, appends once and
   ).toContainText("Replacement 中文 🐦");
   const replaced = await state(page);
   expect(replaced.blocks.length).toBe(2);
+  await openDocumentMenu(page);
   await page
     .getByRole("button", { name: "Import manuscript", exact: true })
     .click();
@@ -121,6 +138,7 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
   page,
 }) => {
   await workspace(page);
+  await openDocumentMenu(page);
   await page
     .getByRole("button", { name: "Import manuscript", exact: true })
     .click();
@@ -163,9 +181,11 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
   expect((await state(page)).blocks).toEqual(current.blocks);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.reload();
+  await openDocumentMenu(page);
   await expect(
     page.getByRole("button", { name: "Import manuscript", exact: true }),
   ).toBeVisible();
+  await openDocumentMenu(page);
   await page
     .getByRole("button", { name: "Import manuscript", exact: true })
     .click();
@@ -192,8 +212,9 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
   await page
     .getByRole("combobox", { name: "Language", exact: true })
     .selectOption("zh-CN");
+  await page.getByRole("tab", { name: "资料库", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "参考资料", exact: true }),
+    page.getByRole("tab", { name: "资料库", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: ".artifacts/step-03-sources.png",
@@ -237,9 +258,7 @@ test("cancelled file reference queued behind autosave creates no membership or e
   });
   expect((await uploaded).ok()).toBeTruthy();
   await expect(
-    page
-      .getByRole("status")
-      .filter({ hasText: "Waiting for manuscript to save…" }),
+    page.getByRole("status").filter({ hasText: "Uploading" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Cancel", exact: true }),
@@ -313,6 +332,7 @@ test("uncertain file membership retains its intake and retries the original requ
   await expect(source).toContainText("Processing interrupted");
   expect(commands.length).toBe(2);
   expect(commands[1]).toEqual(commands[0]);
+  await source.locator(":scope > details > summary").click();
   await source
     .getByRole("button", { name: "Retry extraction", exact: true })
     .click();

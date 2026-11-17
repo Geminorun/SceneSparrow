@@ -27,6 +27,11 @@ import type {
 } from "@scenesparrow/contracts";
 import { intakeSelectedFile } from "./file-intake.js";
 import {
+  ReferenceDirectoryRegistry,
+  directoryIntakePort,
+} from "./reference-directory.js";
+import { registerReferenceDirectoryIpc } from "./reference-directory-ipc.js";
+import {
   ProjectRegistry,
   type ProjectOpenMode,
   inspectRememberedProject,
@@ -66,6 +71,10 @@ async function main() {
     join(app.getPath("userData"), "project-registry.json"),
   );
   await registry.load();
+  const referenceRegistry = new ReferenceDirectoryRegistry(
+    join(app.getPath("userData"), "reference-directories.json"),
+  );
+  await referenceRegistry.load();
   const defaultDirectory = join(app.getPath("userData"), "projects", "default");
   let projectDirectory = "";
   let registryWarningShown = false;
@@ -620,6 +629,25 @@ async function main() {
     string,
     { abort: AbortController; sender: number }
   >();
+  const referenceDirectories = registerReferenceDirectoryIpc(ipcMain, {
+    checkSender,
+    registry: referenceRegistry,
+    projectId: async () => {
+      const response = await request("/project");
+      if (!response.ok) throw Error(response.code);
+      const project = (response.data as unknown as ProjectResponse).project;
+      if (!project) throw Error("PROJECT_NOT_FOUND");
+      return project.id;
+    },
+    chooseDirectory: async () => {
+      if (!primaryWindow) throw Error("SERVICE_UNAVAILABLE");
+      const selected = await dialog.showOpenDialog(primaryWindow, {
+        properties: ["openDirectory"],
+      });
+      return selected.canceled ? null : (selected.filePaths[0] ?? null);
+    },
+    intakePort: () => directoryIntakePort(baseUrl, token),
+  });
   ipcMain.handle("intake:pick-cancel", (event, id: unknown) => {
     checkSender(event);
     if (typeof id !== "string") return { ok: false, code: "INVALID_REQUEST" };
@@ -832,6 +860,7 @@ async function main() {
         try {
           for (const selection of fileSelections.values())
             selection.abort.abort();
+          await referenceDirectories.abortAndSettle();
           await nativeDelivery.settled();
           await nativeClipboard.settled();
           if (coreIsRunning(core)) {

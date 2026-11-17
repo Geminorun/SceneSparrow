@@ -412,9 +412,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await expect(nestedLock).toBeEnabled();
     await nestedLock.click();
     await expect(raceBlock).not.toHaveAttribute("contenteditable", "false");
-    await page
-      .getByRole("heading", { name: "Manuscript", exact: true })
-      .click();
+    await page.getByTestId("manuscript-title").click();
     await expect(page.getByTestId("save-status")).toHaveAttribute(
       "data-state",
       "saved",
@@ -503,7 +501,14 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await expect(page.locator("[data-lock-block]").first()).toBeVisible();
     await page.screenshot({ path: ".artifacts/locks-wide.png" });
     await page.setViewportSize({ width: 390, height: 900 });
-    await page.getByRole("button", { name: "Close auxiliary panel" }).click();
+    await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+      "data-layout",
+      "drawer",
+    );
+    const closeAssistant = page.getByRole("button", {
+      name: "Close assistant",
+    });
+    if (await closeAssistant.isVisible()) await closeAssistant.click();
     await editor.locator("[data-blockid]").first().scrollIntoViewIfNeeded();
     const firstId = (await req("/manuscript")).data.blocks[0].id;
     await expect(page.locator(`[data-lock-block="${firstId}"]`)).toBeVisible();
@@ -563,6 +568,10 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     });
     // Joining two unlocked list parents must not reparent a locked descendant in the editor.
     await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+      "data-layout",
+      "split",
+    );
     await unlock.click();
     const parentLock = page.locator(`[data-lock-block="${parentId}"]`);
     await parentLock.click();
@@ -619,9 +628,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await page.keyboard.press("End");
     await page.keyboard.press("Enter");
     await page.keyboard.insertText("New sibling");
-    await page
-      .getByRole("heading", { name: "Manuscript", exact: true })
-      .click();
+    await page.getByTestId("manuscript-title").click();
     await expect(page.getByTestId("save-status")).toHaveAttribute(
       "data-state",
       "saved",

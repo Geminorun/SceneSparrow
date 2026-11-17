@@ -65,7 +65,11 @@ export const test = base.extend<{ core: Core }>({
             return;
           }
           const body =
-            route.request().method() === "POST"
+            route.request().method() === "POST" &&
+            route
+              .request()
+              .headers()
+              ["content-type"]?.includes("application/json")
               ? route.request().postDataJSON()
               : null;
           await intercept(target.pathname, body, "before");

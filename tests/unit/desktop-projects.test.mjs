@@ -27,6 +27,8 @@ import * as closeModule from "../../apps/desktop/src/close-handshake.ts";
 import * as deliveryModule from "../../apps/desktop/src/export-delivery.ts";
 import * as exportModule from "../../apps/desktop/src/export-files.ts";
 import * as intakeModule from "../../apps/desktop/src/file-intake.ts";
+import * as referenceModule from "../../apps/desktop/src/reference-directory.ts";
+import * as referenceIpcModule from "../../apps/desktop/src/reference-directory-ipc.ts";
 
 const require = createRequire(import.meta.url);
 const source = await readFile(
@@ -138,6 +140,8 @@ async function desktop(t, fixture, options = {}) {
     }
   }
   const modules = {
+    "./reference-directory.js": referenceModule,
+    "./reference-directory-ipc.js": referenceIpcModule,
     electron,
     "../../../packages/editor-ui/src/locales/en.json": require("../../packages/editor-ui/src/locales/en.json"),
     "../../../packages/editor-ui/src/locales/zh-CN.json": require("../../packages/editor-ui/src/locales/zh-CN.json"),

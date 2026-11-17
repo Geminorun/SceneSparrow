@@ -29,8 +29,9 @@
   Use the shared spec's ports, append-only
   migration sequence, task-start configuration boundary and dispatch guards.
   S2/S3 own business applicability; S4 cites independent AI/platform evidence.
-- The user has selected the eight-step implementation loop in
-  `docs/implementation-execution.md`. Root schedules and independently reviews;
+- For substantial coding work, the user has selected the eight-step implementation
+  loop in `docs/implementation-execution.md`, subject to the delegation scope
+  below. Root schedules and independently reviews;
   implementation subagents use `model: gpt-6.1-sol`, `reasoning_effort: high`,
   and `fork_turns: none` with a complete assignment. Subagents do not stage,
   commit, push, switch branches, create worktrees, or delegate further. Root
@@ -71,6 +72,20 @@
   core tokens and the loopback core boundary. One deployment shares one project
   and global AI configuration; it does not provide user isolation. Keep Docker's
   build/runtime workspace layout consistent with compiled Rust worker paths.
+
+## Delegation scope
+
+- The primary agent handles requirements clarification, planning, product/UX and
+  architecture design, competitor research, solution comparison, and standalone
+  documentation directly. Do not use subagents for these activities, including
+  read-only agents.
+- Handle small or localized coding changes directly as the primary agent.
+- Use the subagent development workflow only for substantial coding work with
+  enough implementation volume to benefit from delegation. The size of the
+  overall product or conversation does not make a planning or small task eligible.
+- Implementation readers/reviewers may participate only within eligible coding
+  work. Keep planning and design with the primary agent, and retain the model,
+  single-writer, independent review, and root-owned Git rules above.
 
 ## Git workflow
 
