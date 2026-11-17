@@ -48,8 +48,7 @@ export class PlanningAutosave {
   private knownRejection = false;
   private pendingSave: ManuscriptCommand | null = null;
   private pendingReceiptAcknowledged = false;
-  private timer?: ReturnType<typeof setTimeout>;
-  private first = 0;
+  private idleTimer?: ReturnType<typeof setTimeout>;
   private lastInput = 0;
   private scope = "";
   private groupId = crypto.randomUUID();
@@ -80,6 +79,9 @@ export class PlanningAutosave {
       flush: (retry = false) => this.flush(true, retry),
       identity: () => this.identity(),
       dirty: () => this.status !== "saved",
+      autosave: () => this.flush(false),
+      busy: () => this.busy,
+      canAutosave: () => !["error", "conflict"].includes(this.status),
     };
     save.planningAdapter = this.adapter;
   }
@@ -88,6 +90,7 @@ export class PlanningAutosave {
   }
   private notify() {
     if (!this.disposed) this.changed();
+    this.save.settlementChanged();
   }
   edit(content: PlanningContent, scope: string, discrete = false) {
     if (this.disposed) return;
@@ -104,6 +107,8 @@ export class PlanningAutosave {
       ) {
         this.status = "pending";
         this.error = "";
+        if (this.save.failureOwner === "planning")
+          this.save.acknowledgeBusinessRejection(true);
         this.schedule();
       }
       this.notify();
@@ -118,12 +123,20 @@ export class PlanningAutosave {
     this.scope = scope;
     this.lastInput = now;
     this.local = content;
+    this.boundSegments(5);
     this.status = "pending";
     this.error = "";
     if (discrete) {
       this.capture("discrete");
       this.groupId = crypto.randomUUID();
     }
+    clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => {
+      if (this.composing || this.disposed) return;
+      this.capture();
+      this.groupId = crypto.randomUUID();
+      this.scope = "";
+    }, 750);
     this.notify();
     this.schedule();
   }
@@ -132,8 +145,7 @@ export class PlanningAutosave {
     if (active) this.generation++;
     this.composing = active;
     this.save.composition(active);
-    if (active) clearTimeout(this.timer);
-    else {
+    if (!active) {
       this.groupId = crypto.randomUUID();
       this.schedule();
       const actions = this.deferredActions.splice(0);
@@ -147,24 +159,43 @@ export class PlanningAutosave {
     if (this.composing) this.deferredActions.push(action);
     else action();
   }
+  boundary() {
+    if (this.disposed || this.composing) return;
+    clearTimeout(this.idleTimer);
+    this.capture();
+    this.groupId = crypto.randomUUID();
+    this.scope = "";
+  }
   private capture(kind: "typing" | "discrete" = "typing") {
     if (this.composing || this.disposed) return;
     const previous = this.segments.at(-1)?.content ?? this.state.content;
-    if (contentKey(previous) !== this.identity())
-      this.segments.push({
+    if (contentKey(previous) !== this.identity()) {
+      const segment = {
         content: structuredClone(this.local),
         groupId: this.groupId,
         kind,
-      });
+      };
+      const last = this.segments.at(-1);
+      if (
+        last?.groupId === this.groupId &&
+        !(this.pendingSave && this.segments.length === 1)
+      )
+        this.segments[this.segments.length - 1] = segment;
+      else this.segments.push(segment);
+      // The first captured payload may still own an ambiguous command/readback.
+      this.boundSegments();
+    }
+  }
+  private boundSegments(limit = 6) {
+    const protectedCount = this.pendingSave ? 1 : 0;
+    if (this.segments.length > limit + protectedCount)
+      this.segments.splice(
+        protectedCount,
+        this.segments.length - limit - protectedCount,
+      );
   }
   private schedule() {
-    clearTimeout(this.timer);
-    if (this.composing) return;
-    if (!this.first) this.first = Date.now();
-    this.timer = setTimeout(
-      () => void this.flush(false),
-      Math.min(300, Math.max(0, 2000 - (Date.now() - this.first))),
-    );
+    this.save.inputActivity();
   }
   private enqueue<T>(action: () => Promise<T>) {
     const p = this.tail.then(action);
@@ -172,6 +203,7 @@ export class PlanningAutosave {
     return p;
   }
   flush(close = true, retry = false): Promise<boolean> {
+    const backgroundGeneration = close ? undefined : this.generation;
     if (this.discarding) return this.tail.then(() => this.flush(close, retry));
     if (
       this.composing ||
@@ -185,8 +217,6 @@ export class PlanningAutosave {
         return Promise.resolve(false);
       this.knownRejection = false;
     }
-    clearTimeout(this.timer);
-    this.first = 0;
     this.capture();
     return this.enqueue(async () => {
       if (this.disposed || this.composing) return false;
@@ -226,7 +256,11 @@ export class PlanningAutosave {
                     expectedWorkingRevision: revision,
                     payload: { content, group },
                   }),
-                { replayCommand: () => this.pendingSave, bodyPreserving: true },
+                {
+                  replayCommand: () => this.pendingSave,
+                  bodyPreserving: true,
+                  background: !close,
+                },
               ));
             if (!ok) {
               if (!this.pendingSave) {
@@ -268,13 +302,20 @@ export class PlanningAutosave {
               n.revision =
                 canonical.content.nodes.find((old) => old.id === n.id)
                   ?.revision ?? n.revision;
+            if (
+              backgroundGeneration !== undefined &&
+              backgroundGeneration !== this.generation
+            ) {
+              this.status = "pending";
+              return true;
+            }
             this.capture();
           }
           if (this.composing) {
             this.status = "pending";
             return false;
           }
-          if (close && this.open) {
+          if (this.open && (close || this.open.groupId !== this.groupId)) {
             const group = this.open;
             this.groupId = crypto.randomUUID();
             this.scope = "";
@@ -292,7 +333,7 @@ export class PlanningAutosave {
                   groupSequence: group.groupSequence,
                 },
               }),
-              { bodyPreserving: true },
+              { bodyPreserving: true, background: !close },
             );
             if (!ok) {
               this.error =
@@ -304,6 +345,13 @@ export class PlanningAutosave {
             this.open = null;
           }
           if (this.composing || this.disposed) return false;
+          if (
+            backgroundGeneration !== undefined &&
+            backgroundGeneration !== this.generation
+          ) {
+            this.status = "pending";
+            return true;
+          }
           this.capture();
           if (this.segments.length) continue;
           this.status = "saved";
@@ -382,7 +430,7 @@ export class PlanningAutosave {
     this.notify();
   }
   discard() {
-    clearTimeout(this.timer);
+    clearTimeout(this.idleTimer);
     return this.enqueue(async () => {
       // Do not flush a newer draft to discover whether an older request landed.
       if (
@@ -440,7 +488,7 @@ export class PlanningAutosave {
   }
   dispose() {
     this.disposed = true;
-    clearTimeout(this.timer);
+    clearTimeout(this.idleTimer);
     if (this.save.planningAdapter === this.adapter)
       delete this.save.planningAdapter;
   }

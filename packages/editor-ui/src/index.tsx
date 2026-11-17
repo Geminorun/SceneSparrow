@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -16,6 +17,11 @@ import {
 import { AiSettings } from "./AiSettings";
 import { WorkspaceRibbon } from "./WorkspaceRibbon";
 import { Manuscript } from "./editor/Manuscript";
+import {
+  applicationPreferences,
+  type SaveMode,
+  type SaveDelay,
+} from "./app-preferences";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
 
@@ -55,8 +61,17 @@ function trapDialogFocus(event: ReactKeyboardEvent<HTMLDialogElement>) {
 }
 
 export function App({ client }: { client: PlatformClient }) {
+  const preferences = useSyncExternalStore(
+    applicationPreferences.subscribe,
+    applicationPreferences.getSnapshot,
+  );
   const [locale, setLocale] = useState<Locale>(() => {
-    const saved = localStorage.getItem("scenesparrow.locale");
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem("scenesparrow.locale");
+    } catch {
+      /* Storage may be unavailable in this profile. */
+    }
     return saved === "en" || saved === "zh-CN"
       ? saved
       : navigator.language.startsWith("zh")
@@ -94,7 +109,11 @@ export function App({ client }: { client: PlatformClient }) {
   useEffect(() => {
     document.documentElement.lang = locale;
     document.title = project ? `${project.title} · ${t.appName}` : t.appName;
-    localStorage.setItem("scenesparrow.locale", locale);
+    try {
+      localStorage.setItem("scenesparrow.locale", locale);
+    } catch {
+      /* Keep this session's language. */
+    }
   }, [locale, t.appName, project?.title]);
 
   const load = useCallback(async () => {
@@ -317,7 +336,7 @@ export function App({ client }: { client: PlatformClient }) {
                 {project && (
                   <button
                     className="quiet-button rename-trigger"
-                    aria-label={t.renameProject}
+                    aria-label={t.projectSettings}
                     onClick={() => {
                       if (!renameCommand.current) setRenameTitle(project.title);
                       setRenameError("");
@@ -325,7 +344,7 @@ export function App({ client }: { client: PlatformClient }) {
                       renameDialog.current?.showModal();
                     }}
                   >
-                    <span>{t.renameProject}</span>
+                    <span>{t.projectSettings}</span>
                     <svg
                       aria-hidden="true"
                       viewBox="0 0 24 24"
@@ -551,7 +570,7 @@ export function App({ client }: { client: PlatformClient }) {
           <div className="settings-content">
             <section hidden={section !== "general"}>
               <h3>{t.generalSettings}</h3>
-              <p>{t.workspaceHelp}</p>
+              <p>{t.applicationPreferencesHelp}</p>
               <label>
                 {t.interfaceLanguage}
                 <select
@@ -562,6 +581,48 @@ export function App({ client }: { client: PlatformClient }) {
                   <option value="zh-CN">简体中文</option>
                 </select>
               </label>
+              <label>
+                {t.autosaveMode}
+                <select
+                  value={preferences.saveMode}
+                  onChange={(event) =>
+                    applicationPreferences.update({
+                      saveMode: event.target.value as SaveMode,
+                    })
+                  }
+                >
+                  <option value="after_delay">{t.autosaveAfterDelay}</option>
+                  <option value="on_window_change">
+                    {t.autosaveOnWindowChange}
+                  </option>
+                  <option value="off">{t.autosaveOff}</option>
+                </select>
+              </label>
+              {preferences.saveMode === "after_delay" && (
+                <label>
+                  {t.autosaveDelay}
+                  <select
+                    value={preferences.saveDelaySeconds}
+                    onChange={(event) =>
+                      applicationPreferences.update({
+                        saveDelaySeconds: Number(
+                          event.target.value,
+                        ) as SaveDelay,
+                      })
+                    }
+                  >
+                    {([5, 10, 30] as const).map((seconds) => (
+                      <option key={seconds} value={seconds}>
+                        {t.autosaveSeconds.replace(
+                          "{seconds}",
+                          String(seconds),
+                        )}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <p className="muted">{t.manualSaveHelp}</p>
             </section>
             <AiSettings
               client={client}
@@ -581,7 +642,7 @@ export function App({ client }: { client: PlatformClient }) {
         onClose={() => projectMenu.current?.querySelector("summary")?.focus()}
       >
         <form onSubmit={(event) => void rename(event)}>
-          <h2 id="rename-title">{t.renameProject}</h2>
+          <h2 id="rename-title">{t.projectSettings}</h2>
           <label htmlFor="rename-project-title">{t.projectTitle}</label>
           <input
             autoFocus

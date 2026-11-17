@@ -7,6 +7,10 @@ import type {
 } from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import { edits } from "./canonical";
+import {
+  applicationPreferences,
+  type ApplicationPreferencesStore,
+} from "../app-preferences";
 export type SaveStatus = "saved" | "pending" | "saving" | "error" | "conflict";
 class UncertainCommit extends Error {}
 export class Autosave {
@@ -15,6 +19,9 @@ export class Autosave {
     flush: (retry?: boolean) => Promise<boolean>;
     identity: () => string;
     dirty: () => boolean;
+    autosave: () => Promise<boolean>;
+    busy: () => boolean;
+    canAutosave: () => boolean;
   };
   private async settlePlanning(intent: string | undefined, retry = false) {
     if (!this.planningAdapter) return true;
@@ -50,7 +57,14 @@ export class Autosave {
     if (!this.disposed) this.changed();
   }
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private firstPending = 0;
+  private firstPending: number | null = null;
+  private lastInput = 0;
+  private backgroundSaving = false;
+  private backgroundInputSince: number | null = null;
+  private backgroundBodyGeneration: number | undefined;
+  private manualSavePending = false;
+  private windowSavePending = false;
+  private unsubscribePreferences: () => void;
   private inFlight: Promise<boolean> | null = null;
   private unresolved: {
     command: ManuscriptCommand;
@@ -81,11 +95,35 @@ export class Autosave {
     if (this.capturedGeneration === this.generation) return;
     this.capturedGeneration = this.generation;
     if (this.same()) return;
-    this.segments.push({
+    const segment = {
       blocks: structuredClone(this.local),
       group: this.group,
       kind: this.groupKind,
-    });
+    };
+    if (this.segments.at(-1)?.group === this.group)
+      this.segments[this.segments.length - 1] = segment;
+    else this.segments.push(segment);
+    this.boundSegments();
+  }
+  private boundSegments(limit = 6) {
+    // The unresolved payload is owned separately and is never evicted.
+    if (this.segments.length > limit)
+      this.segments.splice(0, this.segments.length - limit);
+  }
+  get canUndo() {
+    return this.hasPendingEdits || this.history.undoCount > 0;
+  }
+  get canRedo() {
+    return !this.hasPendingEdits && this.history.redoCount > 0;
+  }
+  private get hasPendingEdits() {
+    return this.hasLocalBodyChanges || !!this.planningAdapter?.dirty();
+  }
+  private get hasAutosaveWork() {
+    return (
+      this.hasLocalBodyChanges ||
+      !!(this.planningAdapter?.dirty() && this.planningAdapter.canAutosave())
+    );
   }
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private groupKind: "typing" | "discrete" = "typing";
@@ -140,7 +178,7 @@ export class Autosave {
     clearTimeout(this.idleTimer);
     this.capture();
     this.freshGroup();
-    return this.enqueue(() => this.settle());
+    return Promise.resolve(true);
   }
   private async closeGroup(): Promise<boolean> {
     if (!this.acknowledgedGroup && !this.controlPending) return true;
@@ -162,9 +200,7 @@ export class Autosave {
     }
     if (!this.conversionError) this.capture();
     this.freshGroup();
-    return blocked
-      ? Promise.resolve(false)
-      : this.enqueue(async () => this.drain());
+    return Promise.resolve(!blocked);
   }
   navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
     if (this.reviewDirty?.()) {
@@ -364,6 +400,7 @@ export class Autosave {
       replayCommand?: () => ManuscriptCommand | null;
       requestedVisible?: string;
       bodyPreserving?: boolean;
+      background?: boolean;
     },
   ) {
     const requestedVisible =
@@ -381,7 +418,13 @@ export class Autosave {
         await this.control("CloseEditGroup");
         return false;
       }
-      if (this.composing || !(await this.settle())) return false;
+      if (
+        this.composing ||
+        !(await (options?.background
+          ? this.drain(false, this.backgroundBodyGeneration)
+          : this.settle()))
+      )
+        return false;
       if (
         !options?.bodyPreserving &&
         JSON.stringify(this.local) !== requestedVisible
@@ -732,6 +775,7 @@ export class Autosave {
     private client: PlatformClient,
     private changed: () => void,
     history?: HistoryState,
+    private preferences: ApplicationPreferencesStore = applicationPreferences,
   ) {
     this.history = history ?? {
       workingRevision: state.workingRevision,
@@ -743,6 +787,7 @@ export class Autosave {
       redoLabel: null,
     };
     this.local = state.blocks.map(({ revision: _, ...b }) => b);
+    this.unsubscribePreferences = preferences.subscribe(() => this.schedule());
   }
   acknowledgeBusinessRejection(preserveLocal = false) {
     if (
@@ -783,25 +828,51 @@ export class Autosave {
     this.recoveryText = null;
     this.local = blocks;
     this.generation++;
+    this.boundSegments(5);
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => {
       if (!this.composing && !this.disposed) void this.boundary();
     }, 750);
+    if (
+      this.errorOwner === "planning" &&
+      !this.controlPending &&
+      !this.metadataPending &&
+      !this.unresolved
+    )
+      this.acknowledgeBusinessRejection(true);
     if (this.status === "error" || this.status === "conflict") {
       this.notify();
       return;
     }
-    if (!this.firstPending) this.firstPending = Date.now();
     this.status = this.inFlight ? "saving" : "pending";
-    this.notify();
-    this.schedule();
+    this.inputActivity();
   }
   composition(active: boolean) {
     if (active) this.compositionGeneration++;
     this.composing = active;
     if (active) clearTimeout(this.timer);
-    else this.schedule();
+    else {
+      this.schedule();
+      if (this.manualSavePending) {
+        this.manualSavePending = false;
+        queueMicrotask(() => {
+          if (!this.disposed) void this.manualSave();
+        });
+      } else if (this.windowSavePending) {
+        this.windowSavePending = false;
+        queueMicrotask(() => {
+          if (!this.disposed) void this.windowChanged();
+        });
+      }
+    }
     this.notify();
+  }
+  manualSave() {
+    if (this.composing) {
+      this.manualSavePending = true;
+      return Promise.resolve(false);
+    }
+    return this.prepareInput();
   }
   private schedule() {
     if (this.disposed) return;
@@ -809,12 +880,83 @@ export class Autosave {
     if (
       !this.composing &&
       !this.inFlight &&
+      !this.backgroundSaving &&
+      !this.planningAdapter?.busy() &&
+      this.preferences.getSnapshot().saveMode === "after_delay" &&
+      this.hasAutosaveWork &&
       !["error", "conflict"].includes(this.status)
-    )
+    ) {
+      const now = Date.now();
+      this.firstPending ??= now;
       this.timer = setTimeout(
-        () => void this.flush(),
-        Math.max(0, Math.min(300, 2000 - (Date.now() - this.firstPending))),
+        () => void this.autosave(),
+        Math.max(
+          0,
+          Math.min(
+            this.preferences.getSnapshot().saveDelaySeconds * 1000 -
+              (now - this.lastInput),
+            60_000 - (now - this.firstPending),
+          ),
+        ),
       );
+    }
+  }
+  inputActivity() {
+    const now = Date.now();
+    if (this.backgroundSaving) this.backgroundInputSince ??= now;
+    this.firstPending ??= now;
+    this.lastInput = now;
+    this.notify();
+    this.schedule();
+  }
+  settlementChanged() {
+    if (!this.hasAutosaveWork) this.firstPending = null;
+    this.notify();
+    this.schedule();
+  }
+  windowChanged() {
+    if (this.preferences.getSnapshot().saveMode === "on_window_change") {
+      if (this.composing) {
+        this.windowSavePending = true;
+        return Promise.resolve(false);
+      }
+      return this.autosave();
+    }
+    return Promise.resolve(true);
+  }
+  private async autosave() {
+    if (this.composing || this.disposed || this.backgroundSaving) return false;
+    this.backgroundSaving = true;
+    this.backgroundInputSince = null;
+    this.backgroundBodyGeneration = this.generation;
+    const planningIntent = this.planningAdapter?.identity();
+    clearTimeout(this.timer);
+    try {
+      const bodySaved = await this.enqueue(async () => {
+        if (!(await this.drain(false, this.backgroundBodyGeneration)))
+          return false;
+        // Only a local history boundary closes a typing group; a timer alone does not.
+        if (
+          this.acknowledgedGroup &&
+          this.acknowledgedGroup.groupId !== this.group
+        )
+          return this.closeGroup();
+        return true;
+      });
+      if (!bodySaved) return false;
+      if (
+        this.planningAdapter?.identity() === planningIntent &&
+        this.planningAdapter?.canAutosave()
+      )
+        return await this.planningAdapter.autosave();
+      return true;
+    } finally {
+      this.backgroundSaving = false;
+      this.backgroundBodyGeneration = undefined;
+      if (this.backgroundInputSince !== null)
+        this.firstPending = this.backgroundInputSince;
+      this.settlementChanged();
+    }
   }
   private readonly pendingReceipts = new Set<string>();
   private async resolve(command: ManuscriptCommand): Promise<CommandReceipt> {
@@ -876,7 +1018,10 @@ export class Autosave {
       return Promise.resolve(false);
     return this.enqueue(() => this.drain(retry));
   }
-  private async drain(retry = false): Promise<boolean> {
+  private async drain(
+    retry = false,
+    backgroundGeneration?: number,
+  ): Promise<boolean> {
     if (this.metadataPending) return false;
     if (this.disposed) return false;
     clearTimeout(this.timer);
@@ -893,14 +1038,19 @@ export class Autosave {
     }
     if (this.inFlight) {
       const ok = await this.inFlight;
-      return ok ? this.drain() : false;
+      return ok ? this.drain(false, backgroundGeneration) : false;
     }
     if (!retry && ["error", "conflict"].includes(this.status)) return false;
     if (this.status === "conflict") return false;
+    if (
+      backgroundGeneration !== undefined &&
+      backgroundGeneration !== this.generation
+    )
+      return true;
     if (!this.unresolved) {
       if (this.same()) {
         this.status = "saved";
-        this.firstPending = 0;
+        if (!this.planningAdapter?.dirty()) this.firstPending = null;
         this.notify();
         return true;
       }
@@ -912,7 +1062,7 @@ export class Autosave {
         this.segments.shift();
       if (this.same()) {
         this.status = "saved";
-        this.firstPending = 0;
+        if (!this.planningAdapter?.dirty()) this.firstPending = null;
         this.notify();
         return true;
       }
@@ -1012,7 +1162,8 @@ export class Autosave {
           };
         }
         this.unresolved = null;
-        this.firstPending = 0;
+        if (this.same() && !this.planningAdapter?.dirty())
+          this.firstPending = null;
         if (this.conversionError) {
           this.errorOwner = "manuscript";
           this.status = "error";
@@ -1057,7 +1208,6 @@ export class Autosave {
         }
         this.notify();
         if (this.status === "pending") {
-          this.firstPending = Date.now();
           this.schedule();
         }
       }
@@ -1065,7 +1215,7 @@ export class Autosave {
     const ok = await this.inFlight;
     if (this.conversionError) return false;
     return ok && !this.disposed && !this.composing && !this.same()
-      ? this.drain()
+      ? this.drain(false, backgroundGeneration)
       : ok;
   }
   reload() {
@@ -1113,6 +1263,7 @@ export class Autosave {
   }
   dispose() {
     this.disposed = true;
+    this.unsubscribePreferences();
     this.pendingReceipts.clear();
     clearTimeout(this.timer);
     clearTimeout(this.idleTimer);

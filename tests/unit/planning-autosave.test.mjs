@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ApplicationPreferencesStore } from "../../packages/editor-ui/src/app-preferences.ts";
 import { Autosave } from "../../packages/editor-ui/src/editor/autosave.ts";
 import { ApiError } from "../../packages/platform-client/src/index.ts";
 import {
@@ -12,7 +13,7 @@ const deferred = () => {
   const promise = new Promise((r) => (resolve = r));
   return { promise, resolve };
 };
-function fixture() {
+function fixture(preferences) {
   let document = {
     manuscriptId: crypto.randomUUID(),
     schemaVersion: 1,
@@ -98,6 +99,21 @@ function fixture() {
         history.cursor++;
         history.undoCount++;
       }
+      if (command.type === "ApplyDocumentEdit") {
+        for (const op of command.payload.operations) {
+          if (op.op === "insertBlock")
+            document.blocks.push({ ...clone(op.block), revision: 1 });
+          else if (op.op === "setBlockContent") {
+            const block = document.blocks.find((b) => b.id === op.blockId);
+            block.runs = clone(op.runs);
+            block.revision++;
+          }
+        }
+        document.workspaceStage = "draft";
+        document.workingRevision++;
+        history.workingRevision++;
+        history.historyRevision++;
+      }
       if (command.type === "StartManualDraft") {
         document.workspaceStage = "draft";
         document.workingRevision++;
@@ -139,6 +155,7 @@ function fixture() {
     client,
     () => {},
     clone(history),
+    preferences,
   );
   const planning = new PlanningAutosave(
     clone(state),
@@ -317,7 +334,8 @@ test("queued manual-start captures planning intent at dispatch and controlled cl
     f.dispose();
   }
 });
-test("correcting a known planning validation rejection automatically resumes saving with a new identity", async () => {
+test("correcting a known planning validation rejection automatically resumes saving with a new identity", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
   const f = fixture();
   try {
     topic(f, "x".repeat(501));
@@ -325,7 +343,8 @@ test("correcting a known planning validation rejection automatically resumes sav
     assert.equal(f.planning.error, "BRIEF_INVALID");
     const rejected = f.commands.find((c) => c.type === "SavePlanning");
     topic(f, "Corrected");
-    await new Promise((r) => setTimeout(r, 400));
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
     assert.equal(f.planning.status, "saved");
     assert.equal(f.state.content.brief.topic, "Corrected");
     assert.notEqual(
@@ -406,26 +425,31 @@ test("plan-only discard preserves an invalid body buffer and its recovery status
     f.dispose();
   }
 });
-test("composition without an input event fences refresh and resumes pending body autosave", async () => {
+test("composition without an input event fences refresh and resumes pending body autosave", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
   const f = fixture();
   try {
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Pending body", marks: [] }],
+      },
+    ]);
     const hold = deferred();
     f.setReadGate(hold);
     const reading = f.planning.refresh();
     f.planning.composition(true);
     hold.resolve();
     await reading;
-    assert.equal(f.save.composing, true);
-    let flushes = 0;
-    const flush = f.save.flush.bind(f.save);
-    f.save.flush = (...args) => {
-      flushes++;
-      return flush(...args);
-    };
+    context.mock.timers.tick(20000);
+    assert.equal(f.commands.length, 0);
     f.planning.composition(false);
-    await new Promise((r) => setTimeout(r, 350));
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
     assert.equal(f.save.composing, false);
-    assert.ok(flushes > 0);
+    assert.ok(f.commands.some((c) => c.type === "ApplyDocumentEdit"));
   } finally {
     f.dispose();
   }
@@ -590,6 +614,224 @@ test("discard serializes a later navigation intent and fences adoption if shared
     await navigation;
     assert.equal(f.state.content.brief.topic, f.planning.local.brief.topic);
   } finally {
+    f.dispose();
+  }
+});
+
+for (const seconds of [5, 10, 30])
+  test(`planning shares ${seconds}s save policy and never flushes body early`, async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+    const prefs = new ApplicationPreferencesStore(() => undefined);
+    prefs.update({ saveDelaySeconds: seconds });
+    const f = fixture(prefs);
+    try {
+      topic(f, "plan");
+      context.mock.timers.tick(seconds * 1000 - 1000);
+      f.save.update([
+        {
+          id: crypto.randomUUID(),
+          kind: "paragraph",
+          attrs: {},
+          runs: [{ text: "later body", marks: [] }],
+        },
+      ]);
+      context.mock.timers.tick(seconds * 1000 - 1);
+      for (let n = 0; n < 100; n++) await Promise.resolve();
+      assert.equal(f.commands.length, 0);
+      context.mock.timers.tick(1);
+      for (let n = 0; n < 200; n++) await Promise.resolve();
+      assert.equal(f.planning.status, "saved");
+      assert.equal(f.save.status, "saved");
+      assert.ok(f.commands.some((c) => c.type === "SavePlanning"));
+      assert.ok(f.commands.some((c) => c.type === "ApplyDocumentEdit"));
+    } finally {
+      f.dispose();
+    }
+  });
+test("new body and planning input during a scheduled planning save wait for their delay", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const f = fixture();
+  const hold = deferred();
+  try {
+    topic(f, "old plan");
+    f.setSaveGate(hold);
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(f.commands.filter((c) => c.type === "SavePlanning").length, 1);
+    topic(f, "new plan");
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "new body", marks: [] }],
+      },
+    ]);
+    context.mock.timers.tick(1000);
+    hold.resolve();
+    for (let n = 0; n < 200; n++) await Promise.resolve();
+    assert.equal(f.commands.filter((c) => c.type === "SavePlanning").length, 1);
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      0,
+    );
+    assert.equal(f.planning.status, "pending");
+    context.mock.timers.tick(8999);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(f.commands.filter((c) => c.type === "SavePlanning").length, 1);
+    context.mock.timers.tick(1);
+    for (let n = 0; n < 300; n++) await Promise.resolve();
+    assert.equal(f.planning.status, "saved");
+    assert.equal(f.save.status, "saved");
+    assert.equal(f.state.content.brief.topic, "new plan");
+  } finally {
+    hold.resolve();
+    f.dispose();
+  }
+});
+test("planning off mode bounds unsent groups while preserving an unresolved captured payload", async () => {
+  const prefs = new ApplicationPreferencesStore(() => undefined);
+  prefs.update({ saveMode: "off" });
+  const f = fixture(prefs),
+    hold = deferred();
+  try {
+    topic(f, "original");
+    f.setSaveGate(hold);
+    const writing = f.planning.flush();
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    const original = f.planning.pendingSave;
+    for (let n = 0; n < 100; n++) {
+      f.planning.edit(
+        { ...structuredClone(f.planning.local), instruction: `edit ${n}` },
+        `scope:${n}`,
+        true,
+      );
+      assert.ok(f.planning.segments.length <= 7);
+      assert.equal(f.planning.pendingSave, original);
+      assert.equal(f.planning.segments[0].content.brief.topic, "original");
+    }
+    hold.resolve();
+    assert.equal(await writing, true);
+    assert.equal(f.state.content.instruction, "edit 99");
+  } finally {
+    hold.resolve();
+    f.dispose();
+  }
+});
+
+test("failed planning read is not retried by background timers and healthy body still saves", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const f = fixture();
+  let reads = 0;
+  const read = f.client.readPlanning;
+  f.client.readPlanning = async () => {
+    reads++;
+    throw Error("STORAGE_UNAVAILABLE");
+  };
+  try {
+    topic(f, "Committed plan");
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(f.planning.status, "error");
+    assert.equal(reads, 1);
+    context.mock.timers.tick(120000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(reads, 1);
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Healthy body", marks: [] }],
+      },
+    ]);
+    context.mock.timers.tick(9999);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      0,
+    );
+    context.mock.timers.tick(1);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(f.save.status, "saved");
+    assert.equal(f.planning.status, "error");
+    assert.equal(reads, 1);
+    f.client.readPlanning = read;
+    assert.equal(await f.planning.flush(true, true), true);
+    assert.equal(f.commands.filter((c) => c.type === "SavePlanning").length, 1);
+  } finally {
+    f.dispose();
+  }
+});
+test("an unknown planning receipt fences new body background writes", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const f = fixture();
+  try {
+    topic(f, "Unknown plan");
+    f.setLose(true);
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(f.save.hasUnresolvedBusiness, true);
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Fenced body", marks: [] }],
+      },
+    ]);
+    context.mock.timers.tick(120000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      0,
+    );
+    assert.equal(f.save.local[0].runs[0].text, "Fenced body");
+  } finally {
+    f.dispose();
+  }
+});
+
+test("planning-only held receipt and group close leave newer body input for its own delay", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const f = fixture(),
+    hold = deferred();
+  try {
+    topic(f, "Original plan");
+    f.setSaveGate(hold);
+    context.mock.timers.tick(10000);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "New body during plan receipt", marks: [] }],
+      },
+    ]);
+    context.mock.timers.tick(1000);
+    hold.resolve();
+    for (let n = 0; n < 200; n++) await Promise.resolve();
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      0,
+    );
+    assert.equal(f.save.status, "pending");
+    context.mock.timers.tick(8999);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      0,
+    );
+    context.mock.timers.tick(1);
+    for (let n = 0; n < 200; n++) await Promise.resolve();
+    assert.equal(f.save.status, "saved");
+    assert.equal(
+      f.commands.filter((c) => c.type === "ApplyDocumentEdit").length,
+      1,
+    );
+  } finally {
+    hold.resolve();
     f.dispose();
   }
 });

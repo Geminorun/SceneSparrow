@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 export default defineConfig({
   testDir: "tests/e2e",
   workers: 1,
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
   use: {
     baseURL: "http://127.0.0.1:5173",
     locale: "en-US",

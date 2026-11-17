@@ -381,7 +381,6 @@
   "settingsSections": "Settings sections",
   "aiModels": "Model services",
   "interfaceLanguage": "Interface language",
-  "workspaceHelp": "Your work saves as you write. Rename your project from the Project files menu.",
   "renameProject": "Rename project",
   "saveProjectName": "Save name",
   "renameConflict": "The saved project name changed. Your proposed name is preserved. Review the current name and save again.",
@@ -508,5 +507,16 @@
   "aiOpenConfiguration": "Open configuration",
   "aiAssignService": "Assign to {service}",
   "aiInvalidModelId": "Use a model ID of at most 256 UTF-8 bytes, without control characters.",
-  "aiRemoteDraftConflict": "This saved configuration changed elsewhere. Your unsaved draft is kept; review it before saving."
+  "aiRemoteDraftConflict": "This saved configuration changed elsewhere. Your unsaved draft is kept; review it before saving.",
+  "projectSettings": "Project settings",
+  "applicationPreferencesHelp": "Preferences apply to all projects in this browser or desktop profile.",
+  "autosaveMode": "Autosave",
+  "autosaveAfterDelay": "After a delay",
+  "autosaveOnWindowChange": "When the window loses focus",
+  "autosaveOff": "Off",
+  "autosaveDelay": "Save delay",
+  "autosaveSeconds": "{seconds} seconds",
+  "manualSaveHelp": "Ctrl/Cmd+S saves the manuscript and planning. Required actions also save pending changes.",
+  "aiSettingsLoading": "Loading model settings…",
+  "planningLoading": "Loading planning…"
 }

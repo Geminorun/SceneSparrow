@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { ApplicationPreferencesStore } from "../../packages/editor-ui/src/app-preferences.ts";
 import { Autosave } from "../../packages/editor-ui/src/editor/autosave.ts";
 import {
   ApiError,
@@ -13,7 +14,7 @@ const block = (text = "Text") => ({
   runs: [{ text, marks: [] }],
   revision: 1,
 });
-function setup() {
+function setup(preferences) {
   const original = block();
   const state = {
     manuscriptId: id(),
@@ -37,7 +38,14 @@ function setup() {
       throw new ApiError("COMMAND_NOT_FOUND");
     },
   };
-  const save = new Autosave(state, id(), client, () => {});
+  const save = new Autosave(
+    state,
+    id(),
+    client,
+    () => {},
+    undefined,
+    preferences,
+  );
   return { save, state, client, calls };
 }
 function receipt(c) {
@@ -221,10 +229,10 @@ test("IME composition blocks explicit flush until the final composition", async 
   assert.equal(calls.length, 1);
   save.dispose();
 });
-test("continuous local typing flushes by two seconds even without a debounce gap", async (context) => {
+test("continuous local typing flushes at sixty seconds without a debounce gap", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
   const { save, calls } = setup();
-  for (let n = 0; n < 10; n++) {
+  for (let n = 0; n < 300; n++) {
     save.update(local(save, `typing ${n}`));
     context.mock.timers.tick(200);
   }
@@ -402,10 +410,10 @@ function historySetup() {
   save.history = structuredClone(h);
   return fixture;
 }
-test("continuous typing across two-second saved batches uses one group until actual idle", async (context) => {
+test("continuous typing across maximum-dirty saved batches uses one group until actual idle", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
   const { save, calls } = setup();
-  for (let n = 0; n < 25; n++) {
+  for (let n = 0; n < 605; n++) {
     save.update(local(save, `continuous ${n}`));
     context.mock.timers.tick(200);
     for (let k = 0; k < 8; k++) await Promise.resolve();
@@ -1291,3 +1299,158 @@ for (const laterInput of [false, true])
     assert.equal(save.canonicalVersion, laterInput ? 0 : 1);
     save.dispose();
   });
+
+for (const seconds of [5, 10, 30])
+  test(`save policy waits ${seconds}s despite idle, selection and discrete boundaries`, async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+    const prefs = new ApplicationPreferencesStore(() => undefined);
+    prefs.update({ saveDelaySeconds: seconds });
+    const { save, calls } = setup(prefs);
+    try {
+      save.update(local(save, "before"));
+      context.mock.timers.tick(800);
+      await save.boundary();
+      await save.discrete(() => save.update(local(save, "discrete")));
+      context.mock.timers.tick(seconds * 1000 - 1);
+      await settle();
+      assert.equal(calls.length, 0);
+      assert.equal(save.canUndo, true);
+      context.mock.timers.tick(1);
+      for (let n = 0; n < 100; n++) await Promise.resolve();
+      assert.equal(
+        calls.filter((c) => c.type === "ApplyDocumentEdit").length,
+        2,
+      );
+      assert.equal(save.status, "saved");
+    } finally {
+      save.dispose();
+    }
+  });
+for (const mode of ["off", "on_window_change"])
+  test(`${mode} has no background write but explicit saves still settle`, async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+    const prefs = new ApplicationPreferencesStore(() => undefined);
+    prefs.update({ saveMode: mode });
+    const { save, calls } = setup(prefs);
+    try {
+      save.update(local(save, "pending"));
+      await save.boundary();
+      context.mock.timers.tick(120000);
+      await settle();
+      assert.equal(calls.length, 0);
+      await save.windowChanged();
+      assert.equal(
+        calls.some((c) => c.type === "ApplyDocumentEdit"),
+        mode === "on_window_change",
+      );
+      assert.equal(await save.controlledClose(), true);
+      assert.equal(save.status, "saved");
+    } finally {
+      save.dispose();
+    }
+  });
+test("live policy changes cancel and reschedule timers without replacing local input", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const prefs = new ApplicationPreferencesStore(() => undefined),
+    { save, calls } = setup(prefs);
+  try {
+    save.history.redoCount = 2;
+    assert.equal(save.canRedo, true);
+    save.update(local(save, "retained"));
+    const visible = save.local;
+    assert.equal(save.canRedo, false);
+    prefs.update({ saveMode: "off" });
+    context.mock.timers.tick(30000);
+    await settle();
+    assert.equal(calls.length, 0);
+    prefs.update({ saveMode: "after_delay", saveDelaySeconds: 30 });
+    context.mock.timers.tick(0);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(save.status, "saved");
+    assert.equal(save.local, visible);
+  } finally {
+    save.dispose();
+  }
+});
+test("off mode bounds unsent full documents and coalesces repeated capture of the current group", async () => {
+  const prefs = new ApplicationPreferencesStore(() => undefined);
+  prefs.update({ saveMode: "off" });
+  const { save, calls } = setup(prefs);
+  try {
+    for (let n = 0; n < 100; n++) {
+      save.update(local(save, `operation ${n}`));
+      await save.boundary();
+      assert.ok(save.segments.length <= 6);
+    }
+    assert.equal(calls.length, 0);
+    assert.equal(await save.flush(), true);
+    assert.equal(save.local[0].runs[0].text, "operation 99");
+  } finally {
+    save.dispose();
+  }
+});
+test("a timed body acknowledgment leaves newer input pending until its own delay", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 10000 });
+  const { save, client, calls } = setup();
+  let release;
+  client.executeManuscript = async (c) => {
+    calls.push(c);
+    if (c.type === "ApplyDocumentEdit" && !release)
+      await new Promise((r) => {
+        release = r;
+      });
+    return receipt(c);
+  };
+  try {
+    save.update(local(save, "old"));
+    context.mock.timers.tick(10000);
+    await settle();
+    save.update(local(save, "new"));
+    context.mock.timers.tick(1000);
+    release();
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(calls.filter((c) => c.type === "ApplyDocumentEdit").length, 1);
+    assert.equal(save.status, "pending");
+    context.mock.timers.tick(8999);
+    await settle();
+    assert.equal(calls.filter((c) => c.type === "ApplyDocumentEdit").length, 1);
+    context.mock.timers.tick(1);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(save.status, "saved");
+  } finally {
+    save.dispose();
+  }
+});
+
+test("manual save settles body despite unsent review and defers IME while close still refuses review loss", async () => {
+  const { save, calls } = setup();
+  try {
+    save.reviewDirty = () => true;
+    save.composition(true);
+    save.update(local(save, "Composed manual save"));
+    assert.equal(await save.manualSave(), false);
+    assert.equal(calls.length, 0);
+    save.composition(false);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(save.status, "saved");
+    assert.equal(await save.controlledClose(), false);
+  } finally {
+    save.dispose();
+  }
+});
+test("window-change save waits for composition completion", async () => {
+  const prefs = new ApplicationPreferencesStore(() => undefined);
+  prefs.update({ saveMode: "on_window_change" });
+  const { save, calls } = setup(prefs);
+  try {
+    save.composition(true);
+    save.update(local(save, "Composing on blur"));
+    await save.windowChanged();
+    assert.equal(calls.length, 0);
+    save.composition(false);
+    for (let n = 0; n < 100; n++) await Promise.resolve();
+    assert.equal(save.status, "saved");
+  } finally {
+    save.dispose();
+  }
+});

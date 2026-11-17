@@ -82,7 +82,7 @@ export function Planning({
         </button>
       </p>
     );
-  if (!initial) return <p role="status">{t.connecting}</p>;
+  if (!initial) return <p role="status">{t.planningLoading}</p>;
   return (
     <PlanningEditor
       initial={initial}
@@ -189,7 +189,9 @@ function PlanningEditor({
   const [operation, setOperation] = useState<
     PlanningPreparationRequest["operation"]
   >(
-    initial.content.nodes.length && save.state.workspaceStage === "outline"
+    initial.content.nodes.length &&
+      save.state.workspaceStage === "outline" &&
+      !save.local.length
       ? "generate_initial_draft"
       : "generate_outline",
   );
@@ -360,7 +362,9 @@ function PlanningEditor({
   const inputLocked = reserved || save.stageTransitionPending;
   const locked = inputLocked || acting;
   const initialEligible =
-    save.state.workspaceStage === "outline" && !save.state.blocks.length;
+    save.state.workspaceStage === "outline" &&
+    !save.local.length &&
+    !save.recoveryText;
   const [assistanceOpen, setAssistanceOpen] = useState(initialEligible);
   const ready =
     !!p.brief.topic.trim() && p.nodes.every((node) => !!node.title.trim());
@@ -495,7 +499,7 @@ function PlanningEditor({
                 }
                 value={p.brief[field]}
                 onChange={(e) => patchBrief(field, e.target.value)}
-                onBlur={() => void planning.flush(false)}
+                onBlur={() => planning.boundary()}
               />
               {briefInvalid(field) && (
                 <p id={`planning-error-${field}`} className="field-error">
@@ -520,7 +524,7 @@ function PlanningEditor({
                   value={p.brief[field]}
                   aria-invalid={briefInvalid(field)}
                   onChange={(event) => patchBrief(field, event.target.value)}
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {briefInvalid(field) && (
                   <p className="field-error">{t.workspaceValidationLength}</p>
@@ -587,7 +591,7 @@ function PlanningEditor({
                       `${node.id}:title`,
                     )
                   }
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {[...node.title].length > 300 && (
                   <p
@@ -634,7 +638,7 @@ function PlanningEditor({
                       `${node.id}:points`,
                     )
                   }
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {(node.keyPoints.length > 20 ||
                   node.keyPoints.some((point) => [...point].length > 1000)) && (
@@ -715,7 +719,7 @@ function PlanningEditor({
             onChange={(e) =>
               update({ ...p, instruction: e.target.value }, "instruction")
             }
-            onBlur={() => void planning.flush(false)}
+            onBlur={() => planning.boundary()}
           />
           {new TextEncoder().encode(p.instruction).length > 8192 && (
             <p id="planning-instruction-error" className="field-error">

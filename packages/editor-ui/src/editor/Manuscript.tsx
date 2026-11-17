@@ -440,15 +440,22 @@ function Draft({
     const keydown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       const inEditor = !!target?.closest(".tiptap");
+      const mod = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (mod && !event.altKey && key === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!document.querySelector("dialog[open],[aria-modal=true]"))
+          void save.manualSave();
+        return;
+      }
+      if (event.isComposing || save.composing || event.keyCode === 229) return;
       if (
         target?.closest("dialog,[role=dialog],[aria-modal=true]") ||
         inEditor ||
         target?.closest("input,textarea,select,[contenteditable=true]")
       )
         return;
-      if (event.isComposing || save.composing || event.keyCode === 229) return;
-      const mod = event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
       if (mod && !event.altKey && (key === "z" || key === "y")) {
         event.preventDefault();
         event.stopPropagation();
@@ -484,6 +491,14 @@ function Draft({
     onRevision(save.state.workingRevision);
   }, [save.state.workingRevision, onRevision]);
   useEffect(() => {
+    const blur = () => {
+      void save.windowChanged();
+    };
+    const visibility = () => {
+      if (document.hidden) blur();
+    };
+    window.addEventListener("blur", blur);
+    document.addEventListener("visibilitychange", visibility);
     const warning = (event: BeforeUnloadEvent) => {
       if (
         save.status !== "saved" ||
@@ -515,6 +530,8 @@ function Draft({
       save.dispose();
       remove?.();
       window.removeEventListener("beforeunload", warning);
+      window.removeEventListener("blur", blur);
+      document.removeEventListener("visibilitychange", visibility);
     };
   }, [client, save]);
   async function reload() {
@@ -732,9 +749,7 @@ function Draft({
                       disabled={
                         save.busy ||
                         save.composing ||
-                        (undo
-                          ? !save.history.undoCount && save.status === "saved"
-                          : !save.history.redoCount) ||
+                        (undo ? !save.canUndo : !save.canRedo) ||
                         ["error", "conflict"].includes(save.status)
                       }
                       onMouseDown={(event) => event.preventDefault()}
