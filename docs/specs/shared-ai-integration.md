@@ -50,7 +50,7 @@ execution, tool agents, embeddings and hosted multitenancy are outside this rele
 | `crates/application/src/ai/`             | Settings/execution/credential ports and generic use cases                                     |
 | `crates/application/src/script/ai/`      | Consumer prompts, evidence, domain validators and bindings; no provider SDK                   |
 | `crates/infrastructure/src/ai/`          | Settings file, SQLite execution repository and worker transport                               |
-| `crates/infrastructure/src/credentials/` | Platform credential-store adapters and session-only development implementation                |
+| `crates/infrastructure/src/credentials/` | Native keyring, configured encrypted-file and session-only credential adapters                |
 | `packages/contracts/schema/ai/`          | Planned schema organization for generic DTOs, integrated into the existing protocol generator |
 | `packages/ai-runtime/`                   | New Node/TypeScript library, normalized request/result and provider adapters                  |
 | `workers/agent/`                         | Thin supervised process host for that library, without database access                        |

@@ -1,6 +1,7 @@
 # Model services and durable credentials
 
-Status: approved for implementation on 2026-11-17. The feature starts from
+Status: implementation checkpoint validated on 2026-11-17; see the
+[validation report](../validation/ai-model-services.md). The feature starts from
 `origin/release/1.0.0` at `22cb413`; it targets that release by a new PR. This
 follow-up refines the shared AI spec's settings presentation and credential
 adapter without changing manuscript orchestration or task-start semantics.

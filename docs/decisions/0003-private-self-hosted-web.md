@@ -17,8 +17,10 @@ The existing host reverse proxy terminates HTTPS; Compose publishes only loopbac
 This is one private, shared project and one shared global AI configuration. It
 does not introduce user accounts, tenant isolation, collaboration or a hosted
 service. Giving another person the operator credential shares the whole workspace.
-Linux AI credentials retain the current session-memory backend: restart/deploy
-requires entering keys again. No plaintext AI credential fallback is introduced.
+The initial delivery used session-memory AI credentials. The later
+[model-services decision](../design/ai-model-services.md) adds authenticated
+encrypted Web storage with an external deployment master key, while preserving
+the shared credential port. No plaintext fallback is introduced.
 
 GitHub Actions checks, builds and exercises the final image before publication.
 Deployment uses its immutable GHCR digest, pinned SSH host keys and temporary
@@ -41,5 +43,6 @@ validation and review remain required. The Web workflow also supports manual
 checks/build/smoke without deployment. The single public origin is
 `https://scene.mindreview.me` and the default host loopback port is 8070. Separate operator username/password
 secrets accept a 6–256 character printable ASCII password, retaining the same
-Basic authentication and secure mounted-file implementation. AI keys remain in
-session memory.
+Basic authentication and secure mounted-file implementation. The AI credential
+follow-up provisions and reuses a separate read-only master secret; encrypted
+credentials persist across restart. See the [backup and recovery runbook](../web-deployment.md).

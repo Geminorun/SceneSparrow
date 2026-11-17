@@ -32,6 +32,12 @@ cross-stage evidence. The [acceptance matrix](docs/validation/acceptance-matrix.
 records all 130 cases and their remaining limits; the
 [workbench and shared AI specifications](docs/design/README.md) define those slices.
 
+The [model-services follow-up](docs/design/ai-model-services.md) provides OpenAI
+and DeepSeek compatible service presets, independent saved models and one global
+manuscript default. Private Web deployments encrypt API credentials and reuse an
+external master key across restarts; see [validation](docs/validation/ai-model-services.md)
+and [deployment recovery](docs/web-deployment.md).
+
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
 the same UI through a restricted preload bridge. A Remotion sample validates the

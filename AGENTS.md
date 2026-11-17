@@ -72,6 +72,12 @@
   core tokens and the loopback core boundary. One deployment shares one project
   and global AI configuration; it does not provide user isolation. Keep Docker's
   build/runtime workspace layout consistent with compiled Rust worker paths.
+- The model-services follow-up is specified in `docs/design/ai-model-services.md`
+  and validated in `docs/validation/ai-model-services.md`. Preserve the independent
+  model catalog, global text default, legacy profile identities and explicit paid
+  test actions. Web credentials use the shared credential port and an external
+  deployment master key; never regenerate that key over an existing vault or
+  downgrade encrypted data to session storage.
 
 ## Delegation scope
 
