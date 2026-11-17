@@ -239,14 +239,6 @@ test("Chinese manuscript keeps the continuous document, auxiliary panels and sou
   );
   await saved(page);
   await expect(editor.locator("h1")).toHaveText("城市醒来之前");
-  await openPanel(page, "Planning");
-  await page
-    .getByLabel("Topic", { exact: true })
-    .fill("一座城市如何开始新的一天");
-  await page
-    .getByLabel("Manuscript language", { exact: true })
-    .selectOption("zh-CN");
-  await saved(page);
   for (const width of [1440, 1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(

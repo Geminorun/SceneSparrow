@@ -118,10 +118,11 @@ test("offline export flushes visible input, copy permission fallback and uncerta
     .getByRole("button", { name: "Export manuscript", exact: true })
     .click();
   await expect(
-    exports
-      .getByRole("status")
-      .filter({ hasText: "The operation could not finish" }),
+    page.locator('.notification[data-error-code="exportFailed"]'),
   ).toBeVisible();
+  await expect(
+    exports.getByText("The operation could not finish", { exact: false }),
+  ).toHaveCount(0);
   await expect(editor).toContainText("Visible unsaved 中文");
   expect(capturesBeforeSave).toBe(0);
   page.off("request", countEarly);
@@ -161,6 +162,9 @@ test("offline export flushes visible input, copy permission fallback and uncerta
   await expect(
     exports.getByRole("status").filter({ hasText: "File generated" }),
   ).toBeVisible();
+  await expect(
+    page.locator('.notification[data-error-code="exportFailed"]'),
+  ).toHaveCount(0);
   await expect(exports.getByText("Copied", { exact: true })).toHaveCount(0);
   const downloadEvent = page.waitForEvent("download");
   await exports
@@ -179,7 +183,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
     .getByRole("button", { name: "Copy manuscript", exact: true })
     .click();
   await expect(
-    exports.getByText(/Clipboard access was unavailable/),
+    page.locator('.notification[data-error-code="exportClipboardFallback"]'),
   ).toBeVisible();
   await expect(
     exports.getByRole("textbox", {
@@ -228,9 +232,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
     .getByRole("button", { name: "Download file", exact: true })
     .click();
   await expect(
-    exports
-      .getByRole("status")
-      .filter({ hasText: "The operation could not finish" }),
+    page.locator('.notification[data-error-code="TRANSPORT_NETWORK_FAILED"]'),
   ).toBeVisible();
   await page.unroute("**/api/v1/manuscript/exports/*/artifact");
   await exports
@@ -245,7 +247,7 @@ test("offline export flushes visible input, copy permission fallback and uncerta
   ).toBeVisible();
   await expect(
     page.locator(".export-panel").getByText(/无法访问剪贴板/),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.locator('.notification[data-error-code="exportClipboardFallback"]'),
   ).toContainText("无法访问剪贴板");
@@ -371,10 +373,11 @@ test("offline export flushes visible input, copy permission fallback and uncerta
     .getByRole("button", { name: "Copy manuscript", exact: true })
     .click();
   await expect(
-    exports.getByText("There is no manuscript text to export.", {
-      exact: true,
-    }),
+    page.locator('.notification[data-error-code="exportNoContent"]'),
   ).toBeVisible();
+  await expect(
+    page.locator('.notification[data-error-code="exportNoContent"]'),
+  ).toContainText("There is no manuscript text to export.");
   expect(
     await (await page.request.get("/api/v1/manuscript/exports")).json(),
   ).toHaveLength(beforeEmpty.length);
@@ -549,14 +552,14 @@ test("restart exposes an unknown native receipt and reselect requires a fresh ex
     exact: true,
   });
   await expect(
-    exports.getByRole("status").filter({ hasText: "Delivery status unknown" }),
+    page.locator('.notification[data-error-code="exportUnknown"]'),
   ).toBeVisible();
   expect(await page.evaluate(() => (window as any).__deliveries)).toEqual([]);
   await exports
     .getByRole("button", { name: "Save file…", exact: true })
     .click();
   await expect(
-    exports.getByRole("status").filter({ hasText: "Delivery status unknown" }),
+    page.locator('.notification[data-error-code="exportUnknown"]'),
   ).toBeVisible();
   const reselect = exports.getByRole("button", {
     name: /Check destination and select a new save destination/,
@@ -565,6 +568,9 @@ test("restart exposes an unknown native receipt and reselect requires a fresh ex
   await expect(
     exports.getByRole("status").filter({ hasText: "File saved" }),
   ).toBeVisible();
+  await expect(
+    page.locator('.notification[data-error-code="exportUnknown"]'),
+  ).toHaveCount(0);
   const actions = await page.evaluate(() => (window as any).__deliveries);
   expect(actions).toHaveLength(2);
   expect(actions[1].jobId).toBe(actions[0].jobId);

@@ -35,7 +35,7 @@ test("missing-default preflight is localized above a scrolled pane and routes di
   expect(settingsReads).toBe(0);
   await openPanel(page, "Planning");
   await page
-    .getByLabel("Topic", { exact: true })
+    .getByLabel("Your idea", { exact: true })
     .fill("A local preflight topic");
   await page
     .locator(".right-pane .auxiliary-content:visible")

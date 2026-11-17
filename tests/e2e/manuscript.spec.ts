@@ -235,7 +235,10 @@ test("failure retains local input for retry and conflict offers explicit discard
   );
   holdProjection = false;
   await expect(input).toContainText("conflict kept");
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .click();
   await expect(
     page.getByRole("textbox", { name: "Local text to copy" }),
   ).toContainText("conflict kept");
@@ -243,7 +246,10 @@ test("failure retains local input for retry and conflict offers explicit discard
     .getByRole("button", { name: "Keep local edits", exact: true })
     .click();
   await expect(input).toContainText("conflict kept");
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .click();
   page.once("dialog", (dialog) => void dialog.accept());
   await page
     .getByRole("button", {
@@ -541,7 +547,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     page.getByRole("dialog", { name: "Recover local edits" }),
   ).toHaveCount(0);
   await saved(page);
-  const frozenEditor = page.locator(".tiptap");
+  const frozenEditor = page.getByRole("textbox", {
+    name: "Manuscript",
+    exact: true,
+  });
   await expect(frozenEditor).not.toContainText("Invalid depth four");
   await expect(frozenEditor).toHaveAttribute("contenteditable", "false");
   expect(

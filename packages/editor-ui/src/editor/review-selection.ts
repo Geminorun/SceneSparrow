@@ -40,6 +40,7 @@ export function captureReviewSelection(editor: Editor, wholeBlock = false) {
     from = Math.min(anchor, head);
     to = Math.max(anchor, head);
   }
+  if (!wholeBlock && from === to) throw Error("ANCHOR_INVALID");
   const positions = canonicalPositions(editor);
   const selected = positions.filter(({ pos, size }) =>
     wholeBlock
@@ -82,4 +83,30 @@ export function bindReviewSelection(
       return { ...range, revision: block.revision };
     }),
   };
+}
+
+/** Explicit document scope includes every supported textblock, including empty ones. */
+export function captureWholeManuscript(
+  editor: Editor,
+): ReturnType<typeof captureReviewSelection> {
+  const positions = canonicalPositions(editor);
+  if (!positions.length || positions.length > 100)
+    throw Error("REVIEW_SCOPE_TOO_LARGE");
+  const capture = positions.map(({ block }) => {
+    const text = block.runs.map((run) => run.text).join("");
+    return {
+      blockId: block.id,
+      text,
+      start: 0,
+      end: text.length,
+      quote: text,
+      wholeBlock: true,
+    };
+  });
+  if (
+    new TextEncoder().encode(JSON.stringify(capture)).length >
+    4 * 1024 * 1024
+  )
+    throw Error("REVIEW_SCOPE_TOO_LARGE");
+  return capture;
 }

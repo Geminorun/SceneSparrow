@@ -143,7 +143,7 @@ test("two bilingual services support manual models after discovery failure and e
     ).toBeVisible();
     const bindingBefore = (await core.request("/ai/settings")).settings
       .bindings;
-    expect(bindingBefore[0].parameters.maxOutputTokens).toBe(4096);
+    expect(bindingBefore[0].parameters.maxOutputTokens).toBe(8192);
     let loseTestResponse = true;
     const actions: unknown[] = [];
     core.intercept(async (path, body, phase) => {

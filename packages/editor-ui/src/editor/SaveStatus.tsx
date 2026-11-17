@@ -48,11 +48,16 @@ export function SaveStatus({
     recover: planOwns ? openPlanning : recover,
   });
   callbacks.current = { retry, recover: planOwns ? openPlanning : recover };
+  const previousError = useRef<string | null>(null);
   useEffect(() => {
     if (!failed) {
+      previousError.current = null;
       resolve("save");
       return;
     }
+    if (previousError.current !== null && previousError.current !== error)
+      resolve("save");
+    previousError.current = error;
     report(error ?? "error", {
       identity: "save",
       actions: [
@@ -80,7 +85,7 @@ export function SaveStatus({
             className="quiet-button"
             onClick={planOwns ? openPlanning : recover}
           >
-            {t.workspaceRecoveryDetails}
+            {t.noticeRecovery}
           </button>
         </>
       )}

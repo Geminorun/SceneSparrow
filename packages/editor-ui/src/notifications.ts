@@ -1,6 +1,7 @@
 import en from "./locales/en.json";
 
 const aliases: Record<string, keyof typeof en> = {
+  NO_MANUSCRIPT_CONTENT: "exportNoContent",
   SOURCE_TEXT_UNAVAILABLE: "sourceTextUnavailable",
   SOURCE_ENCRYPTED: "sourceEncrypted",
   TEXT_ENCODING_UNSUPPORTED: "encodingUnsupported",

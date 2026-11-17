@@ -9,7 +9,7 @@ import { docx, pdf } from "../fixtures/documents.mjs";
 async function workspace(page: Page) {
   await openWorkbench(page);
   await startManualDraft(page);
-  const editor = page.locator(".tiptap");
+  const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   if (!(await editor.innerText()).trim()) {
     await editor.fill("Existing manuscript for reference and import checks.");
     await expect(page.getByTestId("save-status")).toHaveAttribute(
@@ -174,10 +174,11 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
   await dialog
     .getByRole("button", { name: "Replace manuscript", exact: true })
     .click();
-  await expect(dialog.getByRole("alert")).toHaveAttribute(
-    "data-error-code",
-    /IMPORT_STALE|REVISION_CONFLICT/,
-  );
+  await expect(
+    page.locator(
+      '.notification[data-error-code="importStale"],.notification[data-error-code="REVISION_CONFLICT"]',
+    ),
+  ).toHaveAttribute("data-error-code", /importStale|REVISION_CONFLICT/);
   expect((await state(page)).blocks).toEqual(current.blocks);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.reload();
@@ -200,10 +201,9 @@ test("stale preview rejects after visible editing and scanned PDFs never offer a
       mimeType: "application/pdf",
       buffer: pdf([{ image: true }]),
     });
-  await expect(scanned.getByRole("alert")).toHaveAttribute(
-    "data-error-code",
-    "SOURCE_TEXT_UNAVAILABLE",
-  );
+  await expect(
+    page.locator('.notification[data-error-code="sourceTextUnavailable"]'),
+  ).toHaveAttribute("data-error-code", "sourceTextUnavailable");
   await expect(
     scanned.getByRole("button", { name: "Replace manuscript", exact: true }),
   ).toHaveCount(0);

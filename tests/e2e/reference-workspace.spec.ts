@@ -17,12 +17,14 @@ test("invalid saved pane preferences recover without blocking the manuscript", a
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   await openWorkbench(page);
-  await expect(page.locator(".tiptap")).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Manuscript", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("tab", { name: "Contents", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("tab", { name: "Create", exact: true }),
+    page.getByRole("tab", { name: "AI assistant", exact: true }),
   ).toBeVisible();
   expect((await core.request("/manuscript")).blocks).toEqual([]);
 });
@@ -32,7 +34,7 @@ test("independent panes persist widths, keep editor identity and replace fake pr
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openWorkbench(page);
-  const editor = page.locator(".tiptap"),
+  const editor = page.getByRole("textbox", { name: "Manuscript", exact: true }),
     node = await editor.elementHandle();
   await expect(page.locator(".project-heading")).toHaveCount(0);
   await expect(page.getByText("Project files", { exact: true })).toHaveCount(0);
@@ -52,7 +54,7 @@ test("independent panes persist widths, keep editor identity and replace fake pr
     .getByRole("button", { name: "Close navigator", exact: true })
     .click();
   await expect(
-    page.getByRole("tab", { name: "Create", exact: true }),
+    page.getByRole("tab", { name: "AI assistant", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Close assistant", exact: true })
@@ -86,11 +88,13 @@ test("narrow drawers are exclusive, trap focus and restore their opener without 
 }) => {
   await page.setViewportSize({ width: 375, height: 820 });
   await openWorkbench(page);
-  const node = await page.locator(".tiptap").elementHandle();
+  const node = await page
+    .getByRole("textbox", { name: "Manuscript", exact: true })
+    .elementHandle();
   await openPanel(page, "Library");
   await expect(page.locator(".manuscript-main")).toHaveAttribute("inert", "");
   await expect(
-    page.getByRole("tab", { name: "Create", exact: true }),
+    page.getByRole("tab", { name: "AI assistant", exact: true }),
   ).toBeHidden();
   await page.keyboard.press("Escape");
   await expect(
@@ -100,7 +104,7 @@ test("narrow drawers are exclusive, trap focus and restore their opener without 
   await expect(
     page.getByRole("tab", { name: "Library", exact: true }),
   ).toBeHidden();
-  await page.getByRole("tab", { name: "Create", exact: true }).focus();
+  await page.getByRole("tab", { name: "AI assistant", exact: true }).focus();
   await page.keyboard.press("Shift+Tab");
   expect(
     await page.evaluate(() => !!document.activeElement?.closest(".right-pane")),
@@ -164,11 +168,11 @@ test("nested folder references persist, require explicit valid UTF-8 consent, de
     ).source;
   expect(source.relativePath).toContain("研究/鸟.md");
   await openPanel(page, "Create");
-  await expect(page.locator(".planning-reference-summary")).toContainText(
+  await expect(page.locator(".assistant-context")).toContainText(
     "Selected references: 1",
   );
   await expect(
-    page.locator(".planning-reference-summary input[type=checkbox]"),
+    page.locator(".assistant-context input[type=checkbox]"),
   ).toHaveCount(0);
   await page.reload();
   await openPanel(page, "Library");
@@ -239,10 +243,8 @@ test("pending reference text cannot overwrite newer topic input and existing bod
     .getByRole("checkbox", { name: "Use for creation", exact: true })
     .click();
   await waiting;
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   await openPanel(page, "Create");
-  if (await topic.isHidden())
-    await page.locator(".creation-assistance > summary").click();
   const node = await topic.elementHandle();
   await topic.fill("新主题保持输入");
   release();
@@ -252,17 +254,17 @@ test("pending reference text cannot overwrite newer topic input and existing bod
   await saved(page);
   await expect(topic).toHaveValue("新主题保持输入");
   expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
-  const editor = page.locator(".tiptap");
+  const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
   await editor.fill("Existing manuscript must remain.");
   await saved(page);
   await expect(
     page.getByRole("button", {
-      name: "Confirm outline and generate draft",
+      name: "Write draft from this outline",
       exact: true,
     }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Review manuscript", exact: true }),
+    page.getByRole("button", { name: "Ask", exact: true }),
   ).toBeVisible();
 });
 

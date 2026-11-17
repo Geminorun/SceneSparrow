@@ -612,7 +612,7 @@ test("planning retains the same local input through settings, rename and languag
 }) => {
   await openWorkbench(page);
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   const node = await topic.elementHandle();
   const saved = await core.request("/planning");
   await page.route("**/api/v1/manuscript/commands", async (route) => {
@@ -746,7 +746,7 @@ test("planning save retry waits for settlement and reports a repeated failure wi
     else await route.fallback();
   });
   try {
-    const topic = page.getByLabel("Topic", { exact: true });
+    const topic = page.getByLabel("Your idea", { exact: true });
     await topic.fill("Local planning survives repeated failure 中文");
     await topic.press("ControlOrMeta+s");
     const retry = page

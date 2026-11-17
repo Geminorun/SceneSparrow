@@ -1,3 +1,4 @@
+import { useNoticeOwner } from "../NotificationPresenter";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
@@ -29,6 +30,12 @@ export function Locks({
     [queryError, setQueryError] = useState(false),
     [busy, setBusy] = useState(false),
     [positions, setPositions] = useState<Record<string, number>>({});
+  const { report, resolve } = useNoticeOwner();
+  useEffect(() => {
+    if (error || queryError)
+      report(error || "STORAGE_UNAVAILABLE", { identity: "locks" });
+    else resolve("locks");
+  }, [error, queryError, report, resolve]);
   const column = useRef<HTMLDivElement>(null),
     generation = useRef(0),
     [commands] = useState(() => new ReviewCommands(save));
@@ -240,12 +247,6 @@ export function Locks({
           headerTarget,
         )}
       <aside className="lock-column" aria-label={t.lockAll}>
-        {(error || queryError) && (
-          <p role="alert">
-            {queryError ? t.lockUnavailable : t.lockPending}
-            <code>{error}</code>
-          </p>
-        )}
         <div className="lock-controls" ref={column}>
           {save.state.blocks
             .filter((block) => positions[block.id] !== undefined)

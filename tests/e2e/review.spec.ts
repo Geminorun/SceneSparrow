@@ -188,13 +188,13 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await editor.press("Control+Shift+End");
     await openPanel(page, "Review");
     await page
-      .getByRole("complementary", { name: "Review", exact: true })
+      .getByRole("complementary", { name: "Comments", exact: true })
       .getByRole("toolbar", { name: "Review selection", exact: true })
       .last()
       .getByRole("button", { name: "Question", exact: true })
       .click();
     const panel = page.getByRole("complementary", {
-      name: "Review",
+      name: "Comments",
       exact: true,
     });
     await panel
@@ -245,7 +245,7 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
       .getByRole("combobox", { name: "Language", exact: true })
       .selectOption("zh-CN");
     await expect(
-      page.getByRole("complementary", { name: "审阅", exact: true }),
+      page.getByRole("complementary", { name: "批注", exact: true }),
     ).toBeVisible();
     await mkdir(".artifacts", { recursive: true });
     await page.screenshot({
@@ -283,12 +283,11 @@ test("Unicode cross-block review is explicit, bilingual and accepts only its sel
     await page
       .getByRole("button", { name: "Lock entire manuscript", exact: true })
       .click();
-    await expect(page.locator(".lock-column [role=alert]")).toContainText(
-      "PENDING_CANDIDATE",
+    const pendingNotice = page.locator(
+      '.notification[data-error-code="PENDING_CANDIDATE"]',
     );
-    await expect(page.locator(".lock-column [role=alert]")).toContainText(
-      "Resolve the candidate",
-    );
+    await expect(pendingNotice).toContainText("Resolve the candidate");
+    await expect(page.locator(".lock-column [role=alert]")).toHaveCount(0);
     await page.screenshot({
       path: ".artifacts/review-candidate-en.png",
       fullPage: true,

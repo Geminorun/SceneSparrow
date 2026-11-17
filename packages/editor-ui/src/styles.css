@@ -430,98 +430,6 @@ dialog::backdrop {
   margin: 0.3rem;
 }
 
-.planning-workspace {
-  display: grid;
-  gap: 1rem;
-  padding: 1.25rem;
-  background: var(--paper);
-  border: 0;
-  border-radius: 0;
-}
-.planning-heading {
-  display: flex;
-  gap: 1rem;
-  justify-content: space-between;
-  align-items: start;
-}
-.planning-heading h2 {
-  margin: 0 0 0.4rem;
-}
-.planning-heading p {
-  max-width: 65ch;
-}
-.planning-workspace label {
-  display: grid;
-  gap: 0.4rem;
-}
-.planning-workspace input,
-.planning-workspace textarea,
-.planning-workspace select {
-  width: 100%;
-  box-sizing: border-box;
-}
-.planning-workspace input[type="checkbox"] {
-  width: auto;
-}
-.planning-brief {
-  border: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.8rem;
-}
-.planning-brief label:first-child {
-  grid-column: 1/-1;
-}
-.outline-node {
-  padding: 0.9rem;
-  margin-block: 0.6rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-inline-start: 3px solid var(--accent);
-  border-radius: 8px;
-  display: grid;
-  gap: 0.6rem;
-}
-.outline-actions,
-.planning-primary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-.outline-actions button {
-  padding: 0.3rem 0.6rem;
-  font-size: 0.8rem;
-}
-.planning-notice {
-  background: var(--rail);
-  border-inline-start: 2px solid #d3d2ce;
-  border-radius: 8px;
-  padding: 1rem;
-}
-.planning-evidence article,
-.planning-tasks article {
-  padding: 1rem 0;
-  border-block-end: 1px solid var(--border);
-  display: grid;
-  gap: 0.6rem;
-}
-.planning-workspace pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 20rem;
-  overflow: auto;
-  background: var(--rail);
-  padding: 0.8rem;
-}
-@media (max-width: 700px) {
-  .planning-brief {
-    grid-template-columns: 1fr;
-  }
-  .planning-heading {
-    display: block;
-  }
-}
 .review-panel {
   min-width: 0;
   padding: 1rem;
@@ -982,15 +890,6 @@ select:focus {
   font-size: 12px;
   color: var(--muted);
 }
-.planning-heading .planning-save-status {
-  height: 18px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .save-feedback [data-testid="save-status"] {
   font-size: 12px;
   white-space: nowrap;
@@ -1202,40 +1101,6 @@ select:focus {
   padding: 6px;
   border: 0;
 }
-.planning-workspace {
-  padding: 0;
-  background: transparent;
-  gap: 20px;
-  font-size: 13px;
-}
-.planning-heading {
-  display: block;
-}
-.planning-heading h2 {
-  font-size: 16px;
-  margin: 0 0 8px;
-}
-.planning-heading p {
-  font-size: 12px;
-  margin: 0 0 5px;
-  color: var(--muted);
-}
-.planning-brief {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-}
-.planning-field {
-  min-width: 0;
-}
-.planning-workspace label {
-  font-size: 13px;
-  color: var(--ink);
-  display: block;
-  margin-bottom: 6px;
-}
-.planning-workspace textarea {
-  min-height: 70px;
-}
 .auxiliary-content :is(input, textarea, select),
 .settings-content :is(input, textarea, select) {
   background: var(--rail);
@@ -1246,65 +1111,6 @@ select:focus {
 }
 .auxiliary-content :is(button, input, textarea, select) {
   font-size: 13px;
-}
-.planning-outline > h3 {
-  margin-bottom: 6px;
-}
-.outline-node {
-  padding: 10px 0;
-  margin-block: 0;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  gap: 7px;
-}
-.outline-actions {
-  gap: 3px;
-}
-.outline-actions button {
-  padding: 3px 6px;
-  font-size: 13px;
-  min-height: 28px;
-  border-color: transparent;
-  background: transparent;
-}
-.planning-primary {
-  gap: 5px;
-}
-.planning-primary button:first-child {
-  background: var(--primary);
-  color: white;
-  border-color: var(--primary);
-  min-height: 34px;
-}
-.planning-primary button {
-  font-size: 13px;
-}
-.planning-primary button:first-child:hover:not(:disabled) {
-  background: #4b4943;
-}
-.planning-primary button:nth-last-child(-n + 2) {
-  margin: 0;
-}
-.planning-notice {
-  padding: 8px;
-  border-radius: 4px;
-  font-size: 12px;
-}
-.planning-recovery-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  order: 10;
-  font-size: 12px;
-}
-.planning-recovery-actions button {
-  min-height: 26px;
-  font-size: 12px;
-  padding: 2px 6px;
-}
-.planning-recovery-details {
-  width: 100%;
 }
 .field-error {
   color: #a12d32;
@@ -1380,10 +1186,6 @@ select:focus {
   font-size: 13px;
 }
 .source-panel .preview {
-  margin-top: 12px;
-}
-.draft-evidence {
-  font-size: 12px;
   margin-top: 12px;
 }
 .recovery {
@@ -1531,7 +1333,6 @@ select:focus {
     min-height: 44px;
   }
   .document-menu-content > button,
-  .outline-actions button,
   .review-card button,
   .review-selection-tools button,
   .auxiliary-toggle,
@@ -1859,72 +1660,6 @@ select:focus {
   display: grid;
   gap: 4px;
   overflow-wrap: anywhere;
-}
-.creation-steps {
-  font-weight: 600;
-  color: var(--ink);
-}
-.creation-assistance > summary {
-  margin-bottom: 14px;
-}
-.creation-assistance[open] > summary {
-  color: var(--muted);
-  font-size: 12px;
-}
-.creation-assistance > * {
-  margin-bottom: 16px;
-}
-.planning-preferences {
-  margin-block: 6px;
-}
-.planning-reference-summary h3 {
-  font-size: 13px;
-  margin: 0 0 8px;
-}
-.planning-reference-summary ul {
-  list-style: none;
-  padding: 0;
-}
-.planning-reference-summary li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  overflow-wrap: anywhere;
-}
-.planning-reference-summary button {
-  flex-shrink: 0;
-}
-.planning-primary {
-  display: flex;
-  flex-direction: column-reverse;
-  gap: 8px;
-}
-.planning-primary button {
-  width: 100%;
-}
-.planning-primary button.quiet-button {
-  background: transparent;
-  color: var(--ink);
-  border-color: transparent;
-}
-.planning-primary button.primary-action {
-  background: var(--ink);
-  color: var(--paper);
-  border-color: var(--ink);
-  min-height: 34px;
-}
-.planning-technical,
-.planning-recovery-actions {
-  font-size: 12px;
-  color: var(--muted);
-}
-.planning-tasks h3 {
-  font-size: 13px;
-}
-.creation-complete {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
 }
 @media (max-width: 1050px) {
   .editor-workspace-grid,
@@ -2367,4 +2102,228 @@ select:focus {
 
 .rename-dialog input[aria-invalid="true"] {
   border-color: var(--danger);
+}
+
+/* Central writing surfaces and the single stage-aware assistant. */
+.writing-view-switch {
+  display: flex;
+  flex: none;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.writing-view-switch button {
+  padding: 5px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.writing-view-switch button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px #0001;
+}
+.manuscript-header {
+  flex-wrap: wrap;
+}
+.document-layout[hidden],
+.review-panel[hidden],
+.auxiliary-content[hidden] {
+  display: none;
+}
+.outline-surface {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 42px 90px;
+}
+.outline-help {
+  font-size: 0.76rem;
+  margin: 0 0 28px;
+}
+.outline-editor.tiptap {
+  min-height: 60vh;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  font-family: inherit;
+}
+.outline-editor .outline-heading {
+  font-weight: 650;
+  line-height: 1.5;
+  margin: 1.4em 0 0.5em;
+}
+.outline-editor .outline-depth-0 {
+  font-size: 1.55rem;
+}
+.outline-editor .outline-depth-1 {
+  font-size: 1.28rem;
+  padding-inline-start: 12px;
+}
+.outline-editor .outline-depth-2 {
+  font-size: 1.1rem;
+  padding-inline-start: 24px;
+}
+.outline-editor .outline-depth-3 {
+  font-size: 1rem;
+  padding-inline-start: 36px;
+}
+.outline-editor .outline-point {
+  margin: 0.3em 0;
+  padding-inline-start: 22px;
+  color: var(--muted);
+}
+.outline-editor .outline-syntax {
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: 400;
+  opacity: 0.55;
+}
+.outline-surface[data-invalid="true"] .outline-editor {
+  border-inline-start: 2px solid var(--border);
+  padding-inline-start: 10px;
+}
+.writing-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 4px;
+}
+.assistant-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.assistant-context > span,
+.assistant-context > button {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font-size: inherit;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.assistant-context button {
+  background: transparent;
+}
+.assistant-introduction {
+  font-size: 0.86rem;
+  line-height: 1.7;
+  margin: 0;
+}
+.assistant-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.assistant-brief label,
+.review-panel > label {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.assistant-brief input,
+.assistant-brief textarea,
+.assistant-brief select {
+  width: 100%;
+  margin: 5px 0 0;
+}
+.assistant-brief textarea {
+  min-height: 130px;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+.assistant-language {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.assistant-language select {
+  width: auto;
+  margin: 0;
+}
+.assistant-preferences {
+  font-size: 0.8rem;
+}
+.assistant-preferences > label {
+  display: block;
+  margin-top: 12px;
+}
+.assistant-send {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.assistant-secondary,
+.assistant-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.assistant-secondary {
+  justify-content: flex-end;
+  font-size: 0.75rem;
+}
+.assistant-mode button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.assistant-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+.writing-dialog {
+  width: min(680px, 90vw);
+  max-height: 85vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--text);
+}
+.writing-dialog textarea {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  margin: 18px 0;
+  font: inherit;
+}
+.writing-result {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.writing-result pre {
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+.writing-result button {
+  margin: 8px 8px 0 0;
+}
+@media (max-width: 700px) {
+  .outline-surface {
+    padding: 20px 22px 70px;
+  }
+  .writing-view-switch button {
+    padding: 5px 7px;
+  }
+  .manuscript-header .manuscript-context h3 {
+    display: none;
+  }
 }
