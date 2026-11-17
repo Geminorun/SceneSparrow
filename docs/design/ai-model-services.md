@@ -63,6 +63,14 @@ invalidate the visible result. Distinguish a fresh test from resolving an
 ambiguous existing action; never silently redispatch or fall back. Settings only
 affect future task starts; running/queued tasks retain their captured references.
 
+Add optional AiModel.defaultParameters (AiParameters) for independently saved
+model preferences. Seed absent preferences from an existing binding when present;
+new models use conservative nonstreaming/prompt-JSON defaults and a 4096-token
+output budget bounded by known model limits. Selecting a text default uses these
+preferences; explicitly saving preferences for the bound text model updates that
+binding in the same settings replacement. Preserve other categories. Existing
+settings without the optional field retain their existing effective parameters.
+
 ## Durable Web credential adapter
 
 Retain CredentialStore as the boundary. Native Windows/macOS keyring backends
