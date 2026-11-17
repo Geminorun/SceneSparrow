@@ -319,6 +319,7 @@ impl SqliteProjectRepository {
             }
             ManuscriptCommand::AddSourceLink { .. }
             | ManuscriptCommand::AddSourceFile { .. }
+            | ManuscriptCommand::RefreshSourceFile { .. }
             | ManuscriptCommand::RemoveSource { .. }
             | ManuscriptCommand::CommitManuscriptImport { .. } => {
                 return self.source_transition(c, command, before, identities);
@@ -539,6 +540,7 @@ impl SqliteProjectRepository {
                         label: match command {
                             ManuscriptCommand::AddSourceLink { .. }
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
+                            ManuscriptCommand::RefreshSourceFile { .. } => "refreshSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
                             ManuscriptCommand::SavePlanning { .. } => "planning",
                             ManuscriptCommand::SetUserLocks { .. } => "locks",

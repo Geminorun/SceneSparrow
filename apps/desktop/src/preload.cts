@@ -60,6 +60,13 @@ contextBridge.exposeInMainWorld("sceneSparrow", {
   readAiRun: (runId: string) => ipcRenderer.invoke("ai:run", runId),
   cancelAiRun: (runId: string) => ipcRenderer.invoke("ai:cancel", runId),
   readSources: (after?: string) => ipcRenderer.invoke("sources:read", after),
+  readReferenceDirectory: () => ipcRenderer.invoke("reference-directory:read"),
+  pickReferenceDirectory: (id: string) =>
+    ipcRenderer.invoke("reference-directory:pick", id),
+  refreshReferenceDirectory: (id: string, capabilityId: string) =>
+    ipcRenderer.invoke("reference-directory:refresh", id, capabilityId),
+  cancelReferenceDirectoryBatch: (id: string) =>
+    ipcRenderer.invoke("reference-directory:cancel", id),
   pickFileIntake: (id: string) => ipcRenderer.invoke("intake:pick", id),
   cancelFileSelection: (id: string) =>
     ipcRenderer.invoke("intake:pick-cancel", id),

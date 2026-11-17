@@ -285,6 +285,12 @@ pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
             expected_working_revision,
             ..
         }
+        | ManuscriptCommand::RefreshSourceFile {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
         | ManuscriptCommand::RemoveSource {
             request_id,
             project_id,
@@ -419,6 +425,7 @@ pub fn apply(
         | ManuscriptCommand::UsePlanningResult { .. }
         | ManuscriptCommand::AddSourceLink { .. }
         | ManuscriptCommand::AddSourceFile { .. }
+        | ManuscriptCommand::RefreshSourceFile { .. }
         | ManuscriptCommand::RemoveSource { .. }
         | ManuscriptCommand::CommitManuscriptImport { .. }
         | ManuscriptCommand::UndoProject { .. }
@@ -890,4 +897,20 @@ fn import_replacement_supports_two_valid_max_block_documents_as_one_mutation() {
     let result = import_candidate(&before, blocks(), false, &identities, &Unrestricted).unwrap();
     assert_eq!(result.state.blocks.len(), MAX_BLOCKS);
     assert_eq!(result.affected.len(), 2 * MAX_BLOCKS);
+}
+
+/// Portable library metadata only. Never interpret this value as a host locator.
+pub fn validate_reference_path(path: &str) -> Result<()> {
+    if path.is_empty()
+        || path.len() > 4096
+        || path
+            .chars()
+            .any(|c| c.is_control() || c == '\\' || c == ':')
+        || path
+            .split('/')
+            .any(|s| s.is_empty() || s == "." || s == "..")
+    {
+        return Err(ManuscriptError("INVALID_REQUEST", None));
+    }
+    Ok(())
 }

@@ -564,10 +564,15 @@ impl SqliteProjectRepository {
                 });
             }
             self.commit_sources(&transaction, &sources_before, &transition)?;
-            if let ManuscriptCommand::AddSourceFile { payload, .. } = command {
+            let consumed_intake = match command {
+                ManuscriptCommand::AddSourceFile { payload, .. } => Some(&payload.intake_id),
+                ManuscriptCommand::RefreshSourceFile { payload, .. } => Some(&payload.intake_id),
+                _ => None,
+            };
+            if let Some(intake_id) = consumed_intake {
                 db(transaction.execute(
                     "UPDATE intakes SET status='cancelled',object_hash=NULL WHERE id=?1",
-                    [&payload.intake_id],
+                    [intake_id],
                 ))?;
             }
             if let Some((prepared, input, result, attempt, parser)) = &import_metadata {

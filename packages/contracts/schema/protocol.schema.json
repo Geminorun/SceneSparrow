@@ -1141,6 +1141,37 @@
               "$ref": "#/definitions/UserLocksPayload"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["RefreshSourceFile"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/RefreshSourceFilePayload"
+            }
+          }
         }
       ]
     },
@@ -1345,6 +1376,11 @@
         },
         "intakeId": {
           "type": "string"
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         }
       }
     },
@@ -1754,6 +1790,11 @@
         },
         "hash": {
           "type": "string"
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         }
       }
     },
@@ -3209,6 +3250,102 @@
         "workspaceStage": {
           "type": "string",
           "enum": ["outline", "draft"]
+        }
+      }
+    },
+    "RefreshSourceFilePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "intakeId", "hash", "expectedSourceRevision"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "intakeId": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ReferenceDirectoryAssociation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "ReferenceDirectoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intake", "relativePath"],
+      "properties": {
+        "intake": {
+          "$ref": "#/definitions/Intake"
+        },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "ReferenceDirectoryOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "status", "code"],
+      "properties": {
+        "relativePath": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["skipped", "error"]
+        },
+        "code": {
+          "type": "string"
+        }
+      }
+    },
+    "ReferenceDirectoryBatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["association", "entries", "outcomes", "truncated"],
+      "properties": {
+        "association": {
+          "$ref": "#/definitions/ReferenceDirectoryAssociation"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReferenceDirectoryEntry"
+          }
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReferenceDirectoryOutcome"
+          }
+        },
+        "truncated": {
+          "type": "boolean"
         }
       }
     }

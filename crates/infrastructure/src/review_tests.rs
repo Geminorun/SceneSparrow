@@ -2301,3 +2301,106 @@ fn metadata_rename_and_ensure_preserve_approved_manuscript_history_and_reopen() 
         renamed
     );
 }
+
+#[test]
+fn refresh_invalidates_review_consent_and_retains_old_task_and_history_evidence() {
+    let (dir, r, s, p) = setup();
+    let intake = id();
+    r.begin_intake(&intake, "source.txt", "text/plain").unwrap();
+    r.append_intake(&intake, b"Original evidence").unwrap();
+    let original = r.complete_intake(&intake).unwrap();
+    let source = id();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceFile",
+        json!({"sourceId":source,"intakeId":intake,"hash":original.hash}),
+    ))
+    .unwrap();
+    let extraction = id();
+    r.document_action(&DocumentAction::ExtractSource {
+        job_id: extraction.clone(),
+        source_id: source.clone(),
+    })
+    .unwrap();
+    r.run_document(&extraction).unwrap();
+    let thread_id = note(&r, &p, false, 0);
+    let mut thread = SelfThread::get(&r, &thread_id);
+    thread.evidence=serde_json::from_value(json!([{"sourceId":source,"mode":"extracted_text","start":0,"end":17,"visualId":"","allowUnknownImages":false}])).unwrap();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "SaveReview",
+        json!({"thread":thread,"expectedRequestVersion":1}),
+    ))
+    .unwrap();
+    let thread = SelfThread::get(&r, &thread_id);
+    let start = cmd(
+        &r,
+        &p,
+        "StartReviewTask",
+        json!({"threadId":thread_id,"requestVersion":thread.request_version}),
+    );
+    r.start_review(&s, &start).unwrap();
+    let task = manuscript::envelope(&start).0;
+    let run = r.read_run(task).unwrap();
+    let pinned = r.ai_input_bytes(&run).unwrap();
+    let intake = id();
+    r.begin_intake(&intake, "source.txt", "text/plain").unwrap();
+    r.append_intake(&intake, b"New evidence").unwrap();
+    let changed = r.complete_intake(&intake).unwrap();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "RefreshSourceFile",
+        json!({"sourceId":source,"expectedSourceRevision":1,"intakeId":intake,"hash":changed.hash}),
+    ))
+    .unwrap();
+    let updated = SelfThread::get(&r, &thread_id);
+    assert_eq!(updated.request_version, thread.request_version + 1);
+    assert!(updated.evidence.is_empty());
+    assert_eq!(r.ai_input_bytes(&run).unwrap(), pinned);
+    let before = r.read_manuscript().unwrap().blocks;
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    assert_eq!(r.read_manuscript().unwrap().blocks, before);
+    assert!(!r.has_queued_ai().unwrap());
+    assert!(
+        r.read_reviews(None)
+            .unwrap()
+            .cards
+            .iter()
+            .find(|c| c.thread.id == thread_id)
+            .unwrap()
+            .candidate
+            .as_ref()
+            .is_none_or(|c| c.status == "stale")
+    );
+    r.collect_objects(std::time::Duration::ZERO).unwrap();
+    assert_eq!(r.read_object(&original.hash).unwrap(), b"Original evidence");
+    history(&r, &p, false);
+    let restored = SelfThread::get(&r, &thread_id);
+    assert_eq!(restored.evidence, thread.evidence);
+    assert!(restored.request_version > updated.request_version);
+    // An explicit later task may use the restored original evidence; redo invalidates its candidate.
+    r.start_review(
+        &s,
+        &cmd(
+            &r,
+            &p,
+            "StartReviewTask",
+            json!({"threadId":thread_id,"requestVersion":restored.request_version}),
+        ),
+    )
+    .unwrap();
+    complete(&r, proposal());
+    r.reconcile_reviews().unwrap();
+    assert_eq!(candidate(&r, &thread_id).status, "pending");
+    drop(r);
+    let r = SqliteProjectRepository::open(&dir.path().join("project")).unwrap();
+    assert_eq!(r.ai_input_bytes(&run).unwrap(), pinned);
+    history(&r, &p, true);
+    assert!(SelfThread::get(&r, &thread_id).evidence.is_empty());
+    assert_eq!(candidate(&r, &thread_id).status, "stale");
+    assert!(!r.has_queued_ai().unwrap());
+}

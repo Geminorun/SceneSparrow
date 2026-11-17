@@ -269,6 +269,13 @@ impl SqliteProjectRepository {
     ) -> Result<()> {
         let result = (|| -> Result<()> {
             for id in &t.affected {
+                // The task keeps immutable evidence; only its future applicability is invalidated.
+                if let ManuscriptCommand::RefreshSourceFile { payload, .. } = _command
+                    && id == &payload.source_id
+                {
+                    continue;
+                }
+
                 ensure(
                     !db(c.query_row(
                         "SELECT EXISTS(SELECT 1 FROM review_reservations WHERE block_id=?1)",
@@ -630,6 +637,21 @@ impl SqliteProjectRepository {
         before: &ManuscriptState,
         t: &mut Transition,
     ) -> Result<()> {
+        if let ManuscriptCommand::RefreshSourceFile { payload, .. } = _command {
+            let mut threads = Self::review_threads(c)?;
+            let mut changed = false;
+            for thread in &mut threads {
+                let count = thread.evidence.len();
+                thread.evidence.retain(|e| e.source_id != payload.source_id);
+                if thread.evidence.len() != count {
+                    thread.request_version = manuscript::next_revision(thread.request_version)?;
+                    changed = true;
+                }
+            }
+            if changed {
+                t.reviews = Some(threads);
+            }
+        }
         if t.state.blocks != before.blocks
             && !matches!(
                 _command,
@@ -788,11 +810,14 @@ impl SqliteProjectRepository {
             _ => {}
         }
         for record in &prepared.records {
-            if record.thread.deleted
-                || record
-                    .prior
-                    .as_ref()
-                    .is_some_and(|p| p.request_version != record.thread.request_version)
+            // Refresh preserves running immutable inputs; the changed request version makes
+            // their result stale at reconciliation without cancelling or redispatching it.
+            if !matches!(command, ManuscriptCommand::RefreshSourceFile { .. })
+                && (record.thread.deleted
+                    || record
+                        .prior
+                        .as_ref()
+                        .is_some_and(|p| p.request_version != record.thread.request_version))
             {
                 fence_ids.push(record.thread.id.clone());
             }
@@ -1560,7 +1585,7 @@ impl SqliteProjectRepository {
                 e.mode,
                 PlanningEvidenceChoiceMode::Extractedtext | PlanningEvidenceChoiceMode::Textonly
             ) {
-                db(c.query_row("SELECT result_hash FROM document_attempts WHERE source_id=?1 AND status='ready' ORDER BY rowid DESC LIMIT 1",[&e.source_id],|r|r.get(0)).optional())?.flatten()
+                Self::current_source_extraction(c, &e.source_id)?
             } else {
                 None
             };

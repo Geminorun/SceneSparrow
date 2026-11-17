@@ -179,9 +179,16 @@ impl SqliteProjectRepository {
     }
     fn verify_sources(&self, sources: &[Source]) -> Result<()> {
         let mut ids = BTreeSet::new();
+        let mut paths = BTreeSet::new();
         for s in sources {
             if !manuscript::uuid4(&s.id) || !ids.insert(&s.id) {
                 return invalid();
+            }
+            if let Some(path) = &s.relative_path {
+                manuscript::validate_reference_path(path)?;
+                if s.kind != SourceKind::File || !paths.insert(path) {
+                    return invalid();
+                }
             }
             match s.kind {
                 SourceKind::Link => {
@@ -233,6 +240,7 @@ impl SqliteProjectRepository {
                     size: None,
                     evidence: SourceEvidence::Linkonly,
                     intake_id: None,
+                    relative_path: None,
                 });
             }
             ManuscriptCommand::AddSourceFile { payload, .. } => {
@@ -257,7 +265,39 @@ impl SqliteProjectRepository {
                     size: Some(intake.size),
                     evidence: SourceEvidence::Filebytes,
                     intake_id: Some(intake.id),
+                    relative_path: payload.relative_path.clone(),
                 });
+            }
+            ManuscriptCommand::RefreshSourceFile { payload, .. } => {
+                let source = members
+                    .iter_mut()
+                    .find(|s| s.id == payload.source_id)
+                    .ok_or(ManuscriptError("OBJECT_NOT_FOUND", None))?;
+                if source.revision != payload.expected_source_revision {
+                    return Err(ManuscriptError("REVISION_CONFLICT", None));
+                }
+                if source.kind != SourceKind::File {
+                    return invalid();
+                }
+                let intake = Self::intake(c, &payload.intake_id)?;
+                if intake.hash != payload.hash {
+                    return invalid();
+                }
+                self.read_object(&intake.hash)?;
+                source.revision = manuscript::next_revision(
+                    *identities
+                        .get(&source.id)
+                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?,
+                )?;
+                source.title = intake.display_name;
+                source.object_hash = Some(intake.hash);
+                source.mime_type = Some(intake.mime_type);
+                source.size = Some(intake.size);
+                source.intake_id = Some(intake.id);
+                if payload.relative_path.is_some() {
+                    source.relative_path = payload.relative_path.clone();
+                }
+                affected.insert(source.id.clone());
             }
             ManuscriptCommand::RemoveSource { payload, .. } => {
                 let s = members
@@ -271,6 +311,15 @@ impl SqliteProjectRepository {
                 members.retain(|s| s.id != payload.source_id);
             }
             _ => return invalid(),
+        }
+        let mut paths = BTreeSet::new();
+        for source in &members {
+            if let Some(path) = &source.relative_path {
+                manuscript::validate_reference_path(path)?;
+                if !paths.insert(path) {
+                    return invalid();
+                }
+            }
         }
         members.sort_by(|a, b| a.id.cmp(&b.id));
         let mut state = before.clone();
@@ -401,6 +450,11 @@ impl SqliteProjectRepository {
     fn intake(c: &Connection, id: &str) -> Result<Intake> {
         id_check(id)?;
         db(c.query_row("SELECT object_hash,size,display_name,mime_type FROM intakes WHERE id=?1 AND status='complete'",[id],|r|Ok(Intake{id:id.into(),hash:r.get(0)?,size:r.get(1)?,display_name:r.get(2)?,mime_type:r.get(3)?})).optional())?.ok_or(ManuscriptError("OBJECT_NOT_FOUND",None))
+    }
+    pub(crate) fn current_source_extraction(c: &Connection, id: &str) -> Result<Option<String>> {
+        db(c.query_row(
+            "SELECT a.result_hash FROM document_attempts a JOIN sources s ON s.id=a.source_id WHERE a.source_id=?1 AND a.input_hash=json_extract(s.payload_json,'$.objectHash') AND a.status='ready' ORDER BY a.rowid DESC LIMIT 1",
+            [id], |r| r.get(0)).optional()).map(Option::flatten)
     }
     fn job(&self, c: &Connection, id: &str) -> Result<DocumentJob> {
         id_check(id)?;
@@ -810,7 +864,7 @@ impl DocumentRepository for SqliteProjectRepository {
             .filter(|s| after.is_none_or(|a| s.id.as_str() > a))
             .take(101)
         {
-            let jid:Option<String>=db(c.query_row("SELECT id FROM document_attempts WHERE source_id=?1 ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 0 WHEN 'ready' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,rowid DESC LIMIT 1",[&s.id],|r|r.get(0)).optional())?;
+            let jid:Option<String>=db(c.query_row("SELECT id FROM document_attempts WHERE source_id=?1 AND input_hash=?2 ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 0 WHEN 'ready' THEN 1 WHEN 'failed' THEN 2 ELSE 3 END,rowid DESC LIMIT 1",params![s.id,s.object_hash],|r|r.get(0)).optional())?;
             let job = jid.as_ref().map(|id| self.job(&c, id)).transpose()?;
             let status = if s.kind == SourceKind::Link {
                 "link_only"
@@ -1028,7 +1082,7 @@ impl DocumentRepository for SqliteProjectRepository {
                 if s.kind != SourceKind::File {
                     return invalid();
                 }
-                let running=db(c.query_row("SELECT 1 FROM document_attempts WHERE source_id=?1 AND status IN ('queued','running')",[source_id],|_|Ok(())).optional())?.is_some();
+                let running=db(c.query_row("SELECT 1 FROM document_attempts WHERE source_id=?1 AND input_hash=?2 AND status IN ('queued','running')",params![source_id,s.object_hash],|_|Ok(())).optional())?.is_some();
                 if running {
                     return Err(ManuscriptError("INVALID_REQUEST", None));
                 }

@@ -799,3 +799,208 @@ fn recovery_rejects_missing_retained_source_or_prepared_input_and_cleans_abandon
             .exists()
     );
 }
+
+#[test]
+fn portable_reference_paths_refresh_receipts_and_reopen_keep_immutable_history() {
+    let (dir, r, p) = setup();
+    let original = upload(&r, "资料.txt", b"Original evidence");
+    let source = id();
+    let add = cmd(
+        &r,
+        &p,
+        "AddSourceFile",
+        json!({"sourceId":source,"intakeId":original.id,"hash":original.hash,"relativePath":"research/中文/资料.txt"}),
+    );
+    r.execute_manuscript(&add).unwrap();
+    let job = id();
+    r.document_action(&DocumentAction::ExtractSource {
+        job_id: job.clone(),
+        source_id: source.clone(),
+    })
+    .unwrap();
+    r.run_document(&job).unwrap();
+    assert_eq!(
+        r.read_sources(None).unwrap().items[0].status,
+        SourceSummaryStatus::Ready
+    );
+    let changed = upload(&r, "资料.txt", b"Updated evidence");
+    let refresh = cmd(
+        &r,
+        &p,
+        "RefreshSourceFile",
+        json!({"sourceId":source,"expectedSourceRevision":1,"intakeId":changed.id,"hash":changed.hash}),
+    );
+    let receipt = r.execute_manuscript(&refresh).unwrap();
+    assert_eq!(receipt.source_revisions.as_ref().unwrap()[0].revision, 2);
+    assert_eq!(r.execute_manuscript(&refresh).unwrap(), receipt);
+    assert_eq!(
+        r.command_receipt(manuscript::envelope(&refresh).0).unwrap(),
+        receipt
+    );
+    let summary = &r.read_sources(None).unwrap().items[0];
+    assert_eq!(
+        summary.source.relative_path.as_deref(),
+        Some("research/中文/资料.txt")
+    );
+    assert_eq!(
+        summary.source.object_hash.as_deref(),
+        Some(changed.hash.as_str())
+    );
+    assert_eq!(summary.status, SourceSummaryStatus::Interrupted);
+    assert!(summary.job_id.is_none());
+    r.collect_objects(Duration::ZERO).unwrap();
+    assert_eq!(r.read_object(&original.hash).unwrap(), b"Original evidence");
+    assert_eq!(r.read_object(&changed.hash).unwrap(), b"Updated evidence");
+    drop(r);
+    let r = SqliteProjectRepository::open(dir.path()).unwrap();
+    r.execute_manuscript(&history(&r, &p, "UndoProject"))
+        .unwrap();
+    let restored = &r.read_sources(None).unwrap().items[0];
+    assert_eq!(restored.source.revision, 3);
+    assert_eq!(
+        restored.source.object_hash.as_deref(),
+        Some(original.hash.as_str())
+    );
+    assert_eq!(restored.status, SourceSummaryStatus::Ready);
+    r.execute_manuscript(&history(&r, &p, "RedoProject"))
+        .unwrap();
+    let refreshed = &r.read_sources(None).unwrap().items[0].source;
+    assert_eq!(refreshed.revision, 4);
+    assert_eq!(refreshed.id, source);
+    assert_eq!(
+        refreshed.object_hash.as_deref(),
+        Some(changed.hash.as_str())
+    );
+    let another = upload(&r, "资料.txt", b"Third version");
+    let stale = cmd(
+        &r,
+        &p,
+        "RefreshSourceFile",
+        json!({"sourceId":source,"expectedSourceRevision":2,"intakeId":another.id,"hash":another.hash}),
+    );
+    assert_eq!(
+        r.execute_manuscript(&stale).unwrap_err().0,
+        "REVISION_CONFLICT"
+    );
+    assert_eq!(r.read_intake(&another.id).unwrap(), another);
+}
+
+#[test]
+fn reference_paths_reject_nonportable_values_and_live_collisions_without_consuming_intake() {
+    let (_dir, r, p) = setup();
+    let intake = upload(&r, "reference.txt", b"Source");
+    let before = r.read_history().unwrap();
+    for path in [
+        "",
+        "/root.txt",
+        "a//b",
+        "a/./b",
+        "a/../b",
+        "a/",
+        "C:/a.txt",
+        "c:a.txt",
+        "a\\b",
+        "a\nfile",
+        "a\u{85}file",
+    ] {
+        let add = cmd(
+            &r,
+            &p,
+            "AddSourceFile",
+            json!({"sourceId":id(),"intakeId":intake.id,"hash":intake.hash,"relativePath":path}),
+        );
+        assert_eq!(
+            r.execute_manuscript(&add).unwrap_err().0,
+            "INVALID_REQUEST",
+            "{path:?}"
+        );
+        assert_eq!(r.read_history().unwrap(), before);
+        assert_eq!(r.read_intake(&intake.id).unwrap(), intake);
+    }
+    let source = id();
+    r.execute_manuscript(&cmd(&r, &p, "AddSourceFile", json!({"sourceId":source,"intakeId":intake.id,"hash":intake.hash,"relativePath":"same/file.txt"}))).unwrap();
+    let second = upload(&r, "reference.txt", b"Different");
+    let add = cmd(
+        &r,
+        &p,
+        "AddSourceFile",
+        json!({"sourceId":id(),"intakeId":second.id,"hash":second.hash,"relativePath":"same/file.txt"}),
+    );
+    assert_eq!(r.execute_manuscript(&add).unwrap_err().0, "INVALID_REQUEST");
+    let legacy = add_file(&r, &p, &second);
+    assert!(
+        r.read_sources(None)
+            .unwrap()
+            .items
+            .iter()
+            .find(|s| s.source.id == legacy)
+            .unwrap()
+            .source
+            .relative_path
+            .is_none()
+    );
+    let third = upload(&r, "reference.txt", b"Third");
+    let conflict = cmd(
+        &r,
+        &p,
+        "RefreshSourceFile",
+        json!({"sourceId":legacy,"expectedSourceRevision":1,"intakeId":third.id,"hash":third.hash,"relativePath":"same/file.txt"}),
+    );
+    assert_eq!(
+        r.execute_manuscript(&conflict).unwrap_err().0,
+        "INVALID_REQUEST"
+    );
+    assert_eq!(r.read_intake(&third.id).unwrap(), third);
+}
+
+#[test]
+fn extraction_running_at_refresh_keeps_original_input_and_cannot_label_new_bytes_ready() {
+    let (_dir, r, p) = setup();
+    let original = upload(&r, "original.txt", b"Original job input");
+    let source = add_file(&r, &p, &original);
+    let job = id();
+    r.document_action(&DocumentAction::ExtractSource {
+        job_id: job.clone(),
+        source_id: source.clone(),
+    })
+    .unwrap();
+    let changed = upload(&r, "original.txt", b"Refreshed input");
+    r.execute_manuscript(&cmd(&r, &p, "RefreshSourceFile", json!({"sourceId":source,"expectedSourceRevision":1,"intakeId":changed.id,"hash":changed.hash}))).unwrap();
+    r.collect_objects(Duration::ZERO).unwrap();
+    assert_eq!(r.document_job(&job).unwrap().input_hash, original.hash);
+    r.run_document(&job).unwrap();
+    assert_eq!(
+        r.document_job(&job).unwrap().result.unwrap().text,
+        "Original job input"
+    );
+    assert!(r.read_sources(None).unwrap().items[0].job_id.is_none());
+    let fresh_job = id();
+    r.document_action(&DocumentAction::ExtractSource {
+        job_id: fresh_job.clone(),
+        source_id: source.clone(),
+    })
+    .unwrap();
+    r.run_document(&fresh_job).unwrap();
+    assert_eq!(r.document_job(&fresh_job).unwrap().input_hash, changed.hash);
+    assert_eq!(
+        r.read_sources(None).unwrap().items[0].job_id.as_deref(),
+        Some(fresh_job.as_str())
+    );
+}
+
+#[test]
+fn reopen_rejects_invalid_or_colliding_reference_path_projections() {
+    for invalid in [true, false] {
+        let (dir, r, p) = setup();
+        let first = upload(&r, "first.txt", b"One");
+        let first_id = id();
+        r.execute_manuscript(&cmd(&r,&p,"AddSourceFile",json!({"sourceId":first_id,"intakeId":first.id,"hash":first.hash,"relativePath":"safe/first.txt"}))).unwrap();
+        let second = upload(&r, "second.txt", b"Two");
+        let second_id = add_file(&r, &p, &second);
+        let c = r.connection.lock().unwrap();
+        c.execute("UPDATE sources SET payload_json=json_set(payload_json,'$.relativePath',?1) WHERE id=?2",params![if invalid {"../unsafe.txt"} else {"safe/first.txt"},second_id]).unwrap();
+        drop(c);
+        drop(r);
+        assert!(SqliteProjectRepository::open(dir.path()).is_err());
+    }
+}

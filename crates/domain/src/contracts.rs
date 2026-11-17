@@ -447,6 +447,17 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: UserLocksPayload,
     },
+    #[serde(rename = "RefreshSourceFile")]
+    RefreshSourceFile {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: RefreshSourceFilePayload,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -605,6 +616,13 @@ pub struct Source {
         deserialize_with = "present_nonnull"
     )]
     pub intake_id: Option<String>,
+    #[serde(
+        rename = "relativePath",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub relative_path: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SourceSummaryStatus {
@@ -888,6 +906,13 @@ pub struct AddSourceFilePayload {
     pub intake_id: String,
     #[serde(rename = "hash")]
     pub hash: String,
+    #[serde(
+        rename = "relativePath",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub relative_path: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1760,6 +1785,70 @@ pub struct ManuscriptIdentity {
     pub body_hash: String,
     #[serde(rename = "workspaceStage")]
     pub workspace_stage: ManuscriptIdentityWorkspaceStage,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefreshSourceFilePayload {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "intakeId")]
+    pub intake_id: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+    #[serde(
+        rename = "relativePath",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub relative_path: Option<String>,
+    #[serde(rename = "expectedSourceRevision")]
+    pub expected_source_revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceDirectoryAssociation {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "name")]
+    pub name: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceDirectoryEntry {
+    #[serde(rename = "intake")]
+    pub intake: Intake,
+    #[serde(rename = "relativePath")]
+    pub relative_path: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReferenceDirectoryOutcomeStatus {
+    #[serde(rename = "skipped")]
+    Skipped,
+    #[serde(rename = "error")]
+    Error,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceDirectoryOutcome {
+    #[serde(rename = "relativePath")]
+    pub relative_path: String,
+    #[serde(rename = "status")]
+    pub status: ReferenceDirectoryOutcomeStatus,
+    #[serde(rename = "code")]
+    pub code: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceDirectoryBatch {
+    #[serde(rename = "association")]
+    pub association: ReferenceDirectoryAssociation,
+    #[serde(rename = "entries")]
+    pub entries: Vec<ReferenceDirectoryEntry>,
+    #[serde(rename = "outcomes")]
+    pub outcomes: Vec<ReferenceDirectoryOutcome>,
+    #[serde(rename = "truncated")]
+    pub truncated: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

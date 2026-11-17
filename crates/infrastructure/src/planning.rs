@@ -390,10 +390,15 @@ impl SqliteProjectRepository {
         _before: &ManuscriptState,
         t: &mut Transition,
     ) -> Result<()> {
-        if let ManuscriptCommand::RemoveSource { payload, .. } = command {
+        let removed_choice = match command {
+            ManuscriptCommand::RemoveSource { payload, .. } => Some(&payload.source_id),
+            ManuscriptCommand::RefreshSourceFile { payload, .. } => Some(&payload.source_id),
+            _ => None,
+        };
+        if let Some(source_id) = removed_choice {
             let mut p = Self::planning_content(c)?;
             let n = p.evidence.len();
-            p.evidence.retain(|e| e.source_id != payload.source_id);
+            p.evidence.retain(|e| &e.source_id != source_id);
             if n != p.evidence.len() {
                 t.planning = Some(p);
             }
@@ -418,13 +423,18 @@ impl SqliteProjectRepository {
             let mut old = old;
             old.instruction.clear();
             after.instruction.clear();
+            // Refresh changes the live library and clears consent, never the pinned task input.
+            if let ManuscriptCommand::RefreshSourceFile { payload, .. } = command {
+                old.evidence.retain(|e| e.source_id != payload.source_id);
+            }
             let current_sources = Self::source_members(c)?;
-            let selected_removed = t.sources.as_ref().is_some_and(|ss| {
-                old.evidence.iter().any(|e| {
-                    ss.iter().find(|s| s.id == e.source_id)
-                        != current_sources.iter().find(|s| s.id == e.source_id)
-                })
-            });
+            let selected_removed = !matches!(command, ManuscriptCommand::RefreshSourceFile { .. })
+                && t.sources.as_ref().is_some_and(|ss| {
+                    old.evidence.iter().any(|e| {
+                        ss.iter().find(|s| s.id == e.source_id)
+                            != current_sources.iter().find(|s| s.id == e.source_id)
+                    })
+                });
             ensure(
                 before.workspace_stage == t.state.workspace_stage
                     && planning::content_snapshot(&old) == planning::content_snapshot(&after)
@@ -618,7 +628,8 @@ impl SqliteProjectRepository {
                 PlanningEvidenceChoiceMode::Extractedtext
                 | PlanningEvidenceChoiceMode::Textonly => {
                     ensure(source.kind == SourceKind::File, "EVIDENCE_CHOICE_REQUIRED")?;
-                    let result_hash:Option<String>=db(c.query_row("SELECT result_hash FROM document_attempts WHERE source_id=?1 AND status='ready' ORDER BY rowid DESC LIMIT 1",[&source.id],|r|r.get(0)).optional())?.flatten();
+                    let result_hash: Option<String> =
+                        Self::current_source_extraction(c, &source.id)?;
                     let result_hash =
                         result_hash.ok_or(ManuscriptError("EVIDENCE_NOT_READY", None))?;
                     let result: DocumentResult =
@@ -709,7 +720,7 @@ impl SqliteProjectRepository {
                 choice.mode,
                 PlanningEvidenceChoiceMode::Extractedtext | PlanningEvidenceChoiceMode::Textonly
             ) {
-                db(c.query_row("SELECT result_hash FROM document_attempts WHERE source_id=?1 AND status='ready' ORDER BY rowid DESC LIMIT 1",[&choice.source_id],|r|r.get(0)).optional())?.flatten()
+                Self::current_source_extraction(c, &choice.source_id)?
             } else {
                 None
             };
