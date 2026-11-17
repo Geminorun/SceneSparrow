@@ -44,27 +44,7 @@ jobs:
 
   checks:
     needs: policy
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-      - uses: pnpm/action-setup@v4
-      - run: rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
-      - run: pnpm install --frozen-lockfile
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      - run: pnpm check
-      - run: pnpm build
-      - run: pnpm test:integration
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+    uses: ./.github/workflows/ci.yml
 
   image:
     needs: [policy, checks]

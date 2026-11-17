@@ -1,5 +1,10 @@
 # Deployment check trigger refinement
 
+Historical report: the removal of PR/main checks below has been superseded by
+the user's decision to restore Foundation checks before merging. See
+[the restored gate and browser regression validation](foundation-checks.md).
+The measured results below describe the earlier policy only.
+
 The user requested full checks before deployment without repeating them for
 ordinary merges. This amends the trigger policy recorded in the earlier
 [release-policy validation](release-policy.md); its measured results remain

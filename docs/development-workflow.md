@@ -10,7 +10,7 @@ coordinated.
 
 | Branch or tag                                                                      | Purpose                                                                       |
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `main`                                                                             | Stable baseline after version acceptance; pushes do not trigger CI            |
+| `main`                                                                             | Stable baseline after version acceptance; pushes run Foundation checks        |
 | `release/1.0.0`                                                                    | Initial version integration and acceptance; pushes deploy the shared instance |
 | `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`, `build/`, `ci/`, `perf/` | Short-lived task branches, PR to the active release branch                    |
 | `v1.0.0-rc.1`                                                                      | Optional immutable candidate tag on the matching release history              |
@@ -29,9 +29,10 @@ project/global configuration. Each deployment backs up that data before startup.
    branches and Git delivery during delegated implementation.
 2. Fetch the active release branch and create a focused task branch from it.
 3. Implement, validate locally and review; keep credentials and real projects out
-   of Git. Ordinary PRs and main pushes do not trigger CI.
+   of Git. PRs targeting main/release branches and main pushes run Foundation checks.
 4. Open an English PR targeting `release/1.0.0` for the initial version. Include
-   relevant checks and unresolved limits. Prefer squash merge for task PRs.
+   relevant checks and unresolved limits. Wait for the `foundation` check to pass
+   on the current PR merge commit. Prefer squash merge for task PRs.
 5. After merge, delete the task branch and start the next from the updated release.
 6. Once the version passes user acceptance, open a release PR into `main`. Preserve
    the accepted release history with a merge commit so optional RC tags remain
@@ -123,9 +124,10 @@ These are recommendations, not configured or enforced server-side settings.
 Keep `main` as default; protect it and `release/*` against direct development,
 force pushes and deletion. Protect version tags against update/deletion as well;
 formal and RC tags are immutable. Require PRs and resolved conversations, with
-local validation and review evidence. Do not require the removed Foundation
-workflow or deployment jobs as PR status checks: ordinary PRs do not run CI, and
-release deployment runs after merge. Use squash merging for task PRs and merge
+local validation and review evidence. Require the `foundation` status from
+`Foundation checks` on both main and release branches, with the branch up to date
+before merging. Deployment jobs run after merge and cannot serve as PR status
+checks. Do not bypass a failed or pending Foundation check. Use squash merging for task PRs and merge
 commits for release-to-main PRs. Delete merged task branches; retain the release branch while candidates,
 acceptance or maintenance need it. With multiple maintainers, require independent
 human review; a sole maintainer should avoid an impossible approval requirement.
@@ -165,6 +167,7 @@ define allowed deployment refs. Release pushes and optional `v1.0.0-rc.1` tags
 deploy to the same instance as formal `v1.0.0`; candidates have the same access to
 real shared data. Full checks run once in the Web deployment workflow before each
 deployment. A task PR merged into a release branch triggers this deployment via
-the resulting release push; PR events and main pushes do not trigger CI. Manual
+the resulting release push. Before merge, Foundation checks test the PR merge
+commit without publishing or deploying; main pushes run the same checks. Manual
 dispatch defaults to checks/build/smoke, including on main, with explicit
 deployment restricted to valid version refs.

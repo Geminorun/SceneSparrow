@@ -18,8 +18,10 @@ directory `/srv/scenesparrow`, and existing project/appdata volumes and credenti
 configuration. The existing GitHub Environment name `web-production` is retained
 for compatibility. Release pushes, optional matching RC tags and stable tags all
 replace this instance and use its data; candidates are not isolated preproduction.
-Ordinary PRs and main pushes do not trigger CI. Local validation and root review
-remain required before merging. A task PR merged into a release branch triggers
+PRs targeting main/release branches and main pushes run Foundation checks. This
+restores the pre-merge gate at the user's request after a browser test failure
+reached release integration. Local validation and root review remain required
+before merging. A task PR merged into a release branch triggers
 the deployment workflow once via its resulting release push. Manual dispatch
 defaults to checks/build/smoke, including on main; explicit deploy requires a valid
 release branch, stable tag or RC tag.
@@ -27,9 +29,9 @@ release branch, stable tag or RC tag.
 A Node-builtins helper enforces strict version/ref syntax, application version
 agreement, exact event checkout and freshly fetched remote refs before publishing
 and deployment. Stable tag commits must be on main history; RC tag commits must
-be on matching release history. Full checks plus final-container smoke run in the
-single Web deployment workflow and precede a single image publication; deployment
-consumes that image's immutable digest.
+be on matching release history. The Web deployment workflow reuses Foundation
+checks, then runs final-container smoke before a single image publication;
+deployment consumes that image's immutable digest.
 Queued concurrency never cancels a running deployment. The existing pull-before-
 downtime, running-volume-owner refusal, offline backups, secret rotation and no
 automatic database rollback invariants remain.
@@ -40,8 +42,12 @@ protocol versions, schema identifiers, migrations and historical design versions
 remain independent. 1.0.0 is the initial application target, not accepted release
 evidence. Remote branch protections and settings are recommendations until
 configured explicitly; this policy does not create tags or change remote settings.
-PR protections must not require the removed Foundation workflow or the deployment
-jobs that run only after a release push.
+PR protections should require the `foundation` status on main and release
+branches, with the branch up to date before merging. Foundation tests the PR merge
+commit using read-only repository permissions and no deployment secrets. It runs
+without path filters, including for draft PRs, and retains browser failure traces
+for seven days. Deployment jobs run only after a release push and cannot serve as
+PR checks. Configuring the workflow alone does not enforce branch protection.
 
 Operator configuration uses separate GitHub username/password secrets, rejecting
 an incomplete pair before SSH. A complete pair takes precedence over optional

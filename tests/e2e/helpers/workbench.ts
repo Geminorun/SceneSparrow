@@ -54,6 +54,15 @@ export async function openPanel(
     | "Create"
     | "Library",
 ) {
+  // Viewport changes finish before React handles the media-query change event.
+  // Wait for the current layout before deciding whether its opener is visible.
+  const narrow = await page.evaluate(
+    () => window.matchMedia("(max-width: 1050px)").matches,
+  );
+  await expect(page.locator(".editor-workspace-grid")).toHaveAttribute(
+    "data-layout",
+    narrow ? "drawer" : "split",
+  );
   const label =
     (
       {
