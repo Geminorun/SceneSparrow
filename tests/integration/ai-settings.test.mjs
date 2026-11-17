@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { waitFor } from "../../scripts/processes.mjs";
 const unknown = () => ({
   state: "unknown",
@@ -15,7 +16,7 @@ const unknown = () => ({
   observedAt: null,
 });
 for (const encrypted of [false, true]) {
-  test(`authenticated global settings/${encrypted ? "encrypted" : "session"} inference receipts survive safely without plaintext keys`, async () => {
+  test(`authenticated global settings/${encrypted ? "encrypted" : "session"} inference receipts survive safely without plaintext keys`, async (t) => {
     const directory = await mkdtemp(join(tmpdir(), "scenesparrow-ai-http-")),
       appData = join(directory, "application"),
       project = join(directory, "project");
@@ -46,15 +47,21 @@ for (const encrypted of [false, true]) {
         assert.equal(JSON.parse(body).model, "manually-entered-model");
       }
       if (process.platform === "linux") {
-        // Managed PID namespaces may omit thread children listings. Inspect only
-        // the known application worker executable; never print process data.
+        // Thread children listings vary across PID namespaces. Read parent IDs
+        // instead, excluding workers owned by concurrently running test cores.
         const ids = (await readdir("/proc")).filter((id) => /^\d+$/.test(id));
         let found = false;
         for (const id of ids) {
+          const status = await readFile(`/proc/${id}/status`, "utf8").catch(
+            () => "",
+          );
+          if (status.match(/^PPid:[ \t]+(\d+)$/m)?.[1] !== String(child.pid))
+            continue;
           const argv = await readFile(`/proc/${id}/cmdline`).catch(() =>
             Buffer.alloc(0),
           );
-          if (!argv.includes(Buffer.from("workers/agent/src/entry.mjs")))
+          const args = argv.toString("utf8").split("\0");
+          if (!args.some((arg) => arg.endsWith("/workers/agent/src/entry.mjs")))
             continue;
           found = true;
           const env = await readFile(`/proc/${id}/environ`);
@@ -70,8 +77,8 @@ for (const encrypted of [false, true]) {
             assert.equal(argv.includes(Buffer.from(canary)), false);
             assert.equal(env.includes(Buffer.from(canary)), false);
           }
-          assert.ok(argv.includes(Buffer.from("--use-system-ca")));
-          assert.ok(argv.includes(Buffer.from("--use-env-proxy")));
+          assert.ok(args.includes("--use-system-ca"));
+          assert.ok(args.includes("--use-env-proxy"));
           inspectedWorkers++;
         }
         assert.ok(
@@ -149,6 +156,37 @@ for (const encrypted of [false, true]) {
     };
     try {
       await boot();
+      let unrelatedWorker;
+      if (encrypted && process.platform === "linux") {
+        // Keep a foreign worker alive throughout every request. A whole-host
+        // scan must not depend on other integration files happening to be idle.
+        unrelatedWorker = spawn(
+          process.execPath,
+          [
+            "--use-system-ca",
+            "--use-env-proxy",
+            fileURLToPath(
+              new URL("../../workers/agent/src/entry.mjs", import.meta.url),
+            ),
+          ],
+          {
+            env: { PATH: process.env.PATH },
+            stdio: ["pipe", "ignore", "ignore"],
+          },
+        );
+        t.after(async () => {
+          if (
+            unrelatedWorker.pid &&
+            unrelatedWorker.exitCode === null &&
+            unrelatedWorker.signalCode === null
+          ) {
+            const ended = once(unrelatedWorker, "exit");
+            unrelatedWorker.kill();
+            await ended;
+          }
+        });
+        await once(unrelatedWorker, "spawn");
+      }
       assert.equal((await fetch(`${base}/ai/settings`)).status, 401);
       assert.equal((await req("/ai/generate", { messages: [] })).status, 404);
       let view = (await req("/ai/settings")).data;
@@ -374,6 +412,10 @@ for (const encrypted of [false, true]) {
         await boot();
         assert.equal((await req("/ai/settings")).status, 200);
         assert.equal(calls, 4);
+      }
+      if (unrelatedWorker) {
+        assert.equal(unrelatedWorker.exitCode, null);
+        assert.equal(unrelatedWorker.signalCode, null);
       }
       if (process.platform === "linux")
         assert.equal(inspectedWorkers, encrypted ? 4 : 2);
