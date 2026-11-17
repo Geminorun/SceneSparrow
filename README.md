@@ -96,8 +96,9 @@ See [the workflow](docs/development-workflow.md) for version bumps and hotfixes.
 
 There is one shared deployment at `https://scene.mindreview.me` (host loopback
 8070). Release pushes and optional RC tags run full checks before updating that
-same instance/data. Ordinary PRs and main pushes do not trigger CI; validate
-changes locally and review before merging. The Web deployment workflow supports
+same instance/data. PRs targeting main/release branches and main pushes run
+Foundation checks; require its `foundation` status before merging, in addition to
+local validation and review. The Web deployment workflow supports
 manual checks/build/smoke without deployment, including on main. No isolated
 preview environment is created.
 

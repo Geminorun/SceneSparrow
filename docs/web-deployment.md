@@ -89,21 +89,23 @@ container is recreated so the rotation takes effect.
 ## Deployment and local verification
 
 `Private Web deployment` triggers on pushes to `release/**`, version-like `v*`
-tags and manual dispatch. Ordinary PRs, task branch pushes and main pushes do not
-trigger CI. Local validation and review remain required before merging. Every
-triggered run performs full checks, an AMD64 Docker build and the
+tags and manual dispatch. `Foundation checks` runs on PRs targeting main/release
+branches and main pushes, testing the PR merge commit before integration.
+Local validation and review remain required before merging. Every run of the
+deployment workflow performs full checks, an AMD64 Docker build and the
 complete final-container smoke. The release helper fails closed on malformed
 versions, deleted/moved refs, mismatched app versions and failed ancestry checks.
 
-| Event/ref                       | Publish and deploy                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------- |
-| Ordinary PR or task branch push | No automatic workflow run                                                       |
-| Main push                       | No automatic workflow run                                                       |
-| `release/1.0.0` push            | Automatically to the single shared instance                                     |
-| `v1.0.0-rc.1` push              | Same instance, only on matching `release/1.0.0` history                         |
-| `v1.0.0` push                   | Formal release to that same instance, only on accepted main history             |
-| Manual dispatch, default        | Checks/build/smoke only, including feature branches and main                    |
-| Manual dispatch with deploy     | Valid release branch, stable tag or RC tag only; feature/untagged main rejected |
+| Event/ref                     | Publish and deploy                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------- |
+| PR targeting main/release     | Foundation checks only; no publication or deployment                            |
+| Task branch push without a PR | No automatic workflow run                                                       |
+| Main push                     | Foundation checks only; no publication or deployment                            |
+| `release/1.0.0` push          | Automatically to the single shared instance                                     |
+| `v1.0.0-rc.1` push            | Same instance, only on matching `release/1.0.0` history                         |
+| `v1.0.0` push                 | Formal release to that same instance, only on accepted main history             |
+| Manual dispatch, default      | Checks/build/smoke only, including feature branches and main                    |
+| Manual dispatch with deploy   | Valid release branch, stable tag or RC tag only; feature/untagged main rejected |
 
 Versions use strict `MAJOR.MINOR.PATCH` without leading zeroes; RC numbers start
 at 1. Other prerelease forms/build metadata are not deployment refs. The app
@@ -127,8 +129,11 @@ preview/staging environment or second port. Back up and assess candidate changes
 accordingly. Keep operator credentials in the compatible `web-production` GitHub
 Environment, which represents this single shared instance.
 
-The checks job runs contracts, formatting, types, unit/Rust tests, Clippy, builds,
-integration tests and browser tests. The image job builds once for AMD64, exercises
+The checks job calls the same Foundation workflow used by PRs: contracts,
+formatting, types, unit/Rust tests, Clippy, builds, integration tests and browser
+tests. Failed browser runs upload `test-results/` (including traces and error
+contexts) for seven days. PR checks use read-only permissions and no deployment
+secrets. The image job builds once for AMD64, exercises
 that loaded image, then only on an eligible deployment event tags/pushes that
 same image to `ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
 Deployment uses its exact `@sha256:...` digest; there is no arbitrary image input
@@ -137,10 +142,12 @@ Actions permissions are contents-read, packages-write only in the image job and
 packages-read for deployment. All deployment events use the same concurrency
 queue and environment; the helper never changes DNS, TLS or provider settings.
 
-Full checks run once in this workflow before deployment. Merging a task PR into
-a release branch starts it through the resulting release push. PR branch
-protections must not require the removed Foundation workflow or deployment jobs
-that run only after merge. This trigger policy does not change GitHub settings.
+Full checks run once in this workflow before deployment, even after a successful
+PR check, to verify the exact resulting release commit. Merging a task PR into a
+release branch starts it through the resulting release push. Require the
+`foundation` status from `Foundation checks` on main/release PRs and require the
+branch to be up to date. Deployment jobs run after merge and cannot serve as PR
+checks. Workflow files alone do not configure these GitHub branch protections.
 
 Local equivalent (Docker required):
 

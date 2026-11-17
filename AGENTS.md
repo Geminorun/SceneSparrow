@@ -114,9 +114,10 @@
   Versioned release branches are integration branches, not isolated deployments.
   There is one shared Web deployment at `https://scene.mindreview.me`, host port
   8070; release pushes, optional RC tags and formal tags replace that same instance
-  and operate on the same data. Ordinary PRs and main pushes do not trigger CI;
+  and operate on the same data. PRs targeting main/release branches and main
+  pushes run Foundation checks. Require its `foundation` status before merging;
   local validation and root review remain required. Release pushes and version
-  tags run full checks before deployment through the single Web workflow. Manual
+  tags reuse those full checks before deployment through the Web workflow. Manual
   dispatch defaults to checks/build/smoke and supports main without deployment.
   See ADR 0004 and the deployment runbook before changing release policy.
 - Cloud tasks already have isolated checkouts. Use the existing checkout; do not
