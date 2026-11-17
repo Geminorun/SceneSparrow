@@ -633,3 +633,20 @@ history draft provenance retain their exact inputs/results, plus the latest term
 recovery payload per operation. Unselected visual previews retain at most eight for
 ten minutes; compact visual identity/outcome rows prevent retargeting reused IDs.
 No provider call follows a preparation, receipt replay, history action or resync.
+
+## 15. Planning alongside the manuscript
+
+[EW-01–12](../design/editor-workspace.md) replace exclusive planning/editor views.
+Planning remains mounted in the auxiliary pane in Outline and Draft. SavePlanning
+and generate/adjust outline preserve existing body, locks and approved baseline;
+initial draft generation still requires an eligible empty Outline and explicit
+confirmation. Blank outline headings are saveable partial plans, while generation
+requires a topic and complete headings. No workspace tab changes business stage.
+
+S2 planning input stays editable through saves and composition. Unsafe button
+actions defer until composition ends and then use existing serialized intent
+fences. The zh-CN/en selector normalizes known Chinese legacy aliases on intake;
+another stored language remains visible and unchanged until the user selects a
+replacement. Validation appears beside the field, network/conflict status stays
+compact, and recovery JSON requires an explicit Details action. These refine
+S2-T01/T02/T10 and the existing saved-plan, IME, recovery and explicit-call cases.

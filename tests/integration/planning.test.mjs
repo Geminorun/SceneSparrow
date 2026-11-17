@@ -438,6 +438,77 @@ test("saved planning uses the actual SDK exactly once per outline/draft; restart
         .status,
       200,
     );
+    // EW-03/04/07: planning remains editable alongside an approved manuscript.
+    const approvedBody = (await req("/manuscript")).data;
+    const approvedState = (await req("/manuscript/finalization")).data;
+    const approvedReviews = (await req("/reviews")).data;
+    assert.equal(approvedState.finalized, true);
+    provider.setHandler(null);
+    const assertApprovedManuscript = async () => {
+      const body = (await req("/manuscript")).data;
+      assert.deepEqual(body.blocks, approvedBody.blocks);
+      assert.equal(body.workspaceStage, "draft");
+      assert.deepEqual((await req("/reviews")).data, approvedReviews);
+      assert.deepEqual((await req("/manuscript/finalization")).data, {
+        ...approvedState,
+        workingRevision: body.workingRevision,
+      });
+    };
+    const savePlan = async (content) => {
+      const result = await command("SavePlanning", {
+        content,
+        group: {
+          clientSessionId: randomUUID(),
+          groupId: randomUUID(),
+          groupSequence: 1,
+          kind: "discrete",
+        },
+      });
+      assert.equal(result.status, 200, JSON.stringify(result));
+      await assertApprovedManuscript();
+    };
+    let alongside = (await req("/planning")).data.content;
+    alongside.nodes[0].title = "";
+    await savePlan(alongside);
+    assert.equal(
+      (await req("/planning/preparations", { operation: "adjust_outline" }))
+        .data.code,
+      "OUTLINE_INVALID",
+    );
+    alongside = (await req("/planning")).data.content;
+    alongside.nodes = [];
+    await savePlan(alongside);
+    for (const operation of ["generate_outline", "adjust_outline"]) {
+      if (operation === "adjust_outline") {
+        alongside = (await req("/planning")).data.content;
+        alongside.instruction = "Make the explanatory outline clearer";
+        await savePlan(alongside);
+      }
+      const prep = await req("/planning/preparations", { operation });
+      assert.equal(prep.status, 200, JSON.stringify(prep));
+      const started = await command("StartPlanningTask", {
+        preparationId: prep.data.id,
+        retryOfTaskId: null,
+      });
+      assert.equal(started.status, 200, JSON.stringify(started));
+      const task = await waitTask(started.body.requestId);
+      assert.equal(task.application, "applied", JSON.stringify(task));
+      await assertApprovedManuscript();
+      assert.equal(
+        (await req("/manuscript/commands", started.body)).status,
+        200,
+      );
+    }
+    assert.equal(provider.calls.length, 8);
+    assert.equal(
+      (
+        await req("/planning/preparations", {
+          operation: "generate_initial_draft",
+        })
+      ).data.code,
+      "STAGE_CONFLICT",
+    );
+    await assertApprovedManuscript();
     const finalBody = (await req("/manuscript")).data,
       finalHistory = (await req("/history")).data,
       finalLocks = (await req("/manuscript/finalization")).data;
@@ -496,7 +567,7 @@ test("saved planning uses the actual SDK exactly once per outline/draft; restart
     assert.deepEqual((await req("/history")).data, finalHistory);
     assert.deepEqual((await req("/manuscript/finalization")).data, finalLocks);
     assert.equal((await req("/manuscript/exports")).data.length, 3);
-    assert.equal(provider.calls.length, 6);
+    assert.equal(provider.calls.length, 8);
     console.log(
       JSON.stringify({
         fixture:

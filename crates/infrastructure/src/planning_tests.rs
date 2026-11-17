@@ -99,6 +99,150 @@ fn draft(r: &SqliteProjectRepository) -> Value {
 fn cancel(r: &SqliteProjectRepository, p: &str, task: &str) -> Result<CommandReceipt> {
     r.execute_manuscript(&cmd(r, p, "CancelPlanningTask", json!({"taskId":task})))
 }
+fn first_edit(r: &SqliteProjectRepository, p: &str) -> Result<CommandReceipt> {
+    r.execute_manuscript(&cmd(r, p, "ApplyDocumentEdit", json!({"operations":[{"op":"insertBlock","after":null,"block":{"id":id(),"kind":"paragraph","attrs":{},"runs":[{"text":"User manuscript 🐦","marks":[]}]}}],"expectedBlockRevisions":[],"group":{"clientSessionId":id(),"groupId":id(),"groupSequence":1,"kind":"discrete"}})))
+}
+#[test]
+fn partial_outline_saves_but_execution_and_outputs_require_ready_titles() {
+    let (_dir, r, s, p) = setup();
+    plan(&r, &p, true);
+    let mut partial = r.read_planning().unwrap().content;
+    partial.nodes[0].title = "  ".into();
+    partial.brief.language = "zh-Hans-CN".into();
+    save(&r, &p, &partial);
+    assert_eq!(r.read_planning().unwrap().content.nodes[0].title, "  ");
+    for operation in ["adjust_outline", "generate_initial_draft"] {
+        assert_eq!(
+            r.prepare_planning(
+                &s,
+                &serde_json::from_value(json!({"operation":operation})).unwrap()
+            )
+            .unwrap_err()
+            .0,
+            "OUTLINE_INVALID"
+        );
+    }
+    partial = r.read_planning().unwrap().content;
+    partial.nodes[0].title = "Corrected".into();
+    partial.instruction = "Adjust this outline".into();
+    save(&r, &p, &partial);
+    assert_eq!(
+        r.read_planning().unwrap().content.brief.language,
+        "zh-Hans-CN"
+    );
+    prepare(&r, &s, "adjust_outline");
+    prepare(&r, &s, "generate_initial_draft");
+    let output = json!({"schemaVersion":1,"nodes":[{"existingId":null,"depth":0,"title":" ","keyPoints":[]}]});
+    assert_eq!(
+        planning::interpret_outline(&serde_json::to_vec(&output).unwrap(), &partial, true)
+            .unwrap_err()
+            .0,
+        "OUTLINE_INVALID"
+    );
+}
+
+#[test]
+fn outline_started_before_manual_typing_finishes_without_replacing_body() {
+    let (_dir, r, s, p) = setup();
+    plan(&r, &p, false);
+    let (task, _) = start(&r, &s, &p, "generate_outline");
+    first_edit(&r, &p).unwrap();
+    let before = r.read_manuscript().unwrap();
+    complete(&r, outline());
+    r.reconcile_planning().unwrap();
+    assert_eq!(r.planning_task(&task).unwrap().application, "applied");
+    let after = r.read_manuscript().unwrap();
+    assert_eq!(after.blocks, before.blocks);
+    assert_eq!(after.workspace_stage, ManuscriptStateWorkspaceStage::Draft);
+    assert_eq!(r.read_planning().unwrap().content.nodes.len(), 1);
+    assert_eq!(
+        r.connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM draft_generation_manifests", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn initial_preparation_cannot_start_after_manual_typing() {
+    let (_dir, r, s, p) = setup();
+    plan(&r, &p, true);
+    let preparation = prepare(&r, &s, "generate_initial_draft");
+    first_edit(&r, &p).unwrap();
+    let before = r.read_manuscript().unwrap();
+    assert_eq!(
+        r.start_planning(
+            &s,
+            &cmd(
+                &r,
+                &p,
+                "StartPlanningTask",
+                json!({"preparationId":preparation.id,"retryOfTaskId":null})
+            )
+        )
+        .unwrap_err()
+        .0,
+        "DRAFT_ALREADY_EXISTS"
+    );
+    assert_eq!(r.read_manuscript().unwrap(), before);
+    assert_eq!(
+        r.prepare_planning(
+            &s,
+            &serde_json::from_value(json!({"operation":"generate_initial_draft"})).unwrap()
+        )
+        .unwrap_err()
+        .0,
+        "STAGE_CONFLICT"
+    );
+    assert_eq!(
+        r.connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM ai_runs", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
+#[test]
+fn recoverable_initial_result_cannot_replace_a_subsequent_manual_body() {
+    let (_dir, r, s, p) = setup();
+    plan(&r, &p, true);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceLink",
+        json!({"sourceId":id(),"url":"https://example.com","title":"Unselected"}),
+    ))
+    .unwrap();
+    let (task, _) = start(&r, &s, &p, "generate_initial_draft");
+    history(&r, &p, false);
+    complete(&r, draft(&r));
+    r.reconcile_planning().unwrap();
+    assert_eq!(
+        r.planning_task(&task).unwrap().error.as_deref(),
+        Some("HISTORY_DIVERGED")
+    );
+    assert!(!r.read_planning().unwrap().reserved);
+    first_edit(&r, &p).unwrap();
+    let before = r.read_manuscript().unwrap();
+    let h = r.read_history().unwrap();
+    assert_eq!(
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "UsePlanningResult",
+            json!({"taskId":task,"expectedHistoryRevision":h.history_revision,"explicit":true})
+        ))
+        .unwrap_err()
+        .0,
+        "DRAFT_ALREADY_EXISTS"
+    );
+    assert_eq!(r.read_manuscript().unwrap(), before);
+    assert_eq!(r.read_history().unwrap(), h);
+}
 #[test]
 fn planning_validation_history_identity_and_reopen() {
     let (dir, r, _, p) = setup();
@@ -315,6 +459,7 @@ fn reservation_blocks_all_consumed_mutations_and_cancellation_fences_late_output
     plan(&r, &p, true);
     let (task, _) = start(&r, &s, &p, "generate_initial_draft");
     assert!(r.read_planning().unwrap().reserved);
+    assert_eq!(first_edit(&r, &p).unwrap_err().0, "TASK_USING_CONTENT");
     let mut content = r.read_planning().unwrap().content;
     content.nodes[0].title = "Forbidden".into();
     assert_eq!(r.execute_manuscript(&cmd(&r,&p,"SavePlanning",json!({"content":content,"group":{"clientSessionId":id(),"groupId":id(),"groupSequence":1,"kind":"discrete"}}))).unwrap_err().0,"TASK_USING_CONTENT");

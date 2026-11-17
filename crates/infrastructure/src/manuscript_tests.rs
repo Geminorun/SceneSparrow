@@ -24,6 +24,128 @@ fn setup() -> (tempfile::TempDir, SqliteProjectRepository, String) {
     (dir, repo, project.id)
 }
 #[test]
+fn first_edit_is_one_atomic_replayable_history_entry_across_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    let project = repo.create("create", "Direct writing").unwrap().id;
+    let empty = repo.read_manuscript().unwrap();
+    for operations in [json!([]), {
+        let temporary = id();
+        json!([{"op":"insertBlock","block":block(&temporary,"temporary"),"after":null},{"op":"deleteBlock","id":temporary}])
+    }] {
+        let receipt = repo
+            .execute_manuscript(&command(&project, 0, operations, json!([])))
+            .unwrap();
+        assert_eq!(receipt.working_revision, 0);
+        assert_eq!(receipt.undo_count, 0);
+        assert_eq!(repo.read_manuscript().unwrap(), empty);
+    }
+    let invalid = command(
+        &project,
+        0,
+        json!([{"op":"insertBlock","block":block(&id(),"invalid\u{0}"),"after":null}]),
+        json!([]),
+    );
+    assert_eq!(
+        repo.execute_manuscript(&invalid).unwrap_err().0,
+        "DOCUMENT_INVALID"
+    );
+    assert_eq!(repo.read_manuscript().unwrap(), empty);
+    let first = id();
+    let edit = command(
+        &project,
+        0,
+        json!([{"op":"insertBlock","block":block(&first,"First 🐦"),"after":null}]),
+        json!([]),
+    );
+    let receipt = repo.execute_manuscript(&edit).unwrap();
+    assert_eq!(receipt.working_revision, 1);
+    assert_eq!(receipt.undo_count, 1);
+    assert_eq!(repo.execute_manuscript(&edit).unwrap(), receipt);
+    assert_eq!(repo.command_receipt(&receipt.request_id).unwrap(), receipt);
+    let saved = repo.read_manuscript().unwrap();
+    assert_eq!(saved.workspace_stage, ManuscriptStateWorkspaceStage::Draft);
+    assert_eq!(saved.blocks[0].id, first);
+    let stale = command(
+        &project,
+        0,
+        json!([{"op":"insertBlock","block":block(&id(),"Other writer"),"after":null}]),
+        json!([]),
+    );
+    assert_eq!(
+        repo.execute_manuscript(&stale).unwrap_err().0,
+        "REVISION_CONFLICT"
+    );
+    drop(repo);
+    let mut repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap(), saved);
+    for (name, stage) in [
+        ("UndoProject", ManuscriptStateWorkspaceStage::Outline),
+        ("RedoProject", ManuscriptStateWorkspaceStage::Draft),
+    ] {
+        let h = repo.read_history().unwrap();
+        let command = serde_json::from_value(json!({"type":name,"requestId":id(),"projectId":project,"expectedWorkingRevision":h.working_revision,"expectedHistoryRevision":h.history_revision,"expectedCursor":h.cursor,"payload":{}})).unwrap();
+        let receipt = repo.execute_manuscript(&command).unwrap();
+        assert!(receipt.working_revision > h.working_revision);
+        let state = repo.read_manuscript().unwrap();
+        assert_eq!(state.workspace_stage, stage);
+        if name == "UndoProject" {
+            assert!(state.blocks.is_empty());
+        } else {
+            assert_eq!(state.blocks[0].id, first);
+            assert!(state.blocks[0].revision > saved.blocks[0].revision);
+        }
+        drop(repo);
+        repo = SqliteProjectRepository::open(dir.path()).unwrap();
+        assert_eq!(repo.read_manuscript().unwrap(), state);
+    }
+    let restored = repo.read_manuscript().unwrap();
+    drop(repo);
+    assert_eq!(
+        SqliteProjectRepository::open(dir.path())
+            .unwrap()
+            .read_manuscript()
+            .unwrap(),
+        restored
+    );
+}
+
+#[test]
+fn concurrent_first_edits_commit_one_body_and_one_history_entry() {
+    use std::sync::{Arc, Barrier};
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Arc::new(SqliteProjectRepository::open(dir.path()).unwrap());
+    let project = repo.create("create", "Concurrent entry").unwrap().id;
+    let barrier = Arc::new(Barrier::new(2));
+    let writers = (0..2)
+        .map(|_| {
+            let repo = repo.clone();
+            let barrier = barrier.clone();
+            let edit = command(
+                &project,
+                0,
+                json!([{"op":"insertBlock","block":block(&id(),"First"),"after":null}]),
+                json!([]),
+            );
+            std::thread::spawn(move || {
+                barrier.wait();
+                repo.execute_manuscript(&edit)
+            })
+        })
+        .collect::<Vec<_>>();
+    let outcomes = writers
+        .into_iter()
+        .map(|t| t.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(outcomes.iter().filter(|r| r.is_ok()).count(), 1);
+    assert_eq!(
+        outcomes.iter().find_map(|r| r.as_ref().err()).unwrap().0,
+        "REVISION_CONFLICT"
+    );
+    assert_eq!(repo.read_manuscript().unwrap().blocks.len(), 1);
+    assert_eq!(repo.read_history().unwrap().undo_count, 1);
+}
+#[test]
 fn atomic_edits_identity_revisions_receipts_and_reopen() {
     let (dir, repo, project) = setup();
     let first = id();

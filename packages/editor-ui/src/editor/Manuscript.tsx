@@ -5,14 +5,24 @@ import Code from "@tiptap/extension-code";
 import { CanonicalIdentity } from "./identity";
 import type { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
+import { Slice } from "@tiptap/pm/model";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Review } from "./Review";
+import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
+import { SaveStatus } from "./SaveStatus";
+import { parseMarkdown, serializeMarkdown } from "./markdown";
+import { MarkdownLink } from "./markdown-link";
+import { WorkspaceIcon } from "../WorkspaceIcon";
 import { Locks } from "./Locks";
-import { ContentProtection } from "./content-protection";
+import { ContentProtection, contentProtectionKey } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
-import { Planning, GeneratedDraftEvidence } from "./Planning";
+import {
+  Planning,
+  GeneratedDraftEvidence,
+  type PlanningFeedback,
+} from "./Planning";
 import { Exports } from "./Exports";
 import { Sources } from "./Sources";
 import { Autosave } from "./autosave";
@@ -111,12 +121,15 @@ function Draft({
   beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
   const [recovery, setRecovery] = useState(false);
-  const [protectionReady, setProtectionReady] = useState(false);
+  const [protectionReady, setProtectionReady] = useState(
+    initial.workspaceStage === "outline",
+  );
+  const pane = useAuxiliaryPane();
+  const [planningFeedback, setPlanningFeedback] =
+    useState<PlanningFeedback | null>(null);
   const protectionReadyRef = useRef(false);
   protectionReadyRef.current = protectionReady;
   const [lockHeader, setLockHeader] = useState<HTMLDivElement | null>(null);
-  const [link, setLink] = useState("");
-  const [linkOpen, setLinkOpen] = useState(false);
   const [save] = useState(
     () =>
       new Autosave(
@@ -129,6 +142,11 @@ function Draft({
   );
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
+  const documentMenu = useRef<HTMLDetailsElement>(null);
+  const sourceDialog = useRef<HTMLDialogElement>(null);
+  const sourceVisible = useRef(false);
+  const [source, setSource] = useState("");
+  const [sourceRecovery, setSourceRecovery] = useState(false);
   const editor = useEditor(
     useMemo<UseEditorOptions>(
       () => ({
@@ -152,6 +170,7 @@ function Draft({
             },
           }),
           Code.extend({ excludes: "" }),
+          MarkdownLink,
           CanonicalIdentity.configure({
             attributeName: "blockId",
             types: ["paragraph", "heading"],
@@ -159,6 +178,37 @@ function Draft({
         ],
         content: toEditor(initial.blocks),
         editorProps: {
+          handlePaste: (view, event) => {
+            const data = event.clipboardData;
+            // Keep the established internal clipboard path (including ID repair).
+            // External mixed-MIME copies use their explicit plain Markdown text.
+            if (
+              !data ||
+              /\bdata-(?:pm-slice|blockid)\s*=/i.test(data.getData("text/html"))
+            )
+              return false;
+            const text = data.getData("text/plain");
+            if (!text) return false;
+            const document = view.state.schema.nodeFromJSON(
+              toEditor(parseMarkdown(text)),
+            );
+            const slice =
+              view.state.selection.$from.parent.content.size === 0
+                ? new Slice(document.content, 0, 0)
+                : Slice.maxOpen(document.content);
+            void save.discrete(() =>
+              view.dispatch(
+                view.state.tr
+                  .replaceSelection(slice)
+                  .scrollIntoView()
+                  // The codec already interpreted the source. Do not run the
+                  // generic inline paste rules/autolinker over literal fallback.
+                  .setMeta("uiEvent", "markdownPaste")
+                  .setMeta("preventAutolink", true),
+              ),
+            );
+            return true;
+          },
           handleKeyDown: (view, event) => {
             if (
               forwardingKey.current ||
@@ -280,6 +330,21 @@ function Draft({
             "aria-label": t.manuscript,
           },
           handleDOMEvents: {
+            paste: (view, event) => {
+              if (!save.composing) return false;
+              const text = event.clipboardData?.getData("text/plain");
+              if (!text) return false;
+              // ProseMirror bypasses handlePaste during composition. Preserve
+              // explicit clipboard text here without conversion or an early save.
+              event.preventDefault();
+              view.dispatch(
+                view.state.tr
+                  .insertText(text.replace(/\r\n?/g, "\n"))
+                  .setMeta("uiEvent", "markdownPaste")
+                  .setMeta("preventAutolink", true),
+              );
+              return true;
+            },
             compositionstart: () => {
               save.composition(true);
               return false;
@@ -308,7 +373,13 @@ function Draft({
               });
               return false;
             },
-            blur: () => {
+            blur: (_view, event) => {
+              if (
+                sourceVisible.current ||
+                (event.relatedTarget instanceof Element &&
+                  event.relatedTarget.closest(".document-menu"))
+              )
+                return false;
               void save.boundary();
               return false;
             },
@@ -338,6 +409,16 @@ function Draft({
     ),
   );
   liveEditor.current = editor;
+  useEffect(() => {
+    if (editor && save.state.workspaceStage === "outline") {
+      // Empty Outline projects have no locks; Draft still loads its lock projection.
+      editor.view.dispatch(
+        editor.state.tr.setMeta(contentProtectionKey, new Set<string>()),
+      );
+      editor.setEditable(true, false);
+      setProtectionReady(true);
+    }
+  }, [editor, save.state.workspaceStage]);
   const applyCanonical = () => {
     const editor = liveEditor.current;
     if (!editor || editor.isDestroyed || !save.canPresentCanonical) return;
@@ -412,6 +493,8 @@ function Draft({
     };
     window.addEventListener("beforeunload", warning);
     const remove = client.onCloseRequested?.(async () => {
+      sourceDialog.current?.close();
+      sourceVisible.current = false;
       beforeClose.current();
       freeze(true);
       const ok = await save.controlledClose();
@@ -434,6 +517,10 @@ function Draft({
   async function reload() {
     const closeAfter = closing;
     freeze(true);
+    if (!window.confirm(t.workspaceDiscardConfirm)) {
+      freeze(false);
+      return;
+    }
     if (await save.reload()) {
       applyCanonical();
       setRecovery(false);
@@ -457,12 +544,36 @@ function Draft({
               ? t.historyImport
               : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
-  const toolbar = (action: () => unknown) => {
-    void save.discrete(() => {
-      editor?.view.focus();
-      action();
-      editor?.view.focus();
-    });
+  const openSource = () => {
+    // Read the visible local editor, including pending/IME input. Viewing source
+    // does not call a core command, flush, or replace the mounted editor.
+    let current: string;
+    setSourceRecovery(false);
+    try {
+      current = serializeMarkdown(
+        editor
+          ? fromEditorNode(
+              editor.state.doc,
+              new Set(save.local.map((b) => b.id)),
+            )
+          : save.local,
+      );
+    } catch {
+      setSourceRecovery(true);
+      current =
+        editor?.getText({ blockSeparator: "\n\n" }) ?? save.recoveryText ?? "";
+    }
+    setSource(current);
+    sourceVisible.current = true;
+    if (documentMenu.current) documentMenu.current.open = false;
+    sourceDialog.current?.showModal();
+  };
+  const closeSource = () => {
+    sourceVisible.current = false;
+    sourceDialog.current?.close();
+    requestAnimationFrame(() =>
+      documentMenu.current?.querySelector("summary")?.focus(),
+    );
   };
   return (
     <section className="manuscript-workspace">
@@ -473,185 +584,11 @@ function Draft({
         inert={frozen}
         className="manuscript-freeze"
       >
-        <div className="manuscript-header">
-          <h3>{t.manuscript}</h3>
-          <span
-            role="status"
-            data-testid="save-status"
-            data-state={save.status}
-          >
-            {t[`save_${save.status}`]}
-          </span>
-          {save.state.workspaceStage === "draft" && (
-            <span className="approval-status" data-testid="approval-status">
-              {approvedBaseline !== null ? t.finalized : t.notApproved}
-            </span>
-          )}
-          <div ref={setLockHeader} className="lock-header-target" />
-        </div>
-        {save.state.workspaceStage === "draft" && (
-          <Exports client={client} save={save} t={t} />
-        )}
-        <div className="history-toolbar" role="toolbar" aria-label={t.history}>
-          <button
-            disabled={
-              save.busy ||
-              save.composing ||
-              (!save.history.undoCount && save.status === "saved") ||
-              ["error", "conflict"].includes(save.status)
-            }
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void historyAction("UndoProject")}
-            title={
-              save.history.undoLabel
-                ? `${t.undo}: ${operationLabel(save.history.undoLabel)}`
-                : t.undo
-            }
-          >
-            {t.undo}
-          </button>
-          <button
-            disabled={
-              save.busy ||
-              save.composing ||
-              !save.history.redoCount ||
-              ["error", "conflict"].includes(save.status)
-            }
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void historyAction("RedoProject")}
-            title={
-              save.history.redoLabel
-                ? `${t.redo}: ${operationLabel(save.history.redoLabel)}`
-                : t.redo
-            }
-          >
-            {t.redo}
-          </button>
-        </div>
-        {save.state.workspaceStage === "outline" ? (
-          <Planning client={client} save={save} projectId={projectId} t={t} />
-        ) : (
-          <>
-            <div
-              className="editor-toolbar"
-              role="toolbar"
-              aria-label={t.formatting}
-            >
-              <select
-                aria-label={t.blockStyle}
-                value=""
-                onChange={(e) =>
-                  toolbar(() =>
-                    e.target.value === "paragraph"
-                      ? editor?.chain().setParagraph().run()
-                      : editor
-                          ?.chain()
-                          .setHeading({
-                            level: Number(e.target.value) as
-                              1 | 2 | 3 | 4 | 5 | 6,
-                          })
-                          .run(),
-                  )
-                }
-              >
-                <option value="" disabled>
-                  {t.blockStyle}
-                </option>
-                <option value="paragraph">{t.paragraph}</option>
-                {[1, 2, 3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>
-                    {t.heading} {n}
-                  </option>
-                ))}
-              </select>
-              <button
-                aria-label={t.bold}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleBold().run())
-                }
-              >
-                <strong>B</strong>
-              </button>
-              <button
-                aria-label={t.italic}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleItalic().run())
-                }
-              >
-                <em>I</em>
-              </button>
-              <button
-                aria-label={t.inlineCode}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleCode().run())
-                }
-              >
-                {"</>"}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleBulletList().run())
-                }
-              >
-                {t.bulletList}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() =>
-                  toolbar(() => editor?.chain().toggleOrderedList().run())
-                }
-              >
-                {t.orderedList}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setLink(String(editor?.getAttributes("link").href ?? ""));
-                  setLinkOpen(!linkOpen);
-                }}
-              >
-                {t.link}
-              </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => toolbar(() => editor?.chain().unsetLink().run())}
-              >
-                {t.removeLink}
-              </button>
-            </div>
-            {linkOpen && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (/^(https?:\/\/|mailto:)/i.test(link)) {
-                    toolbar(() =>
-                      editor
-                        ?.chain()
-                        .extendMarkRange("link")
-                        .setLink({ href: link })
-                        .run(),
-                    );
-                    setLinkOpen(false);
-                  }
-                }}
-              >
-                <label>
-                  {t.linkUrl}
-                  <input
-                    value={link}
-                    onChange={(e) => setLink(e.target.value)}
-                    required
-                    pattern="(https?://|mailto:).*"
-                  />
-                </label>
-                <button type="submit">{t.applyLink}</button>
-              </form>
-            )}
-            <div className="document-layout">
+        <WorkspacePane
+          pane={pane}
+          t={t}
+          panels={{
+            structure: (
               <nav aria-label={t.headings}>
                 {headings.length ? (
                   headings.map((b) => (
@@ -676,14 +613,128 @@ function Draft({
                   <p className="muted">{t.noHeadings}</p>
                 )}
               </nav>
-              <EditorContent editor={editor} />
-              <Review
+            ),
+            planning: (
+              <>
+                <Planning
+                  onStatus={setPlanningFeedback}
+                  client={client}
+                  save={save}
+                  projectId={projectId}
+                  t={t}
+                />
+                {save.state.workspaceStage === "draft" && (
+                  <GeneratedDraftEvidence
+                    client={client}
+                    blockIds={save.state.blocks.map((b) => b.id)}
+                    t={t}
+                  />
+                )}
+              </>
+            ),
+            review:
+              save.state.workspaceStage === "draft" ? (
+                <Review
+                  client={client}
+                  save={save}
+                  editor={editor}
+                  projectId={projectId}
+                  t={t}
+                  onOpen={() => pane.open("review")}
+                  visible={!pane.collapsed && pane.tab === "review"}
+                />
+              ) : (
+                <p className="muted">{t.workspaceReviewEmpty}</p>
+              ),
+            sources: (
+              <Sources
                 client={client}
                 save={save}
-                editor={editor}
                 projectId={projectId}
                 t={t}
               />
+            ),
+          }}
+        >
+          <div className="manuscript-header">
+            <div className="manuscript-context">
+              <h3>{t.manuscript}</h3>
+              <SaveStatus
+                save={save}
+                planning={planningFeedback}
+                openPlanning={() => pane.open("planning")}
+                t={t}
+                recover={() => setRecovery(true)}
+              />
+              {save.state.workspaceStage === "draft" && (
+                <span className="approval-status" data-testid="approval-status">
+                  {approvedBaseline !== null ? t.finalized : t.notApproved}
+                </span>
+              )}
+            </div>
+            <div ref={setLockHeader} className="lock-header-target" />
+            <details className="document-menu" ref={documentMenu}>
+              <summary
+                aria-label={t.documentMenu}
+                title={t.documentMenu}
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <WorkspaceIcon name="menu" />
+              </summary>
+              <div className="document-menu-content">
+                <button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={openSource}
+                >
+                  {t.viewMarkdownSource}
+                </button>
+                {(["UndoProject", "RedoProject"] as const).map((type) => {
+                  const undo = type === "UndoProject";
+                  const label = undo ? t.undo : t.redo;
+                  const operation = undo
+                    ? save.history.undoLabel
+                    : save.history.redoLabel;
+                  return (
+                    <button
+                      key={type}
+                      aria-label={label}
+                      title={
+                        operation
+                          ? `${label}: ${operationLabel(operation)}`
+                          : label
+                      }
+                      disabled={
+                        save.busy ||
+                        save.composing ||
+                        (undo
+                          ? !save.history.undoCount && save.status === "saved"
+                          : !save.history.redoCount) ||
+                        ["error", "conflict"].includes(save.status)
+                      }
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        if (documentMenu.current)
+                          documentMenu.current.open = false;
+                        void historyAction(type);
+                      }}
+                    >
+                      <span>{label}</span>
+                      <kbd>{undo ? "Ctrl/⌘ Z" : "Ctrl/⌘ ⇧ Z"}</kbd>
+                    </button>
+                  );
+                })}
+                {save.state.workspaceStage === "draft" && (
+                  <details className="export-menu">
+                    <summary>{t.exportTitle}</summary>
+                    <Exports client={client} save={save} t={t} />
+                  </details>
+                )}
+              </div>
+            </details>
+          </div>
+          <div className="document-layout">
+            <EditorContent editor={editor} />
+            {save.state.workspaceStage === "draft" && (
               <Locks
                 client={client}
                 save={save}
@@ -693,17 +744,9 @@ function Draft({
                 headerTarget={lockHeader}
                 onReady={setProtectionReady}
               />
-            </div>
-          </>
-        )}
-        {save.state.workspaceStage === "draft" && (
-          <GeneratedDraftEvidence
-            client={client}
-            blockIds={save.state.blocks.map((b) => b.id)}
-            t={t}
-          />
-        )}
-        <Sources client={client} save={save} projectId={projectId} t={t} />
+            )}
+          </div>
+        </WorkspacePane>
         {save.operationError && (
           <p role="status">
             {save.operationError.code === "UNSENT_REVIEW"
@@ -714,34 +757,42 @@ function Draft({
             </code>
           </p>
         )}
-        {(save.status === "error" || save.status === "conflict") && (
-          <div role="alert" className="error">
-            <p>
-              {save.status === "conflict" ? t.conflictHelp : t.saveErrorHelp}{" "}
-              <span data-testid="save-error-code" data-error-code={save.error}>
-                {save.error === "DOCUMENT_TOO_LARGE"
-                  ? t.documentTooLarge
-                  : save.error === "DOCUMENT_INVALID"
-                    ? t.documentInvalid
-                    : save.error === "HISTORY_BLOCKED"
-                      ? t.historyBlocked
-                      : save.error === "HISTORY_EMPTY"
-                        ? t.historyEmpty
-                        : save.error === "HISTORY_CONFLICT"
-                          ? t.historyConflict
-                          : ""}
-              </span>
-            </p>
-            {save.status !== "conflict" && (
-              <button onClick={() => void save.flush(true)}>{t.retry}</button>
-            )}
-            <button onClick={() => setRecovery(true)}>{t.recover}</button>
-          </div>
-        )}
       </fieldset>
+      <dialog
+        ref={sourceDialog}
+        className="markdown-source-dialog"
+        aria-labelledby="markdown-source-title"
+        onCancel={(event) => {
+          event.preventDefault();
+          closeSource();
+        }}
+      >
+        <div className="dialog-heading">
+          <h2 id="markdown-source-title">{t.markdownSourceTitle}</h2>
+          <button
+            className="quiet-button"
+            aria-label={t.closeMarkdownSource}
+            onClick={closeSource}
+          >
+            <WorkspaceIcon name="close" />
+          </button>
+        </div>
+        <p className="muted">
+          {sourceRecovery ? t.markdownSourceRecovery : t.markdownSourceHelp}
+        </p>
+        <textarea
+          aria-label={t.markdownSourceTitle}
+          readOnly
+          value={source}
+          spellCheck={false}
+        />
+      </dialog>
       {recovery && (
         <div className="recovery" role="dialog" aria-label={t.recover}>
           <p>{t.recoveryHelp}</p>
+          {save.error === "COMMAND_UNRESOLVED" && (
+            <p role="status">{t.workspaceDiscardBlocked}</p>
+          )}
           <textarea
             aria-label={t.localCopy}
             readOnly

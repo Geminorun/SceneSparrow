@@ -1,4 +1,5 @@
-import { openWorkbench } from "./helpers/workbench";
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
+import { openPanel, openWorkbench } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -70,6 +71,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       await route.fulfill({ response });
     });
     await openWorkbench(page);
+    await openPanel(page, "Planning");
     await expect(
       page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
     ).toBeVisible();
@@ -83,7 +85,9 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
     await page
       .getByLabel("Topic", { exact: true })
       .fill("Why do sparrows sing? 鸟鸣");
-    await page.getByLabel("Manuscript language", { exact: true }).fill("zh-CN");
+    await page
+      .getByLabel("Manuscript language", { exact: true })
+      .selectOption("zh-CN");
     await page
       .getByRole("button", { name: "Generate outline", exact: true })
       .click();
@@ -130,9 +134,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
         exact: true,
       }),
     ).not.toBeVisible();
-    await page
-      .getByText("Inspect result and evidence", { exact: true })
-      .click();
+    await page.locator(".draft-evidence > summary").click();
     await expect(
       page.getByText("Generated claims need independent verification.", {
         exact: true,
@@ -142,17 +144,20 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       path: ".artifacts/planning-draft.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await projectHistory(page, "Undo");
     await expect(
       page.getByRole("heading", { name: "Plan your manuscript", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("textbox", { name: "Manuscript", exact: true }),
+    ).toBeEmpty();
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     let dispatched: () => void = () => {};
     const seen = new Promise<void>((r) => (dispatched = r));
     await page.route("**/api/v1/manuscript/commands", async (route) => {
       const body = route.request().postDataJSON();
-      if (body.type === "StartManualDraft") {
+      if (body.type === "ApplyDocumentEdit") {
         dispatched();
         await held;
       }
@@ -166,13 +171,13 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       await route.fulfill({ response });
     });
     await page
-      .getByRole("button", { name: "Start writing", exact: true })
-      .click();
+      .getByRole("textbox", { name: "Manuscript", exact: true })
+      .fill("Manual writing alongside planning");
     await seen;
-    await expect(page.getByLabel("Topic", { exact: true })).toBeDisabled();
+    await expect(page.getByLabel("Topic", { exact: true })).toBeEnabled();
     await expect(
       page.getByLabel("Overall AI adjustment instruction", { exact: true }),
-    ).toBeDisabled();
+    ).toBeEnabled();
     release();
     await expect(
       page.getByRole("textbox", { name: "Manuscript", exact: true }),

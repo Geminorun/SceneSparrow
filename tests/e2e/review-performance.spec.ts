@@ -1,3 +1,4 @@
+import { projectHistory, openDocumentMenu } from "./helpers/workbench";
 import { test, expect } from "@playwright/test";
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
@@ -329,8 +330,9 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
               response.url().endsWith("/manuscript/commands") &&
               response.request().postDataJSON()?.type === "UndoProject",
           ),
-          page.getByRole("button", { name: "Undo", exact: true }).click(),
+          projectHistory(page, "Undo"),
         ]);
+        await openDocumentMenu(page);
         await expect(
           page.getByRole("button", { name: "Redo", exact: true }),
         ).toBeEnabled({ timeout: 60000 });
@@ -341,8 +343,9 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
               response.url().endsWith("/manuscript/commands") &&
               response.request().postDataJSON()?.type === "RedoProject",
           ),
-          page.getByRole("button", { name: "Redo", exact: true }).click(),
+          projectHistory(page, "Redo"),
         ]);
+        await openDocumentMenu(page);
         await expect(
           page.getByRole("button", { name: "Undo", exact: true }),
         ).toBeEnabled({ timeout: 60000 });

@@ -12,13 +12,7 @@ export async function openWorkbench(page: Page) {
 }
 
 export async function startManualDraft(page: Page) {
-  const start = page.getByRole("button", {
-    name: "Start writing",
-    exact: true,
-  });
   const editor = page.getByRole("textbox", { name: "Manuscript", exact: true });
-  await expect(start.or(editor)).toBeVisible();
-  if (await start.isVisible()) await start.click();
   await expect(editor).toBeVisible();
 }
 
@@ -28,4 +22,56 @@ export async function openAiSettings(page: Page) {
   await expect(
     page.getByRole("region", { name: "AI & models", exact: true }),
   ).toBeVisible();
+}
+
+export async function openPanel(
+  page: Page,
+  name: "Structure" | "Planning" | "Review" | "Sources",
+) {
+  const open = page.getByRole("button", {
+    name: "Open auxiliary panel",
+    exact: true,
+  });
+  if (await open.isVisible()) await open.click();
+  await page.getByRole("tab", { name, exact: true }).click();
+}
+export async function openExports(page: Page) {
+  await openDocumentMenu(page);
+  const menu = page.locator(".export-menu");
+  if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open)))
+    await menu.locator(":scope > summary").click();
+}
+
+export async function openDocumentMenu(page: Page) {
+  const main = page.locator(".manuscript-main");
+  if ((await main.getAttribute("inert")) !== null) {
+    await page
+      .getByRole("button", { name: "Close auxiliary panel", exact: true })
+      .click();
+    await expect(main).not.toHaveAttribute("inert");
+  }
+  const menu = page.locator(".document-menu");
+  if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open)))
+    await menu.locator(":scope > summary").click();
+}
+export async function projectHistory(page: Page, direction: "Undo" | "Redo") {
+  await openDocumentMenu(page);
+  await page.getByRole("button", { name: direction, exact: true }).click();
+}
+export async function pasteMarkdown(page: Page, source: string, html = "") {
+  await page.locator(".tiptap").evaluate(
+    (element, data) => {
+      const clipboard = new DataTransfer();
+      clipboard.setData("text/plain", data.source);
+      if (data.html) clipboard.setData("text/html", data.html);
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: clipboard,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { source, html },
+  );
 }

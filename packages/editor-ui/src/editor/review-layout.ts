@@ -3,7 +3,11 @@ import type { Editor } from "@tiptap/core";
 import type { ReviewCard } from "@scenesparrow/contracts";
 /** Geometry reads are bounded by the loaded review page; no document conversion
  * or thread serialization runs for typing/scroll decoration placement. */
-export function useReviewLayout(editor: Editor | null, cards: ReviewCard[]) {
+export function useReviewLayout(
+  editor: Editor | null,
+  cards: ReviewCard[],
+  visible = true,
+) {
   const list = useRef<HTMLDivElement>(null),
     [layout, setLayout] = useState<{
       tops: Record<string, number>;
@@ -12,7 +16,7 @@ export function useReviewLayout(editor: Editor | null, cards: ReviewCard[]) {
       wide: boolean;
     }>({ tops: {}, height: 0, offscreen: [], wide: false });
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || !visible) return;
     let active = true,
       frame = 0;
     const measure = () => {
@@ -68,6 +72,6 @@ export function useReviewLayout(editor: Editor | null, cards: ReviewCard[]) {
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
     };
-  }, [editor, cards]);
+  }, [editor, cards, visible]);
   return { list, ...layout };
 }

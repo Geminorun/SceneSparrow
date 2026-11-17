@@ -197,10 +197,6 @@ impl SqliteProjectRepository {
         let old = Self::planning_content(c)?;
         match command {
             ManuscriptCommand::SavePlanning { payload, .. } => {
-                ensure(
-                    before.workspace_stage == ManuscriptStateWorkspaceStage::Outline,
-                    "STAGE_CONFLICT",
-                )?;
                 planning::validate(&payload.content, false)?;
                 ensure(
                     manuscript::uuid4(&payload.group.group_id)
@@ -274,10 +270,13 @@ impl SqliteProjectRepository {
                 let run = ai(Self::ai_run(c, &run_id))?;
                 ensure(run.status == AiRunStatus::Succeeded, "RESULT_UNAVAILABLE")?;
                 ensure(db(c.query_row("SELECT applicability='pending' FROM application_execution_bindings WHERE run_id=?1",[&run_id],|r|r.get::<_,bool>(0)))?,"CONSUMER_CANCELLED")?;
-                ensure(
-                    before.workspace_stage == ManuscriptStateWorkspaceStage::Outline,
-                    "DRAFT_ALREADY_EXISTS",
-                )?;
+                if operation == "generate_initial_draft" {
+                    ensure(
+                        before.workspace_stage == ManuscriptStateWorkspaceStage::Outline
+                            && before.blocks.is_empty(),
+                        "DRAFT_ALREADY_EXISTS",
+                    )?;
+                }
                 ensure(
                     dep == self.dependencies(c, &operation)?,
                     "PLANNING_RESULT_STALE",
@@ -533,7 +532,7 @@ impl SqliteProjectRepository {
             let changed=db(c.execute("UPDATE application_execution_bindings SET applicability='applied' WHERE run_id=?1 AND applicability='pending'",[&run_id]))?;
             ensure(changed == 1, "CONSUMER_CANCELLED")?;
             db(c.execute("UPDATE script_ai_tasks SET application='applied',error=NULL WHERE id=?1 AND application IN ('pending','not_applied')",[&payload.task_id]))?;
-            if t.state.workspace_stage == ManuscriptStateWorkspaceStage::Draft {
+            if t.planning_metadata.is_some() {
                 let run = ai(Self::ai_run(c, &run_id))?;
                 let content_hash: String = db(c.query_row(
                     "SELECT content_hash FROM script_ai_tasks WHERE id=?1",
@@ -741,10 +740,14 @@ impl SqliteProjectRepository {
         let operation = word(&request.operation);
         let (p, revision, epoch, dep, manifest, visuals, mut warnings) = {
             let c = db(self.connection.lock())?;
-            ensure(
-                self.load(&c)?.workspace_stage == ManuscriptStateWorkspaceStage::Outline,
-                "STAGE_CONFLICT",
-            )?;
+            if operation == "generate_initial_draft" {
+                let state = self.load(&c)?;
+                ensure(
+                    state.workspace_stage == ManuscriptStateWorkspaceStage::Outline
+                        && state.blocks.is_empty(),
+                    "STAGE_CONFLICT",
+                )?;
+            }
             let p = Self::planning_content(&c)?;
             planning::validate(&p, true)?;
             if operation == "generate_outline" {
@@ -1062,7 +1065,7 @@ impl SqliteProjectRepository {
             ensure(crate::read_project(c).map_err(|_|ManuscriptError("STORAGE_UNAVAILABLE",None))?.is_some_and(|p|p.id==project),"PROJECT_NOT_FOUND")?;
             let (current_revision,stage):(i64,String)=db(c.query_row("SELECT working_revision,workspace_stage FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get(0)?,r.get(1)?))))?;
             ensure(current_revision==expected,"REVISION_CONFLICT")?;
-            ensure(stage=="outline","DRAFT_ALREADY_EXISTS")?;
+            if operation=="generate_initial_draft"{ensure(stage=="outline","DRAFT_ALREADY_EXISTS")?;}
             ensure(expires>now()&&dep==self.dependencies(c,&operation)?,"PREFLIGHT_STALE")?;
             ensure(!db(c.query_row("SELECT EXISTS(SELECT 1 FROM script_ai_tasks t JOIN ai_runs r ON t.run_id=r.run_id WHERE t.application='pending' AND r.status IN ('queued','running','succeeded'))",[],|r|r.get::<_,bool>(0)))?,"PLANNING_TASK_ACTIVE")?;
             if let Some(old)=&payload.retry_of_task_id{let old_operation:String=db(c.query_row("SELECT operation FROM script_ai_tasks WHERE id=?1",[old],|r|r.get(0)).optional())?.ok_or(ManuscriptError("INVALID_RETRY",None))?;ensure(old_operation==operation,"INVALID_RETRY")?;}

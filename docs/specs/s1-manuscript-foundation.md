@@ -660,3 +660,19 @@ manuscript revisions/history. The editor and planning queues stay mounted throug
 rename, Settings and locale changes; S1-AC05/06/08/12 remain applicable.
 Migration 010 appends rename receipts; applied migrations are not rewritten.
 See the [follow-up evidence](../validation/workspace-onboarding.md).
+
+## 15. Editor-first workspace follow-up
+
+[EW-01–12](../design/editor-workspace.md) supersede the Start writing/document-start
+view in sections 2 and 14. An empty Outline opens the same editable Tiptap instance
+as Draft. A real first ApplyDocumentEdit enters Draft atomically; focus/load/no-op
+and UI pane changes do not. Undo back to Outline retains that editor instance.
+The right Structure tab derives document headings; Sources owns reference intake
+and manuscript import. There is no left manuscript list.
+
+S1-T05/T06/T08 and S1-AC01/05/06/12 now also cover stable DOM/focus/caret through
+acknowledgements, IME, auxiliary tabs, locale, rename and Settings. Save feedback is
+a fixed-height shared status area. Known plan validation corrections resume saving;
+uncertain commands keep their original identities. Discard asks for confirmation
+and refuses unresolved writes rather than forgetting them. Plan-only discard
+retains body buffers, and stale reads cannot undo a newer discard adoption.

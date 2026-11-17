@@ -703,3 +703,13 @@ Reopen verifies the approval graph. The Rust-only future-consumer fixture tests
 scoped fences and dependency retention without adding a media workflow. See
 [step 7 validation](../validation/step-07.md) for the complete replay/race mapping,
 measured performance misses and native/provider checks that remain unrun.
+
+## 16. Auxiliary Review and manuscript lock strip
+
+The [editor-first workspace](../design/editor-workspace.md) places Review inside
+the right auxiliary pane and the lock strip at the manuscript's right edge, before
+that pane. S3-AC25 now checks this geometry, including nested blocks and narrow
+windows. Hidden pane tabs preserve unsent review buffers. Selection actions live
+in a portal outside the hidden tab, preserve the captured range, and open Review
+from Structure, Planning or Sources. Review and lock actions remain Draft-only.
+The same core approval, task reservation, candidate and history guards apply.

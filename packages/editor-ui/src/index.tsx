@@ -14,6 +14,7 @@ import {
   type RecentProject,
 } from "@scenesparrow/platform-client";
 import { AiSettings } from "./AiSettings";
+import { WorkspaceRibbon } from "./WorkspaceRibbon";
 import { Manuscript } from "./editor/Manuscript";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
@@ -73,7 +74,6 @@ export function App({ client }: { client: PlatformClient }) {
   const settings = useRef<HTMLDialogElement>(null);
   const renameDialog = useRef<HTMLDialogElement>(null);
   const gear = useRef<HTMLButtonElement>(null);
-  const titleButton = useRef<HTMLButtonElement>(null);
   const projectMenu = useRef<HTMLDetailsElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [section, setSection] = useState<"general" | "ai">("general");
@@ -274,6 +274,7 @@ export function App({ client }: { client: PlatformClient }) {
       <a className="skip-link" href="#workbench">
         {t.skipToWorkbench}
       </a>
+      <WorkspaceRibbon t={t} />
       <header className="workspace-header">
         <div className="workspace-brand">
           <svg aria-hidden="true" viewBox="0 0 32 32" width="30" height="30">
@@ -286,38 +287,26 @@ export function App({ client }: { client: PlatformClient }) {
           <span>{t.appName}</span>
         </div>
         <div className="project-heading">
+          <svg
+            className="document-tab-icon"
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            aria-hidden="true"
+          >
+            <path
+              d="M6 3h9l4 4v14H6zM9 11h7M9 15h7M14 3v5h5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+          </svg>
           <h1 data-testid="project-title" title={project?.title}>
             {project?.title ?? t.appName}
           </h1>
-          {project && (
-            <button
-              ref={titleButton}
-              className="quiet-button rename-trigger"
-              aria-label={t.renameProject}
-              onClick={() => {
-                if (!renameCommand.current) setRenameTitle(project.title);
-                setRenameError("");
-                renameDialog.current?.showModal();
-              }}
-            >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                width="16"
-                height="16"
-              >
-                <path
-                  d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                />
-              </svg>
-            </button>
-          )}
         </div>
         <div className="workspace-actions">
-          {(client.pickProject || client.readRecentProjects) && (
+          {project && (
             <details
               className="project-menu"
               ref={projectMenu}
@@ -332,6 +321,32 @@ export function App({ client }: { client: PlatformClient }) {
             >
               <summary>{t.projectFiles}</summary>
               <nav aria-label={t.projectFiles}>
+                {project && (
+                  <button
+                    className="quiet-button rename-trigger"
+                    aria-label={t.renameProject}
+                    onClick={() => {
+                      if (!renameCommand.current) setRenameTitle(project.title);
+                      setRenameError("");
+                      if (projectMenu.current) projectMenu.current.open = false;
+                      renameDialog.current?.showModal();
+                    }}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                    >
+                      <path
+                        d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                      />
+                    </svg>
+                  </button>
+                )}
                 {client.pickProject && (
                   <>
                     <button
@@ -561,7 +576,7 @@ export function App({ client }: { client: PlatformClient }) {
         onKeyDown={trapDialogFocus}
         className="rename-dialog"
         aria-labelledby="rename-title"
-        onClose={() => titleButton.current?.focus()}
+        onClose={() => projectMenu.current?.querySelector("summary")?.focus()}
       >
         <form onSubmit={(event) => void rename(event)}>
           <h2 id="rename-title">{t.renameProject}</h2>

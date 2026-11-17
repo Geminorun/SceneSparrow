@@ -427,8 +427,7 @@ pub fn apply(
             return Err(ManuscriptError("INVALID_REQUEST", None));
         }
         ManuscriptCommand::ApplyDocumentEdit { payload, .. } => {
-            if state.workspace_stage != ManuscriptStateWorkspaceStage::Draft
-                || payload.operations.len() > MAX_OPERATIONS
+            if payload.operations.len() > MAX_OPERATIONS
                 || !uuid4(&payload.group.group_id)
                 || !uuid4(&payload.group.client_session_id)
                 || payload.group.group_sequence < 1
@@ -542,6 +541,12 @@ pub fn apply(
         }
     }
     drop(new_index);
+    // The first body edit and its stage transition share one receipt/history entry.
+    // Empty batches (including insert-then-delete) leave an Outline project untouched.
+    if before.workspace_stage == ManuscriptStateWorkspaceStage::Outline && !state.blocks.is_empty()
+    {
+        state.workspace_stage = ManuscriptStateWorkspaceStage::Draft;
+    }
     let normalized = normalize(&mut state)?;
     let new_index: BTreeMap<_, _> = state.blocks.iter().map(|b| (&b.id, b)).collect();
     let mut affected = BTreeSet::new();

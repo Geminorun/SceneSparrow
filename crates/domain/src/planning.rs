@@ -61,7 +61,7 @@ pub fn validate(p: &PlanningContent, ready: bool) -> Result<()> {
                 && ids.insert(&n.id)
                 && (0..=3).contains(&n.depth)
                 && n.depth <= previous + 1
-                && !n.title.trim().is_empty()
+                && (!ready || !n.title.trim().is_empty())
                 && text(&n.title, 300)
                 && n.key_points.len() <= 20
                 && n.key_points.iter().all(|v| text(v, 1000)),

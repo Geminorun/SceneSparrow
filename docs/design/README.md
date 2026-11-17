@@ -17,6 +17,13 @@ The feature branch is `feat/script-workbench`, created directly from remote
 
 ## Reading order
 
+The [editor-first workspace follow-up](editor-workspace.md) records the latest
+confirmed single-manuscript layout, planning coexistence and input-stability
+requirements. It supersedes mutually exclusive planning/editor presentation.
+The latest correction follows the user's Obsidian screenshot, removes permanent
+formatting toolbars and adds Markdown input/paste and normalized source viewing;
+see the [implementation evidence](../validation/notion-visual-refresh.md).
+
 1. [Script workbench technical design](script-workbench-v0.1.md): product rules,
    editor behavior, domain models, persistence, commands, and recovery.
 2. [Shared AI technical design](shared-ai-v0.1.md): application-wide configuration,

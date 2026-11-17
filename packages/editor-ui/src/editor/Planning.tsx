@@ -12,18 +12,25 @@ import type {
   SourceSummary,
 } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
-import { Autosave } from "./autosave";
+import { Autosave, type SaveStatus } from "./autosave";
+export type PlanningFeedback = {
+  status: SaveStatus;
+  error: string;
+  retry: () => void;
+};
 import { PlanningAutosave } from "./planning-autosave";
 export function Planning({
   client,
   save,
   projectId,
   t,
+  onStatus,
 }: {
   client: PlatformClient;
   save: Autosave;
   projectId: string;
   t: typeof en;
+  onStatus: (feedback: PlanningFeedback) => void;
 }) {
   const [initial, setInitial] = useState<PlanningState | null>(null);
   const [error, setError] = useState("");
@@ -41,6 +48,19 @@ export function Planning({
       active = false;
     };
   }, [client]);
+  useEffect(() => {
+    if (!initial)
+      onStatus({
+        status: error ? "error" : "saving",
+        error,
+        retry: () => {
+          setError("");
+          void client
+            .readPlanning()
+            .then(setInitial, (failure) => setError(failure.message));
+        },
+      });
+  }, [error, initial, onStatus, client]);
   if (error)
     return (
       <p role="alert">
@@ -61,6 +81,7 @@ export function Planning({
   return (
     <PlanningEditor
       initial={initial}
+      onStatus={onStatus}
       client={client}
       save={save}
       projectId={projectId}
@@ -124,12 +145,14 @@ function PlanningEditor({
   save,
   projectId,
   t,
+  onStatus,
 }: {
   initial: PlanningState;
   client: PlatformClient;
   save: Autosave;
   projectId: string;
   t: typeof en;
+  onStatus: (feedback: PlanningFeedback) => void;
 }) {
   const [, render] = useState(0);
   const [planning] = useState(
@@ -138,12 +161,21 @@ function PlanningEditor({
         render((n) => n + 1),
       ),
   );
+  useEffect(() => {
+    onStatus({
+      status: planning.status,
+      error: planning.error,
+      retry: () => {
+        void planning.flush(true, true);
+      },
+    });
+  }, [planning.status, planning.error, onStatus]);
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [prepared, setPrepared] = useState<PlanningPreparation | null>(null);
   const [operation, setOperation] = useState<
     PlanningPreparationRequest["operation"]
   >(
-    initial.content.nodes.length
+    initial.content.nodes.length && save.state.workspaceStage === "outline"
       ? "generate_initial_draft"
       : "generate_outline",
   );
@@ -340,17 +372,55 @@ function PlanningEditor({
     }, 400);
     return () => clearInterval(timer);
   }, [client, visuals]);
-  const inputLocked = reserved || acting || save.stageTransitionPending;
-  const locked = inputLocked || planning.composing;
+  const inputLocked = reserved || save.stageTransitionPending;
+  const locked = inputLocked || acting;
+  const initialEligible =
+    save.state.workspaceStage === "outline" && !save.state.blocks.length;
+  const ready =
+    !!p.brief.topic.trim() && p.nodes.every((node) => !!node.title.trim());
+  const briefInvalid = (field: keyof PlanningContent["brief"]) =>
+    [...p.brief[field]].length > (field === "topic" ? 500 : 2000);
+  const validationError = ["BRIEF_INVALID", "OUTLINE_INVALID"].includes(
+    planning.error,
+  );
+  const [details, setDetails] = useState(false);
+  const [discardBlocked, setDiscardBlocked] = useState(false);
+  async function discard() {
+    if (!window.confirm(t.workspaceDiscardConfirm)) return;
+    setDiscardBlocked(!(await planning.discard()));
+  }
   return (
-    <section className="planning-workspace" aria-label={t.planningTitle}>
+    <section
+      className="planning-workspace"
+      aria-label={t.planningTitle}
+      onClickCapture={(event) => {
+        const button = (event.target as Element).closest<HTMLButtonElement>(
+          "button",
+        );
+        if (planning.composing && button) {
+          event.preventDefault();
+          event.stopPropagation();
+          planning.afterComposition(() => {
+            if (button.isConnected && !button.disabled) button.click();
+          });
+        }
+      }}
+    >
       <div className="planning-heading">
         <div>
           <h2>{t.planningTitle}</h2>
-          <p>{t.planningDescription}</p>
+          <p>
+            {initialEligible
+              ? t.planningDescription
+              : t.workspacePlanPreservesBody}
+          </p>
         </div>
-        <p role="status">
-          {t.planningStatus}: {message(planning.status)}
+        <p
+          role="status"
+          className="planning-save-status"
+          title={t[`save_${planning.status}`]}
+        >
+          {t.planningStatus}: {t[`save_${planning.status}`]}
         </p>
       </div>
       {reserved && (
@@ -358,23 +428,51 @@ function PlanningEditor({
           {t.planningReserved}
         </p>
       )}
-      {(error || planning.error) && (
-        <div role="alert" className="error">
-          <p>{message(error || planning.error)}</p>
-          <p>{t.planningSaveError}</p>
-          <button onClick={() => void planning.flush(true, true)}>
+      {error && (
+        <p className="field-error" role="alert">
+          {message(error)}
+        </p>
+      )}
+      {planning.error && !validationError && (
+        <p className="field-error" role="status">
+          {planning.error === "COMMAND_UNRESOLVED"
+            ? t.workspaceDiscardBlocked
+            : message(planning.error)}
+        </p>
+      )}
+      <div className="planning-recovery-actions">
+        {["error", "conflict"].includes(planning.status) && (
+          <button
+            className="quiet-button"
+            onClick={() => void planning.flush(true, true)}
+          >
             {t.planningSaveRetry}
           </button>
-          <button onClick={() => void planning.refresh(true)}>
-            {t.planningReload}
-          </button>
-          <textarea
-            readOnly
-            aria-label={t.planningSavedPlan}
-            value={JSON.stringify(p, null, 2)}
-          />
-        </div>
-      )}
+        )}
+        <button
+          className="quiet-button"
+          onClick={() => setDetails(!details)}
+          aria-expanded={details}
+        >
+          {t.workspaceRecoveryDetails}
+        </button>
+        {details && (
+          <div className="planning-recovery-details">
+            <button className="quiet-button" onClick={() => void discard()}>
+              {t.planningReload}
+            </button>
+            {discardBlocked && <p role="status">{t.workspaceDiscardBlocked}</p>}
+            <label htmlFor="planning-recovery-copy">
+              {t.planningSavedPlan}
+            </label>
+            <textarea
+              id="planning-recovery-copy"
+              readOnly
+              value={JSON.stringify(p, null, 2)}
+            />
+          </div>
+        )}
+      </div>
       <fieldset
         className="planning-brief"
         disabled={inputLocked}
@@ -384,21 +482,49 @@ function PlanningEditor({
         {(
           [
             ["topic", t.planningTopic],
-            ["language", t.planningLanguage],
             ["audience", t.planningAudience],
             ["style", t.planningStyle],
             ["lengthHint", t.planningLength],
           ] as const
         ).map(([field, label]) => (
-          <label key={field}>
-            {label}
+          <div className="planning-field" key={field}>
+            <label htmlFor={`planning-brief-${field}`}>{label}</label>
             <input
+              id={`planning-brief-${field}`}
+              aria-invalid={briefInvalid(field)}
+              aria-describedby={
+                briefInvalid(field) ? `planning-error-${field}` : undefined
+              }
               value={p.brief[field]}
               onChange={(e) => patchBrief(field, e.target.value)}
               onBlur={() => void planning.flush(false)}
             />
-          </label>
+            {briefInvalid(field) && (
+              <p id={`planning-error-${field}`} className="field-error">
+                {t.workspaceValidationLength}
+              </p>
+            )}
+          </div>
         ))}
+        <div className="planning-field">
+          <label htmlFor="planning-language">{t.planningLanguage}</label>
+          <select
+            id="planning-language"
+            value={p.brief.language}
+            onChange={(event) => patchBrief("language", event.target.value)}
+          >
+            {!["zh-CN", "en"].includes(p.brief.language) && (
+              <option value={p.brief.language}>
+                {t.workspaceUnsupportedLanguage.replace(
+                  "{language}",
+                  p.brief.language,
+                )}
+              </option>
+            )}
+            <option value="zh-CN">中文</option>
+            <option value="en">English</option>
+          </select>
+        </div>
       </fieldset>
       <div className="planning-outline">
         <h3>{t.planningOutline}</h3>
@@ -410,9 +536,18 @@ function PlanningEditor({
             onCompositionStart={() => planning.composition(true)}
             onCompositionEnd={() => planning.composition(false)}
           >
-            <label>
-              {t.planningOutline} {i + 1}
+            <div>
+              <label htmlFor={`outline-title-${node.id}`}>
+                {t.planningOutline} {i + 1}
+              </label>
               <input
+                id={`outline-title-${node.id}`}
+                aria-invalid={[...node.title].length > 300}
+                aria-describedby={
+                  [...node.title].length > 300
+                    ? `outline-title-error-${node.id}`
+                    : undefined
+                }
                 disabled={inputLocked}
                 aria-label={`${t.planningOutline} ${i + 1}`}
                 value={node.title}
@@ -429,10 +564,31 @@ function PlanningEditor({
                 }
                 onBlur={() => void planning.flush(false)}
               />
-            </label>
-            <label>
-              {t.planningKeyPoints}
+              {[...node.title].length > 300 && (
+                <p
+                  id={`outline-title-error-${node.id}`}
+                  className="field-error"
+                >
+                  {t.workspaceValidationLength}
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor={`outline-points-${node.id}`}>
+                {t.planningKeyPoints}
+              </label>
               <textarea
+                id={`outline-points-${node.id}`}
+                aria-invalid={
+                  node.keyPoints.length > 20 ||
+                  node.keyPoints.some((point) => [...point].length > 1000)
+                }
+                aria-describedby={
+                  node.keyPoints.length > 20 ||
+                  node.keyPoints.some((point) => [...point].length > 1000)
+                    ? `outline-points-error-${node.id}`
+                    : undefined
+                }
                 disabled={inputLocked}
                 value={node.keyPoints.join("\n")}
                 onChange={(e) =>
@@ -455,7 +611,16 @@ function PlanningEditor({
                 }
                 onBlur={() => void planning.flush(false)}
               />
-            </label>
+              {(node.keyPoints.length > 20 ||
+                node.keyPoints.some((point) => [...point].length > 1000)) && (
+                <p
+                  id={`outline-points-error-${node.id}`}
+                  className="field-error"
+                >
+                  {t.workspaceValidationLength}
+                </p>
+              )}
+            </div>
             <div className="outline-actions">
               {(
                 [
@@ -508,9 +673,16 @@ function PlanningEditor({
           {t.planningAddNode}
         </button>
       </div>
-      <label>
-        {t.planningInstruction}
+      <div>
+        <label htmlFor="planning-instruction">{t.planningInstruction}</label>
         <textarea
+          id="planning-instruction"
+          aria-invalid={new TextEncoder().encode(p.instruction).length > 8192}
+          aria-describedby={
+            new TextEncoder().encode(p.instruction).length > 8192
+              ? "planning-instruction-error"
+              : undefined
+          }
           disabled={inputLocked}
           value={p.instruction}
           onCompositionStart={() => planning.composition(true)}
@@ -520,7 +692,12 @@ function PlanningEditor({
           }
           onBlur={() => void planning.flush(false)}
         />
-      </label>
+        {new TextEncoder().encode(p.instruction).length > 8192 && (
+          <p id="planning-instruction-error" className="field-error">
+            {t.workspaceValidationLength}
+          </p>
+        )}
+      </div>
       <details className="planning-evidence">
         <summary>{t.planningEvidence}</summary>
         <p>{t.planningSearchUnavailable}</p>
@@ -724,48 +901,44 @@ function PlanningEditor({
       </details>
       <div className="planning-primary">
         <button
-          disabled={locked || !!activeTask || !!p.nodes.length}
+          disabled={locked || !!activeTask || !!p.nodes.length || !ready}
           onClick={() => void start("generate_outline")}
         >
           {t.planningGenerateOutline}
         </button>
         <button
           disabled={
-            locked || !!activeTask || !p.nodes.length || !p.instruction.trim()
+            locked ||
+            !!activeTask ||
+            !p.nodes.length ||
+            !p.instruction.trim() ||
+            !ready
           }
           onClick={() => void start("adjust_outline")}
         >
           {t.planningAdjust}
         </button>
-        <button
-          disabled={locked || !!activeTask || !p.nodes.length}
-          onClick={() => void start("generate_initial_draft")}
-        >
-          {t.planningDraft}
-        </button>
+        {initialEligible && (
+          <button
+            disabled={locked || !!activeTask || !p.nodes.length || !ready}
+            onClick={() => void start("generate_initial_draft")}
+          >
+            {t.planningDraft}
+          </button>
+        )}
         <button
           disabled={locked}
           onClick={() =>
             void prepare(
-              p.nodes.length ? "generate_initial_draft" : "generate_outline",
+              p.nodes.length
+                ? initialEligible
+                  ? "generate_initial_draft"
+                  : "adjust_outline"
+                : "generate_outline",
             )
           }
         >
           {t.planningPrepare}
-        </button>
-        <button
-          disabled={locked}
-          onClick={() =>
-            void planning.control((revision) => ({
-              type: "StartManualDraft",
-              requestId: crypto.randomUUID(),
-              projectId,
-              expectedWorkingRevision: revision,
-              payload: {},
-            }))
-          }
-        >
-          {t.planningManual}
         </button>
       </div>
       {prepared && (
@@ -804,7 +977,7 @@ function PlanningEditor({
             </p>
             {["pending", "not_applied"].includes(task.application) && (
               <button
-                disabled={acting || planning.composing}
+                disabled={acting}
                 onClick={() =>
                   void planning.control((revision) => ({
                     type: "CancelPlanningTask",
@@ -821,7 +994,7 @@ function PlanningEditor({
             {!activeTask &&
               !["pending", "applied"].includes(task.application) && (
                 <button
-                  disabled={acting || planning.composing}
+                  disabled={acting}
                   onClick={() =>
                     void start(
                       task.operation as PlanningPreparationRequest["operation"],

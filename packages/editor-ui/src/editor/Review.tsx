@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -32,12 +33,16 @@ export function Review({
   editor,
   projectId,
   t,
+  onOpen,
+  visible: panelVisible,
 }: {
   client: PlatformClient;
   save: Autosave;
   editor: Editor | null;
   projectId: string;
   t: typeof en;
+  onOpen: () => void;
+  visible: boolean;
 }) {
   const [cards, setCards] = useState<ReviewCard[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
@@ -272,6 +277,7 @@ export function Review({
   };
   const captureTyped = (kind: ReviewThread["kind"]) => {
     begin(false);
+    onOpen();
     setKind(kind);
     setSelectionToolbar(null);
   };
@@ -427,7 +433,7 @@ export function Review({
         (order.get(b.thread.anchor.ranges[0]?.blockId ?? "") ?? Infinity),
     );
   }, [cards, save.state.blocks]);
-  const layout = useReviewLayout(editor, orderedCards);
+  const layout = useReviewLayout(editor, orderedCards, panelVisible);
   const visible = orderedCards.filter(
     (c) =>
       showAll || (!c.thread.handled && c.thread.anchor.state !== "orphaned"),
@@ -435,26 +441,29 @@ export function Review({
   return (
     <aside className="review-panel" aria-label={t.reviewPanel}>
       <h2>{t.reviewPanel}</h2>
-      {selectionToolbar && !save.composing && (
-        <div
-          ref={floating}
-          className="review-floating-selection"
-          role="toolbar"
-          aria-label={t.reviewSelection}
-          style={{
-            position: "fixed",
-            top: selectionToolbar.top,
-            left: selectionToolbar.left,
-          }}
-        >
-          <button disabled={busy} {...directAction("question")}>
-            {t.reviewQuestion}
-          </button>
-          <button disabled={busy} {...directAction("revision_note")}>
-            {t.reviewNote}
-          </button>
-        </div>
-      )}
+      {selectionToolbar &&
+        !save.composing &&
+        createPortal(
+          <div
+            ref={floating}
+            className="review-floating-selection"
+            role="toolbar"
+            aria-label={t.reviewSelection}
+            style={{
+              position: "fixed",
+              top: selectionToolbar.top,
+              left: selectionToolbar.left,
+            }}
+          >
+            <button disabled={busy} {...directAction("question")}>
+              {t.reviewQuestion}
+            </button>
+            <button disabled={busy} {...directAction("revision_note")}>
+              {t.reviewNote}
+            </button>
+          </div>,
+          document.body,
+        )}
       <div
         className="review-selection-tools"
         role="toolbar"
@@ -540,9 +549,10 @@ export function Review({
               <option value="revision_note">{t.reviewNote}</option>
             </select>
           </label>
-          <label>
-            {t.reviewInstruction}
+          <div>
+            <label htmlFor="review-instruction">{t.reviewInstruction}</label>
             <textarea
+              id="review-instruction"
               value={text}
               onCompositionStart={() => {
                 composing.current = true;
@@ -556,7 +566,7 @@ export function Review({
               }}
               maxLength={16384}
             />
-          </label>
+          </div>
           <ReviewEvidence
             client={client}
             value={evidence}
@@ -575,7 +585,9 @@ export function Review({
               {t.reviewReanchor}
             </button>
           )}
-          <button disabled={busy || !text.trim()}>{t.reviewSave}</button>
+          <button className="primary-button" disabled={busy || !text.trim()}>
+            {t.reviewSave}
+          </button>
           <button
             type="button"
             onClick={() => {

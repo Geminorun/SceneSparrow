@@ -601,3 +601,19 @@ Settings and rename dialogs dismiss through the existing manuscript close handle
 before its recovery decision is shown. Browser bridge fixtures cover this
 composition; native Windows/macOS lifecycle and restore acceptance remain open.
 See the [follow-up evidence](../validation/workspace-onboarding.md).
+
+## 14. Compact workspace delivery controls
+
+The [editor-first workspace](../design/editor-workspace.md) moves clean copy,
+format selection, export history and native delivery controls into one compact
+Export disclosure. Clipboard failure still exposes localized manual-copy text.
+Project rename/recent/open/recovery actions belong to the project menu; global
+settings and released diagnostics retain their existing boundaries. The single
+manuscript close owner still dismisses settings before guarded close/recovery.
+
+Responsive auxiliary preferences are non-authoritative browser storage. Narrow
+drawers retain editor DOM while excluding covered manuscript controls from keyboard
+focus. Keyboard tab navigation, resizing, close/opener focus and Escape behavior
+join the existing cross-stage browser acceptance evidence. Linux Chromium and
+synthetic composition do not establish native Windows/macOS IME or lifecycle
+acceptance; see [the validation report](../validation/editor-workspace.md).
