@@ -145,6 +145,62 @@ test("central outline reordering and all five project Undo/Redo transitions pres
   expect(
     (await core.request("/planning")).content.nodes.map((node: any) => node.id),
   ).toEqual([nodes[2].id, nodes[0].id, nodes[1].id]);
+  // Native caret changes can precede the editor's selectionchange observer.
+  await editor.evaluate((element) => {
+    const paragraph = element.querySelector("p")!;
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    range.collapse(true);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(editor.locator("p").first()).toHaveText("# First");
+  await editor.press("ControlOrMeta+s");
+  await saved(page);
+  expect(
+    (await core.request("/planning")).content.nodes.map((node: any) => node.id),
+  ).toEqual(nodes.map((node: any) => node.id));
+  await editor.press("ControlOrMeta+a");
+  await editor.evaluate((element) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "# First\n- point\n## Child\n# Second");
+    element.dispatchEvent(
+      new ClipboardEvent("paste", {
+        clipboardData: data,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect
+    .poll(() =>
+      editor
+        .locator("p")
+        .evaluateAll((paragraphs) =>
+          paragraphs
+            .filter((paragraph) =>
+              /^#{1,4} /u.test(paragraph.textContent ?? ""),
+            )
+            .map((paragraph) => paragraph.getAttribute("data-outlineid")),
+        ),
+    )
+    .toEqual(nodes.map((node: any) => node.id));
+  await editor.press("ControlOrMeta+End");
+  await page.keyboard.type(" revised");
+  await editor.press("ControlOrMeta+s");
+  await saved(page);
+  const renamed = (await core.request("/planning")).content.nodes;
+  expect(renamed[2].id).toBe(nodes[2].id);
+  expect(renamed[2].title).toBe("Second revised");
   expect(
     await editor.evaluate((current, prior) => current === prior, original),
   ).toBe(true);

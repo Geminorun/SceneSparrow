@@ -59,9 +59,25 @@ placement. Conflict recovery asserts that the notice lies below the header contr
 Correction checks passed: the IME case 1/1, notification cases 4/4 and the entire
 manuscript serial group 12/12.
 
+The second CI run passed 77 active cases and exposed a fast native-caret/reorder
+race in Outline. A deterministic DOM-only caret update followed immediately by
+Alt+Down reproduced the stale editor selection with CI's pinned Chromium shell.
+Outline now synchronizes the visible DOM selection before shortcuts and handles
+Ctrl/Meta+Home/End explicitly, matching the established manuscript behavior.
+The regression failed before the fix, then passed five consecutive pinned-browser
+runs. All seven central writing/planning browser workflows also passed.
+
+Whole-outline plaintext replacement also exposed fresh DOM IDs diverging from
+codec-retained node IDs. Reconciliation now repairs heading attributes while
+preserving ordinary key-point rows and defers DOM repair during composition.
+The pinned-browser regression verifies paste, subsequent title editing, native
+reordering, stable stored IDs and editor identity; it passed five repeated runs
+and the seven writing/planning workflows.
+
 All Rust commands used `CARGO_PROFILE_DEV_DEBUG=0` and
-`CARGO_PROFILE_TEST_DEBUG=0` in this managed environment. Browser tests used
-`/usr/bin/chromium`. The CI check applies to the PR merge commit independently.
+`CARGO_PROFILE_TEST_DEBUG=0` in this managed environment. Initial browser tests used
+`/usr/bin/chromium`; caret correction tests also used Playwright
+`chromium_headless_shell-1255`, matching CI. The CI check applies to the PR merge commit independently.
 
 ## Behavioral evidence
 
