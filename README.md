@@ -12,7 +12,7 @@ follows later. The architecture and contributor workflow support internationaliz
 
 ## Repository status
 
-The manuscript workbench is being implemented in eight reviewed steps. Steps 1–3
+The manuscript workbench implements the eight reviewed execution steps. Steps 1–3
 provide manual manuscript editing, autosave, recovery and persistent five-step
 undo/redo, including reopening at the current history position.
 [Step 1](docs/validation/step-01.md), [step 2](docs/validation/step-02.md) and
@@ -43,6 +43,13 @@ adds application save preferences (5/10/30-second delays, default 10, window-cha
 or off), explicit global/project settings, localized top-layer errors and clearer
 saved-key/discovery feedback. Five-step project history and explicit AI actions
 remain in force.
+
+The [central writing workspace](docs/design/writing-workspace.md) replaces the
+right-side planning/task forms with central Outline/Manuscript views and a compact
+AI assistant/Comments pane. It adds stable startup placeholders, explicit masked
+key replacement and persistent actionable errors. New model entries default to
+8192 output tokens; existing budgets remain unchanged. See the
+[writing workspace evidence](docs/validation/writing-workspace.md).
 
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses

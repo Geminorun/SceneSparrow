@@ -1,5 +1,9 @@
 # S2 specification: outline and initial draft
 
+Current presentation: [central writing workspace](../design/writing-workspace.md)
+and its [evidence](../validation/writing-workspace.md) supersede the old exclusive
+planning screen and task/error panel below. Durable S2 contracts remain unchanged.
+
 Status: execution step 5 implements the local S2 workflow and has passed independent
 root review. Target-platform/real-provider acceptance remains open. See
 [step 5 validation](../validation/step-05.md). This document specifies behavior;
@@ -69,13 +73,18 @@ a manuscript mutation. Generic execution cannot approve, unlock or finalize it.
 
 ### 3.1 Planning workspace
 
-Replace S1's simple document-start view with the outline workspace whenever
-`workspaceStage = outline`. Existing manual/imported drafts still open in the
-draft editor; never force them through AI planning. Starting a manual draft from
-planning remains an explicit action and does not call a model.
+Open an editable manuscript immediately, including empty outline-stage projects.
+The central Outline/Manuscript views remain mounted and share one planning owner;
+manual/imported prose is never forced through generation. An explicitly applied
+outline opens central Outline once; a complete initial draft opens Manuscript once.
+Ordinary refresh/history cannot repeatedly switch views or overwrite local input.
 
-The planning workspace contains the brief, source selection, an outline editor,
-one overall AI instruction input, and a compact task status area. Support:
+The assistant owns a compact brief, selected-reference summary, one persisted
+overall instruction and stage-appropriate generation/confirmation actions. The
+central outline supports heading hierarchy/key-point Markdown, stable identities
+and recoverable invalid buffers. Current progress/cancel stays compact; retained
+results/provenance and recovery are explicitly opened dialogs. Failures use
+persistent actionable top-layer notices, not a task dashboard. Support:
 
 - Adding, renaming, deleting, indenting/outdenting and reordering outline nodes.
 - Editing each node's key points directly; empty key-point lists are valid.
@@ -474,15 +483,15 @@ client must distinguish its own in-flight request from a different client's edit
 an event arriving before its HTTP receipt cannot trigger a duplicate start or clear
 newer local input. Preview deltas are bounded ephemeral task data, not document events.
 
-| Error                                                               | Required response                                                                                                |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `BRIEF_INVALID`, `OUTLINE_INVALID`, `OUTLINE_REQUIRED`              | Explain missing/invalid saved planning fields; dispatch no model call                                            |
-| `STAGE_CONFLICT`, `DRAFT_ALREADY_EXISTS`                            | Preserve existing manuscript; generation cannot replace it                                                       |
-| `PREFLIGHT_STALE`, `EVIDENCE_NOT_READY`, `EVIDENCE_CHOICE_REQUIRED` | Refresh preparation or require explicit usable input choices                                                     |
-| `PLANNING_TASK_ACTIVE`, `TASK_USING_CONTENT`                        | Explain conflicting request/reserved scope; offer wait/cancel                                                    |
-| `PLANNING_RESULT_STALE`, `HISTORY_DIVERGED`                         | Preserve current state; stale output needs new request, history-only result can be used explicitly               |
-| `DRAFT_STRUCTURE_INVALID`, `INVALID_OUTPUT`, `OUTPUT_TRUNCATED`     | Keep outline/body intact; show validation failure and manual retry                                               |
-| Shared AI safe errors                                               | Surface auth/capability/context/network/rate-limit/interruption reasons without vendor secrets or a hidden retry |
+| Error                                                                                                             | Required response                                                                                                |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `BRIEF_INVALID`, `OUTLINE_INVALID`, `OUTLINE_REQUIRED`                                                            | Explain missing/invalid saved planning fields; dispatch no model call                                            |
+| `STAGE_CONFLICT`, `DRAFT_ALREADY_EXISTS`                                                                          | Preserve existing manuscript; generation cannot replace it                                                       |
+| `PREFLIGHT_STALE`, `EVIDENCE_NOT_READY`, `EVIDENCE_CHOICE_REQUIRED`                                               | Refresh preparation or require explicit usable input choices                                                     |
+| `PLANNING_TASK_ACTIVE`, `TASK_USING_CONTENT`                                                                      | Explain conflicting request/reserved scope; offer wait/cancel                                                    |
+| `PLANNING_RESULT_STALE`, `HISTORY_DIVERGED`                                                                       | Preserve current state; stale output needs new request, history-only result can be used explicitly               |
+| `DRAFT_STRUCTURE_INVALID`, `INVALID_OUTPUT`, `OUTPUT_TOKEN_LIMIT`, `OUTPUT_SIZE_LIMIT`, legacy `OUTPUT_TRUNCATED` | Keep outline/body intact; show validation failure and manual retry                                               |
+| Shared AI safe errors                                                                                             | Surface auth/capability/context/network/rate-limit/interruption reasons without vendor secrets or a hidden retry |
 
 Map invalid input to 400/422, revision/stage/task/preflight conflicts to 409, and
 size limits to 413. Provider failures normally arrive as terminal task state rather

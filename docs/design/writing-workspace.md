@@ -1,6 +1,7 @@
 # Central writing workspace and unified assistant
 
-Status: implementation authorized on 2026-11-17. Base: `release/1.0.0` at
+Status: implemented with local validation on 2026-11-17; see the
+[validation report](../validation/writing-workspace.md). Base: `release/1.0.0` at
 `cefe535`. This replaces the former right-side creation form/task log, superseding
 conflicting presentation in reference-workspace.md and editor-save-and-ai-feedback.md.
 Keep existing durable planning/manuscript commands, evidence consent, locks,

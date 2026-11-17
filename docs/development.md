@@ -37,8 +37,8 @@ protected separately. A crash can lose unacknowledged input in every mode.
 
 The gear opens global General, Model services and Default models; Application
 menu → Project settings owns the existing project name. Failures use compact
-localized notifications above the active browser dialog, alongside persistent
-inline save/task recovery. Saved keys use a constant mask and explicit replacement;
+persistent localized notifications above the active browser dialog, with owned
+retry/settings actions and explicit recovery/details dialogs. Saved keys use a constant mask and explicit replacement;
 saved does not mean verified by a provider. Discovery shows its saved request
 target and separates authentication, access, unsupported listing, quota and server
 errors. See the [follow-up evidence](validation/editor-save-and-ai-feedback.md).
@@ -69,9 +69,11 @@ Sources and imports use the same serialized queue, mutation-policy seam and five
 history. Migration 004 extends business roots with backward-compatible source
 membership and adds intake, fenced document jobs, provenance and external object pins.
 
-The [reference workspace](design/reference-workspace.md) organizes heading
-navigation and the reference library in the left pane, and creation/review in the
-right. Web supports multiple files and folder uploads with portable relative
+The [writing workspace](design/writing-workspace.md) keeps central Outline and
+Manuscript surfaces mounted with one planning controller and project queue.
+Contents follows the active central view; Library remains the left reference tree.
+The right tabs are AI assistant and Comments. View choice is nonsecret per-project
+profile metadata; project contents remain core-owned. Web supports multiple files and folder uploads with portable relative
 paths; desktop can associate one reference directory per project and refresh it
 explicitly. Directory intake is bounded to 100 files, 100 MiB per batch and
 25 MiB per file. Folder refresh does not delete originals or automatically remove
@@ -84,12 +86,18 @@ live source ID. No existing migration changes are required.
 Library membership does not select content for AI. Text selection supports full
 extracted text or a user-selected excerpt; the shared UI bounds a selection to
 128 KiB on UTF-8 boundaries and discloses omitted text. PDF pages/DOCX images need
-explicit visual preparation. Links remain title/URL only. The creation panel shows
-selected references once and guides idea, outline and initial draft generation;
+explicit visual preparation. Links remain title/URL only. The compact assistant shows
+selected references once and guides idea, central outline and initial draft generation;
 an existing manuscript remains editable and cannot be replaced by initial drafting.
 The editor engine remains Tiptap with canonical block storage, Markdown input/paste
 and a clearly labeled normalized read-only source view. This layout change does
-not introduce byte-exact editable Markdown source storage.
+not introduce byte-exact editable Markdown source storage. The outline codec
+supports #..#### headings and key-point bullets with retained node IDs; unsupported
+syntax stays locally recoverable and blocks dependent dispatch. Alt+Up/Down moves
+a heading subtree. New models default to 8192 output tokens without raising saved
+limits. OUTPUT_TOKEN_LIMIT and OUTPUT_SIZE_LIMIT have separate localized guidance;
+compatible prompt-v1 results remain usable through the pinned interpreter.
+See [writing validation](validation/writing-workspace.md).
 
 The supervised non-AI Node utility has pinned parsers, bounded input/output, a
 60-second wall limit and sampled 512 MiB Linux RSS enforcement. Windows/macOS RSS

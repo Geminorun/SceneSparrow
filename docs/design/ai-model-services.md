@@ -26,8 +26,8 @@ both consumers and validate at most one assigned profile per preset. It is
 nonsecret presentation metadata, not a different adapter or task fingerprint.
 Existing records remain readable. Recognize unambiguous official-root profiles
 for initial presentation, preferring the bound provider; do not mutate on read.
-Other/duplicate legacy profiles remain accessible through a Manage saved
-configurations dialog. Users explicitly assign a profile to a preset, preserving
+Other/duplicate legacy profiles remain directly accessible as saved-service rows;
+the [writing follow-up](writing-workspace.md) removes the Manage dialog. Users explicitly assign a profile to a preset, preserving
 its UUID, root, model entries, credential reference and bindings; reassigning a
 preset unassigns its former profile rather than deleting it. Preserve legacy
 authentication modes. No records are removed simply to simplify the new menu.
@@ -66,8 +66,9 @@ affect future task starts; running/queued tasks retain their captured references
 
 Add optional AiModel.defaultParameters (AiParameters) for independently saved
 model preferences. Seed absent preferences from an existing binding when present;
-new models use conservative nonstreaming/prompt-JSON defaults and a 4096-token
-output budget bounded by known model limits. Selecting a text default uses these
+new models use conservative nonstreaming/prompt-JSON defaults and an 8192-token
+output budget bounded by known model limits. The writing follow-up raises only new
+entries: existing saved budgets and legacy 4096-token inheritance remain unchanged. Selecting a text default uses these
 preferences; explicitly saving preferences for the bound text model updates that
 binding in the same settings replacement. Preserve other categories. Existing
 settings without the optional field retain their existing effective parameters.

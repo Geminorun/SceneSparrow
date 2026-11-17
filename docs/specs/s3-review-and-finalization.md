@@ -1,5 +1,11 @@
 # S3 specification: review and finalization
 
+Current presentation: [central writing workspace](../design/writing-workspace.md)
+adds compact Ask/Revise to AI assistant and retains full anchored review in Comments.
+Selected text is the default scope when present; explicit whole scope includes all
+supported blocks, rejects more than 100 blocks/oversized captures without truncation,
+and still requires candidate acceptance and lock validation.
+
 Status: steps 6–7 implement anchored review, candidate decisions, production locks,
 derived finalization and validated review replay. The
 [step 6](../validation/step-06.md) and [step 7 validation](../validation/step-07.md)

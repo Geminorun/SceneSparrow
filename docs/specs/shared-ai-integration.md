@@ -491,7 +491,7 @@ Normalize `AUTH_REQUIRED`, `AUTH_REJECTED`, `ACCESS_REJECTED`,
 `MODEL_LIST_UNSUPPORTED`, `CAPABILITY_UNSUPPORTED`, `CONFIGURATION_STALE`,
 `SETTINGS_CONFLICT`, `QUEUE_FULL`, `RATE_LIMITED`, `QUOTA_EXCEEDED`,
 `PROVIDER_SERVER_FAILED`, `CONTEXT_LIMIT`,
-`OUTPUT_TRUNCATED`, `INVALID_OUTPUT`, `PROVIDER_REFUSED`, `NETWORK_FAILED`,
+`OUTPUT_TOKEN_LIMIT`, `OUTPUT_SIZE_LIMIT`, legacy `OUTPUT_TRUNCATED`, `INVALID_OUTPUT`, `PROVIDER_REFUSED`, `NETWORK_FAILED`,
 `REQUEST_TIMEOUT`, `WORKER_INTERRUPTED`, `CANCELLED`, `PROTOCOL_MISMATCH`, and
 `INPUT_TOO_LARGE`. Return safe action hints and correlation IDs. Do not mislabel
 missing visible output as authentication failure or domain stale output as a
@@ -506,8 +506,14 @@ specifies safe bilingual notifications, saved-key masks, explicit replacement an
 manual model addition after listing failure. Shared AI remains independent of
 the manuscript's settings-navigation actions.
 
-Keep a persistent task error/status with settings/manual retry actions; a toast
-alone is insufficient for recovery. HTTP input/config/state errors return 400/422,
+Retain durable task outcomes and explicit details/recovery access. Current failures
+use persistent owned top-layer notices with settings/manual retry actions; ordinary
+panels do not duplicate full failure prose. Successful recovery clears only its
+own stale notices. OUTPUT_TOKEN_LIMIT means a known provider finish_reason=length;
+OUTPUT_SIZE_LIMIT means an application response/output byte bound. Neither permits
+automatic continuation or partial business application. The
+[writing follow-up](../design/writing-workspace.md) specifies presentation and
+new-model defaults without coupling the runtime to manuscript prompts. HTTP input/config/state errors return 400/422,
 409 or 413 as appropriate; asynchronous provider failure is a terminal run outcome.
 Server-local storage and protocol errors have their own safe diagnostic mapping.
 
