@@ -1,7 +1,8 @@
 # Editor saving and AI feedback follow-up
 
-Status: approved for implementation on 2026-11-17. Base: `release/1.0.0` at
-`cbbb721`. This follow-up addresses the user's four reported usability problems
+Status: implemented on 2026-11-17; independent validation is recorded in the
+[validation report](../validation/editor-save-and-ai-feedback.md). Base:
+`release/1.0.0` at `cbbb721`. This follow-up addresses the user's four reported usability problems
 without changing the single-manuscript workspace, five-step history, shared AI
 configuration, task-start pinning or encrypted credential storage.
 

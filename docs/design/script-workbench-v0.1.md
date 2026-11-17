@@ -391,9 +391,13 @@ may aid diagnostics, but is not an unbounded content archive.
 
 ### 8.3 Performance approach
 
-Render typing immediately in the editor. Initially debounce persistence by about
-300 ms with a two-second maximum interval; flush on blur, generation, lock, export,
-undo and controlled close. Show saving/saved/error state accurately. Acknowledged
+Render typing immediately in the editor. The
+[save-preferences follow-up](editor-save-and-ai-feedback.md) replaces the initial
+300 ms/two-second schedule and field-blur flush with application preferences:
+after 5/10/30 seconds (default 10, maximum dirty interval 60 seconds), application
+window/tab change, or off. Local idle/selection/blur history boundaries do not
+force network delivery. Manual save, generation, lock, export, undo and controlled
+close retain required settlement. Show saving/saved/error state accurately. Acknowledged
 edits survive restart; a crash can lose an unacknowledged local input buffer. Do not
 claim that each keystroke is durable or block the UI on a per-keystroke Rust call.
 If the core rejects an optimistic edit or saving fails, retain the unsaved local

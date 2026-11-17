@@ -17,6 +17,12 @@ The feature branch is `feat/script-workbench`, created directly from remote
 
 ## Reading order
 
+The [editor saving and AI feedback follow-up](editor-save-and-ai-feedback.md)
+defines the current application save preferences, local history boundaries,
+global/project settings placement, notifications and credential/error feedback.
+It supersedes earlier fixed 300 ms/two-second save timing and field-blur flushing;
+see [implementation validation](../validation/editor-save-and-ai-feedback.md).
+
 The [model services and durable credentials follow-up](ai-model-services.md)
 defines the current Settings navigation, two compatible service presets, saved
 model catalog, shared manuscript default and encrypted Web credentials. It

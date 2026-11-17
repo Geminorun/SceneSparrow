@@ -24,6 +24,25 @@ Heading navigation derives from the same blocks. Save feedback distinguishes
 pending, saving, saved, error and conflict; failed/uncertain saves retain local
 input and offer retry or explicit copy/discard recovery.
 
+Settings → General controls application save behavior: after a delay (5, 10 or
+30 seconds; default 10), on application window/tab change, or off. Preferences
+persist in the current browser/Electron profile and apply across projects;
+they do not synchronize across devices. After-delay mode also saves during
+continuous typing at a 60-second maximum dirty interval. Moving between fields
+does not trigger a save. Ctrl/Cmd+S saves both manuscript and creation planning;
+required business actions and controlled desktop close still settle pending work.
+Off/window modes have no background save timer. Pending history retains at most
+six visible checkpoints for five Undo/Redo transitions, with unresolved commands
+protected separately. A crash can lose unacknowledged input in every mode.
+
+The gear opens global General, Model services and Default models; Application
+menu → Project settings owns the existing project name. Failures use compact
+localized notifications above the active browser dialog, alongside persistent
+inline save/task recovery. Saved keys use a constant mask and explicit replacement;
+saved does not mean verified by a provider. Discovery shows its saved request
+target and separates authentication, access, unsupported listing, quota and server
+errors. See the [follow-up evidence](validation/editor-save-and-ai-feedback.md).
+
 Migration 002 adds immutable content-addressed objects, canonical block identities
 and revisions, request receipts, edit-group metadata and a transactional outbox.
 Bootstrap upgrades use SQLite's consistent backup API. Migration 003 adds a
