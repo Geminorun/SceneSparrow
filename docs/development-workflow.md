@@ -89,6 +89,11 @@ defines subagent settings, root review, correction loops and the per-step
 commit/push gate. It supplements this branch/PR policy. Implementation agents
 deliver uncommitted changes; only root stages and pushes reviewed commits.
 
+This delegation workflow applies only to substantial coding work. The primary
+agent directly handles planning, design, requirements/research, standalone
+documentation, and small/localized code changes. Read-only subagents follow the
+same scope limit.
+
 Use `type(scope): summary`, with an optional scope and an imperative English
 summary. Types are `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`,
 and `perf`. Useful scopes include `web`, `desktop`, `editor`, `contracts`, `core`,

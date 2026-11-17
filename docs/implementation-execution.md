@@ -23,6 +23,15 @@ require repeated user confirmation.
 
 ## 1. Roles and model configuration
 
+Delegation is limited to substantial coding work. The primary agent directly
+handles requirements clarification, planning, product/UX and architecture design,
+competitor research, solution comparison, standalone documentation, and
+small/localized code changes. Do not use subagents for planning or design,
+including read-only research or review agents. A large overall project does not
+justify delegating these tasks. The roles and settings below apply only to
+eligible coding work; implementation notes accompanying that work remain within
+the coding assignment.
+
 The root agent is the scheduler, integrator, reviewer and delivery owner. It scopes
 work, dispatches implementation, inspects actual changes, verifies evidence,
 requests corrections, decides review outcome and alone commits/pushes accepted work.
@@ -37,11 +46,12 @@ Every subagent uses exactly these settings, as requested by the user:
 | Reasoning effort | `high`                                                             |
 | Context fork     | `none`, with a self-contained task brief and repository references |
 
-Use a fresh implementation agent for each step. Corrections normally go back to
-that step's existing agent with concrete findings. The root may split a large step
+Use a fresh implementation agent for each delegated coding step. Corrections
+normally go back to that step's existing agent with concrete findings. The root may split a large step
 into smaller sequential assignments without changing its acceptance or commit gate.
-Additional readers/auditors use the same explicit model/effort and have read-only
-scope. If the requested model cannot be used, report that limitation; do not silently
+Additional readers/auditors are limited to eligible coding work, use the same
+explicit model/effort and have read-only scope. They do not delegate planning or
+design. If the requested model cannot be used, report that limitation; do not silently
 substitute another model or effort.
 
 Subagents do not stage, commit, push, merge, switch branches, create worktrees,
