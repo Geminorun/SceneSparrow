@@ -1,3 +1,5 @@
+import { useTaskNotifications } from "../NotificationPresenter";
+import { notifyFailure } from "../notifications";
 import { useEffect, useRef, useState } from "react";
 import type {
   CopyRequest,
@@ -34,6 +36,17 @@ export function Exports({
     };
   } | null>(null);
   const [message, setMessage] = useState<keyof typeof en | "">("");
+  useTaskNotifications(
+    job && touched.current
+      ? [
+          {
+            id: `${job.id}:${job.attempt}`,
+            status: job.status,
+            error: job.error,
+          },
+        ]
+      : [],
+  );
   const [prepared, setPrepared] = useState<PreparedCopy | null>(null);
   const pending = useRef<
     | { request: ExportRequest; copy: false }
@@ -168,6 +181,7 @@ export function Exports({
         setMessage("");
       }
     } catch (error) {
+      notifyFailure(error);
       if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE")
         pendingControl.current = null;
       try {
@@ -191,6 +205,7 @@ export function Exports({
       else await navigator.clipboard.writeText(text);
       if (active.current) setMessage("exportCopied");
     } catch {
+      notifyFailure("exportClipboardFallback");
       if (active.current) setMessage("exportClipboardFallback");
     }
   }
@@ -268,6 +283,7 @@ export function Exports({
         throw error;
       }
     } catch (e) {
+      notifyFailure(e);
       if (active.current)
         setMessage(
           localMessage(e instanceof Error ? e.message : "EXPORT_FAILED"),
@@ -289,6 +305,10 @@ export function Exports({
           artifactHash: job.artifactHash!,
         });
         if (!receipt || receipt.status === "failed") delivery.current = null;
+        if (receipt && ["failed", "unknown", "intent"].includes(receipt.status))
+          notifyFailure(
+            receipt.status === "failed" ? "exportFailed" : "exportUnknown",
+          );
         if (active.current && receipt) setJob({ ...job, delivery: receipt });
         if (active.current)
           setMessage(
@@ -315,6 +335,7 @@ export function Exports({
         }
       }
     } catch (e) {
+      notifyFailure(e);
       if (e instanceof Error && e.message.startsWith("DESTINATION_"))
         delivery.current = null;
       if (active.current)

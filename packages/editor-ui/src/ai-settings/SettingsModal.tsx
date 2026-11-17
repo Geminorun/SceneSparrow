@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import type en from "../locales/en.json";
+import { trapDialogFocus } from "../dialog-focus";
 export function SettingsModal({
   title,
   t,
@@ -33,22 +34,7 @@ export function SettingsModal({
       }}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key !== "Tab") return;
-        const controls = [
-          ...event.currentTarget.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary, [tabindex="0"]',
-          ),
-        ].filter((element) => element.getClientRects().length > 0);
-        const first = controls[0],
-          last = controls.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        }
-        if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
+        trapDialogFocus(event, event.currentTarget);
       }}
     >
       <div className="dialog-heading">

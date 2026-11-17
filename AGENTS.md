@@ -78,6 +78,13 @@
   test actions. Web credentials use the shared credential port and an external
   deployment master key; never regenerate that key over an existing vault or
   downgrade encrypted data to session storage.
+- The current save/feedback policy is specified in
+  `docs/design/editor-save-and-ai-feedback.md`, with evidence in
+  `docs/validation/editor-save-and-ai-feedback.md`. Preserve 5/10/30-second
+  preferences (default 10), shared manuscript/planning scheduling, local-only
+  history boundaries, bounded pending checkpoints, top-layer localized feedback
+  and truthful credential outcomes. Background acknowledgments cannot flush
+  newer input early; ambiguous key writes cannot trigger automatic resubmission.
 
 ## Delegation scope
 

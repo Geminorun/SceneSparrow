@@ -486,14 +486,25 @@ command. Settings tests are app-scoped ephemeral actions, separate from project
 undo and durable business task history. Enforce existing source/frame validation
 and narrow desktop bridge methods; never expose saved-key readback or generic shell.
 
-Normalize `AUTH_REQUIRED`, `AUTH_REJECTED`, `CREDENTIAL_UNAVAILABLE`,
-`MODEL_UNAVAILABLE`, `CAPABILITY_UNSUPPORTED`, `CONFIGURATION_STALE`,
-`SETTINGS_CONFLICT`, `QUEUE_FULL`, `RATE_LIMITED`, `CONTEXT_LIMIT`,
+Normalize `AUTH_REQUIRED`, `AUTH_REJECTED`, `ACCESS_REJECTED`,
+`CREDENTIAL_UNAVAILABLE`, `MODEL_UNAVAILABLE`, `MODEL_LIST_NOT_FOUND`,
+`MODEL_LIST_UNSUPPORTED`, `CAPABILITY_UNSUPPORTED`, `CONFIGURATION_STALE`,
+`SETTINGS_CONFLICT`, `QUEUE_FULL`, `RATE_LIMITED`, `QUOTA_EXCEEDED`,
+`PROVIDER_SERVER_FAILED`, `CONTEXT_LIMIT`,
 `OUTPUT_TRUNCATED`, `INVALID_OUTPUT`, `PROVIDER_REFUSED`, `NETWORK_FAILED`,
 `REQUEST_TIMEOUT`, `WORKER_INTERRUPTED`, `CANCELLED`, `PROTOCOL_MISMATCH`, and
 `INPUT_TOO_LARGE`. Return safe action hints and correlation IDs. Do not mislabel
 missing visible output as authentication failure or domain stale output as a
 provider outage. Domain codes such as `CANDIDATE_STALE` remain consumer-owned.
+
+`AUTH_REJECTED` means upstream 401; 403 is `ACCESS_REJECTED`. Discovery 404/405
+describes the list endpoint, while generation 404 remains `MODEL_UNAVAILABLE`.
+Quota classification uses known machine codes, never vendor prose. Distinguish
+the core response status from upstream status; do not invent unavailable upstream
+metadata. The [feedback follow-up](../design/editor-save-and-ai-feedback.md)
+specifies safe bilingual notifications, saved-key masks, explicit replacement and
+manual model addition after listing failure. Shared AI remains independent of
+the manuscript's settings-navigation actions.
 
 Keep a persistent task error/status with settings/manual retry actions; a toast
 alone is insufficient for recovery. HTTP input/config/state errors return 400/422,

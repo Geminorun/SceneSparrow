@@ -1,3 +1,5 @@
+import { useErrorNotification } from "../NotificationPresenter";
+import { errorMessage } from "../notifications";
 import { useRef, useState } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { ReviewMessage } from "@scenesparrow/contracts";
@@ -18,6 +20,7 @@ export function ReviewConversation({
   const [messages, setMessages] = useState<ReviewMessage[]>([]),
     [cursor, setCursor] = useState<number | null>(null),
     [error, setError] = useState("");
+  useErrorNotification(error);
   const request = useRef(0);
   const load = (before?: number) => {
     const n = ++request.current;
@@ -69,7 +72,7 @@ export function ReviewConversation({
           {t.reviewMore}
         </button>
       )}
-      {error && <p role="status">{error}</p>}
+      {error && <p role="status">{errorMessage(error, t)}</p>}
     </details>
   );
 }

@@ -77,7 +77,7 @@ test("independent panes persist widths, keep editor identity and replace fake pr
   ).toBeVisible();
   await page.locator(".project-menu > summary").click();
   await expect(
-    page.getByRole("button", { name: "Rename project", exact: true }),
+    page.getByRole("button", { name: "Project settings", exact: true }),
   ).toBeVisible();
 });
 

@@ -50,7 +50,7 @@ export function AiSettings({
         <button onClick={() => void c.load()}>{t.aiReload}</button>
       )}
       {!settings ? (
-        <p>{t.connecting}</p>
+        <p>{t.aiSettingsLoading}</p>
       ) : section === "defaults" ? (
         <DefaultModels controller={c} t={t} />
       ) : (

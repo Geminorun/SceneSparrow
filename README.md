@@ -38,6 +38,12 @@ manuscript default. Private Web deployments encrypt API credentials and reuse an
 external master key across restarts; see [validation](docs/validation/ai-model-services.md)
 and [deployment recovery](docs/web-deployment.md).
 
+The [saving and feedback follow-up](docs/validation/editor-save-and-ai-feedback.md)
+adds application save preferences (5/10/30-second delays, default 10, window-change
+or off), explicit global/project settings, localized top-layer errors and clearer
+saved-key/discovery feedback. Five-step project history and explicit AI actions
+remain in force.
+
 The initial pnpm/Cargo monorepo is runnable: a shared bilingual React UI connects
 to an authenticated Rust core and creates/reopens a SQLite project. Electron uses
 the same UI through a restricted preload bridge. A Remotion sample validates the

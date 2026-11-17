@@ -328,6 +328,11 @@ pub fn safe_code(code: &str) -> &'static str {
     const CODES: &[&str] = &[
         "AUTH_REQUIRED",
         "AUTH_REJECTED",
+        "ACCESS_REJECTED",
+        "MODEL_LIST_NOT_FOUND",
+        "MODEL_LIST_UNSUPPORTED",
+        "QUOTA_EXCEEDED",
+        "PROVIDER_SERVER_FAILED",
         "CREDENTIAL_UNAVAILABLE",
         "MODEL_UNAVAILABLE",
         "CAPABILITY_UNSUPPORTED",
@@ -397,6 +402,21 @@ impl SqliteProjectRepository {
 mod tests {
     use super::super::tests::{config, configured, input};
     use super::*;
+    #[test]
+    fn provider_status_codes_survive_without_arbitrary_worker_details() {
+        for code in [
+            "AUTH_REJECTED",
+            "ACCESS_REJECTED",
+            "MODEL_LIST_NOT_FOUND",
+            "MODEL_LIST_UNSUPPORTED",
+            "QUOTA_EXCEEDED",
+            "RATE_LIMITED",
+            "PROVIDER_SERVER_FAILED",
+        ] {
+            assert_eq!(safe_code(code), code);
+        }
+        assert_eq!(safe_code("SECRET_VENDOR_BODY"), "WORKER_INTERRUPTED");
+    }
     #[test]
     fn startup_artifact_pipe_timeout_cancel_and_protocol_overflow_are_supervised() {
         let directory = tempfile::tempdir().unwrap();

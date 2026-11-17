@@ -77,11 +77,11 @@ test("Unicode rename preserves identity, manuscript, history and editor through 
   const node = await editor.elementHandle();
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   expect(await (await closedGroup).finished()).toBeNull();
-  // Opening the dialog legitimately closes the typing group. Metadata rename
-  // must preserve the complete history after that independent transition.
+  // The timed save publishes the locally closed typing group. Metadata settings
+  // preserve that history and do not create another manuscript transition.
   const before = await core.request("/project"),
     manuscript = await core.request("/manuscript"),
     history = await core.request("/history");
@@ -241,7 +241,8 @@ test("read errors never create a project; ambiguous bootstrap retries reuse the 
     else await route.fulfill({ json: response });
   });
   await page.goto("/");
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.locator("#workbench > .error[role=alert]")).toBeVisible();
+  await expect(page.getByTestId("transport-failure")).toBeVisible();
   expect(ensures).toBe(0);
   expect((await core.request("/project")).project).toBeNull();
   readsFail = false;
@@ -299,7 +300,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   });
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page
     .getByLabel("Project name", { exact: true })
@@ -322,7 +323,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   );
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page
     .getByLabel("Project name", { exact: true })
@@ -330,8 +331,8 @@ test("rename retries retain command identity, refresh stale titles and never red
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(
     page
-      .getByRole("dialog", { name: "Rename project", exact: true })
-      .getByRole("alert"),
+      .getByRole("dialog", { name: "Project settings", exact: true })
+      .locator("form [role=alert]"),
   ).toBeVisible();
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByTestId("project-title")).toHaveText(
@@ -353,7 +354,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   });
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page
     .getByLabel("Project name", { exact: true })
@@ -398,7 +399,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   await pendingRead;
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page
     .getByLabel("Project name", { exact: true })
@@ -539,7 +540,7 @@ test("a long project name stays compact at desktop and narrow widths with the fu
   const title = "鸟鸣与城市的故事 🐦 ".repeat(8);
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page.getByLabel("Project name", { exact: true }).fill(title);
   await page.getByRole("button", { name: "Save name", exact: true }).click();
@@ -606,7 +607,7 @@ test("planning retains the same local input through settings, rename and languag
   await page.keyboard.press("Escape");
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   await page.getByLabel("Project name", { exact: true }).fill("Planning title");
   await page.getByRole("button", { name: "Save name", exact: true }).click();

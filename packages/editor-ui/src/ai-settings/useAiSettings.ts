@@ -6,7 +6,16 @@ import type {
   AiTestAction,
   AiTestReceipt,
 } from "@scenesparrow/contracts";
-import type { PlatformClient } from "@scenesparrow/platform-client";
+import {
+  TransportError,
+  type PlatformClient,
+} from "@scenesparrow/platform-client";
+import {
+  notifyFailure,
+  safeErrorCode,
+  savedDiscoveryTarget,
+} from "../notifications";
+import { publishSavedAiView } from "./saved-view";
 import {
   assignPreset,
   modelKey,
@@ -18,10 +27,14 @@ import {
   type ServicePreset,
 } from "./model";
 
+const notificationsSaved = (key: string) =>
+  notifyFailure(key, { tone: "success" });
+
 type Operation = {
   busy?: boolean;
   error?: string;
   message?: "saved" | "partial";
+  credential?: "saved" | "saving" | "failed" | "unknown";
 };
 type TestState = {
   action: AiTestAction;
@@ -156,18 +169,32 @@ export function useAiSettings(
     }
     viewRef.current = next;
     setView(next);
+    publishSavedAiView(next);
   };
-  const operate = async (target: string, fn: () => Promise<void>) => {
-    setOperations((state) => ({ ...state, [target]: { busy: true } }));
+  const operate = async (
+    target: string,
+    fn: () => Promise<void>,
+    requestTarget?: string,
+  ) => {
+    setOperations((state) => ({
+      ...state,
+      [target]: {
+        busy: true,
+        ...(state[target]?.credential === "unknown"
+          ? { credential: "unknown" as const }
+          : {}),
+      },
+    }));
     try {
       await fn();
       return true;
     } catch (error) {
+      notifyFailure(error, { target: requestTarget });
       setOperations((state) => ({
         ...state,
         [target]: {
           ...state[target],
-          error: error instanceof Error ? error.message : "AI_ERROR",
+          error: safeErrorCode(error),
         },
       }));
       return false;
@@ -215,7 +242,7 @@ export function useAiSettings(
         Object.fromEntries(
           Object.entries(drafts).map(([id, draft]) => [
             id,
-            { ...draft, key: "", reveal: false },
+            { ...draft, key: "", reveal: false, editingKey: false },
           ]),
         ),
       );
@@ -266,7 +293,14 @@ export function useAiSettings(
       setOperations((operations) =>
         operations[`provider:${providerKey(selection)}`]?.busy
           ? operations
-          : { ...operations, [`provider:${providerKey(selection)}`]: {} },
+          : {
+              ...operations,
+              [`provider:${providerKey(selection)}`]:
+                operations[`provider:${providerKey(selection)}`]?.credential ===
+                  "unknown" && patch.key === undefined
+                  ? { credential: "unknown" }
+                  : {},
+            },
       );
     }
     updateProviders((drafts) => ({
@@ -312,6 +346,10 @@ export function useAiSettings(
         if (preset) assignPreset(settings, id, preset.id);
       });
       if (captured.key) {
+        setOperations((state) => ({
+          ...state,
+          [`provider:${id}`]: { busy: true, credential: "saving" },
+        }));
         try {
           publish(
             await client.updateAiCredential({
@@ -323,20 +361,25 @@ export function useAiSettings(
           updateProviders((drafts) => {
             const draft = drafts[id];
             return draft && draft.key === captured.key
-              ? { ...drafts, [id]: { ...draft, key: "", reveal: false } }
+              ? {
+                  ...drafts,
+                  [id]: { ...draft, key: "", reveal: false, editingKey: false },
+                }
               : drafts;
           });
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message.startsWith("TRANSPORT_")
-          ) {
+          if (error instanceof TransportError) {
             updateProviders((drafts) => {
               const draft = drafts[id];
               return draft?.key === captured.key
                 ? {
                     ...drafts,
-                    [id]: { ...draft, key: "", reveal: false },
+                    [id]: {
+                      ...draft,
+                      key: "",
+                      reveal: false,
+                      editingKey: false,
+                    },
                   }
                 : drafts;
             });
@@ -350,7 +393,11 @@ export function useAiSettings(
           }
           setOperations((state) => ({
             ...state,
-            [`provider:${id}`]: { message: "partial" },
+            [`provider:${id}`]: {
+              message: "partial",
+              credential:
+                error instanceof TransportError ? "unknown" : "failed",
+            },
           }));
           throw error;
         }
@@ -358,30 +405,46 @@ export function useAiSettings(
       setConflicts((conflicts) => ({ ...conflicts, [id]: false }));
       setOperations((state) => ({
         ...state,
-        [`provider:${id}`]: { message: "saved" },
+        [`provider:${id}`]: {
+          message: "saved",
+          ...(captured.key
+            ? { credential: "saved" as const }
+            : state[`provider:${id}`]?.credential === "unknown"
+              ? { credential: "unknown" as const }
+              : {}),
+        },
       }));
+      notificationsSaved(captured.key ? "aiKeySaved" : "aiConfigurationSaved");
     });
   };
-  const discover = (providerId: string) =>
-    operate(`discovery:${providerId}`, async () => {
-      const provider = viewRef.current?.settings.providers.find(
-        (provider) => provider.id === providerId,
-      );
-      const signature = JSON.stringify(provider);
-      const result = await client.discoverAiModels(providerId);
-      if (
-        signature ===
-        JSON.stringify(
-          viewRef.current?.settings.providers.find(
-            (provider) => provider.id === providerId,
-          ),
+  const discover = (providerId: string) => {
+    const saved = viewRef.current?.settings.providers.find(
+      (provider) => provider.id === providerId,
+    );
+    return operate(
+      `discovery:${providerId}`,
+      async () => {
+        const provider = viewRef.current?.settings.providers.find(
+          (provider) => provider.id === providerId,
+        );
+        const signature = JSON.stringify(provider);
+        const result = await client.discoverAiModels(providerId);
+        if (
+          signature ===
+          JSON.stringify(
+            viewRef.current?.settings.providers.find(
+              (provider) => provider.id === providerId,
+            ),
+          )
         )
-      )
-        setCatalogs((catalogs) => ({
-          ...catalogs,
-          [providerId]: result.models,
-        }));
-    });
+          setCatalogs((catalogs) => ({
+            ...catalogs,
+            [providerId]: result.models,
+          }));
+      },
+      saved && savedDiscoveryTarget(saved.baseUrl),
+    );
+  };
   const testModel = (model: AiModel, resolve = false) => {
     const id = modelKey(model.providerId, model.id);
     const signature = savedTargetSignature(viewRef.current!.settings, model);
@@ -426,6 +489,10 @@ export function useAiSettings(
         [id]: { action, signature, invalidated: invalidated() },
       }));
       const receipt = await client.testAiConnection(action);
+      if (receipt.status === "failed")
+        notifyFailure(receipt.error ?? "AI_ERROR", {
+          identity: `test:${action.actionId}`,
+        });
       setTests((tests) =>
         tests[id]?.action.actionId === action.actionId
           ? {

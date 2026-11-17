@@ -1,3 +1,8 @@
+import {
+  useErrorNotification,
+  useTaskNotifications,
+} from "../NotificationPresenter";
+import { notifyFailure } from "../notifications";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type {
@@ -36,6 +41,16 @@ export function Sources({
     [url, setUrl] = useState(""),
     [title, setTitle] = useState(""),
     [error, setError] = useState("");
+  useErrorNotification(error);
+  const [loaded, setLoaded] = useState(false);
+  useTaskNotifications(
+    items.map((item) => ({
+      id: item.jobId ?? item.source.id,
+      status: item.status,
+      error: item.error,
+    })),
+    !loaded,
+  );
   const [rows, setRows] = useState<UploadRow[]>([]),
     [uploading, setUploading] = useState(false),
     [association, setAssociation] =
@@ -47,6 +62,11 @@ export function Sources({
     parser: string;
     references: string[];
   } | null>(null);
+  useTaskNotifications(
+    rows
+      .filter((row) => row.status === "error")
+      .map((row) => ({ id: row.path, status: "failed", error: row.code })),
+  );
   const active = useRef(true),
     upload = useRef<AbortController | null>(null),
     sourceRead = useRef(0);
@@ -72,6 +92,7 @@ export function Sources({
       const result = await readAll();
       if (active.current && ticket === sourceRead.current) {
         setItems(result);
+        setLoaded(true);
       }
     } catch {
       if (active.current && ticket === sourceRead.current)
@@ -667,6 +688,7 @@ export function ImportDialog({
     [job, setJob] = useState<DocumentJob | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  useErrorNotification(error);
   const [committing, setCommitting] = useState(false);
   const current = useRef<string | null>(null),
     abort = useRef<AbortController | null>(null),
@@ -738,7 +760,7 @@ export function ImportDialog({
       if (result.error && live.current) setError(result.error);
     } catch (e) {
       if (intake) await client.cancelIntake(intake.id).catch(() => {});
-      if (live.current)
+      if (live.current && !abort.current?.signal.aborted)
         setError(e instanceof Error ? e.message : "WORKER_UNAVAILABLE");
     } finally {
       if (live.current) setBusy(false);
@@ -748,27 +770,39 @@ export function ImportDialog({
     if (!job?.candidateHash) return;
     setBusy(true);
     abort.current = new AbortController();
-    const ok = await save.business(
-      (revision) => ({
-        type: "CommitManuscriptImport",
-        requestId: crypto.randomUUID(),
-        projectId,
-        expectedWorkingRevision: revision,
-        payload: {
-          preparedId: job.id,
-          candidateHash: job.candidateHash!,
-          mode,
-        },
-      }),
-      { signal: abort.current.signal, dispatched: () => setCommitting(true) },
-    );
-    if (!live.current) return;
-    setBusy(false);
-    setCommitting(false);
-    if (ok) {
-      current.current = null;
-      close();
-    } else setError(save.error || "IMPORT_STALE");
+    try {
+      const ok = await save.business(
+        (revision) => ({
+          type: "CommitManuscriptImport",
+          requestId: crypto.randomUUID(),
+          projectId,
+          expectedWorkingRevision: revision,
+          payload: {
+            preparedId: job.id,
+            candidateHash: job.candidateHash!,
+            mode,
+          },
+        }),
+        { signal: abort.current.signal, dispatched: () => setCommitting(true) },
+      );
+      if (!live.current) return;
+      setBusy(false);
+      setCommitting(false);
+      if (ok) {
+        current.current = null;
+        close();
+      } else setError(save.error || "IMPORT_STALE");
+    } catch (failure) {
+      if (live.current && !abort.current?.signal.aborted) {
+        notifyFailure(failure);
+        setError(failure instanceof Error ? failure.message : "IMPORT_STALE");
+      }
+    } finally {
+      if (live.current) {
+        setBusy(false);
+        setCommitting(false);
+      }
+    }
   }
   return (
     <div

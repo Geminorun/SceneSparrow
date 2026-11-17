@@ -40,6 +40,8 @@ test("real continuous typing across save acknowledgements retains node, focus an
   page,
   core,
 }) => {
+  await page.clock.install({ time: new Date("2026-11-17T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-17T12:00:01Z"));
   await openWorkbench(page);
   const editor = input(page),
     node = await editor.elementHandle();
@@ -52,8 +54,16 @@ test("real continuous typing across save acknowledgements retains node, focus an
   });
   await editor.click();
   const text =
-    "Continuous manuscript typing across several real save round trips.";
-  await page.keyboard.type(text, { delay: 75 });
+    "Continuous manuscript typing across several real save round trips. ".repeat(
+      4,
+    );
+  for (let n = 0; n < text.length; n++) {
+    await page.keyboard.type(text[n]);
+    await page.clock.fastForward(500);
+    if ((n + 1) % 120 === 0)
+      await expect.poll(() => edits).toBeGreaterThanOrEqual((n + 1) / 120);
+  }
+  await page.clock.fastForward(5000);
   await saved(page);
   expect(edits).toBeGreaterThanOrEqual(2);
   expect(

@@ -11,6 +11,13 @@ import type {
 } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { Autosave, type SaveStatus } from "./autosave";
+import {
+  useErrorNotification,
+  useTaskNotifications,
+  useOpenSettings,
+} from "../NotificationPresenter";
+import { notifyFailure } from "../notifications";
+import { useSavedAiView } from "../ai-settings/saved-view";
 export type PlanningFeedback = {
   status: SaveStatus;
   error: string;
@@ -39,6 +46,7 @@ export function Planning({
 }) {
   const [initial, setInitial] = useState<PlanningState | null>(null);
   const [error, setError] = useState("");
+  useErrorNotification(error);
   useEffect(() => {
     let active = true;
     void client.readPlanning().then(
@@ -82,7 +90,7 @@ export function Planning({
         </button>
       </p>
     );
-  if (!initial) return <p role="status">{t.connecting}</p>;
+  if (!initial) return <p role="status">{t.planningLoading}</p>;
   return (
     <PlanningEditor
       initial={initial}
@@ -184,16 +192,32 @@ function PlanningEditor({
       },
     });
   }, [planning.status, planning.error, onStatus]);
+  useErrorNotification(planning.error);
+  useTaskNotifications(
+    planning.state.tasks.map((task) => ({
+      id: task.id,
+      status: task.error ? "failed" : task.run.status,
+      error: task.error ?? task.run.error,
+    })),
+  );
+  const openSettings = useOpenSettings();
+  const savedAiView = useSavedAiView();
+  const manuscriptModel = savedAiView?.settings.bindings.find(
+    (binding) => binding.category === "text",
+  );
   const [sources, setSources] = useState<SourceSummary[]>([]);
   const [prepared, setPrepared] = useState<PlanningPreparation | null>(null);
   const [operation, setOperation] = useState<
     PlanningPreparationRequest["operation"]
   >(
-    initial.content.nodes.length && save.state.workspaceStage === "outline"
+    initial.content.nodes.length &&
+      save.state.workspaceStage === "outline" &&
+      !save.local.length
       ? "generate_initial_draft"
       : "generate_outline",
   );
   const [error, setError] = useState("");
+  useErrorNotification(error);
   const [acting, setActing] = useState(false);
   const active = useRef(true);
   async function refreshSources() {
@@ -329,6 +353,7 @@ function PlanningEditor({
       setPrepared(value);
       return value;
     } catch (e) {
+      notifyFailure(e);
       setError(e instanceof Error ? e.message : "error");
       return null;
     } finally {
@@ -353,6 +378,9 @@ function PlanningEditor({
         payload: { preparationId: value.id, retryOfTaskId },
       }));
       setPrepared(null);
+    } catch (failure) {
+      notifyFailure(failure);
+      setError(failure instanceof Error ? failure.message : "error");
     } finally {
       setActing(false);
     }
@@ -360,7 +388,9 @@ function PlanningEditor({
   const inputLocked = reserved || save.stageTransitionPending;
   const locked = inputLocked || acting;
   const initialEligible =
-    save.state.workspaceStage === "outline" && !save.state.blocks.length;
+    save.state.workspaceStage === "outline" &&
+    !save.local.length &&
+    !save.recoveryText;
   const [assistanceOpen, setAssistanceOpen] = useState(initialEligible);
   const ready =
     !!p.brief.topic.trim() && p.nodes.every((node) => !!node.title.trim());
@@ -495,7 +525,7 @@ function PlanningEditor({
                 }
                 value={p.brief[field]}
                 onChange={(e) => patchBrief(field, e.target.value)}
-                onBlur={() => void planning.flush(false)}
+                onBlur={() => planning.boundary()}
               />
               {briefInvalid(field) && (
                 <p id={`planning-error-${field}`} className="field-error">
@@ -520,7 +550,7 @@ function PlanningEditor({
                   value={p.brief[field]}
                   aria-invalid={briefInvalid(field)}
                   onChange={(event) => patchBrief(field, event.target.value)}
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {briefInvalid(field) && (
                   <p className="field-error">{t.workspaceValidationLength}</p>
@@ -587,7 +617,7 @@ function PlanningEditor({
                       `${node.id}:title`,
                     )
                   }
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {[...node.title].length > 300 && (
                   <p
@@ -634,7 +664,7 @@ function PlanningEditor({
                       `${node.id}:points`,
                     )
                   }
-                  onBlur={() => void planning.flush(false)}
+                  onBlur={() => planning.boundary()}
                 />
                 {(node.keyPoints.length > 20 ||
                   node.keyPoints.some((point) => [...point].length > 1000)) && (
@@ -715,7 +745,7 @@ function PlanningEditor({
             onChange={(e) =>
               update({ ...p, instruction: e.target.value }, "instruction")
             }
-            onBlur={() => void planning.flush(false)}
+            onBlur={() => planning.boundary()}
           />
           {new TextEncoder().encode(p.instruction).length > 8192 && (
             <p id="planning-instruction-error" className="field-error">
@@ -758,6 +788,16 @@ function PlanningEditor({
             {t.libraryOpen}
           </button>
         </section>
+        <div className="planning-model-settings">
+          <button
+            className="quiet-button"
+            onClick={() => openSettings("defaults")}
+          >
+            {manuscriptModel
+              ? t.aiCurrentModel.replace("{model}", manuscriptModel.modelId)
+              : t.aiModelSettings}
+          </button>
+        </div>
         <div className="planning-primary">
           {!p.nodes.length && (
             <button
@@ -917,6 +957,7 @@ export function GeneratedDraftEvidence({
   const [state, setState] = useState<PlanningState | null>(null);
   const [error, setError] = useState(false),
     [retry, setRetry] = useState(0);
+  useErrorNotification(error ? "error" : "");
   useEffect(() => {
     let active = true;
     void Promise.resolve()

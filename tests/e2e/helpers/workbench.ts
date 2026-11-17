@@ -1,6 +1,23 @@
 import { expect, type Page } from "@playwright/test";
 
-export async function openWorkbench(page: Page) {
+export async function openWorkbench(
+  page: Page,
+  options: { defaultSavePolicy?: boolean } = {},
+) {
+  // Browser workflow tests select the shortest supported user preference. Dedicated
+  // preference tests leave the production ten-second default intact.
+  if (!options.defaultSavePolicy)
+    await page.addInitScript(() => {
+      if (!localStorage.getItem("scenesparrow.application-preferences"))
+        localStorage.setItem(
+          "scenesparrow.application-preferences",
+          JSON.stringify({
+            version: 1,
+            saveMode: "after_delay",
+            saveDelaySeconds: 5,
+          }),
+        );
+    });
   await page.goto("/");
   await page
     .getByRole("combobox", { name: /^(Language|语言)$/ })

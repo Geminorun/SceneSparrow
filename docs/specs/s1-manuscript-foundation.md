@@ -244,20 +244,27 @@ or `TASK_USING_CONTENT` when a configured restriction blocks an actual change.
 
 ### 5.1 Scheduling and ordering
 
-Paint local edits immediately. Debounce saving by 300 ms after changes and flush
-at most two seconds after the first unsent change, except while IME composition
-is active. Do not send intermediate composition text. Queue at most one in-flight
+Paint local edits immediately. The approved
+[save-preferences follow-up](../design/editor-save-and-ai-feedback.md) replaces
+the original fixed schedule with application-wide after-delay, window-change and
+off modes. After-delay choices are 5/10/30 seconds, default 10, with a 60-second
+maximum dirty interval. Off/window modes have no background timer. Field blur,
+idle and selection changes create local history boundaries rather than forcing
+network writes. Do not send intermediate composition text. Queue at most one in-flight
 business mutation per project/client; keep subsequent local edits in a buffer.
-After acknowledgment, rebase that buffer over the canonical receipt and send the
-next batch with current revisions. A late acknowledgment cannot clear newer local
-changes or show saved prematurely.
+After acknowledgment, rebase that buffer over the canonical receipt; background
+delivery remains fenced to captured eligible input so the acknowledgment cannot
+send a newer edit before its deadline. Explicit save/business settlement drains
+valid pending work with current revisions. A late acknowledgment cannot clear
+newer local changes or show saved prematurely.
 
 Flush and close the active typing group before project undo/redo, a structure
 command, import commit, source membership command, or controlled project switch
 and close. If a source command is submitted while typing, queue it after the flush.
-Blur triggers a flush; it does not have to create an extra history step unless it
-ends the typing group. Loading, navigation, selection and save-status ticks do not
-create history entries.
+Ctrl/Cmd+S explicitly saves manuscript and planning. Application blur/tab hiding
+triggers saving only in window-change mode; field blur closes the local typing
+group without forcing delivery. Loading, navigation, selection and save-status
+ticks do not create history entries.
 
 ### 5.2 Failure and restart
 
@@ -303,7 +310,7 @@ autosave acknowledgments and no-ops leave the tail unchanged.
 One structural action, source add/remove, or import commit is one entry. Continuous
 typing in the same block is one entry until a 750 ms idle gap, selection/focus
 movement, another command, composition boundary requiring a different scope, or
-undo/redo closes it. Timing is a grouping policy; the 300 ms save interval does
+undo/redo closes it. Timing is a grouping policy; the configured save interval does
 not create separate entries. In-flight committed batches update the same group's
 after-state while its original before-state remains fixed. Each batch gets its
 own immutable receipt; later grouping must not rewrite previous command outcomes.
@@ -322,8 +329,10 @@ repeated close is an idempotent no-op. This invalidates stale history requests.
 
 The implemented manual client tracks idle gaps from input events and captures
 separate local action boundaries before transport. The core does not infer an idle
-gap from receipt/commit arrival times: delayed transport and the two-second save
-window can legitimately separate batches of continuous typing. Core grouping
+gap from receipt/commit arrival times: delayed transport and configurable saving
+can legitimately separate batches of continuous typing. Keep at most five pending
+local transitions plus the current checkpoint, preserving the latest six visible
+states and any in-flight/unresolved command separately. Core grouping
 still verifies session, sequence, actual single-block content scope, open status
 and the current history endpoint. A no-op can acknowledge group sequence metadata
 without closing any group, advancing history, or removing redo.

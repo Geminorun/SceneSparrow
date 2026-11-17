@@ -11,7 +11,12 @@ export const servicePresets = [
   { id: "deepseek", label: "DeepSeek", root: "https://api.deepseek.com/v1" },
 ] as const;
 export type ServicePreset = (typeof servicePresets)[number]["id"];
-export type ProviderDraft = { root: string; key: string; reveal: boolean };
+export type ProviderDraft = {
+  root: string;
+  key: string;
+  reveal: boolean;
+  editingKey?: boolean;
+};
 export const modelKey = (providerId: string, id: string) =>
   JSON.stringify([providerId, id]);
 export const unknownEvidence = (): AiEvidence => ({

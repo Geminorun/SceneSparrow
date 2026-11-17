@@ -1,4 +1,5 @@
 import type en from "../locales/en.json";
+import { errorMessage } from "../notifications";
 export function OperationStatus({
   operation,
   t,
@@ -20,8 +21,8 @@ export function OperationStatus({
         </p>
       )}
       {operation.error && (
-        <p role="alert">
-          {t[operation.error as keyof typeof en] ?? t.AI_ERROR}
+        <p role="alert" className="ai-operation-error">
+          {errorMessage(operation.error, t)}
           {operation.error === "SETTINGS_CONFLICT" && onReload && (
             <button onClick={onReload}>{t.aiReload}</button>
           )}

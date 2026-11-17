@@ -625,12 +625,24 @@ test("five retained operations share document-menu actions and shortcuts, preser
 test("continuous typing spans saved batches while selection and idle create new groups", async ({
   page,
 }) => {
+  await page.clock.install({ time: new Date("2026-11-17T12:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-17T12:00:01Z"));
   await draft(page);
   const input = editor(page);
+  const delayedSave = async () => {
+    await page.clock.fastForward(5000);
+    // Async receipts can arm a due timer after fastForward has paused again.
+    await expect
+      .poll(async () => {
+        await page.clock.runFor(1);
+        return page.getByTestId("save-status").getAttribute("data-state");
+      })
+      .toBe("saved");
+  };
   await input.fill("Typing base");
   await input.press("ControlOrMeta+Alt+0");
-  await saved(page);
-  await page.waitForTimeout(800);
+  await delayedSave();
+  await page.clock.fastForward(800);
   const groups: any[] = [];
   page.on("request", (r) => {
     if (
@@ -640,34 +652,39 @@ test("continuous typing spans saved batches while selection and idle create new 
       groups.push(r.postDataJSON().payload.group);
   });
   await input.press("End");
-  await input.pressSequentially(" continuous typing batches", { delay: 180 });
-  await saved(page);
+  const continuous = " continuous typing batches".repeat(10);
+  const typedBase = `Typing base${continuous}`;
+  for (let n = 0; n < continuous.length; n++) {
+    await input.pressSequentially(continuous[n]);
+    await page.clock.fastForward(500);
+    if ((n + 1) % 120 === 0)
+      await expect
+        .poll(() => groups.length)
+        .toBeGreaterThanOrEqual((n + 1) / 120);
+  }
+  await delayedSave();
   expect(groups.length).toBeGreaterThanOrEqual(2);
   expect(new Set(groups.map((g) => g.groupId)).size).toBe(1);
   await input.press("ControlOrMeta+z");
   await expect(input).toHaveText("Typing base");
   await input.press("ControlOrMeta+Shift+z");
-  await expect(input).toHaveText("Typing base continuous typing batches");
+  await expect(input).toHaveText(typedBase);
   await input.press("End");
   await input.pressSequentially(" selected tail");
-  await saved(page);
+  await delayedSave();
   await input.press("Home");
   await input.pressSequentially("prefix ");
-  await saved(page);
+  await delayedSave();
   await input.press("ControlOrMeta+z");
-  await expect(input).toHaveText(
-    "Typing base continuous typing batches selected tail",
-  );
+  await expect(input).toHaveText(`${typedBase} selected tail`);
   await input.press("End");
   await input.pressSequentially(" idle first");
-  await saved(page);
-  await page.waitForTimeout(800);
+  await delayedSave();
+  await page.clock.fastForward(800);
   await input.pressSequentially(" idle second");
-  await saved(page);
+  await delayedSave();
   await input.press("ControlOrMeta+z");
-  await expect(input).toHaveText(
-    "Typing base continuous typing batches selected tail idle first",
-  );
+  await expect(input).toHaveText(`${typedBase} selected tail idle first`);
 });
 test("native unsubmitted dialog input keeps local undo and IME shortcuts issue no project history", async ({
   page,
@@ -685,7 +702,7 @@ test("native unsubmitted dialog input keeps local undo and IME shortcuts issue n
   const before = await (await page.request.get("/api/v1/manuscript")).json();
   await page.locator(".project-menu > summary").click();
   await page
-    .getByRole("button", { name: "Rename project", exact: true })
+    .getByRole("button", { name: "Project settings", exact: true })
     .click();
   const url = page.getByLabel("Project name", { exact: true });
   await url.fill("");

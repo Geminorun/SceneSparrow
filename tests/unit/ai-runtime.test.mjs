@@ -312,10 +312,11 @@ test("split surrogate pair uses four-byte budget while malformed provider scalar
 test("auth/rate/parameter/model/server failures count one request with safe errors and no repair", async () => {
   for (const [status, code] of [
     [401, "AUTH_REJECTED"],
+    [403, "ACCESS_REJECTED"],
     [429, "RATE_LIMITED"],
     [400, "PROVIDER_REJECTED"],
     [404, "MODEL_UNAVAILABLE"],
-    [500, "NETWORK_FAILED"],
+    [500, "PROVIDER_SERVER_FAILED"],
   ]) {
     const ep = await endpoint((_q, res) => {
       res.statusCode = status;
@@ -429,6 +430,51 @@ test("manual model survives listing error; discovery is distinct and body deadli
     assert.equal(dribble.calls, 1);
   } finally {
     await dribble.close();
+  }
+});
+
+test("discovery preserves counted status-specific SDK failures and strict quota codes without provider prose", async () => {
+  for (const [status, providerCode, expected] of [
+    [401, null, "AUTH_REJECTED"],
+    [403, null, "ACCESS_REJECTED"],
+    [404, null, "MODEL_LIST_NOT_FOUND"],
+    [405, null, "MODEL_LIST_UNSUPPORTED"],
+    [429, "insufficient_quota", "QUOTA_EXCEEDED"],
+    [429, "billing_hard_limit_reached", "QUOTA_EXCEEDED"],
+    [402, "balance_insufficient", "QUOTA_EXCEEDED"],
+    [402, "unrecognized_balance_code", "PROVIDER_REJECTED"],
+    [429, "arbitrary_quota_message", "RATE_LIMITED"],
+    [503, null, "PROVIDER_SERVER_FAILED"],
+  ]) {
+    const ep = await endpoint((_q, res) => {
+      res.statusCode = status;
+      json(res, {
+        error: {
+          code: providerCode,
+          message: "SECRET_CANARY insufficient_quota private text",
+        },
+      });
+    });
+    try {
+      const r = fixture(ep.root);
+      await assert.rejects(
+        discoverModels(r.configuration, null, r.signal),
+        (error) => {
+          assert.equal(error.code, expected);
+          assert.equal(error.message, expected);
+          assert.doesNotMatch(
+            JSON.stringify(error),
+            /SECRET_CANARY|private text/,
+          );
+          return true;
+        },
+      );
+      assert.equal(ep.calls, 1);
+      assert.equal(ep.bodies[0].path, "/custom/models");
+      assert.equal(ep.bodies[0].body, null);
+    } finally {
+      await ep.close();
+    }
   }
 });
 
@@ -615,7 +661,7 @@ test("actual framed worker handles nonstream/stream Unicode and suppresses SDK d
       OPENAI_LOG: "debug",
       OPENAI_API_KEY: "ENV_SECRET_CANARY",
     });
-    assert.equal(result.events.at(-1).code, "NETWORK_FAILED");
+    assert.equal(result.events.at(-1).code, "PROVIDER_SERVER_FAILED");
     assert.equal(result.stderr, "");
     assert.doesNotMatch(
       result.stdout.toString(),

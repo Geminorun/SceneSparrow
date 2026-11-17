@@ -243,7 +243,12 @@ test("offline export flushes visible input, copy permission fallback and uncerta
   await expect(
     page.getByRole("button", { name: "复制已准备的正文", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(/无法访问剪贴板/)).toBeVisible();
+  await expect(
+    page.locator(".export-panel").getByText(/无法访问剪贴板/),
+  ).toBeVisible();
+  await expect(
+    page.locator('.notification[data-error-code="exportClipboardFallback"]'),
+  ).toContainText("无法访问剪贴板");
   await expect(editor).toHaveCount(0);
   await expect(
     page.getByRole("textbox", { name: "文稿", exact: true }),
