@@ -989,6 +989,82 @@ fn extraction_running_at_refresh_keeps_original_input_and_cannot_label_new_bytes
 }
 
 #[test]
+fn refresh_collects_superseded_extractions_after_history_eviction_and_reopens() {
+    let (dir, r, p) = setup();
+    let original = upload(&r, "reference.txt", b"Original extracted evidence");
+    let source = add_file(&r, &p, &original);
+    let mut versions = vec![];
+    for version in 0..3 {
+        if version > 0 {
+            let intake = upload(
+                &r,
+                "reference.txt",
+                format!("Evidence {version}").as_bytes(),
+            );
+            let revision = r.read_sources(None).unwrap().items[0].source.revision;
+            r.execute_manuscript(&cmd(
+                &r,
+                &p,
+                "RefreshSourceFile",
+                json!({"sourceId":source,"expectedSourceRevision":revision,"intakeId":intake.id,"hash":intake.hash}),
+            ))
+            .unwrap();
+        }
+        let job = id();
+        r.document_action(&DocumentAction::ExtractSource {
+            job_id: job.clone(),
+            source_id: source.clone(),
+        })
+        .unwrap();
+        r.run_document(&job).unwrap();
+        let connection = r.connection.lock().unwrap();
+        let pair: (String, String) = connection
+            .query_row(
+                "SELECT input_hash,result_hash FROM document_attempts WHERE id=?1",
+                [&job],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        versions.push(pair);
+    }
+    r.collect_objects(Duration::ZERO).unwrap();
+    for (input, result) in &versions {
+        assert!(r.read_object(input).is_ok());
+        assert!(r.read_object(result).is_ok());
+    }
+    for n in 0..7 {
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "AddSourceLink",
+            json!({"sourceId":id(),"url":"https://example.com","title":format!("Later action {n}")}),
+        ))
+        .unwrap();
+    }
+    r.collect_objects(Duration::ZERO).unwrap();
+    for (input, result) in &versions[..2] {
+        assert!(r.read_object(input).is_err());
+        assert!(r.read_object(result).is_err());
+    }
+    assert!(r.read_object(&versions[2].0).is_ok());
+    assert!(r.read_object(&versions[2].1).is_ok());
+    drop(r);
+    let r = SqliteProjectRepository::open(dir.path()).unwrap();
+    for _ in 0..5 {
+        r.execute_manuscript(&history(&r, &p, "UndoProject"))
+            .unwrap();
+    }
+    for _ in 0..5 {
+        r.execute_manuscript(&history(&r, &p, "RedoProject"))
+            .unwrap();
+    }
+    let items = r.read_sources(None).unwrap().items;
+    let current = items.iter().find(|item| item.source.id == source).unwrap();
+    assert_eq!(current.status, SourceSummaryStatus::Ready);
+    assert_eq!(current.source.object_hash.as_ref(), Some(&versions[2].0));
+}
+
+#[test]
 fn reopen_rejects_invalid_or_colliding_reference_path_projections() {
     for invalid in [true, false] {
         let (dir, r, p) = setup();
