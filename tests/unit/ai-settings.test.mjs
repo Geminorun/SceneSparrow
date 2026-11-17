@@ -119,3 +119,44 @@ test("manual Unicode IDs remain exact while labels respect the core UTF-8 budget
   assert.equal(model.capabilities.images.state, "unknown");
   assert.deepEqual(model.defaultParameters, parameters(4096));
 });
+
+test("secret entry is masked on first render, with secure password fallback and explicit reveal", async () => {
+  const { supportsSecretMask, SecretEntry } =
+    await import("../../packages/editor-ui/src/ai-settings/SecretEntry.tsx");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(
+    new URL("../../packages/editor-ui/package.json", import.meta.url),
+  );
+  const { createElement } = require("react"),
+    { renderToStaticMarkup } = require("react-dom/server");
+  const t = require("./src/locales/en.json");
+  assert.equal(supportsSecretMask(undefined), false);
+  assert.equal(supportsSecretMask({ supports: () => false }), false);
+  assert.equal(supportsSecretMask({ supports: () => true }), true);
+  const original = globalThis.CSS;
+  const render = (revealed = false) =>
+    renderToStaticMarkup(
+      createElement(SecretEntry, {
+        id: "uuid",
+        value: "SYNTHETIC",
+        revealed,
+        onChange() {},
+        onReveal() {},
+        t,
+      }),
+    );
+  try {
+    globalThis.CSS = { supports: () => false };
+    assert.match(render(), /type="password"/);
+    globalThis.CSS = { supports: () => true };
+    const masked = render();
+    assert.match(masked, /type="text"/);
+    assert.match(masked, /-webkit-text-security:disc/);
+    assert.match(masked, /autoComplete="off"/);
+    assert.match(masked, /name="scenesparrow-api-token-uuid"/);
+    assert.doesNotMatch(masked, /new-password/);
+    assert.match(render(true), /-webkit-text-security:none/);
+  } finally {
+    globalThis.CSS = original;
+  }
+});

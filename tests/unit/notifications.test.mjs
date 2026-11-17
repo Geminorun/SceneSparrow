@@ -17,6 +17,7 @@ test("notifications sanitize unknown/inherited codes and retain only bounded saf
   ]) {
     assert.equal(safeErrorCode(value), "error");
   }
+  assert.equal(safeErrorCode("DOCUMENT_INVALID"), "DOCUMENT_INVALID");
   const failure = Object.assign(new Error("PRIVATE_VENDOR_SECRET"), {
     status: 422,
     traceId: "a".repeat(32),
@@ -130,7 +131,10 @@ test("same-code foreground errors refresh safe request context without replacing
     id,
     key: "AUTH_REJECTED",
     tone: "error",
-    expiresAt: 10000,
+    expiresAt: null,
+    identity: "error:AUTH_REJECTED",
+    owner: undefined,
+    actions: [],
     status: 409,
     traceId: "b".repeat(32),
     target: "GET https://second.example/root/models",
@@ -140,4 +144,155 @@ test("same-code foreground errors refresh safe request context without replacing
     store.getSnapshot()[0].target,
     "GET https://second.example/root/models",
   );
+});
+
+test("action-required errors persist, passive duplicates preserve owner actions, explicit errors can return after dismissal", async () => {
+  let now = 0,
+    calls = 0;
+  const store = new NotificationStore(() => now);
+  const owner = store.createOwner();
+  store.push("AUTH_REJECTED", { passive: true });
+  store.push(new Error("AUTH_REJECTED"), {
+    owner,
+    identity: "discovery:one",
+    actions: [{ kind: "retry", run: () => calls++ }],
+    target: "GET https://saved.example/v1/models",
+  });
+  const notice = store.getSnapshot()[0];
+  assert.equal(store.getSnapshot().length, 1);
+  assert.equal(notice.expiresAt, null);
+  now = 60000;
+  store.push("AUTH_REJECTED", { passive: true });
+  assert.equal(store.getSnapshot()[0], notice);
+  assert.deepEqual(notice.actions, ["retry"]);
+  store.runAction(notice.id, "retry");
+  store.runAction(notice.id, "retry");
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  store.push("AUTH_REJECTED", { passive: true });
+  assert.equal(store.getSnapshot().length, 0);
+  store.push("AUTH_REJECTED", {
+    owner,
+    identity: "discovery:one",
+    actions: [{ kind: "retry", run: () => calls++ }],
+  });
+  assert.equal(store.getSnapshot().length, 1);
+  assert.equal(store.getSnapshot()[0].target, undefined);
+  store.releaseOwner(owner);
+  assert.equal(store.getSnapshot().length, 0);
+});
+
+test("owners revoke callbacks and notices, including between a click and its microtask", async () => {
+  const store = new NotificationStore();
+  let calls = 0;
+  const owner = store.createOwner();
+  store.push("AI_ERROR", {
+    owner,
+    actions: [{ kind: "retry", run: () => calls++ }],
+  });
+  const id = store.getSnapshot()[0].id;
+  store.runAction(id, "retry");
+  store.releaseOwner(owner);
+  await Promise.resolve();
+  assert.equal(calls, 0);
+  store.push("AI_ERROR", {
+    owner,
+    actions: [{ kind: "retry", run: () => calls++ }],
+  });
+  assert.equal(store.getSnapshot().length, 0);
+  const other = store.createOwner();
+  store.push("AI_ERROR", {
+    owner: other,
+    identity: "one",
+    actions: [{ kind: "recovery", run: () => calls++ }],
+  });
+  store.push("AUTH_REJECTED", {
+    owner: other,
+    identity: "two",
+    actions: [{ kind: "retry", run: () => calls++ }],
+  });
+  store.resolveOwner(other, "one");
+  assert.deepEqual(
+    store.getSnapshot().map((notice) => notice.identity),
+    ["two"],
+  );
+  store.releaseOwner(other);
+  assert.equal(store.getSnapshot().length, 0);
+});
+
+test("new owner request context clears stale diagnostics and failed actions are sanitized", async () => {
+  const store = new NotificationStore(() => 1000),
+    owner = store.createOwner();
+  store.push(
+    Object.assign(new Error("AI_ERROR"), {
+      status: 422,
+      traceId: "a".repeat(32),
+    }),
+    {
+      owner,
+      identity: "request",
+      target: "GET https://first.example/v1/models",
+    },
+  );
+  store.push("AI_ERROR", {
+    owner,
+    identity: "request",
+    actions: [
+      {
+        kind: "retry",
+        run: () => {
+          throw new Error("SECRET_CALLBACK_BODY");
+        },
+      },
+    ],
+  });
+  const notice = store.getSnapshot()[0];
+  assert.equal(notice.status, undefined);
+  assert.equal(notice.traceId, undefined);
+  assert.equal(notice.target, undefined);
+  assert.doesNotMatch(JSON.stringify(notice), /run|SECRET/);
+  store.runAction(notice.id, "retry");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.getSnapshot()[0].key, "error");
+  assert.doesNotMatch(
+    JSON.stringify(store.getSnapshot()),
+    /SECRET_CALLBACK_BODY/,
+  );
+  store.push("aiConfigurationSaved", { tone: "success" });
+  assert.equal(store.getSnapshot()[0].expiresAt, 7000);
+});
+
+test("action descriptors are typed, unique, bounded and require a live owner", () => {
+  const store = new NotificationStore(),
+    owner = store.createOwner();
+  const actions = Array.from({ length: 30 }, () => ({
+    kind: "retry",
+    run() {},
+  }));
+  actions.push({ kind: "SECRET_UNTRUSTED_LABEL", run() {} });
+  store.push("AI_ERROR", { actions });
+  assert.deepEqual(store.getSnapshot()[0].actions, []);
+  store.push("AI_ERROR", { owner, actions });
+  assert.deepEqual(store.getSnapshot()[0].actions, ["retry"]);
+  assert.doesNotMatch(
+    JSON.stringify(store.getSnapshot()),
+    /SECRET_UNTRUSTED_LABEL/,
+  );
+});
+
+test("opaque operation identifiers resolve consistently without exposing user model text", () => {
+  const store = new NotificationStore(),
+    owner = store.createOwner();
+  const identity = 'model:["provider-id","PRIVATE_MODEL_LABEL / 中文"]';
+  store.push("SETTINGS_CONFLICT", {
+    owner,
+    identity,
+    actions: [{ kind: "retry", run() {} }],
+  });
+  assert.doesNotMatch(
+    JSON.stringify(store.getSnapshot()),
+    /PRIVATE_MODEL_LABEL|中文/,
+  );
+  store.resolveOwner(owner, identity);
+  assert.equal(store.getSnapshot().length, 0);
 });

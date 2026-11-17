@@ -494,10 +494,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     "data-state",
     "error",
   );
-  await expect(page.getByTestId("save-error-code")).toHaveAttribute(
-    "data-error-code",
-    "DOCUMENT_INVALID",
-  );
+  await expect(
+    page.locator('.notification[data-error-code="DOCUMENT_INVALID"]'),
+  ).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveText("Unsaved");
   let writes = 0;
   page.on("request", (request) => {
     if (request.url().endsWith("/manuscript/commands")) writes++;

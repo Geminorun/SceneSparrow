@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,7 +9,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type en from "./locales/en.json";
-import { notifications, notifyFailure, type Notice } from "./notifications";
+import {
+  notifications,
+  notifyFailure,
+  type Notice,
+  type NoticeOptions,
+  type NoticeActionKind,
+} from "./notifications";
 import { trapDialogFocus } from "./dialog-focus";
 
 export type SettingsSection = "general" | "services" | "defaults";
@@ -17,10 +24,38 @@ export const SettingsActions = createContext<
 >(() => {});
 export const useOpenSettings = () => useContext(SettingsActions);
 
-/** Keep inline errors/recovery with their owner while sharing bounded global feedback. */
+/** Callbacks stay in memory and are revoked with their mounted operation owner. */
+export function useNoticeOwner() {
+  const owner = useRef<string | null>(null);
+  const mounted = useRef(true);
+  const ensureOwner = useCallback(() => {
+    owner.current ??= notifications.createOwner();
+    return owner.current;
+  }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (owner.current) notifications.releaseOwner(owner.current);
+      owner.current = null;
+    };
+  }, []);
+  const report = useCallback(
+    (error: unknown, options: Omit<NoticeOptions, "owner"> = {}) =>
+      mounted.current
+        ? notifications.push(error, { ...options, owner: ensureOwner() })
+        : undefined,
+    [ensureOwner],
+  );
+  const resolve = useCallback((identity?: string) => {
+    if (owner.current) notifications.resolveOwner(owner.current, identity);
+  }, []);
+  return { report, resolve };
+}
+/** Passive effects cannot replace a foreground notice's richer actions/context. */
 export function useErrorNotification(error: string | null | undefined) {
   useEffect(() => {
-    if (error) notifyFailure(error);
+    if (error) notifyFailure(error, { passive: true });
   }, [error]);
 }
 export function useTaskNotifications(
@@ -64,7 +99,7 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
     return () => notifications.hold(notice.id, false);
   }, [notice.id, hovered, focused]);
   useEffect(() => {
-    if (hovered || focused) return;
+    if (hovered || focused || notice.expiresAt === null) return;
     const timer = window.setTimeout(
       () => notifications.dismiss(notice.id),
       Math.max(0, notice.expiresAt - Date.now()),
@@ -74,9 +109,15 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
   const settingsSection =
     notice.key === "CONFIGURATION_UNAVAILABLE"
       ? "defaults"
-      : notice.key === "CREDENTIAL_UNAVAILABLE"
+      : ["CREDENTIAL_UNAVAILABLE", "OUTPUT_TOKEN_LIMIT"].includes(notice.key)
         ? "services"
         : null;
+  const actionLabels: Record<NoticeActionKind, keyof typeof en> = {
+    retry: "retry",
+    reviewChanges: "noticeReviewChanges",
+    openLibrary: "noticeOpenLibrary",
+    recovery: "noticeRecovery",
+  };
   return (
     <div
       className="notification"
@@ -125,6 +166,16 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
           </details>
         )}
       </div>
+      {notice.actions.map((kind) => (
+        <button
+          key={kind}
+          className="quiet-button"
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={() => notifications.runAction(notice.id, kind)}
+        >
+          {t[actionLabels[kind]]}
+        </button>
+      ))}
       {settingsSection && (
         <button
           className="quiet-button"

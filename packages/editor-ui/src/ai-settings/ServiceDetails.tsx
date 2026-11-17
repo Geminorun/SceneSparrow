@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { AiProvider } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { modelKey, newModel, validModelId } from "./model";
+import { SecretEntry } from "./SecretEntry";
 import { ModelDetails } from "./ModelDetails";
 import { OperationStatus } from "./OperationStatus";
 import { SettingsModal } from "./SettingsModal";
@@ -16,6 +17,7 @@ export function ServiceDetails({
   t,
   onBack,
   open,
+  assignments,
 }: {
   selection: string;
   label: string;
@@ -24,6 +26,7 @@ export function ServiceDetails({
   t: typeof en;
   onBack: () => void;
   open: boolean;
+  assignments: ReactNode;
 }) {
   const [manuals, setManuals] = useState<Record<string, string>>({});
   const [manualOpen, setManualOpen] = useState(false);
@@ -62,9 +65,6 @@ export function ServiceDetails({
     });
   return (
     <div className="ai-service-detail">
-      {c.providerConflict(selection) && (
-        <p role="alert">{t.aiRemoteDraftConflict}</p>
-      )}
       <button className="quiet-button ai-services-back" onClick={onBack}>
         {t.aiBackServices}
       </button>
@@ -74,6 +74,7 @@ export function ServiceDetails({
         </span>
         <h3>{label}</h3>
       </div>
+      {assignments}
       <p>
         {c.view!.credentialBackend === "session_only"
           ? t.aiSessionOnly
@@ -103,6 +104,14 @@ export function ServiceDetails({
               <span className="ai-key-mask" aria-label={t.aiKeyPresent}>
                 ••••••••
               </span>
+              <span>{t.aiKeySavedLabel}</span>
+              <button
+                className="quiet-button"
+                disabled={busy}
+                onClick={() => void c.deleteCredential(selection, provider!.id)}
+              >
+                {t.aiDeleteKey}
+              </button>
               {!editingKey && (
                 <button
                   className="quiet-button"
@@ -121,34 +130,19 @@ export function ServiceDetails({
           )}
           {keyPresent && <p className="muted">{t.aiKeyUnverified}</p>}
           {editingKey && (
-            <label>
-              {t.aiKey}
-              <span className="ai-key-input">
-                <input
-                  type={draft.reveal ? "text" : "password"}
-                  aria-label={t.aiKey}
-                  autoComplete="new-password"
-                  maxLength={8192}
-                  value={draft.key}
-                  onChange={(event) =>
-                    c.editProvider(selection, {
-                      key: event.target.value,
-                      editingKey: true,
-                    })
-                  }
-                />
-                <button
-                  className="quiet-button"
-                  disabled={!draft.key}
-                  aria-pressed={draft.reveal}
-                  onClick={() =>
-                    c.editProvider(selection, { reveal: !draft.reveal })
-                  }
-                >
-                  {draft.reveal ? t.aiHideKey : t.aiShowKey}
-                </button>
-              </span>
-            </label>
+            <SecretEntry
+              id={provider?.id ?? selection}
+              value={draft.key}
+              revealed={draft.reveal}
+              disabled={busy}
+              t={t}
+              onChange={(key) =>
+                c.editProvider(selection, { key, editingKey: true })
+              }
+              onReveal={() =>
+                c.editProvider(selection, { reveal: !draft.reveal })
+              }
+            />
           )}
           {keyPresent && editingKey && (
             <button
@@ -179,13 +173,7 @@ export function ServiceDetails({
       </label>
       <p>{t.aiRootHint}</p>
       <div className="ai-inline-actions">
-        <button
-          disabled={!draft.root.trim() || busy}
-          onClick={() => void c.saveProvider(selection, provider?.id)}
-        >
-          {t.aiSaveConfiguration}
-        </button>
-        {provider?.credentialRevision && (
+        {provider?.credentialRevision && !keyPresent && (
           <button
             className="quiet-button"
             disabled={busy}
@@ -194,12 +182,14 @@ export function ServiceDetails({
             {t.aiDeleteKey}
           </button>
         )}
+        <button
+          disabled={!draft.root.trim() || busy}
+          onClick={() => void c.saveProvider(selection, provider?.id)}
+        >
+          {t.aiSaveConfiguration}
+        </button>
       </div>
-      <OperationStatus
-        operation={c.providerOperation(selection)}
-        t={t}
-        onReload={() => void c.load()}
-      />
+      <OperationStatus operation={c.providerOperation(selection)} t={t} />
       <section className="ai-catalog" aria-label={t.aiAddedModels}>
         <div className="ai-catalog-heading">
           <h4>{t.aiAddedModels}</h4>
@@ -241,7 +231,6 @@ export function ServiceDetails({
         <OperationStatus
           operation={c.operations[`catalog:${provider?.id}`]}
           t={t}
-          onReload={() => void c.load()}
         />
         {added.length === 0 && <p className="ai-empty">{t.aiNoModels}</p>}
         {added.map((model) => (
@@ -297,7 +286,6 @@ export function ServiceDetails({
           <OperationStatus
             operation={c.operations[`catalog:${provider?.id}`]}
             t={t}
-            onReload={() => void c.load()}
           />
         </SettingsModal>
       )}
@@ -330,7 +318,6 @@ export function ServiceDetails({
           <OperationStatus
             operation={c.operations[`discovery:${picker}`]}
             t={t}
-            onReload={() => void c.load()}
           />
           <div className="ai-discovery-list">
             {(c.catalogs[picker] ?? [])
@@ -383,7 +370,6 @@ export function ServiceDetails({
           <OperationStatus
             operation={c.operations[`catalog:${picker}`]}
             t={t}
-            onReload={() => void c.load()}
           />
         </SettingsModal>
       )}

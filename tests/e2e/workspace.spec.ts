@@ -162,7 +162,7 @@ test("settings trap focus, preserve local failed saves, clear unsaved keys and e
       name: "Manage saved configurations",
       exact: true,
     }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await page
     .getByLabel("API root", { exact: true })
     .fill("http://localhost:11434/v1");
@@ -241,7 +241,9 @@ test("read errors never create a project; ambiguous bootstrap retries reuse the 
     else await route.fulfill({ json: response });
   });
   await page.goto("/");
-  await expect(page.locator("#workbench > .error[role=alert]")).toBeVisible();
+  await expect(page.getByTestId("workspace-skeleton")).toBeVisible();
+  await expect(page.locator("#workbench > .error[role=alert]")).toHaveCount(0);
+  await expect(page.locator("[contenteditable=true]")).toHaveCount(0);
   await expect(page.getByTestId("transport-failure")).toBeVisible();
   expect(ensures).toBe(0);
   expect((await core.request("/project")).project).toBeNull();
@@ -332,8 +334,21 @@ test("rename retries retain command identity, refresh stale titles and never red
   await expect(
     page
       .getByRole("dialog", { name: "Project settings", exact: true })
-      .locator("form [role=alert]"),
+      .locator(".notification[data-tone=error]"),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page
+      .locator(".notification")
+      .getByRole("button", { name: "Review changes", exact: true }),
+  ).toHaveCount(0);
+  await page.locator(".project-menu > summary").click();
+  await page
+    .getByRole("button", { name: "Project settings", exact: true })
+    .click();
+  await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(
+    "Receipt retry 🐦",
+  );
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByTestId("project-title")).toHaveText(
     "Receipt retry 🐦",
@@ -361,6 +376,13 @@ test("rename retries retain command identity, refresh stale titles and never red
     .fill("My preserved proposal");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByTestId("project-title")).toHaveText("External title");
+  await expect(
+    page.locator('.notification[data-error-code="renameConflict"]'),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Project name", { exact: true }),
+  ).toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator(".rename-dialog form [role=alert]")).toHaveCount(0);
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(
     "My preserved proposal",
   );
@@ -618,4 +640,147 @@ test("planning retains the same local input through settings, rename and languag
   expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
   expect(await node!.inputValue()).toBe("Local planning 中文 🐦");
   expect(await core.request("/planning")).toEqual(saved);
+});
+
+test("startup keeps normal pane geometry while project and manuscript reads wait, with top-layer manuscript retry", async ({
+  page,
+  core,
+}) => {
+  let release: () => void = () => {},
+    readStarted: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    readStarted = resolve;
+  });
+  let manuscriptFails = true,
+    settingsReads = 0,
+    ensures = 0;
+  core.intercept(async (path, _body, phase) => {
+    if (phase !== "before") return;
+    if (path.endsWith("/ai/settings")) settingsReads++;
+    if (path.endsWith("/project/ensure")) ensures++;
+    if (path.endsWith("/project")) {
+      readStarted();
+      await gate;
+    }
+  });
+  await page.route("**/api/v1/manuscript", async (route) => {
+    if (manuscriptFails)
+      await route.fulfill({ status: 503, json: { code: "UNAVAILABLE" } });
+    else await route.fallback();
+  });
+  try {
+    await page.goto("/");
+    await started;
+    const skeleton = page.getByTestId("workspace-skeleton");
+    await expect(skeleton).toHaveAttribute("aria-busy", "true");
+    await expect(page.locator(".workspace-header")).toBeVisible();
+    await expect(page.locator(".editor-workspace-grid")).toBeVisible();
+    await expect(page.locator("[contenteditable=true]")).toHaveCount(0);
+    const pendingBox = await page.locator(".manuscript-main").boundingBox();
+    await page.screenshot({
+      path: ".artifacts/workspace-startup-skeleton.png",
+    });
+    release();
+    const notice = page.locator('.notification[data-tone="error"]').filter({
+      has: page.getByRole("button", { name: "Try again", exact: true }),
+    });
+    await expect(notice).toBeVisible();
+    await expect(skeleton).toHaveAttribute("aria-busy", "false");
+    await expect(page.locator("[contenteditable=true]")).toHaveCount(0);
+    expect(ensures).toBe(1);
+    manuscriptFails = false;
+    await notice
+      .getByRole("button", { name: "Try again", exact: true })
+      .click();
+    await expect(page.getByTestId("save-status")).toBeVisible();
+    await expect(skeleton).toHaveCount(0);
+    const loadedBox = await page.locator(".manuscript-main").boundingBox();
+    expect(loadedBox!.x).toBeCloseTo(pendingBox!.x, 0);
+    expect(loadedBox!.width).toBeCloseTo(pendingBox!.width, 0);
+    expect(settingsReads).toBe(0);
+    expect(ensures).toBe(1);
+  } finally {
+    release();
+  }
+});
+
+test("planning save retry waits for settlement and reports a repeated failure with retained local input", async ({
+  page,
+  core,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "scenesparrow.application-preferences",
+      JSON.stringify({ version: 1, saveMode: "off", saveDelaySeconds: 10 }),
+    ),
+  );
+  await openWorkbench(page);
+  await openPanel(page, "Planning");
+  let attempts = 0,
+    release: () => void = () => {},
+    retryEntered: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entered = new Promise<void>((resolve) => {
+    retryEntered = resolve;
+  });
+  await page.route("**/api/v1/manuscript/commands", async (route) => {
+    if (route.request().postDataJSON().type !== "SavePlanning") {
+      await route.fallback();
+      return;
+    }
+    attempts++;
+    if (attempts === 2) {
+      retryEntered();
+      await gate;
+    }
+    if (attempts < 3)
+      await route.fulfill({
+        status: 422,
+        json: { code: "BRIEF_INVALID" },
+      });
+    else await route.fallback();
+  });
+  try {
+    const topic = page.getByLabel("Topic", { exact: true });
+    await topic.fill("Local planning survives repeated failure 中文");
+    await topic.press("ControlOrMeta+s");
+    const retry = page
+      .locator(".notification")
+      .getByRole("button", { name: "Try again", exact: true });
+    await expect(retry).toBeVisible();
+    await expect(page.getByTestId("save-status")).toHaveAttribute(
+      "data-owner",
+      "planning",
+    );
+    await retry.click();
+    await entered;
+    await expect(retry).toHaveCount(0);
+    await expect(topic).toHaveValue(
+      "Local planning survives repeated failure 中文",
+    );
+    release();
+    await expect(retry).toBeVisible();
+    await expect(page.getByTestId("save-status")).toHaveAttribute(
+      "data-state",
+      "error",
+    );
+    expect(attempts).toBe(2);
+    await retry.click();
+    await expect(page.getByTestId("save-status")).toHaveAttribute(
+      "data-state",
+      "saved",
+    );
+    expect(attempts).toBe(3);
+    expect((await core.request("/planning")).content.brief.topic).toBe(
+      "Local planning survives repeated failure 中文",
+    );
+    await expect(retry).toHaveCount(0);
+  } finally {
+    release();
+  }
 });

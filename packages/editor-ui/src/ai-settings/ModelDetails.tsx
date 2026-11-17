@@ -57,7 +57,6 @@ export function ModelDetails({
   const testBusy = c.operations[`test:${id}`]?.busy;
   return (
     <article className="ai-model-row">
-      {c.conflicts[id] && <p role="alert">{t.aiRemoteDraftConflict}</p>}
       <div className="ai-model-heading">
         <span>
           <strong>{model.label || model.id}</strong>
@@ -119,11 +118,7 @@ export function ModelDetails({
             </button>
           )}
         </div>
-        <OperationStatus
-          operation={c.operations[`test:${id}`]}
-          t={t}
-          onReload={() => void c.load()}
-        />
+        <OperationStatus operation={c.operations[`test:${id}`]} t={t} />
         {validTest?.receipt && (
           <>
             <p>
@@ -134,7 +129,7 @@ export function ModelDetails({
             <p role="status">
               {validTest.receipt.status === "succeeded"
                 ? t.aiTestSuccess
-                : (t[validTest.receipt.error as keyof typeof en] ?? t.AI_ERROR)}
+                : t.aiTestFailed}
             </p>
           </>
         )}
@@ -333,11 +328,7 @@ export function ModelDetails({
         </button>
         {anyBound && <p>{t.aiBoundRemoval}</p>}
       </details>
-      <OperationStatus
-        operation={c.operations[`model:${id}`]}
-        t={t}
-        onReload={() => void c.load()}
-      />
+      <OperationStatus operation={c.operations[`model:${id}`]} t={t} />
     </article>
   );
 }

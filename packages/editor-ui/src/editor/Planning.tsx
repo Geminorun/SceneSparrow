@@ -21,7 +21,7 @@ import { useSavedAiView } from "../ai-settings/saved-view";
 export type PlanningFeedback = {
   status: SaveStatus;
   error: string;
-  retry: () => void;
+  retry: () => Promise<unknown>;
 };
 import type { PlanningEvidenceBridge } from "./evidence";
 import { PlanningAutosave } from "./planning-autosave";
@@ -45,10 +45,12 @@ export function Planning({
   openReview: () => void;
 }) {
   const [initial, setInitial] = useState<PlanningState | null>(null);
+  const readGeneration = useRef(0);
   const [error, setError] = useState("");
   useErrorNotification(error);
   useEffect(() => {
     let active = true;
+    readGeneration.current++;
     void client.readPlanning().then(
       (p) => {
         if (active) setInitial(p);
@@ -59,6 +61,7 @@ export function Planning({
     );
     return () => {
       active = false;
+      readGeneration.current++;
     };
   }, [client]);
   useEffect(() => {
@@ -66,11 +69,16 @@ export function Planning({
       onStatus({
         status: error ? "error" : "saving",
         error,
-        retry: () => {
+        retry: async () => {
+          const generation = readGeneration.current;
           setError("");
-          void client
-            .readPlanning()
-            .then(setInitial, (failure) => setError(failure.message));
+          try {
+            const state = await client.readPlanning();
+            if (generation === readGeneration.current) setInitial(state);
+          } catch (failure) {
+            if (generation === readGeneration.current)
+              setError(failure instanceof Error ? failure.message : "error");
+          }
         },
       });
   }, [error, initial, onStatus, client]);
@@ -187,9 +195,7 @@ function PlanningEditor({
     onStatus({
       status: planning.status,
       error: planning.error,
-      retry: () => {
-        void planning.flush(true, true);
-      },
+      retry: () => planning.flush(true, true),
     });
   }, [planning.status, planning.error, onStatus]);
   useErrorNotification(planning.error);

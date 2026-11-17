@@ -9,10 +9,11 @@ import { Slice } from "@tiptap/pm/model";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
-import { useErrorNotification } from "../NotificationPresenter";
+import { useNoticeOwner } from "../NotificationPresenter";
 import { Review } from "./Review";
 import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 import { SaveStatus } from "./SaveStatus";
+import { WorkspaceSkeleton } from "./WorkspaceSkeleton";
 import { parseMarkdown, serializeMarkdown } from "./markdown";
 import { MarkdownLink } from "./markdown-link";
 import { WorkspaceIcon } from "../WorkspaceIcon";
@@ -49,44 +50,43 @@ export function Manuscript({
     document: ManuscriptState;
     history: HistoryState;
   } | null>(null);
-  const load = async () => {
-    const document = await client.readManuscript();
-    const history = await client.readHistory();
-    if (document.workingRevision !== history.workingRevision)
-      throw Error("REVISION_CONFLICT");
-    return { document, history };
-  };
-  const [loadError, setLoadError] = useState(false);
-  useErrorNotification(loadError ? "error" : "");
+  const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const { report, resolve } = useNoticeOwner();
   useEffect(() => {
     let active = true;
-    void load().then(
-      (s) => {
-        if (active) setInitial(s);
-      },
-      () => {
-        if (active) setLoadError(true);
-      },
-    );
+    setLoading(true);
+    resolve("manuscript-load");
+    const load = async () => {
+      const document = await client.readManuscript();
+      const history = await client.readHistory();
+      if (document.workingRevision !== history.workingRevision)
+        throw Error("REVISION_CONFLICT");
+      return { document, history };
+    };
+    void load()
+      .then(
+        (state) => {
+          if (active) setInitial(state);
+        },
+        (failure: unknown) => {
+          if (active)
+            report(failure, {
+              identity: "manuscript-load",
+              actions: [
+                { kind: "retry", run: () => setAttempt((value) => value + 1) },
+              ],
+            });
+        },
+      )
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [client, projectId]);
-  if (loadError)
-    return (
-      <p role="alert">
-        {t.error}
-        <button
-          onClick={() => {
-            setLoadError(false);
-            void load().then(setInitial, () => setLoadError(true));
-          }}
-        >
-          {t.retry}
-        </button>
-      </p>
-    );
-  if (!initial) return <p role="status">{t.connecting}</p>;
+  }, [client, projectId, attempt, report, resolve]);
+  if (!initial) return <WorkspaceSkeleton t={t} busy={loading} />;
   return (
     <Draft
       key={projectId}
@@ -145,7 +145,6 @@ function Draft({
         history,
       ),
   );
-  useErrorNotification(save.error);
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
   const documentMenu = useRef<HTMLDetailsElement>(null);

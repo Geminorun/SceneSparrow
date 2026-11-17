@@ -2055,14 +2055,6 @@ select:focus {
   font-size: 1rem;
   font-weight: 600;
 }
-.ai-service-list .ai-manage {
-  font-size: 0.8rem;
-  line-height: 1.5;
-  border-top: 1px solid var(--border);
-  margin-top: 20px;
-  padding-top: 16px;
-  border-radius: 0;
-}
 .ai-service-detail {
   padding-inline: 24px 4px;
   overflow: auto;
@@ -2251,6 +2243,7 @@ select:focus {
 }
 .ai-saved-key {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -2268,13 +2261,6 @@ select:focus {
   max-height: 300px;
   overflow: auto;
   overflow-wrap: anywhere;
-}
-.ai-saved-profile {
-  padding-block: 16px;
-  border-top: 1px solid var(--border);
-}
-.ai-saved-profile p {
-  margin-block: 6px 12px;
 }
 @media (max-width: 850px) {
   .settings-layout {
@@ -2322,4 +2308,63 @@ select:focus {
   .ai-advanced > div {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Loading uses the same warm page and pane geometry as the mounted editor. */
+.workspace-skeleton .skeleton-heading,
+.workspace-skeleton i {
+  display: block;
+  background: var(--border);
+  border-radius: 3px;
+  opacity: 0.55;
+}
+.workspace-skeleton .skeleton-heading {
+  width: 9rem;
+  height: 1.2rem;
+}
+.skeleton-lines {
+  display: grid;
+  gap: 18px;
+  padding: 14px 4px;
+}
+.skeleton-lines i {
+  height: 10px;
+  width: 78%;
+}
+.skeleton-lines i:nth-child(even) {
+  width: 55%;
+}
+.skeleton-document {
+  min-height: 62vh;
+  padding: 56px clamp(24px, 6vw, 88px);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.skeleton-document i {
+  height: 12px;
+  width: 92%;
+}
+.skeleton-document i:first-child {
+  width: 48%;
+  height: 24px;
+  margin-bottom: 24px;
+}
+.skeleton-document i:nth-child(3n) {
+  width: 65%;
+}
+.ai-service-assignment {
+  margin-block: 8px 16px;
+}
+.ai-service-assignment summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+.save-feedback [data-state="error"],
+.save-feedback [data-state="conflict"] {
+  color: var(--danger);
+}
+
+.rename-dialog input[aria-invalid="true"] {
+  border-color: var(--danger);
 }

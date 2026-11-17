@@ -189,7 +189,7 @@ test("saved discovery target reports upstream classes and failed HTTP200 test re
       await hitTest(notice);
       await notice.getByText("Details", { exact: true }).click();
       await expect(notice).toContainText("Core HTTP 422");
-      await expect(picker.locator(".ai-operation-error")).toBeVisible();
+      await expect(picker.locator(".ai-operation-error")).toHaveCount(0);
       await expect(page.locator("body")).not.toContainText(
         "SECRET_VENDOR_BODY_AND_KEY_CANARY",
       );
@@ -214,7 +214,7 @@ test("saved discovery target reports upstream classes and failed HTTP200 test re
     await row
       .getByRole("button", { name: "Run a new inference test", exact: true })
       .click();
-    await expect(row).toContainText("Upstream HTTP 403");
+    await expect(row).toContainText("Test failed");
     await expect(
       page.locator('.notification[data-error-code="ACCESS_REJECTED"]'),
     ).toBeVisible();
