@@ -233,6 +233,7 @@ impl SettingsStore {
             capability: AiCapability::Textgenerate,
             provider,
             model: AiModel {
+                default_parameters: None,
                 provider_id: id.into(),
                 id: "discovery-only".into(),
                 label: "".into(),
@@ -287,6 +288,7 @@ impl SettingsStore {
                     observed_at: None,
                 };
                 AiModel {
+                    default_parameters: None,
                     provider_id: target.provider_id.clone(),
                     id: target.model_id.clone(),
                     label: target.model_id.clone(),

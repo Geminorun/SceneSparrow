@@ -1923,6 +1923,13 @@ pub enum AiProviderAuthMode {
     None,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AiProviderServicePreset {
+    #[serde(rename = "openai")]
+    Openai,
+    #[serde(rename = "deepseek")]
+    Deepseek,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiProvider {
     #[serde(rename = "id")]
@@ -1939,6 +1946,13 @@ pub struct AiProvider {
     pub credential_revision: Option<String>,
     #[serde(rename = "revision")]
     pub revision: i64,
+    #[serde(
+        rename = "servicePreset",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub service_preset: Option<AiProviderServicePreset>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiModelTokenField {
@@ -1964,6 +1978,13 @@ pub struct AiModel {
     pub output_tokens: Option<i64>,
     #[serde(rename = "tokenField")]
     pub token_field: AiModelTokenField,
+    #[serde(
+        rename = "defaultParameters",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub default_parameters: Option<AiParameters>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2025,6 +2046,8 @@ pub enum AiSettingsViewCredentialBackend {
     Native,
     #[serde(rename = "session_only")]
     Sessiononly,
+    #[serde(rename = "encrypted_file")]
+    Encryptedfile,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

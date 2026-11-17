@@ -25,6 +25,7 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
     let mut view = store.read_settings().unwrap();
     let id = uuid();
     view.settings.providers.push(AiProvider {
+        service_preset: None,
         id: id.clone(),
         label: "Fixture".into(),
         adapter: AiProviderAdapter::Openaicompatible,
@@ -34,6 +35,7 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
         revision: 1,
     });
     view.settings.models.push(AiModel {
+        default_parameters: None,
         provider_id: id.clone(),
         id: "manual-model".into(),
         label: "Manual".into(),
@@ -854,4 +856,61 @@ fn verified_backup_recovered_copy_fences_every_queued_run_and_quiesce_preserves_
     assert!(repo.claim_ai().unwrap().is_none());
     repo.resume();
     assert_eq!(repo.claim_ai().unwrap().unwrap().0.run_id, queued.run_id);
+}
+
+#[test]
+fn model_service_metadata_legacy_compatibility_preferences_and_semantic_fingerprints() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::open(dir.path()).unwrap();
+    let first = configured(&store, "none");
+    let fingerprint = config(&store).fingerprint;
+    let legacy_json = serde_json::to_value(&first.settings).unwrap();
+    assert!(legacy_json["providers"][0].get("servicePreset").is_none());
+    assert!(legacy_json["models"][0].get("defaultParameters").is_none());
+    let legacy: AiSettings = serde_json::from_value(legacy_json).unwrap();
+    validate_settings(&legacy).unwrap();
+    let mut settings = legacy.clone();
+    settings.providers[0].service_preset = Some(AiProviderServicePreset::Openai);
+    let mut preferences = settings.bindings[0].parameters.clone();
+    preferences.max_output_tokens = 512;
+    settings.models[0].default_parameters = Some(preferences.clone());
+    let saved = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: first.settings.revision,
+            settings,
+        })
+        .unwrap();
+    assert_eq!(config(&store).fingerprint, fingerprint);
+    assert_eq!(saved.settings.bindings, legacy.bindings);
+    let mut duplicate = saved.settings.clone();
+    let mut other = duplicate.providers[0].clone();
+    other.id = uuid();
+    duplicate.providers.push(other);
+    assert_eq!(
+        validate_settings(&duplicate).unwrap_err().0,
+        "INVALID_SETTINGS"
+    );
+    let mut invalid = saved.settings.clone();
+    invalid.models[0].output_tokens = Some(128);
+    assert_eq!(
+        validate_settings(&invalid).unwrap_err().0,
+        "INVALID_SETTINGS"
+    );
+    let mut selected = saved.settings.clone();
+    selected.bindings[0].parameters = preferences;
+    let next = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: saved.settings.revision,
+            settings: selected,
+        })
+        .unwrap();
+    assert_ne!(config(&store).fingerprint, fingerprint);
+    assert_eq!(next.settings.providers[0].id, legacy.providers[0].id);
+    assert_eq!(
+        next.settings.providers[0].auth_mode,
+        legacy.providers[0].auth_mode
+    );
+    let backend: AiSettingsViewCredentialBackend =
+        serde_json::from_str("\"encrypted_file\"").unwrap();
+    assert_eq!(word(&backend), "encrypted_file");
 }

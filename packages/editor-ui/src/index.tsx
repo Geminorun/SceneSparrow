@@ -32,11 +32,13 @@ function trapDialogFocus(event: ReactKeyboardEvent<HTMLDialogElement>) {
     (element) =>
       !element.matches(":disabled") &&
       element.getClientRects().length > 0 &&
-      (!element.closest("details:not([open])") ||
-        element ===
-          element
-            .closest("details:not([open])")
-            ?.querySelector(":scope > summary")),
+      !Array.from(
+        event.currentTarget.querySelectorAll("details:not([open])"),
+      ).some(
+        (details) =>
+          details.contains(element) &&
+          element !== details.querySelector(":scope > summary"),
+      ),
   );
   const first = controls[0],
     last = controls.at(-1);
@@ -76,7 +78,9 @@ export function App({ client }: { client: PlatformClient }) {
   const gear = useRef<HTMLButtonElement>(null);
   const projectMenu = useRef<HTMLDetailsElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [section, setSection] = useState<"general" | "ai">("general");
+  const [section, setSection] = useState<"general" | "services" | "defaults">(
+    "general",
+  );
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState("");
@@ -531,10 +535,16 @@ export function App({ client }: { client: PlatformClient }) {
               {t.generalSettings}
             </button>
             <button
-              aria-current={section === "ai" ? "page" : undefined}
-              onClick={() => setSection("ai")}
+              aria-current={section === "services" ? "page" : undefined}
+              onClick={() => setSection("services")}
             >
               {t.aiModels}
+            </button>
+            <button
+              aria-current={section === "defaults" ? "page" : undefined}
+              onClick={() => setSection("defaults")}
+            >
+              {t.aiDefaultModels}
             </button>
           </nav>
           <div className="settings-content">
@@ -555,7 +565,9 @@ export function App({ client }: { client: PlatformClient }) {
             <AiSettings
               client={client}
               t={t}
-              active={settingsOpen && section === "ai"}
+              active={settingsOpen && section !== "general"}
+              open={settingsOpen}
+              section={section === "defaults" ? "defaults" : "services"}
             />
           </div>
         </div>

@@ -63,9 +63,13 @@ pub fn validate_settings(s: &AiSettings) -> Result<()> {
         "INVALID_SETTINGS",
     )?;
     let mut ids = BTreeSet::new();
+    let mut presets = BTreeSet::new();
     for p in &s.providers {
         ensure(
             valid_id(&p.id)
+                && p.service_preset
+                    .as_ref()
+                    .is_none_or(|preset| presets.insert(word(preset)))
                 && !s.retired_profile_ids.contains(&p.id)
                 && ids.insert(&p.id)
                 && !p.label.trim().is_empty()
@@ -98,6 +102,9 @@ pub fn validate_settings(s: &AiSettings) -> Result<()> {
                 && m.output_tokens.is_none_or(|v| (1..=1000000).contains(&v)),
             "INVALID_SETTINGS",
         )?;
+        if let Some(parameters) = &m.default_parameters {
+            validate_parameters(parameters, m)?;
+        }
         for evidence in [
             &m.capabilities.images,
             &m.capabilities.streaming,
@@ -118,25 +125,26 @@ pub fn validate_settings(s: &AiSettings) -> Result<()> {
                 && b.revision > 0,
             "INVALID_SETTINGS",
         )?;
-        ensure(
-            (16..=1000000).contains(&b.parameters.max_output_tokens)
-                && b.parameters
-                    .temperature_milli
-                    .is_none_or(|v| (0..=2000).contains(&v)),
-            "INVALID_SETTINGS",
-        )?;
         let m = s
             .models
             .iter()
             .find(|m| m.id == b.model_id && m.provider_id == b.provider_id)
             .ok_or(AiError("INVALID_SETTINGS"))?;
-        ensure(
-            m.output_tokens
-                .is_none_or(|v| b.parameters.max_output_tokens <= v),
-            "INVALID_SETTINGS",
-        )?;
+        validate_parameters(&b.parameters, m)?;
     }
     Ok(())
+}
+pub fn validate_parameters(parameters: &AiParameters, model: &AiModel) -> Result<()> {
+    ensure(
+        (16..=1000000).contains(&parameters.max_output_tokens)
+            && parameters
+                .temperature_milli
+                .is_none_or(|v| (0..=2000).contains(&v))
+            && model
+                .output_tokens
+                .is_none_or(|v| parameters.max_output_tokens <= v),
+        "INVALID_SETTINGS",
+    )
 }
 pub fn validate_input(input: &AiInput, config: &AiResolvedConfig) -> Result<()> {
     ensure(input.protocol_version == 1, "PROTOCOL_MISMATCH")?;

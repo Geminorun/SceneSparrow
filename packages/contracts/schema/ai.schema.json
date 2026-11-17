@@ -93,6 +93,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
+        },
+        "servicePreset": {
+          "type": "string",
+          "enum": ["openai", "deepseek"]
         }
       },
       "required": [
@@ -151,6 +155,9 @@
         "tokenField": {
           "type": "string",
           "enum": ["max_tokens", "max_completion_tokens"]
+        },
+        "defaultParameters": {
+          "$ref": "#/definitions/AiParameters"
         }
       },
       "required": [
@@ -314,7 +321,7 @@
         },
         "credentialBackend": {
           "type": "string",
-          "enum": ["native", "session_only"]
+          "enum": ["native", "session_only", "encrypted_file"]
         },
         "presentCredentialRevisions": {
           "type": "array",
