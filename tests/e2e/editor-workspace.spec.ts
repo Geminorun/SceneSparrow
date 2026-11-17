@@ -231,6 +231,10 @@ test("older receipts during IME and formatting cannot steal Planning focus", asy
     .getByRole("button", { name: "Outline", exact: true })
     .click();
   const topic = page.getByLabel("Your idea", { exact: true });
+  await expect(
+    page.getByRole("textbox", { name: "Outline", exact: true }),
+  ).toBeVisible();
+  await expect(topic).toBeVisible();
   await topic.focus();
   await topic.dispatchEvent("compositionstart", { data: "规" });
   await topic.fill("规划 planning input");

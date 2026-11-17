@@ -50,6 +50,15 @@ local evidence; this report does not call the initial full command successful.
 The final `pnpm check`, build and 12 HTTP integrations were rerun after the source
 corrections. The PR's Foundation check independently reruns the full final source.
 
+The first CI browser run exposed a fixture dispatching composition events before
+the asynchronously selected Outline became visible, and a persistent notice
+covering a header recovery control under the runner's font metrics. The fixture
+now waits for the visible surface before composition; body-level notices start
+below the workspace chrome, while native-dialog notices retain their top-layer
+placement. Conflict recovery asserts that the notice lies below the header controls.
+Correction checks passed: the IME case 1/1, notification cases 4/4 and the entire
+manuscript serial group 12/12.
+
 All Rust commands used `CARGO_PROFILE_DEV_DEBUG=0` and
 `CARGO_PROFILE_TEST_DEBUG=0` in this managed environment. Browser tests used
 `/usr/bin/chromium`. The CI check applies to the PR merge commit independently.

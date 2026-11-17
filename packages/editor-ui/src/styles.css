@@ -1933,6 +1933,10 @@ select:focus {
   max-height: calc(100dvh - 24px);
   overflow: auto;
 }
+body > .notifications {
+  inset-block-start: 96px;
+  max-height: calc(100dvh - 108px);
+}
 .notification {
   display: flex;
   align-items: flex-start;

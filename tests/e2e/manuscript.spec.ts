@@ -235,6 +235,18 @@ test("failure retains local input for retry and conflict offers explicit discard
   );
   holdProjection = false;
   await expect(input).toContainText("conflict kept");
+  const conflictTip = page.locator(
+    '.notification[data-error-code="REVISION_CONFLICT"]',
+  );
+  await expect(conflictTip).toBeVisible();
+  const tipBounds = (await conflictTip.boundingBox())!;
+  const recoveryBounds = (await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .boundingBox())!;
+  expect(tipBounds.y).toBeGreaterThanOrEqual(
+    recoveryBounds.y + recoveryBounds.height,
+  );
   await page
     .locator(".save-feedback")
     .getByRole("button", { name: "Recover", exact: true })
