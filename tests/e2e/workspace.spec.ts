@@ -241,7 +241,8 @@ test("read errors never create a project; ambiguous bootstrap retries reuse the 
     else await route.fulfill({ json: response });
   });
   await page.goto("/");
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.locator("#workbench > .error[role=alert]")).toBeVisible();
+  await expect(page.getByTestId("transport-failure")).toBeVisible();
   expect(ensures).toBe(0);
   expect((await core.request("/project")).project).toBeNull();
   readsFail = false;
@@ -331,7 +332,7 @@ test("rename retries retain command identity, refresh stale titles and never red
   await expect(
     page
       .getByRole("dialog", { name: "Project settings", exact: true })
-      .getByRole("alert"),
+      .locator("form [role=alert]"),
   ).toBeVisible();
   await page.getByRole("button", { name: "Save name", exact: true }).click();
   await expect(page.getByTestId("project-title")).toHaveText(

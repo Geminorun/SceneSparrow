@@ -96,6 +96,18 @@ test("notification actions stay interactive in the latest native picker and clos
   const search = picker.getByLabel("Search models", { exact: true });
   await search.focus();
   await expect(search).toBeFocused();
+  const dismiss = picker
+    .locator(".notifications")
+    .getByRole("button", { name: "Dismiss", exact: true })
+    .last();
+  await dismiss.focus();
+  await page.keyboard.press("Tab");
+  await expect(
+    picker.getByRole("button", { name: "Close", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(dismiss).toBeFocused();
+  await search.focus();
   await page.screenshot({ path: ".artifacts/notification-nested-modal.png" });
   await notice
     .getByRole("button", { name: "Open settings", exact: true })

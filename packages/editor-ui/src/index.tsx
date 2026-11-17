@@ -5,7 +5,6 @@ import {
   useState,
   useSyncExternalStore,
   type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import type { Project, RenameProject } from "@scenesparrow/contracts";
 import {
@@ -21,6 +20,7 @@ import {
   type SettingsSection,
 } from "./NotificationPresenter";
 import { notifyFailure } from "./notifications";
+import { trapDialogFocus } from "./dialog-focus";
 import { WorkspaceRibbon } from "./WorkspaceRibbon";
 import { Manuscript } from "./editor/Manuscript";
 import {
@@ -33,38 +33,6 @@ import zhCN from "./locales/zh-CN.json";
 
 type Locale = "en" | "zh-CN";
 const catalogs: Record<Locale, typeof en> = { en, "zh-CN": zhCN };
-
-function trapDialogFocus(event: ReactKeyboardEvent<HTMLDialogElement>) {
-  if (event.key !== "Tab") return;
-  const controls = Array.from(
-    event.currentTarget.querySelectorAll<HTMLElement>(
-      'button, input, select, textarea, summary, a[href], [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => {
-    if (element.matches(":disabled") || !element.getClientRects().length)
-      return false;
-    // Walk only this control's ancestors, even when the model catalog is large.
-    for (
-      let details = element.closest("details:not([open])");
-      details;
-      details = details.parentElement?.closest("details:not([open])") ?? null
-    ) {
-      if (element !== details.querySelector(":scope > summary")) return false;
-    }
-    return true;
-  });
-  const first = controls[0],
-    last = controls.at(-1);
-  if (
-    first &&
-    last &&
-    ((event.shiftKey && document.activeElement === first) ||
-      (!event.shiftKey && document.activeElement === last))
-  ) {
-    event.preventDefault();
-    (event.shiftKey ? last : first).focus();
-  }
-}
 
 export function App({ client }: { client: PlatformClient }) {
   const preferences = useSyncExternalStore(
@@ -538,7 +506,7 @@ export function App({ client }: { client: PlatformClient }) {
         </main>
         <dialog
           ref={settings}
-          onKeyDown={trapDialogFocus}
+          onKeyDown={(event) => trapDialogFocus(event, event.currentTarget)}
           className="settings-dialog"
           aria-labelledby="settings-title"
           onClose={() => {
@@ -647,7 +615,7 @@ export function App({ client }: { client: PlatformClient }) {
         </dialog>
         <dialog
           ref={renameDialog}
-          onKeyDown={trapDialogFocus}
+          onKeyDown={(event) => trapDialogFocus(event, event.currentTarget)}
           className="rename-dialog"
           aria-labelledby="rename-title"
           onClose={() => projectMenu.current?.querySelector("summary")?.focus()}

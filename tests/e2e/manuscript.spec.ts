@@ -629,10 +629,19 @@ test("continuous typing spans saved batches while selection and idle create new 
   await page.clock.pauseAt(new Date("2026-11-17T12:00:01Z"));
   await draft(page);
   const input = editor(page);
+  const delayedSave = async () => {
+    await page.clock.fastForward(5000);
+    // Async receipts can arm a due timer after fastForward has paused again.
+    await expect
+      .poll(async () => {
+        await page.clock.runFor(1);
+        return page.getByTestId("save-status").getAttribute("data-state");
+      })
+      .toBe("saved");
+  };
   await input.fill("Typing base");
   await input.press("ControlOrMeta+Alt+0");
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   await page.clock.fastForward(800);
   const groups: any[] = [];
   page.on("request", (r) => {
@@ -653,8 +662,7 @@ test("continuous typing spans saved batches while selection and idle create new 
         .poll(() => groups.length)
         .toBeGreaterThanOrEqual((n + 1) / 120);
   }
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   expect(groups.length).toBeGreaterThanOrEqual(2);
   expect(new Set(groups.map((g) => g.groupId)).size).toBe(1);
   await input.press("ControlOrMeta+z");
@@ -663,22 +671,18 @@ test("continuous typing spans saved batches while selection and idle create new 
   await expect(input).toHaveText(typedBase);
   await input.press("End");
   await input.pressSequentially(" selected tail");
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   await input.press("Home");
   await input.pressSequentially("prefix ");
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   await input.press("ControlOrMeta+z");
   await expect(input).toHaveText(`${typedBase} selected tail`);
   await input.press("End");
   await input.pressSequentially(" idle first");
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   await page.clock.fastForward(800);
   await input.pressSequentially(" idle second");
-  await page.clock.fastForward(5000);
-  await saved(page);
+  await delayedSave();
   await input.press("ControlOrMeta+z");
   await expect(input).toHaveText(`${typedBase} selected tail idle first`);
 });

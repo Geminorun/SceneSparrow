@@ -9,6 +9,7 @@ import {
 import { createPortal } from "react-dom";
 import type en from "./locales/en.json";
 import { notifications, notifyFailure, type Notice } from "./notifications";
+import { trapDialogFocus } from "./dialog-focus";
 
 export type SettingsSection = "general" | "services" | "defaults";
 export const SettingsActions = createContext<
@@ -214,6 +215,10 @@ export function NotificationPresenter({ t }: { t: typeof en }) {
       aria-label={t.notifications}
       aria-live="polite"
       aria-relevant="additions text"
+      onKeyDown={(event) => {
+        // Portal events follow the React tree, bypassing the native host's handler.
+        if (host instanceof HTMLDialogElement) trapDialogFocus(event, host);
+      }}
     >
       {notices.map((notice) => (
         <NotificationItem key={notice.id} notice={notice} t={t} />
