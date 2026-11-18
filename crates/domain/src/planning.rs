@@ -99,6 +99,32 @@ pub fn content_snapshot(p: &PlanningContent) -> PlanningContent {
     }
     p
 }
+pub fn node_revision(
+    old: &[OutlineNode],
+    node: &OutlineNode,
+    position: usize,
+    high_water: Option<i64>,
+    restore: bool,
+) -> Result<i64> {
+    if let Some(prior) = old.iter().find(|n| n.id == node.id) {
+        ensure(
+            restore || node.revision == prior.revision,
+            "REVISION_CONFLICT",
+        )?;
+        let mut compare = node.clone();
+        compare.revision = prior.revision;
+        // Reorders change outline dependencies even when per-node wording is stable.
+        let moved = old.iter().position(|n| n.id == node.id) != Some(position);
+        if compare == *prior && !moved {
+            Ok(prior.revision)
+        } else {
+            manuscript::next_revision(high_water.unwrap_or(prior.revision))
+        }
+    } else {
+        ensure(restore || high_water.is_none(), "OUTLINE_INVALID")?;
+        manuscript::next_revision(high_water.unwrap_or(0))
+    }
+}
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OutlineOutput {
@@ -257,6 +283,89 @@ pub fn interpret_draft(
 mod tests {
     use super::*;
     use serde_json::json;
+    fn revision_node() -> OutlineNode {
+        OutlineNode {
+            id: "a589637f-0ca8-4dbe-aa41-c084637a4596".into(),
+            revision: 3,
+            depth: 0,
+            title: "Current 中文 🐦".into(),
+            key_points: vec!["Point".into()],
+        }
+    }
+    #[test]
+    fn node_revisions_preserve_unchanged_content_and_advance_edits_and_reorders() {
+        let current = revision_node();
+        let mut other = current.clone();
+        other.id = "0e4312ea-d9a9-4262-bb74-2311919b4313".into();
+        let old = [current.clone(), other.clone()];
+        assert_eq!(node_revision(&old, &current, 0, Some(9), false), Ok(3));
+        let mut edited = current.clone();
+        edited.key_points.push("New point".into());
+        assert_eq!(node_revision(&old, &edited, 0, Some(9), false), Ok(10));
+        assert_eq!(node_revision(&old, &edited, 0, None, false), Ok(4));
+        assert_eq!(node_revision(&old, &current, 1, Some(9), false), Ok(10));
+        assert_eq!(node_revision(&old, &other, 0, Some(9), false), Ok(10));
+    }
+    #[test]
+    fn node_revisions_reject_stale_tokens_and_deleted_id_reuse() {
+        let current = revision_node();
+        let old = [current.clone()];
+        let mut stale = current.clone();
+        stale.revision = 1;
+        assert_eq!(
+            node_revision(&old, &stale, 0, Some(manuscript::MAX_REVISION), false)
+                .unwrap_err()
+                .0,
+            "REVISION_CONFLICT"
+        );
+        assert_eq!(
+            node_revision(&[], &current, 0, Some(9), false)
+                .unwrap_err()
+                .0,
+            "OUTLINE_INVALID"
+        );
+        assert_eq!(node_revision(&[], &current, 0, None, false), Ok(1));
+    }
+    #[test]
+    fn restored_nodes_ignore_snapshot_tokens_and_advance_above_high_water() {
+        let current = revision_node();
+        let old = [current.clone()];
+        let mut snapshot = current.clone();
+        snapshot.revision = 0;
+        assert_eq!(node_revision(&old, &snapshot, 0, Some(9), true), Ok(3));
+        snapshot.title = "Restored title".into();
+        assert_eq!(node_revision(&old, &snapshot, 0, Some(9), true), Ok(10));
+        assert_eq!(node_revision(&[], &snapshot, 0, Some(9), true), Ok(10));
+        assert_eq!(node_revision(&[], &snapshot, 0, None, true), Ok(1));
+    }
+    #[test]
+    fn node_revisions_exhaust_only_when_a_new_token_is_needed() {
+        let mut current = revision_node();
+        current.revision = manuscript::MAX_REVISION;
+        let old = [current.clone()];
+        assert_eq!(
+            node_revision(&old, &current, 0, Some(manuscript::MAX_REVISION), false),
+            Ok(manuscript::MAX_REVISION)
+        );
+        let mut edited = current.clone();
+        edited.depth = 1;
+        assert_eq!(
+            node_revision(&old, &edited, 0, Some(manuscript::MAX_REVISION), false)
+                .unwrap_err()
+                .0,
+            "REVISION_EXHAUSTED"
+        );
+        assert_eq!(
+            node_revision(&[], &edited, 0, Some(manuscript::MAX_REVISION), true)
+                .unwrap_err()
+                .0,
+            "REVISION_EXHAUSTED"
+        );
+        assert_eq!(
+            node_revision(&[], &edited, 0, Some(manuscript::MAX_REVISION - 1), true),
+            Ok(manuscript::MAX_REVISION)
+        );
+    }
     #[test]
     fn outline_output_requires_version_nullable_ids_current_mapping_and_valid_preorder() {
         let mut plan = empty();

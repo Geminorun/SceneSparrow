@@ -159,7 +159,6 @@ impl SqliteProjectRepository {
         restore: bool,
     ) -> Result<()> {
         for (position, node) in new.nodes.iter_mut().enumerate() {
-            let previous = old.nodes.iter().find(|n| n.id == node.id);
             let high: Option<i64> = db(c
                 .query_row(
                     "SELECT high_water FROM planning_node_identities WHERE id=?1",
@@ -167,25 +166,8 @@ impl SqliteProjectRepository {
                     |r| r.get(0),
                 )
                 .optional())?;
-            if let Some(prior) = previous {
-                ensure(
-                    restore || node.revision == prior.revision,
-                    "REVISION_CONFLICT",
-                )?;
-                let mut compare = node.clone();
-                compare.revision = prior.revision;
-                let moved = old.nodes.iter().position(|n| n.id == node.id) != Some(position);
-                node.revision = if compare == *prior && !moved {
-                    prior.revision
-                } else {
-                    manuscript::next_revision(high.unwrap_or(prior.revision))?
-                };
-            } else {
-                ensure(restore || high.is_none(), "OUTLINE_INVALID")?;
-                node.revision = manuscript::next_revision(high.unwrap_or(0))?;
-            }
+            node.revision = planning::node_revision(&old.nodes, node, position, high, restore)?;
         }
-        // Reorders change outline dependencies even when per-node wording is stable.
         Ok(())
     }
     pub(crate) fn planning_transition(
