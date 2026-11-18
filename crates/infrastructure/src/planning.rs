@@ -3,6 +3,7 @@ use crate::{
     SqliteProjectRepository,
     ai::execution::AiUnitOfWork,
     storage::{Result, db, hash},
+    worker_process::{self, WorkerChild},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::ai::*;
@@ -1209,7 +1210,6 @@ impl SqliteProjectRepository {
         use base64::{Engine, engine::general_purpose::STANDARD};
         use std::{
             io::{Read, Write},
-            process::{Command, Stdio},
             time::{Duration, Instant},
         };
         let (source, index) = {
@@ -1241,39 +1241,12 @@ impl SqliteProjectRepository {
         };
         let mut diagnostics = crate::diagnostics::WorkerSummary::new(None);
         let work = (|| -> Result<(Vec<u8>, i64, i64, String)> {
-            let mut command = Command::new("node");
-            command.env_clear();
-            for key in [
-                "PATH",
-                "SystemRoot",
-                "WINDIR",
-                "TEMP",
-                "TMP",
-                "TMPDIR",
-                "LANG",
-            ] {
-                if let Some(v) = std::env::var_os(key) {
-                    command.env(key, v);
-                }
-            }
-            let child = db(command
-                .arg("--max-old-space-size=384")
-                .arg(
-                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../workers/document/src/visual-entry.mjs"),
-                )
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn())?;
-            struct Child(std::process::Child);
-            impl Drop for Child {
-                fn drop(&mut self) {
-                    let _ = self.0.kill();
-                    let _ = self.0.wait();
-                }
-            }
-            let mut child = Child(child);
+            let child = db(worker_process::document_command(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../workers/document/src/visual-entry.mjs"),
+            )
+            .spawn())?;
+            let mut child = WorkerChild(child);
             let path = self.directory.join("objects").join(
                 source
                     .object_hash
@@ -1310,16 +1283,7 @@ impl SqliteProjectRepository {
                     failure = Some("DOCUMENT_PARSE_TIMEOUT");
                 }
                 #[cfg(target_os = "linux")]
-                if std::fs::read_to_string(format!("/proc/{}/status", child.0.id()))
-                    .ok()
-                    .and_then(|s| {
-                        s.lines()
-                            .find(|s| s.starts_with("VmRSS:"))
-                            .and_then(|s| s.split_whitespace().nth(1))
-                            .and_then(|s| s.parse::<u64>().ok())
-                    })
-                    .is_some_and(|kb| kb > 512 * 1024)
-                {
+                if worker_process::resident_kib(child.0.id()).is_some_and(|kb| kb > 512 * 1024) {
                     failure = Some("DOCUMENT_RESOURCE_LIMIT");
                 }
                 if failure.is_some() {

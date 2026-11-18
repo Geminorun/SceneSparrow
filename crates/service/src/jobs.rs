@@ -3,11 +3,11 @@ use scenesparrow_domain::manuscript::ManuscriptError;
 use std::sync::Arc;
 
 pub(crate) fn start(state: &AppState) {
-    drive_planning(state);
+    drive_ai_and_maintenance(state);
     drive_exports(state);
 }
 
-fn drive_planning(state: &AppState) {
+fn drive_ai_and_maintenance(state: &AppState) {
     let service = Arc::downgrade(&state.service);
     let ai = Arc::downgrade(&state.ai);
     tokio::spawn(async move {
