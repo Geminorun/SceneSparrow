@@ -6,7 +6,7 @@ import {
   outlineSource,
   parseOutline,
   readOutlineLines,
-} from "../../packages/editor-ui/src/editor/outline-codec.ts";
+} from "../../packages/editor-ui/src/planning/outline-codec.ts";
 const node = (title, depth = 0, keyPoints = []) => ({
   id: crypto.randomUUID(),
   revision: 7,
@@ -96,7 +96,7 @@ test("incomplete, unsupported, excessive and invalid source is rejected without 
 
 test("section reordering preserves duplicated node identities and entire nested subtree", async () => {
   const { moveOutlineSection } =
-    await import("../../packages/editor-ui/src/editor/outline-codec.ts");
+    await import("../../packages/editor-ui/src/planning/outline-codec.ts");
   const nodes = [node("Same"), node("Child", 1), node("Same")];
   const moved = moveOutlineSection(nodes, 0, "down");
   assert.deepEqual(

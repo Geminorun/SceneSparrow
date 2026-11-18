@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   serializeMarkdown,
   parseMarkdown,
-} from "../../packages/editor-ui/src/editor/markdown.ts";
+} from "../../packages/editor-ui/src/manuscript/markdown.ts";
 import {
   plain,
   markdown,

@@ -14,8 +14,8 @@ import {
   notifyFailure,
   safeErrorCode,
   savedDiscoveryTarget,
-} from "../notifications";
-import { useNoticeOwner } from "../NotificationPresenter";
+} from "../feedback/notifications";
+import { useNoticeOwner } from "../feedback/NotificationPresenter";
 import { publishSavedAiView } from "./saved-view";
 import {
   assignPreset,

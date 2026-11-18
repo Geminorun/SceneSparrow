@@ -4,7 +4,7 @@ import {
   NotificationStore,
   safeErrorCode,
   savedDiscoveryTarget,
-} from "../../packages/editor-ui/src/notifications.ts";
+} from "../../packages/editor-ui/src/feedback/notifications.ts";
 
 test("notifications sanitize unknown/inherited codes and retain only bounded safe details", () => {
   const store = new NotificationStore(() => 1000);

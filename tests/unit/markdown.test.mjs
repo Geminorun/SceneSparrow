@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseMarkdown,
   serializeMarkdown,
-} from "../../packages/editor-ui/src/editor/markdown.ts";
+} from "../../packages/editor-ui/src/manuscript/markdown.ts";
 const semantic = (blocks) => blocks.map(({ id: _, ...block }) => block);
 const text = (block) => block.runs.map((run) => run.text).join("");
 test("browser Markdown codec preserves headings, Unicode, soft/hard breaks, safe links and nested list semantics", () => {
