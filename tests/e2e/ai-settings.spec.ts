@@ -110,16 +110,14 @@ test("two bilingual services support manual models after discovery failure and e
   try {
     await openWorkbench(page);
     await openAiSettings(page);
-    await expect(page.locator(".ai-service-list > button")).toHaveCount(3);
+    await expect(page.locator(".ai-service-list > button")).toHaveCount(2);
     await expect(
       page.getByText(
         "Keys are kept in memory for this app session only. Restarting loses them.",
       ),
     ).toBeVisible();
     await configure(page, provider.root);
-    await expect(
-      page.getByText("Key saved ••••", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText("Key saved", { exact: true })).toBeVisible();
     await page
       .getByRole("button", { name: "Discover models", exact: true })
       .click();
@@ -127,7 +125,10 @@ test("two bilingual services support manual models after discovery failure and e
       name: "Discover models",
       exact: true,
     });
-    await expect(discovery.locator(".ai-operation-error")).toBeVisible();
+    await expect(
+      discovery.locator(".notification[data-tone=error]"),
+    ).toBeVisible();
+    await expect(discovery.locator(".ai-operation-error")).toHaveCount(0);
     await discovery.getByRole("button", { name: "Close", exact: true }).click();
     await addModel(page, "manual-fixture");
     expect((await core.request("/ai/settings")).settings.bindings).toEqual([]);
@@ -142,7 +143,7 @@ test("two bilingual services support manual models after discovery failure and e
     ).toBeVisible();
     const bindingBefore = (await core.request("/ai/settings")).settings
       .bindings;
-    expect(bindingBefore[0].parameters.maxOutputTokens).toBe(4096);
+    expect(bindingBefore[0].parameters.maxOutputTokens).toBe(8192);
     let loseTestResponse = true;
     const actions: unknown[] = [];
     core.intercept(async (path, body, phase) => {
@@ -249,7 +250,7 @@ test("two bilingual services support manual models after discovery failure and e
     await page.getByRole("button", { name: "模型服务", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "管理已存配置", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(
       page.getByText("音频 — 预留，尚不可用", { exact: true }),
     ).toHaveCount(0);
@@ -516,20 +517,22 @@ test("legacy configurations stay readable and usable; explicit assignment preser
     .getByRole("button", { name: "Model services", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Manage saved configurations", exact: true })
+    .locator(".ai-service-list")
+    .getByRole("button", { name: /Legacy local/ })
     .click();
-  const manager = page.getByRole("dialog", {
-    name: "Manage saved configurations",
-    exact: true,
-  });
-  const legacy = manager.locator("article").filter({ hasText: "Legacy local" });
-  await legacy
+  await page.getByText("Service preset", { exact: true }).click();
+  await page
     .getByRole("button", { name: "Assign to OpenAI", exact: true })
     .click();
   await expect(
-    legacy.getByRole("button", { name: "Assign to OpenAI", exact: true }),
+    page.getByRole("button", { name: "Assign to OpenAI", exact: true }),
   ).toBeDisabled();
-  await manager.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Manage saved configurations",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   const assigned = (await core.request("/ai/settings")).settings;
   expect(assigned.providers).toHaveLength(2);
   expect(
@@ -580,20 +583,17 @@ test("reassigning a newly created service retires its creation alias and keeps l
     await openAiSettings(page);
     await configure(page, provider.root);
     const original = (await core.request("/ai/settings")).settings.providers[0];
+    await page.getByText("Service preset", { exact: true }).click();
     await page
-      .getByRole("button", { name: "Manage saved configurations", exact: true })
-      .click();
-    const manager = page.getByRole("dialog", {
-      name: "Manage saved configurations",
-      exact: true,
-    });
-    await manager
       .getByRole("button", { name: "Assign to DeepSeek", exact: true })
       .click();
-    await expect(
-      manager.getByRole("button", { name: "Assign to DeepSeek", exact: true }),
-    ).toBeDisabled();
-    await manager.getByRole("button", { name: "Close", exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (await core.request("/ai/settings")).settings.providers[0]
+            .servicePreset,
+      )
+      .toBe("deepseek");
     await selectService(page, "DeepSeek");
     await fillKey(page, "UNSAVED_REASSIGNED_SERVICE_CANARY");
     await page
@@ -683,4 +683,100 @@ test("credential response loss refreshes saved status without retry and reopenin
     "https://changed.example/v1",
   );
   expect(writes).toBe(1);
+});
+
+test("API token entry masks before paint, supports explicit reveal and paste, and clears on close", async ({
+  page,
+}) => {
+  await openWorkbench(page);
+  await openAiSettings(page);
+  const key = page.getByLabel("New API key", { exact: true });
+  await expect(key).toHaveAttribute("type", "text");
+  await expect(key).toHaveAttribute("autocomplete", "off");
+  expect(
+    await key.evaluate((node) =>
+      getComputedStyle(node).getPropertyValue("-webkit-text-security"),
+    ),
+  ).toBe("disc");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() =>
+    navigator.clipboard.writeText("SYNTHETIC_PASTED_TOKEN"),
+  );
+  await key.focus();
+  await page.keyboard.press("ControlOrMeta+v");
+  await expect(key).toHaveValue("SYNTHETIC_PASTED_TOKEN");
+  await page.getByRole("button", { name: "Show", exact: true }).click();
+  expect(
+    await key.evaluate((node) =>
+      getComputedStyle(node).getPropertyValue("-webkit-text-security"),
+    ),
+  ).toBe("none");
+  await page.getByRole("button", { name: "Hide", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".ai-service-list > button").first().click();
+  await expect(key).toBeVisible();
+  await page.screenshot({ path: ".artifacts/api-token-entry-narrow.png" });
+  await page
+    .getByRole("button", { name: "Save configuration", exact: true })
+    .click();
+  await expect(page.locator(".ai-key-mask")).toHaveText("••••••••");
+  await expect(key).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("zh-CN");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.getByRole("button", { name: "模型服务", exact: true }).click();
+  await expect(page.locator(".ai-key-mask")).toHaveText("••••••••");
+  await page.screenshot({ path: ".artifacts/api-token-saved-zh-narrow.png" });
+  await page
+    .locator(".ai-saved-key button")
+    .filter({ hasText: "替换" })
+    .click();
+  const replacement = page.locator(".ai-key-input input");
+  await replacement.fill("UNSAVED_REPLACEMENT_TOKEN");
+  expect(
+    await replacement.evaluate((node) =>
+      getComputedStyle(node).getPropertyValue("-webkit-text-security"),
+    ),
+  ).toBe("disc");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await expect(replacement).toHaveCount(0);
+});
+
+test("a referenced unavailable credential can be explicitly deleted without claiming it is saved", async ({
+  page,
+  core,
+}) => {
+  await openWorkbench(page);
+  await openAiSettings(page);
+  await configure(
+    page,
+    "https://unavailable.example/v1",
+    "SYNTHETIC_UNAVAILABLE_KEY",
+  );
+  await page.keyboard.press("Escape");
+  await page.route("**/api/v1/ai/settings", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    const view = await core.request("/ai/settings");
+    await route.fulfill({ json: { ...view, presentCredentialRevisions: [] } });
+  });
+  await openAiSettings(page);
+  await expect(page.locator(".ai-key-mask")).toHaveCount(0);
+  await expect(page.getByLabel("New API key", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Delete key", exact: true }).click();
+  await expect
+    .poll(
+      async () =>
+        (await core.request("/ai/settings")).settings.providers[0]
+          .credentialRevision,
+    )
+    .toBeNull();
+  await expect(
+    page.getByRole("button", { name: "Delete key", exact: true }),
+  ).toHaveCount(0);
 });

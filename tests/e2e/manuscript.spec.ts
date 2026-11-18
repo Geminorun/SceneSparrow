@@ -235,7 +235,22 @@ test("failure retains local input for retry and conflict offers explicit discard
   );
   holdProjection = false;
   await expect(input).toContainText("conflict kept");
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  const conflictTip = page.locator(
+    '.notification[data-error-code="REVISION_CONFLICT"]',
+  );
+  await expect(conflictTip).toBeVisible();
+  const tipBounds = (await conflictTip.boundingBox())!;
+  const recoveryBounds = (await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .boundingBox())!;
+  expect(tipBounds.y).toBeGreaterThanOrEqual(
+    recoveryBounds.y + recoveryBounds.height,
+  );
+  await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .click();
   await expect(
     page.getByRole("textbox", { name: "Local text to copy" }),
   ).toContainText("conflict kept");
@@ -243,7 +258,10 @@ test("failure retains local input for retry and conflict offers explicit discard
     .getByRole("button", { name: "Keep local edits", exact: true })
     .click();
   await expect(input).toContainText("conflict kept");
-  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
+    .click();
   page.once("dialog", (dialog) => void dialog.accept());
   await page
     .getByRole("button", {
@@ -494,10 +512,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     "data-state",
     "error",
   );
-  await expect(page.getByTestId("save-error-code")).toHaveAttribute(
-    "data-error-code",
-    "DOCUMENT_INVALID",
-  );
+  await expect(
+    page.locator('.notification[data-error-code="DOCUMENT_INVALID"]'),
+  ).toBeVisible();
+  await expect(page.getByTestId("save-status")).toHaveText("Unsaved");
   let writes = 0;
   page.on("request", (request) => {
     if (request.url().endsWith("/manuscript/commands")) writes++;
@@ -541,7 +559,10 @@ test("invalid visible structure blocks retry/close and discard reload completes 
     page.getByRole("dialog", { name: "Recover local edits" }),
   ).toHaveCount(0);
   await saved(page);
-  const frozenEditor = page.locator(".tiptap");
+  const frozenEditor = page.getByRole("textbox", {
+    name: "Manuscript",
+    exact: true,
+  });
   await expect(frozenEditor).not.toContainText("Invalid depth four");
   await expect(frozenEditor).toHaveAttribute("contenteditable", "false");
   expect(

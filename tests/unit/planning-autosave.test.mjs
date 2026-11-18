@@ -835,3 +835,145 @@ test("planning-only held receipt and group close leave newer body input for its 
     f.dispose();
   }
 });
+
+test("invalid outline blocks stale plan saves and controls, including unrelated brief/evidence edits", async () => {
+  const f = fixture();
+  try {
+    f.planning.editOutline([
+      {
+        id: crypto.randomUUID(),
+        revision: 0,
+        depth: 0,
+        title: "Valid",
+        keyPoints: [],
+      },
+    ]);
+    await f.planning.flush();
+    const before = f.commands.length;
+    f.planning.invalidate("# Valid\nunsupported local text");
+    assert.equal(f.planning.status, "pending");
+    assert.equal(f.planning.error, "");
+    const invalidIdentity = f.planning.identity();
+    topic(f, "New brief while outline is invalid");
+    f.planning.edit(
+      {
+        ...clone(f.planning.local),
+        evidence: [
+          {
+            sourceId: crypto.randomUUID(),
+            mode: "link_only",
+            start: 0,
+            end: 0,
+            visualId: null,
+            allowUnknownImages: false,
+          },
+        ],
+      },
+      "evidence",
+      true,
+    );
+    assert.equal(f.planning.recoveryText, "# Valid\nunsupported local text");
+    assert.notEqual(f.planning.identity(), invalidIdentity);
+    assert.equal(await f.planning.flush(), false);
+    assert.equal(
+      await f.planning.control(() => {
+        throw Error("stale dispatch");
+      }),
+      false,
+    );
+    assert.equal(f.planning.status, "error");
+    assert.equal(f.commands.length, before);
+    await f.planning.refresh();
+    assert.equal(f.planning.recoveryText, "# Valid\nunsupported local text");
+    f.planning.editOutline([
+      { ...f.planning.local.nodes[0], title: "Corrected" },
+    ]);
+    assert.equal(f.planning.recoveryText, null);
+    assert.equal(await f.planning.flush(), true);
+    assert.equal(f.state.content.nodes[0].title, "Corrected");
+    assert.equal(
+      f.state.content.brief.topic,
+      "New brief while outline is invalid",
+    );
+  } finally {
+    f.dispose();
+  }
+});
+
+test("invalid outline retains raw input across a late acknowledged valid receipt and discard restores canonical content", async () => {
+  const f = fixture();
+  try {
+    const gate = deferred();
+    f.setSaveGate(gate);
+    f.planning.editOutline([
+      {
+        id: crypto.randomUUID(),
+        revision: 0,
+        depth: 0,
+        title: "Saved heading",
+        keyPoints: [],
+      },
+    ]);
+    const saving = f.planning.flush(false);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    f.planning.invalidate("#");
+    gate.resolve();
+    await saving;
+    assert.equal(f.planning.recoveryText, "#");
+    assert.equal(f.planning.status, "pending");
+    assert.equal(await f.planning.flush(), false);
+    assert.equal(await f.planning.discard(), true);
+    assert.equal(f.planning.recoveryText, null);
+    assert.equal(f.planning.local.nodes[0].title, "Saved heading");
+  } finally {
+    f.dispose();
+  }
+});
+
+test("explicit planning cancellation remains possible while an invalid outline is retained", async () => {
+  const f = fixture();
+  try {
+    f.planning.invalidate("# Unfinished\nunsupported syntax");
+    const ok = await f.save.cancelReviewCommand({
+      type: "CancelPlanningTask",
+      requestId: crypto.randomUUID(),
+      projectId: "project",
+      expectedWorkingRevision: 0,
+      payload: { taskId: crypto.randomUUID() },
+    });
+    assert.equal(ok, true);
+    assert.equal(f.planning.recoveryText, "# Unfinished\nunsupported syntax");
+    assert.equal(
+      f.commands.filter((command) => command.type === "SavePlanning").length,
+      0,
+    );
+    assert.equal(
+      f.commands.filter((command) => command.type === "CancelPlanningTask")
+        .length,
+      1,
+    );
+  } finally {
+    f.dispose();
+  }
+});
+
+test("clean review input clears only its local unsent-history guard without commands or receipt changes", async () => {
+  const f = fixture();
+  try {
+    let dirty = true;
+    f.save.reviewDirty = () => dirty;
+    assert.equal(await f.save.navigate("UndoProject", () => {}), false);
+    assert.equal(f.save.operationError.code, "UNSENT_REVIEW");
+    f.save.reviewInputChanged();
+    assert.equal(f.save.operationError.code, "UNSENT_REVIEW");
+    dirty = false;
+    f.save.reviewInputChanged();
+    assert.equal(f.save.operationError, null);
+    f.save.operationError = { code: "REVISION_CONFLICT", details: undefined };
+    f.save.reviewInputChanged();
+    assert.equal(f.save.operationError.code, "REVISION_CONFLICT");
+    assert.equal(f.commands.length, 0);
+  } finally {
+    f.dispose();
+  }
+});

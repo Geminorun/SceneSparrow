@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+import { useNoticeOwner } from "../NotificationPresenter";
 import type en from "../locales/en.json";
 import type { Autosave } from "./autosave";
 import type { PlanningFeedback } from "./Planning";
@@ -27,44 +29,63 @@ export function SaveStatus({
   const status = planOwns ? planning.status : save.status;
   const error = planOwns ? planning.error : save.error;
   const failed = status === "error" || status === "conflict";
+  const { report, resolve } = useNoticeOwner();
+  const [attempt, setAttempt] = useState(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const retry = async () => {
+    if (planOwns) await planning.retry();
+    else if (await save.flush(true)) await save.planningAdapter?.flush(true);
+    if (mounted.current) setAttempt((value) => value + 1);
+  };
+  const callbacks = useRef({
+    retry,
+    recover: planOwns ? openPlanning : recover,
+  });
+  callbacks.current = { retry, recover: planOwns ? openPlanning : recover };
+  const previousError = useRef<string | null>(null);
+  useEffect(() => {
+    if (!failed) {
+      previousError.current = null;
+      resolve("save");
+      return;
+    }
+    if (previousError.current !== null && previousError.current !== error)
+      resolve("save");
+    previousError.current = error;
+    report(error ?? "error", {
+      identity: "save",
+      actions: [
+        ...(status === "conflict"
+          ? []
+          : [{ kind: "retry" as const, run: () => callbacks.current.retry() }]),
+        { kind: "recovery", run: () => callbacks.current.recover() },
+      ],
+    });
+  }, [failed, status, error, planOwns, report, resolve, attempt]);
   return (
     <div className="save-feedback">
       <span
         role="status"
         data-testid="save-status"
         data-state={status}
-        title={t[`save_${status}`]}
+        title={failed ? t.saveUnsaved : t[`save_${status}`]}
         data-owner={planOwns ? "planning" : "manuscript"}
       >
-        {t[`save_${status}`]}
+        {failed ? t.saveUnsaved : t[`save_${status}`]}
       </span>
       {failed && (
         <>
-          <span
-            className="save-error-code"
-            title={t[error as keyof typeof t] ?? t.saveErrorHelp}
-            data-testid="save-error-code"
-            data-error-code={error}
-          >
-            {t[error as keyof typeof t] ?? t.saveErrorHelp}
-          </span>
-          {status !== "conflict" && (
-            <button
-              className="quiet-button"
-              onClick={async () => {
-                if (planOwns) planning.retry();
-                else if (await save.flush(true))
-                  await save.planningAdapter?.flush(true);
-              }}
-            >
-              {t.retry}
-            </button>
-          )}
           <button
             className="quiet-button"
             onClick={planOwns ? openPlanning : recover}
           >
-            {t.workspaceRecoveryDetails}
+            {t.noticeRecovery}
           </button>
         </>
       )}

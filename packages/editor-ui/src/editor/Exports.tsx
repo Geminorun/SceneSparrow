@@ -1,6 +1,6 @@
-import { useTaskNotifications } from "../NotificationPresenter";
-import { notifyFailure } from "../notifications";
-import { useEffect, useRef, useState } from "react";
+import { useNoticeOwner, useTaskNotifications } from "../NotificationPresenter";
+import { safeErrorCode } from "../notifications";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CopyRequest,
   PreparedCopy,
@@ -20,6 +20,21 @@ export function Exports({
   save: Autosave;
   t: typeof en;
 }) {
+  const { report, resolve } = useNoticeOwner();
+  const failureCode = useRef<keyof typeof en | null>(null);
+  const clearFailure = useCallback(() => {
+    failureCode.current = null;
+    resolve("export-operation");
+  }, [resolve]);
+  const reportFailure = useCallback(
+    (error: unknown) => {
+      const code = safeErrorCode(error);
+      if (failureCode.current !== code) resolve("export-operation");
+      failureCode.current = code;
+      report(error, { identity: "export-operation" });
+    },
+    [report, resolve],
+  );
   const [format, setFormat] = useState<ExportRequest["format"]>("md");
   const [job, setJob] = useState<ExportJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -144,8 +159,9 @@ export function Exports({
     if (job?.delivery && ["intent", "unknown"].includes(job.delivery.status)) {
       delivery.current = { id: job.delivery.deliveryId, job: job.id };
       setMessage("exportUnknown");
+      reportFailure("exportUnknown");
     }
-  }, [job?.id, job?.delivery?.status]);
+  }, [job?.id, job?.delivery?.status, reportFailure]);
   useEffect(() => {
     if (job)
       setRecent((old) =>
@@ -154,6 +170,7 @@ export function Exports({
   }, [job]);
   async function control(kind: "cancel" | "retry") {
     if (!job || busy) return;
+    clearFailure();
     if (!pendingControl.current)
       pendingControl.current = {
         kind,
@@ -181,7 +198,7 @@ export function Exports({
         setMessage("");
       }
     } catch (error) {
-      notifyFailure(error);
+      reportFailure(error);
       if (error instanceof ApiError && error.code !== "STORAGE_UNAVAILABLE")
         pendingControl.current = null;
       try {
@@ -195,6 +212,7 @@ export function Exports({
   }
   async function clipboard(text: string, captured: PreparedCopy) {
     if (!active.current) return;
+    clearFailure();
     try {
       if (client.writePreparedClipboard)
         await client.writePreparedClipboard({
@@ -205,12 +223,13 @@ export function Exports({
       else await navigator.clipboard.writeText(text);
       if (active.current) setMessage("exportCopied");
     } catch {
-      notifyFailure("exportClipboardFallback");
+      reportFailure("exportClipboardFallback");
       if (active.current) setMessage("exportClipboardFallback");
     }
   }
   async function start(copy: boolean, recapture?: ExportJob) {
     touched.current = true;
+    clearFailure();
     setBusy(true);
     setMessage("");
     try {
@@ -222,7 +241,7 @@ export function Exports({
           save.status !== "saved" ||
           save.hasUnresolvedBusiness
         )
-          throw new Error("SAVE_FAILED");
+          throw new Error("exportFailed");
         const identity = save.exportInputIdentity;
         const token = `canonical-1|${save.state.manuscriptId}|${save.state.schemaVersion}|${save.state.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
         const expectedBodyHash = await hashToken(token);
@@ -283,7 +302,7 @@ export function Exports({
         throw error;
       }
     } catch (e) {
-      notifyFailure(e);
+      reportFailure(e);
       if (active.current)
         setMessage(
           localMessage(e instanceof Error ? e.message : "EXPORT_FAILED"),
@@ -294,6 +313,7 @@ export function Exports({
   }
   async function deliver() {
     if (!job || job.status !== "ready") return;
+    clearFailure();
     setBusy(true);
     try {
       if (client.saveExport) {
@@ -306,7 +326,7 @@ export function Exports({
         });
         if (!receipt || receipt.status === "failed") delivery.current = null;
         if (receipt && ["failed", "unknown", "intent"].includes(receipt.status))
-          notifyFailure(
+          reportFailure(
             receipt.status === "failed" ? "exportFailed" : "exportUnknown",
           );
         if (active.current && receipt) setJob({ ...job, delivery: receipt });
@@ -335,7 +355,7 @@ export function Exports({
         }
       }
     } catch (e) {
-      notifyFailure(e);
+      reportFailure(e);
       if (e instanceof Error && e.message.startsWith("DESTINATION_"))
         delivery.current = null;
       if (active.current)
@@ -455,7 +475,13 @@ export function Exports({
           )}
         </div>
       )}
-      {message && <p role="status">{t[message]}</p>}
+      {message &&
+        ![
+          "exportFailed",
+          "exportUnknown",
+          "exportClipboardFallback",
+          "exportNoContent",
+        ].includes(message) && <p role="status">{t[message]}</p>}
       {message === "exportUnknown" &&
         job?.status === "ready" &&
         client.saveExport && (

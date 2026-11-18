@@ -87,11 +87,13 @@ export class ReviewCommands {
       JSON.stringify(this.save.local);
     const requestedMetadata =
       identity.startsWith("CancelReviewTask:") ||
+      identity.startsWith("CancelPlanningTask:") ||
       (identity.startsWith("lock:") && identity.endsWith(":false"));
     if (!attempted && requestedMetadata)
       attempted = build(this.save.state.workingRevision);
     const cancellation =
       attempted?.type === "CancelReviewTask" ||
+      attempted?.type === "CancelPlanningTask" ||
       (attempted?.type === "SetUserLocks" && !attempted.payload.locked);
     if (cancellation) {
       this.pending = { command: attempted!, identity, visible };

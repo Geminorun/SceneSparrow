@@ -52,7 +52,9 @@ export async function openPanel(
     | "Sources"
     | "Contents"
     | "Create"
-    | "Library",
+    | "Library"
+    | "AI assistant"
+    | "Comments",
 ) {
   // Viewport changes finish before React handles the media-query change event.
   // Wait for the current layout before deciding whether its opener is visible.
@@ -67,7 +69,9 @@ export async function openPanel(
     (
       {
         Structure: "Contents",
-        Planning: "Create",
+        Planning: "AI assistant",
+        Create: "AI assistant",
+        Review: "Comments",
         Sources: "Library",
       } as Record<string, string>
     )[name] ?? name;
@@ -87,21 +91,6 @@ export async function openPanel(
   });
   if (await open.isVisible()) await open.click();
   await page.getByRole("tab", { name: label, exact: true }).click();
-  // Legacy callers exercise optional planning tools on an existing manuscript.
-  if (name === "Planning") {
-    for (const selector of [
-      ".creation-assistance",
-      ".planning-preferences",
-      ".planning-outline",
-    ]) {
-      const details = page.locator(selector);
-      if (
-        (await details.count()) &&
-        !(await details.evaluate((node: HTMLDetailsElement) => node.open))
-      )
-        await details.locator(":scope > summary").click();
-    }
-  }
 }
 export async function openExports(page: Page) {
   await openDocumentMenu(page);
@@ -127,7 +116,7 @@ export async function projectHistory(page: Page, direction: "Undo" | "Redo") {
   await page.getByRole("button", { name: direction, exact: true }).click();
 }
 export async function pasteMarkdown(page: Page, source: string, html = "") {
-  await page.locator(".tiptap").evaluate(
+  await page.getByRole("textbox", { name: "Manuscript", exact: true }).evaluate(
     (element, data) => {
       const clipboard = new DataTransfer();
       clipboard.setData("text/plain", data.source);

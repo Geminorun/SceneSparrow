@@ -9,13 +9,13 @@ import {
 import type { Project, RenameProject } from "@scenesparrow/contracts";
 import {
   onTransportFailure,
-  TransportError,
   type PlatformClient,
   type RecentProject,
 } from "@scenesparrow/platform-client";
 import { AiSettings } from "./AiSettings";
 import {
   NotificationPresenter,
+  useNoticeOwner,
   SettingsActions,
   type SettingsSection,
 } from "./NotificationPresenter";
@@ -23,6 +23,7 @@ import { notifyFailure } from "./notifications";
 import { trapDialogFocus } from "./dialog-focus";
 import { WorkspaceRibbon } from "./WorkspaceRibbon";
 import { Manuscript } from "./editor/Manuscript";
+import { WorkspaceSkeleton } from "./editor/WorkspaceSkeleton";
 import {
   applicationPreferences,
   type SaveMode,
@@ -56,7 +57,7 @@ export function App({ client }: { client: PlatformClient }) {
   const initialTitle = useRef(t.untitledProject);
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const startupNotice = useNoticeOwner();
   useEffect(
     () =>
       onTransportFailure((failure) =>
@@ -90,7 +91,9 @@ export function App({ client }: { client: PlatformClient }) {
   }, []);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
-  const [renameError, setRenameError] = useState("");
+  const [renameError, setRenameError] = useState(false);
+  const renameNotice = useNoticeOwner();
+  const renameIntent = useRef(0);
   const renameCommand = useRef<RenameProject | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [recentError, setRecentError] = useState(false);
@@ -111,7 +114,7 @@ export function App({ client }: { client: PlatformClient }) {
     const generation = ++loadGeneration.current;
     const epoch = metadataEpoch.current;
     setLoading(true);
-    setError(null);
+    startupNotice.resolve("workspace-load");
     try {
       const read = await client.readProject();
       // A read failure must never fall through into workspace creation. Preserve
@@ -138,13 +141,15 @@ export function App({ client }: { client: PlatformClient }) {
               : next,
         );
     } catch (failure) {
-      notifyFailure(failure);
       if (generation === loadGeneration.current)
-        setError(failure instanceof TransportError ? failure.message : "error");
+        startupNotice.report(failure, {
+          identity: "workspace-load",
+          actions: [{ kind: "retry", run: () => load() }],
+        });
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [client]);
+  }, [client, startupNotice.report, startupNotice.resolve]);
   useEffect(() => {
     void load();
     return () => {
@@ -229,8 +234,10 @@ export function App({ client }: { client: PlatformClient }) {
             title: renameTitle,
           };
     renameCommand.current = command;
+    const intent = renameIntent.current;
+    renameNotice.resolve();
     setRenameBusy(true);
-    setRenameError("");
+    setRenameError(false);
     try {
       const next = (await client.renameProject(command)).project;
       // Metadata commands do not own manuscript revisions/readiness. An older
@@ -243,7 +250,6 @@ export function App({ client }: { client: PlatformClient }) {
       renameCommand.current = null;
       renameDialog.current?.close();
     } catch (failure) {
-      notifyFailure(failure);
       const code = failure instanceof Error ? failure.message : "error";
       if (code === "PROJECT_CONFLICT") {
         renameCommand.current = null;
@@ -260,12 +266,28 @@ export function App({ client }: { client: PlatformClient }) {
           /* Keep the proposed title and editor available for another attempt. */
         }
       }
-      setRenameError(
-        code === "PROJECT_CONFLICT"
-          ? "renameConflict"
-          : code in t
-            ? code
-            : "error",
+      const currentIntent =
+        intent === renameIntent.current && renameDialog.current?.open;
+      if (currentIntent) setRenameError(true);
+      renameNotice.report(
+        code === "PROJECT_CONFLICT" ? "renameConflict" : failure,
+        {
+          identity: "rename",
+          actions: currentIntent
+            ? [
+                {
+                  kind: "reviewChanges",
+                  run: () => {
+                    if (
+                      intent === renameIntent.current &&
+                      renameDialog.current?.open
+                    )
+                      document.getElementById("rename-project-title")?.focus();
+                  },
+                },
+              ]
+            : [],
+        },
       );
     } finally {
       setRenameBusy(false);
@@ -338,7 +360,9 @@ export function App({ client }: { client: PlatformClient }) {
                       onClick={() => {
                         if (!renameCommand.current)
                           setRenameTitle(project.title);
-                        setRenameError("");
+                        renameIntent.current++;
+                        renameNotice.resolve();
+                        setRenameError(false);
                         if (projectMenu.current)
                           projectMenu.current.open = false;
                         renameDialog.current?.showModal();
@@ -468,14 +492,6 @@ export function App({ client }: { client: PlatformClient }) {
           </div>
         </header>
         <main id="workbench" aria-label={t.workbench}>
-          {error && (
-            <div role="alert" className="error">
-              {t[error as keyof typeof en] ?? t.error}{" "}
-              <button disabled={loading} onClick={() => void load()}>
-                {t.retry}
-              </button>
-            </div>
-          )}
           {project ? (
             <section className="project-workbench" data-project-id={project.id}>
               <div className="project-meta">
@@ -497,11 +513,7 @@ export function App({ client }: { client: PlatformClient }) {
               />
             </section>
           ) : (
-            loading && (
-              <p role="status" className="workspace-loading">
-                {t.connecting}
-              </p>
-            )
+            <WorkspaceSkeleton t={t} busy={loading} />
           )}
         </main>
         <dialog
@@ -618,7 +630,11 @@ export function App({ client }: { client: PlatformClient }) {
           onKeyDown={(event) => trapDialogFocus(event, event.currentTarget)}
           className="rename-dialog"
           aria-labelledby="rename-title"
-          onClose={() => projectMenu.current?.querySelector("summary")?.focus()}
+          onClose={() => {
+            renameIntent.current++;
+            renameNotice.resolve();
+            projectMenu.current?.querySelector("summary")?.focus();
+          }}
         >
           <form onSubmit={(event) => void rename(event)}>
             <h2 id="rename-title">{t.projectSettings}</h2>
@@ -630,13 +646,13 @@ export function App({ client }: { client: PlatformClient }) {
               required
               maxLength={240}
               disabled={renameBusy}
+              aria-invalid={renameError || undefined}
               onChange={(event) => {
                 setRenameTitle(event.target.value);
+                setRenameError(false);
+                renameNotice.resolve();
               }}
             />
-            {renameError && (
-              <p role="alert">{t[renameError as keyof typeof en]}</p>
-            )}
             <div className="dialog-actions">
               <button
                 type="button"

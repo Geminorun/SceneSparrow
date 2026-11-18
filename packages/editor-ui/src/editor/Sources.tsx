@@ -408,9 +408,6 @@ export function Sources({
             </button>
           </>
         )}
-        {item.error && (
-          <p data-error-code={item.error}>{documentMessage(item.error, t)}</p>
-        )}
         {item.warnings.map((warning) => (
           <p key={warning}>{warningMessage(warning, t)}</p>
         ))}
@@ -599,19 +596,11 @@ export function Sources({
                       {t.cancel}
                     </button>
                   )}
-                  {row.code && !["UNCHANGED", "CANCELLED"].includes(row.code)
-                    ? `: ${documentMessage(row.code, t)}`
-                    : ""}
                 </span>
               </li>
             ))}
           </ul>
         </details>
-      )}
-      {error && (
-        <p role="alert" data-error-code={error}>
-          {documentMessage(error, t)}
-        </p>
       )}
       {!items.length && <p className="muted">{t.libraryEmpty}</p>}
       <LibraryTree items={items} renderItem={renderItem} />
@@ -845,11 +834,6 @@ export function ImportDialog({
         </label>
       )}
       {busy && <p role="status">{t.preparing}</p>}
-      {error && (
-        <p role="alert" data-error-code={error}>
-          {documentMessage(error, t)}
-        </p>
-      )}
       {job?.result && (
         <>
           <h4>{t.importPreview}</h4>
@@ -892,26 +876,6 @@ export function ImportDialog({
       </button>
     </div>
   );
-}
-function documentMessage(code: string, t: typeof en) {
-  if (code === "IMPORT_STALE" || code === "REVISION_CONFLICT")
-    return t.importStale;
-  if (code === "SOURCE_ENCRYPTED") return t.sourceEncrypted;
-  if (code === "SOURCE_TEXT_UNAVAILABLE") return t.sourceTextUnavailable;
-  if (code === "TEXT_ENCODING_UNSUPPORTED") return t.encodingUnsupported;
-  if (
-    [
-      "INPUT_TOO_LARGE",
-      "DOCUMENT_TOO_LARGE",
-      "DOCUMENT_RESOURCE_LIMIT",
-    ].includes(code)
-  )
-    return t.documentTooLarge;
-  if (code === "INVALID_URL") return t.invalidSourceUrl;
-  if (code === "DOCUMENT_PARSE_TIMEOUT") return t.parseTimeout;
-  if (code === "SOURCE_UNSUPPORTED") return t.sourceUnsupported;
-  if (code === "DOCUMENT_JOB_INTERRUPTED") return t.source_interrupted;
-  return t.documentParseFailed;
 }
 function warningMessage(code: string, t: typeof en) {
   if (code === "IMAGES_UNPROCESSED") return t.imagesUnprocessed;

@@ -299,11 +299,6 @@ export function SourceEvidence({
         </details>
       )}
       {busy && <p role="status">{t.preparing}</p>}
-      {error && (
-        <p role="alert" data-error-code={error}>
-          {t[error as keyof typeof t] ?? t.sourceTextUnavailable}
-        </p>
-      )}
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useErrorNotification } from "../NotificationPresenter";
-import { errorMessage } from "../notifications";
 import { useRef, useState } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { ReviewMessage } from "@scenesparrow/contracts";
@@ -72,7 +71,6 @@ export function ReviewConversation({
           {t.reviewMore}
         </button>
       )}
-      {error && <p role="status">{errorMessage(error, t)}</p>}
     </details>
   );
 }

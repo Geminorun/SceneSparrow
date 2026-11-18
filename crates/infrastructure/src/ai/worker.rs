@@ -286,7 +286,7 @@ fn run_worker_at(
                         .map_err(|_| AiError("PROTOCOL_MISMATCH"))?;
                     ensure(
                         output.len() + chunk.len() <= input.output_spec.max_bytes as usize,
-                        "OUTPUT_TRUNCATED",
+                        "OUTPUT_SIZE_LIMIT",
                     )?;
                     output.extend(chunk);
                 }
@@ -342,6 +342,8 @@ pub fn safe_code(code: &str) -> &'static str {
         "RATE_LIMITED",
         "CONTEXT_LIMIT",
         "OUTPUT_TRUNCATED",
+        "OUTPUT_TOKEN_LIMIT",
+        "OUTPUT_SIZE_LIMIT",
         "INVALID_OUTPUT",
         "PROVIDER_REFUSED",
         "PROVIDER_REJECTED",
@@ -412,6 +414,9 @@ mod tests {
             "QUOTA_EXCEEDED",
             "RATE_LIMITED",
             "PROVIDER_SERVER_FAILED",
+            "OUTPUT_TRUNCATED",
+            "OUTPUT_TOKEN_LIMIT",
+            "OUTPUT_SIZE_LIMIT",
         ] {
             assert_eq!(safe_code(code), code);
         }

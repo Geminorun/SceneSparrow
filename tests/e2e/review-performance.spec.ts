@@ -291,17 +291,19 @@ test("measures bounded review pages and typing with 500 comments and 10 candidat
         await editor.press("ControlOrMeta+End");
         await page.evaluate(() => {
           (window as unknown as { sample: number | null }).sample = null;
-          document.querySelector(".tiptap")!.addEventListener(
-            "keydown",
-            () => {
-              const start = performance.now();
-              requestAnimationFrame(() => {
-                (window as unknown as { sample: number }).sample =
-                  performance.now() - start;
-              });
-            },
-            { capture: true, once: true },
-          );
+          document
+            .querySelector('.document-layout [role="textbox"]')!
+            .addEventListener(
+              "keydown",
+              () => {
+                const start = performance.now();
+                requestAnimationFrame(() => {
+                  (window as unknown as { sample: number }).sample =
+                    performance.now() - start;
+                });
+              },
+              { capture: true, once: true },
+            );
         });
         await page.keyboard.press("z");
         await page.waitForFunction(

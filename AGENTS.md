@@ -86,6 +86,17 @@
   and truthful credential outcomes. Background acknowledgments cannot flush
   newer input early; ambiguous key writes cannot trigger automatic resubmission.
 
+- The latest writing presentation is specified in
+  `docs/design/writing-workspace.md`, with evidence in
+  `docs/validation/writing-workspace.md`. Central Outline/Manuscript views share
+  one planning owner and project queue; hidden surfaces retain their buffers and
+  are inert. Preserve invalid-outline recovery, stable IDs, explicit selected or
+  whole-manuscript review scope, locks and original paid-task identities across
+  failed readback. The normal assistant has no old planning/task dashboard.
+  Errors stay in owned top-layer notices until resolved/dismissed; successful
+  recovery clears its own stale notice. New models default to 8192 output tokens,
+  while existing saved budgets and compatible v1 planning results remain valid.
+
 ## Delegation scope
 
 - The primary agent handles requirements clarification, planning, product/UX and

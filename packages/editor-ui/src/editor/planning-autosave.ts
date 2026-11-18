@@ -2,6 +2,7 @@ import type {
   PlanningContent,
   PlanningState,
   ManuscriptCommand,
+  OutlineNode,
   EditGroup,
 } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
@@ -39,6 +40,8 @@ export class PlanningAutosave {
   status: SaveStatus = "saved";
   error = "";
   composing = false;
+  recoveryText: string | null = null;
+  private conversionError = false;
   busy = false;
   private disposed = false;
   private generation = 0;
@@ -86,14 +89,34 @@ export class PlanningAutosave {
     save.planningAdapter = this.adapter;
   }
   identity() {
-    return contentKey(this.local);
+    return this.conversionError
+      ? JSON.stringify([contentKey(this.local), this.recoveryText])
+      : contentKey(this.local);
   }
   private notify() {
     if (!this.disposed) this.changed();
     this.save.settlementChanged();
   }
+  invalidate(rawText: string) {
+    if (this.disposed) return;
+    this.generation++;
+    this.conversionError = true;
+    this.recoveryText = rawText;
+    this.status = "pending";
+    this.error = "";
+    clearTimeout(this.idleTimer);
+    this.notify();
+    this.schedule();
+  }
   edit(content: PlanningContent, scope: string, discrete = false) {
     if (this.disposed) return;
+    if (this.conversionError) {
+      // Brief and evidence edits must never clear an invalid central outline.
+      this.local = content;
+      this.generation++;
+      this.notify();
+      return;
+    }
     if (["error", "conflict"].includes(this.status)) {
       this.local = content;
       this.generation++;
@@ -140,6 +163,19 @@ export class PlanningAutosave {
     this.notify();
     this.schedule();
   }
+  editOutline(nodes: OutlineNode[], discrete = false) {
+    if (this.conversionError) {
+      this.conversionError = false;
+      this.recoveryText = null;
+      this.error = "";
+      this.status = "pending";
+    }
+    this.edit(
+      { ...this.local, nodes },
+      discrete ? "outline-structure" : "outline",
+      discrete,
+    );
+  }
   composition(active: boolean) {
     if (active) this.capture();
     if (active) this.generation++;
@@ -167,7 +203,7 @@ export class PlanningAutosave {
     this.scope = "";
   }
   private capture(kind: "typing" | "discrete" = "typing") {
-    if (this.composing || this.disposed) return;
+    if (this.composing || this.disposed || this.conversionError) return;
     const previous = this.segments.at(-1)?.content ?? this.state.content;
     if (contentKey(previous) !== this.identity()) {
       const segment = {
@@ -205,9 +241,16 @@ export class PlanningAutosave {
   flush(close = true, retry = false): Promise<boolean> {
     const backgroundGeneration = close ? undefined : this.generation;
     if (this.discarding) return this.tail.then(() => this.flush(close, retry));
+    if (this.conversionError && !this.composing && !this.disposed) {
+      this.status = "error";
+      this.error = "OUTLINE_INVALID";
+      this.notify();
+      return Promise.resolve(false);
+    }
     if (
       this.composing ||
       this.disposed ||
+      this.conversionError ||
       this.status === "conflict" ||
       (!retry && this.status === "error")
     )
@@ -219,13 +262,14 @@ export class PlanningAutosave {
     }
     this.capture();
     return this.enqueue(async () => {
-      if (this.disposed || this.composing) return false;
+      if (this.disposed || this.composing || this.conversionError) return false;
       this.busy = true;
       this.notify();
       try {
         for (;;) {
           while (this.segments.length) {
-            if (this.composing || this.disposed) return false;
+            if (this.composing || this.disposed || this.conversionError)
+              return false;
             const segment = this.segments[0]!;
             const groupSequence =
               (this.sequences.get(segment.groupId) ?? 0) + 1;
@@ -344,7 +388,8 @@ export class PlanningAutosave {
             }
             this.open = null;
           }
-          if (this.composing || this.disposed) return false;
+          if (this.composing || this.disposed || this.conversionError)
+            return false;
           if (
             backgroundGeneration !== undefined &&
             backgroundGeneration !== this.generation
@@ -362,6 +407,10 @@ export class PlanningAutosave {
         this.status = "error";
         return false;
       } finally {
+        if (this.conversionError && this.status === "saving") {
+          this.status = "pending";
+          this.error = "";
+        }
         this.busy = false;
         this.notify();
       }
@@ -400,6 +449,15 @@ export class PlanningAutosave {
       version !== this.version
     )
       return;
+    if (this.conversionError) {
+      this.state = {
+        ...this.state,
+        tasks: current.tasks,
+        reserved: current.reserved,
+      };
+      this.notify();
+      return;
+    }
     const changed =
       contentKey(current.content) !== contentKey(this.state.content);
     if (this.status === "saved") {
@@ -480,6 +538,8 @@ export class PlanningAutosave {
       this.pendingReceiptAcknowledged = false;
       this.knownRejection = false;
       this.save.acknowledgeBusinessRejection(true);
+      this.conversionError = false;
+      this.recoveryText = null;
       this.error = "";
       this.status = "saved";
       this.notify();

@@ -9,21 +9,22 @@ import { Slice } from "@tiptap/pm/model";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
-import { useErrorNotification } from "../NotificationPresenter";
+import { useNoticeOwner } from "../NotificationPresenter";
 import { Review } from "./Review";
+import { OutlineEditor } from "./OutlineEditor";
+import { usePlanningSession, type WritingView } from "./use-planning-session";
+import { PlanningDialogs } from "./PlanningDialogs";
+import { outlineSource } from "./outline-codec";
 import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 import { SaveStatus } from "./SaveStatus";
+import { WorkspaceSkeleton } from "./WorkspaceSkeleton";
 import { parseMarkdown, serializeMarkdown } from "./markdown";
 import { MarkdownLink } from "./markdown-link";
 import { WorkspaceIcon } from "../WorkspaceIcon";
 import { Locks } from "./Locks";
 import { ContentProtection, contentProtectionKey } from "./content-protection";
 import { ReviewDecorations } from "./review-decorations";
-import {
-  Planning,
-  GeneratedDraftEvidence,
-  type PlanningFeedback,
-} from "./Planning";
+import { Planning, type PlanningFeedback } from "./Planning";
 import { Exports } from "./Exports";
 import { Sources, ImportDialog } from "./Sources";
 import type { PlanningEvidenceBridge } from "./evidence";
@@ -49,44 +50,43 @@ export function Manuscript({
     document: ManuscriptState;
     history: HistoryState;
   } | null>(null);
-  const load = async () => {
-    const document = await client.readManuscript();
-    const history = await client.readHistory();
-    if (document.workingRevision !== history.workingRevision)
-      throw Error("REVISION_CONFLICT");
-    return { document, history };
-  };
-  const [loadError, setLoadError] = useState(false);
-  useErrorNotification(loadError ? "error" : "");
+  const [attempt, setAttempt] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const { report, resolve } = useNoticeOwner();
   useEffect(() => {
     let active = true;
-    void load().then(
-      (s) => {
-        if (active) setInitial(s);
-      },
-      () => {
-        if (active) setLoadError(true);
-      },
-    );
+    setLoading(true);
+    resolve("manuscript-load");
+    const load = async () => {
+      const document = await client.readManuscript();
+      const history = await client.readHistory();
+      if (document.workingRevision !== history.workingRevision)
+        throw Error("REVISION_CONFLICT");
+      return { document, history };
+    };
+    void load()
+      .then(
+        (state) => {
+          if (active) setInitial(state);
+        },
+        (failure: unknown) => {
+          if (active)
+            report(failure, {
+              identity: "manuscript-load",
+              actions: [
+                { kind: "retry", run: () => setAttempt((value) => value + 1) },
+              ],
+            });
+        },
+      )
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [client, projectId]);
-  if (loadError)
-    return (
-      <p role="alert">
-        {t.error}
-        <button
-          onClick={() => {
-            setLoadError(false);
-            void load().then(setInitial, () => setLoadError(true));
-          }}
-        >
-          {t.retry}
-        </button>
-      </p>
-    );
-  if (!initial) return <p role="status">{t.connecting}</p>;
+  }, [client, projectId, attempt, report, resolve]);
+  if (!initial) return <WorkspaceSkeleton t={t} busy={loading} />;
   return (
     <Draft
       key={projectId}
@@ -145,7 +145,62 @@ function Draft({
         history,
       ),
   );
-  useErrorNotification(save.error);
+  const [view, setView] = useState<WritingView>(() => {
+    try {
+      return localStorage.getItem(`scenesparrow.writing-view:${projectId}`) ===
+        "outline"
+        ? "outline"
+        : "manuscript";
+    } catch {
+      return "manuscript";
+    }
+  });
+  const selectView = (next: WritingView) => {
+    setView(next);
+    try {
+      localStorage.setItem(`scenesparrow.writing-view:${projectId}`, next);
+    } catch {
+      /* Optional UI metadata. */
+    }
+  };
+  const session = usePlanningSession(client, save, projectId, selectView);
+  const pendingView = useRef<WritingView | null>(null);
+  const switchView = async (next: WritingView) => {
+    pendingView.current = next;
+    if (save.composing || session.planning?.composing) return;
+    await save.prepareInput();
+    if (pendingView.current !== next || save.composing) return;
+    pendingView.current = null;
+    selectView(next);
+  };
+  useEffect(() => {
+    if (!save.composing && !session.planning?.composing && pendingView.current)
+      void switchView(pendingView.current);
+  }, [save.composing, session.planning?.composing]);
+  const openReviewForNotice = useRef(() => pane.open("review"));
+  openReviewForNotice.current = () => {
+    void switchView("manuscript");
+    if (save.revealReviewDraft) save.revealReviewDraft();
+    else pane.open("review");
+  };
+  const { report: reportOperation, resolve: resolveOperation } =
+    useNoticeOwner();
+  useEffect(() => {
+    if (save.operationError)
+      reportOperation(save.operationError.code, {
+        identity: "operation",
+        actions:
+          save.operationError.code === "UNSENT_REVIEW"
+            ? [
+                {
+                  kind: "reviewChanges",
+                  run: () => openReviewForNotice.current(),
+                },
+              ]
+            : [],
+      });
+    else resolveOperation("operation");
+  }, [save.operationError, reportOperation, resolveOperation]);
   const forwardingKey = useRef(false);
   const liveEditor = useRef<Editor | null>(null);
   const documentMenu = useRef<HTMLDetailsElement>(null);
@@ -415,6 +470,7 @@ function Draft({
     ),
   );
   liveEditor.current = editor;
+
   useEffect(() => {
     if (editor && save.state.workspaceStage === "outline") {
       // Empty Outline projects have no locks; Draft still loads its lock projection.
@@ -437,8 +493,11 @@ function Draft({
   useEffect(() => {
     if (save.canonicalVersion) applyCanonical();
   }, [editor, save.canonicalVersion]);
-  const historyAction = (type: "UndoProject" | "RedoProject") =>
-    save.navigate(type, applyCanonical);
+  const historyAction = async (type: "UndoProject" | "RedoProject") => {
+    const ok = await save.navigate(type, applyCanonical);
+    if (ok) await session.planning?.refresh();
+    return ok;
+  };
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -473,6 +532,12 @@ function Draft({
   const closeDecision = useRef<((allowed: boolean) => void) | null>(null);
   const [closing, setClosing] = useState(false);
   const [frozen, setFrozen] = useState(false);
+  useEffect(() => {
+    editor?.setEditable(
+      protectionReady && !frozen && !session.planning?.state.reserved,
+      false,
+    );
+  }, [editor, protectionReady, frozen, session.planning?.state.reserved]);
   const freezeContainer = useRef<HTMLFieldSetElement | null>(null);
   const freeze = (value: boolean) => {
     if (freezeContainer.current) {
@@ -569,11 +634,33 @@ function Draft({
                 ? t.historyImport
                 : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
+  const outlineHeadings = session.planning?.local.nodes ?? [];
+  const assistantPlanning = (
+    <Planning
+      session={session}
+      save={save}
+      t={t}
+      view={view}
+      onStatus={setPlanningFeedback}
+      onEvidence={setEvidence}
+      openLibrary={() => pane.open("sources")}
+    />
+  );
   const openSource = () => {
     // Read the visible local editor, including pending/IME input. Viewing source
     // does not call a core command, flush, or replace the mounted editor.
     let current: string;
     setSourceRecovery(false);
+    if (view === "outline" && session.planning) {
+      setSource(
+        session.planning.recoveryText ??
+          outlineSource(session.planning.local.nodes),
+      );
+      sourceVisible.current = true;
+      if (documentMenu.current) documentMenu.current.open = false;
+      sourceDialog.current?.showModal();
+      return;
+    }
     try {
       current = serializeMarkdown(
         editor
@@ -612,10 +699,60 @@ function Draft({
         <WorkspacePane
           pane={pane}
           t={t}
+          rightContent={
+            <Review
+              client={client}
+              save={save}
+              editor={editor}
+              projectId={projectId}
+              t={t}
+              onOpen={(panel = "comments") =>
+                pane.open(panel === "assistant" ? "planning" : "review")
+              }
+              visible={
+                pane.visible("right") &&
+                pane.right.tab === "review" &&
+                view === "manuscript"
+              }
+              centralView={view}
+              bodyInteractive={
+                view === "manuscript" && (!pane.narrow || pane.drawer === null)
+              }
+              tab={pane.right.tab === "review" ? "comments" : "assistant"}
+              assistant={assistantPlanning}
+              openLibrary={() => pane.open("sources")}
+              evidence={evidence}
+            />
+          }
           panels={{
             structure: (
               <nav aria-label={t.headings}>
-                {headings.length ? (
+                {view === "outline" ? (
+                  outlineHeadings.length ? (
+                    outlineHeadings.map((node) => (
+                      <button
+                        key={node.id}
+                        style={{
+                          paddingInlineStart: `${(node.depth + 1) * 8}px`,
+                        }}
+                        onClick={() =>
+                          document
+                            .querySelector(
+                              `.outline-editor [data-outlineid="${node.id}"]`,
+                            )
+                            ?.scrollIntoView({
+                              block: "center",
+                              behavior: "smooth",
+                            })
+                        }
+                      >
+                        {node.title || t.heading}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="muted">{t.noHeadings}</p>
+                  )
+                ) : headings.length ? (
                   headings.map((b) => (
                     <button
                       key={b.id}
@@ -639,41 +776,8 @@ function Draft({
                 )}
               </nav>
             ),
-            planning: (
-              <>
-                <Planning
-                  onStatus={setPlanningFeedback}
-                  onEvidence={setEvidence}
-                  openLibrary={() => pane.open("sources")}
-                  openReview={() => pane.open("review")}
-                  client={client}
-                  save={save}
-                  projectId={projectId}
-                  t={t}
-                />
-                {save.state.workspaceStage === "draft" && (
-                  <GeneratedDraftEvidence
-                    client={client}
-                    blockIds={save.state.blocks.map((b) => b.id)}
-                    t={t}
-                  />
-                )}
-              </>
-            ),
-            review:
-              save.state.workspaceStage === "draft" ? (
-                <Review
-                  client={client}
-                  save={save}
-                  editor={editor}
-                  projectId={projectId}
-                  t={t}
-                  onOpen={() => pane.open("review")}
-                  visible={pane.visible("right") && pane.right.tab === "review"}
-                />
-              ) : (
-                <p className="muted">{t.workspaceReviewEmpty}</p>
-              ),
+            planning: null,
+            review: null,
             sources: (
               <Sources
                 evidence={evidence}
@@ -686,31 +790,60 @@ function Draft({
           }}
         >
           <div className="manuscript-header">
+            <div
+              className="writing-view-switch"
+              role="group"
+              aria-label={t.writingView}
+            >
+              {(["manuscript", "outline"] as const).map((next) => (
+                <button
+                  key={next}
+                  aria-pressed={view === next}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => void switchView(next)}
+                >
+                  {next === "outline" ? t.writingOutline : t.manuscript}
+                </button>
+              ))}
+            </div>
             <div className="manuscript-context">
               <h3
                 data-testid="manuscript-title"
                 title={
-                  headings[0]?.runs.map((run) => run.text).join("") ||
-                  t.manuscript
+                  (view === "outline"
+                    ? outlineHeadings[0]?.title
+                    : headings[0]?.runs.map((run) => run.text).join("")) ||
+                  (view === "outline" ? t.writingOutline : t.manuscript)
                 }
               >
-                {headings[0]?.runs.map((run) => run.text).join("") ||
-                  t.manuscript}
+                {(view === "outline"
+                  ? outlineHeadings[0]?.title
+                  : headings[0]?.runs.map((run) => run.text).join("")) ||
+                  (view === "outline" ? t.writingOutline : t.manuscript)}
               </h3>
               <SaveStatus
                 save={save}
                 planning={planningFeedback}
-                openPlanning={() => pane.open("planning")}
+                openPlanning={() => session.setRecovery(true)}
                 t={t}
                 recover={() => setRecovery(true)}
               />
-              {save.state.workspaceStage === "draft" && (
-                <span className="approval-status" data-testid="approval-status">
-                  {approvedBaseline !== null ? t.finalized : t.notApproved}
-                </span>
-              )}
+              {view === "manuscript" &&
+                save.state.workspaceStage === "draft" && (
+                  <span
+                    className="approval-status"
+                    data-testid="approval-status"
+                  >
+                    {approvedBaseline !== null ? t.finalized : t.notApproved}
+                  </span>
+                )}
             </div>
-            <div ref={setLockHeader} className="lock-header-target" />
+            <div
+              ref={setLockHeader}
+              className="lock-header-target"
+              hidden={view !== "manuscript"}
+              inert={view !== "manuscript"}
+            />
             <details className="document-menu" ref={documentMenu}>
               <summary
                 aria-label={t.documentMenu}
@@ -776,7 +909,23 @@ function Draft({
               </div>
             </details>
           </div>
-          <div className="document-layout">
+          <div hidden={view !== "outline"} inert={view !== "outline"}>
+            {session.planning ? (
+              <OutlineEditor
+                planning={session.planning}
+                t={t}
+                history={historyAction}
+                frozen={frozen}
+              />
+            ) : (
+              <p role="status">{t.planningLoading}</p>
+            )}
+          </div>
+          <div
+            className="document-layout"
+            hidden={view !== "manuscript"}
+            inert={view !== "manuscript"}
+          >
             <EditorContent editor={editor} />
             {save.state.workspaceStage === "draft" && (
               <Locks
@@ -800,17 +949,8 @@ function Draft({
             close={() => setImportOpen(false)}
           />
         )}
-        {save.operationError && (
-          <p role="status">
-            {save.operationError.code === "UNSENT_REVIEW"
-              ? t.reviewUnsent
-              : t.historyBlocked}{" "}
-            <code>
-              {save.operationError.details?.reason ?? save.operationError.code}
-            </code>
-          </p>
-        )}
       </fieldset>
+      <PlanningDialogs session={session} t={t} />
       <dialog
         ref={sourceDialog}
         className="markdown-source-dialog"

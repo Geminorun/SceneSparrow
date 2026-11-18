@@ -107,11 +107,13 @@ export function WorkspacePane({
   t,
   children,
   panels,
+  rightContent,
 }: {
   pane: ReturnType<typeof useAuxiliaryPane>;
   t: typeof en;
   children: ReactNode;
   panels: Record<AuxiliaryTab, ReactNode>;
+  rightContent?: ReactNode;
 }) {
   const buttons = useRef<
     Partial<Record<AuxiliaryTab, HTMLButtonElement | null>>
@@ -247,18 +249,21 @@ export function WorkspacePane({
             <WorkspaceIcon name="close" />
           </button>
         </div>
-        {tabs.map((tab) => (
-          <section
-            className="auxiliary-content"
-            key={tab}
-            id={`auxiliary-${tab}`}
-            role="tabpanel"
-            aria-labelledby={`auxiliary-tab-${tab}`}
-            hidden={selected !== tab}
-          >
-            {panels[tab]}
-          </section>
-        ))}
+        {side === "right" && rightContent
+          ? rightContent
+          : tabs.map((tab) => (
+              <section
+                className="auxiliary-content"
+                key={tab}
+                id={`auxiliary-${tab}`}
+                role="tabpanel"
+                aria-labelledby={`auxiliary-tab-${tab}`}
+                hidden={selected !== tab}
+                inert={selected !== tab}
+              >
+                {panels[tab]}
+              </section>
+            ))}
       </aside>
     );
   };

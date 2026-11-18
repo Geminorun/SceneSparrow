@@ -332,7 +332,7 @@ test("auth/rate/parameter/model/server failures count one request with safe erro
     }
   }
   for (const [body, code] of [
-    [completion("partial", "length"), "OUTPUT_TRUNCATED"],
+    [completion("partial", "length"), "OUTPUT_TOKEN_LIMIT"],
     [completion("", "stop", { refusal: "private reason" }), "PROVIDER_REFUSED"],
     [
       completion("ok", "tool_calls", {
@@ -350,6 +350,68 @@ test("auth/rate/parameter/model/server failures count one request with safe erro
     const ep = await endpoint((_q, res) => json(res, body));
     try {
       await fails(fixture(ep.root), code);
+      assert.equal(ep.calls, 1);
+    } finally {
+      await ep.close();
+    }
+  }
+});
+
+test("token and application byte limits stay distinct for streamed and complete responses without retry", async () => {
+  for (const stream of [false, true]) {
+    for (const [text, finish, maxBytes, code] of [
+      ["partial", "length", 64, "OUTPUT_TOKEN_LIMIT"],
+      ["中文", "stop", 5, "OUTPUT_SIZE_LIMIT"],
+    ]) {
+      const ep = await endpoint((_q, res) => {
+        if (!stream) return json(res, completion(text, finish));
+        res.setHeader("content-type", "text/event-stream");
+        res.end(
+          `data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: finish }] })}\n\ndata: [DONE]\n\n`,
+        );
+      });
+      try {
+        const r = fixture(ep.root);
+        r.configuration.stream = stream;
+        r.configuration.model.capabilities.streaming.state = "supported";
+        r.input.outputSpec.maxBytes = maxBytes;
+        const result = await worker(r);
+        assert.equal(result.events.at(-1).code, code);
+        assert.equal(
+          result.events.some((event) => event.type === "completed"),
+          false,
+        );
+        assert.equal(
+          result.events.some((event) => event.type === "output_chunk"),
+          false,
+        );
+        assert.equal(ep.calls, 1);
+      } finally {
+        await ep.close();
+      }
+    }
+  }
+});
+
+test("transport byte limit survives SDK connection wrapping for generation and discovery", async () => {
+  for (const operation of ["generate", "discovery"]) {
+    const ep = await endpoint((_q, res) => {
+      res.setHeader("content-type", "application/json");
+      // One extra byte crosses the transport bound independently of output content.
+      res.end(" ".repeat(32 * 1024 * 1024 + 1));
+    });
+    try {
+      const r = fixture(ep.root);
+      r.configuration.policy.overallMs = 10000;
+      r.configuration.policy.idleMs = 10000;
+      await assert.rejects(
+        operation === "generate"
+          ? generate(r)
+          : discoverModels(r.configuration, null, r.signal),
+        (error) =>
+          error.code === "OUTPUT_SIZE_LIMIT" &&
+          error.message === "OUTPUT_SIZE_LIMIT",
+      );
       assert.equal(ep.calls, 1);
     } finally {
       await ep.close();

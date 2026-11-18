@@ -38,10 +38,10 @@ test("default ten-second policy resists selection, panel and idle paths; General
   });
   await openWorkbench(page, { defaultSavePolicy: true });
   const node = await editor(page).elementHandle();
+  await openPanel(page, "Planning");
+  await page.getByLabel("Your idea", { exact: true }).fill("Pending plan");
   await editor(page).fill("Pending visible manuscript");
   await editor(page).press("Home");
-  await openPanel(page, "Planning");
-  await page.getByLabel("Topic", { exact: true }).fill("Pending plan");
   await general(page);
   await expect(
     page.getByRole("combobox", { name: "Autosave", exact: true }),
@@ -122,9 +122,8 @@ test("off mode preserves native field undo, defers manual save during IME and fl
     .getByRole("combobox", { name: "Autosave", exact: true })
     .selectOption("off");
   await close(page);
-  await editor(page).fill("Local body");
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   await topic.fill("Plan");
   await topic.press("End");
   await topic.pressSequentially(" change");
@@ -139,9 +138,22 @@ test("off mode preserves native field undo, defers manual save during IME and fl
   expect((await core.request("/planning")).content.brief.topic).toBe(
     "Plan 中文",
   );
+  await editor(page).fill("Local body");
+  await editor(page).dispatchEvent("compositionstart", { data: "中" });
+  await editor(page).press("ControlOrMeta+s");
+  expect((await core.request("/manuscript")).blocks).toHaveLength(0);
+  await editor(page).dispatchEvent("compositionend", { data: "中" });
+  await settle(page);
   expect((await core.request("/manuscript")).blocks[0].runs[0].text).toBe(
     "Local body",
   );
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
+  await expect(
+    page.getByRole("textbox", { name: "Outline", exact: true }),
+  ).toBeVisible();
   await topic.fill("Still local");
   await general(page);
   await page
@@ -166,11 +178,11 @@ test("window-change policy ignores field and panel blur, saves on window blur; p
     .getByRole("combobox", { name: "Autosave", exact: true })
     .selectOption("on_window_change");
   await close(page);
-  await editor(page).fill("Unsent body");
   const node = await editor(page).elementHandle();
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   await topic.fill("Unsent plan");
+  await editor(page).fill("Unsent body");
   await page.locator(".project-menu > summary").click();
   await page
     .getByRole("button", { name: "Project settings", exact: true })
@@ -179,6 +191,9 @@ test("window-change policy ignores field and panel blur, saves on window blur; p
     .getByLabel("Project name", { exact: true })
     .fill("Project preferences 中文");
   await page.getByRole("button", { name: "Save name", exact: true }).click();
+  await expect(page.getByTestId("project-title")).toHaveText(
+    "Project preferences 中文",
+  );
   await page.clock.fastForward(120000);
   expect((await core.request("/manuscript")).blocks).toHaveLength(0);
   expect((await core.request("/planning")).content.brief.topic).toBe("");
@@ -230,8 +245,12 @@ test("many off-mode body and planning operations retain the latest five persiste
     await editor(page).press("ControlOrMeta+Shift+z");
     await expect(editor(page)).toHaveText(`Operation ${15 + n}`);
   }
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   for (let n = 0; n < 20; n++) {
     await topic.fill(`Plan ${n}`);
     await page.getByLabel("Manuscript language", { exact: true }).focus();

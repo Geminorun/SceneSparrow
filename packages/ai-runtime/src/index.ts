@@ -97,7 +97,7 @@ export function transport(
           count += item.value.byteLength;
           if (count > 32 * 1024 * 1024) {
             await reader.cancel();
-            controller.error(new AiFailure("OUTPUT_TRUNCATED"));
+            controller.error(new AiFailure("OUTPUT_SIZE_LIMIT"));
             return;
           }
           controller.enqueue(item.value);
@@ -289,7 +289,7 @@ function validateOutput(
 ) {
   check(
     encoder.encode(output).byteLength <= input.outputSpec.maxBytes,
-    "OUTPUT_TRUNCATED",
+    "OUTPUT_SIZE_LIMIT",
   );
   check(
     output.trim().length > 0 &&
@@ -544,7 +544,7 @@ export async function generate(
       "INVALID_OUTPUT",
     );
     length += encoder.encode(complete).byteLength;
-    check(length <= input.outputSpec.maxBytes, "OUTPUT_TRUNCATED");
+    check(length <= input.outputSpec.maxBytes, "OUTPUT_SIZE_LIMIT");
     safePreview += complete;
     let boundary = Math.max(
       0,
@@ -636,7 +636,7 @@ export async function generate(
     }
     check(
       finish === "stop",
-      finish === "length" ? "OUTPUT_TRUNCATED" : "INVALID_OUTPUT",
+      finish === "length" ? "OUTPUT_TOKEN_LIMIT" : "INVALID_OUTPUT",
     );
     validateOutput(output, input, validator);
     check(

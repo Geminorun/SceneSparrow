@@ -1,5 +1,10 @@
 # Reference and creation workspace
 
+Presentation follow-up: [central writing workspace](writing-workspace.md)
+supersedes the right-side creation form, task/error dashboard and view-specific
+heading navigation below. The reference intake/consent and platform rules remain.
+See [current implementation evidence](../validation/writing-workspace.md).
+
 Status: implementation scope approved on 2026-11-17. This document supersedes
 the four-tab auxiliary layout and project-tab chrome in `editor-workspace.md`.
 

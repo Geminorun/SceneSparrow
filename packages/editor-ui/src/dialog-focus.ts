@@ -13,6 +13,8 @@ export function trapDialogFocus(event: TabEvent, dialog: HTMLDialogElement) {
     if (
       element.closest("dialog") !== dialog ||
       element.matches(":disabled") ||
+      element.tabIndex < 0 ||
+      element.closest("[inert], [hidden]") ||
       !element.getClientRects().length
     )
       return false;

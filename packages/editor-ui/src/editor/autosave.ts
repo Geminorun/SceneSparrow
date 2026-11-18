@@ -15,6 +15,16 @@ export type SaveStatus = "saved" | "pending" | "saving" | "error" | "conflict";
 class UncertainCommit extends Error {}
 export class Autosave {
   reviewDirty: (() => boolean) | undefined;
+  revealReviewDraft: (() => void) | undefined;
+  reviewInputChanged() {
+    if (
+      this.operationError?.code === "UNSENT_REVIEW" &&
+      !this.reviewDirty?.()
+    ) {
+      this.operationError = null;
+      this.notify();
+    }
+  }
   planningAdapter?: {
     flush: (retry?: boolean) => Promise<boolean>;
     identity: () => string;
@@ -350,6 +360,7 @@ export class Autosave {
   cancelReviewCommand(command: ManuscriptCommand) {
     if (
       (command.type !== "CancelReviewTask" &&
+        command.type !== "CancelPlanningTask" &&
         !(command.type === "SetUserLocks" && !command.payload.locked)) ||
       this.disposed ||
       this.controlPending ||

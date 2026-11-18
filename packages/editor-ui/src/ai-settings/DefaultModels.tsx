@@ -57,11 +57,7 @@ export function DefaultModels({
         </select>
       </label>
       <p>{t.aiFutureTasks}</p>
-      <OperationStatus
-        operation={c.operations.defaults}
-        t={t}
-        onReload={() => void c.load()}
-      />
+      <OperationStatus operation={c.operations.defaults} t={t} />
     </section>
   );
 }

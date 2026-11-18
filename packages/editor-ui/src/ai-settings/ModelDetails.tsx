@@ -1,4 +1,5 @@
 import type { AiEvidence, AiModel } from "@scenesparrow/contracts";
+import { useId } from "react";
 import type en from "../locales/en.json";
 import {
   bindText,
@@ -22,6 +23,7 @@ export function ModelDetails({
   t: typeof en;
   providerDirty: boolean;
 }) {
+  const tokensHintId = useId();
   const settings = c.view!.settings;
   const id = modelKey(model.providerId, model.id);
   const saved = {
@@ -57,7 +59,6 @@ export function ModelDetails({
   const testBusy = c.operations[`test:${id}`]?.busy;
   return (
     <article className="ai-model-row">
-      {c.conflicts[id] && <p role="alert">{t.aiRemoteDraftConflict}</p>}
       <div className="ai-model-heading">
         <span>
           <strong>{model.label || model.id}</strong>
@@ -119,11 +120,7 @@ export function ModelDetails({
             </button>
           )}
         </div>
-        <OperationStatus
-          operation={c.operations[`test:${id}`]}
-          t={t}
-          onReload={() => void c.load()}
-        />
+        <OperationStatus operation={c.operations[`test:${id}`]} t={t} />
         {validTest?.receipt && (
           <>
             <p>
@@ -134,7 +131,7 @@ export function ModelDetails({
             <p role="status">
               {validTest.receipt.status === "succeeded"
                 ? t.aiTestSuccess
-                : (t[validTest.receipt.error as keyof typeof en] ?? t.AI_ERROR)}
+                : t.aiTestFailed}
             </p>
           </>
         )}
@@ -213,6 +210,8 @@ export function ModelDetails({
             <label>
               {t.aiTokens}
               <input
+                aria-label={t.aiTokens}
+                aria-describedby={tokensHintId}
                 type="number"
                 min={16}
                 max={draft.outputTokens ?? 1000000}
@@ -226,6 +225,7 @@ export function ModelDetails({
                   })
                 }
               />
+              <small id={tokensHintId}>{t.aiTokensHint}</small>
             </label>
             <label>
               {t.aiTokenField}
@@ -333,11 +333,7 @@ export function ModelDetails({
         </button>
         {anyBound && <p>{t.aiBoundRemoval}</p>}
       </details>
-      <OperationStatus
-        operation={c.operations[`model:${id}`]}
-        t={t}
-        onReload={() => void c.load()}
-      />
+      <OperationStatus operation={c.operations[`model:${id}`]} t={t} />
     </article>
   );
 }

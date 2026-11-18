@@ -117,5 +117,78 @@ test("manual Unicode IDs remain exact while labels respect the core UTF-8 budget
   assert.equal(validModelId("model\ncontrol"), false);
   assert.equal(validModelId(" "), false);
   assert.equal(model.capabilities.images.state, "unknown");
-  assert.deepEqual(model.defaultParameters, parameters(4096));
+  assert.deepEqual(model.defaultParameters, parameters(8192));
+});
+
+test("new output allowances clamp only to explicit limits while saved and legacy budgets stay intact", () => {
+  const s = settings();
+  for (const [contextTokens, outputTokens, expected] of [
+    [null, null, 8192],
+    [32768, 4096, 4096],
+    [2048, 16384, 2048],
+    [32768, 16384, 8192],
+  ]) {
+    const model = newModel("p", "any-name", { contextTokens, outputTokens });
+    assert.equal(model.defaultParameters.maxOutputTokens, expected);
+    assert.equal(model.capabilities.nativeJson.state, "unknown");
+    assert.equal(model.capabilities.streaming.state, "unknown");
+  }
+  const saved = newModel("p", "saved");
+  saved.defaultParameters = parameters(4096);
+  s.models = [saved];
+  bindText(s, saved);
+  assert.deepEqual(modelParameters(s, saved), parameters(4096));
+  assert.deepEqual(s.bindings[0].parameters, parameters(4096));
+  delete saved.defaultParameters;
+  s.bindings = [];
+  assert.deepEqual(modelParameters(s, saved), parameters(4096));
+  s.bindings.push({
+    category: "audio",
+    providerId: "p",
+    modelId: "saved",
+    parameters: parameters(128),
+  });
+  assert.deepEqual(modelParameters(s, saved), parameters(128));
+  assert.equal(saved.defaultParameters, undefined);
+});
+
+test("secret entry is masked on first render, with secure password fallback and explicit reveal", async () => {
+  const { supportsSecretMask, SecretEntry } =
+    await import("../../packages/editor-ui/src/ai-settings/SecretEntry.tsx");
+  const { createRequire } = await import("node:module");
+  const require = createRequire(
+    new URL("../../packages/editor-ui/package.json", import.meta.url),
+  );
+  const { createElement } = require("react"),
+    { renderToStaticMarkup } = require("react-dom/server");
+  const t = require("./src/locales/en.json");
+  assert.equal(supportsSecretMask(undefined), false);
+  assert.equal(supportsSecretMask({ supports: () => false }), false);
+  assert.equal(supportsSecretMask({ supports: () => true }), true);
+  const original = globalThis.CSS;
+  const render = (revealed = false) =>
+    renderToStaticMarkup(
+      createElement(SecretEntry, {
+        id: "uuid",
+        value: "SYNTHETIC",
+        revealed,
+        onChange() {},
+        onReveal() {},
+        t,
+      }),
+    );
+  try {
+    globalThis.CSS = { supports: () => false };
+    assert.match(render(), /type="password"/);
+    globalThis.CSS = { supports: () => true };
+    const masked = render();
+    assert.match(masked, /type="text"/);
+    assert.match(masked, /-webkit-text-security:disc/);
+    assert.match(masked, /autoComplete="off"/);
+    assert.match(masked, /name="scenesparrow-api-token-uuid"/);
+    assert.doesNotMatch(masked, /new-password/);
+    assert.match(render(true), /-webkit-text-security:none/);
+  } finally {
+    globalThis.CSS = original;
+  }
 });

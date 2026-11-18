@@ -79,7 +79,6 @@ export function ReviewEvidence({
           />
         </article>
       ))}
-      {error && <p role="status">{t.error}</p>}
     </details>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type en from "./locales/en.json";
 import {
@@ -10,7 +10,6 @@ import { useAiSettings } from "./ai-settings/useAiSettings";
 import { DefaultModels } from "./ai-settings/DefaultModels";
 import { ServiceDetails } from "./ai-settings/ServiceDetails";
 import { OperationStatus } from "./ai-settings/OperationStatus";
-import { SettingsModal } from "./ai-settings/SettingsModal";
 
 export function AiSettings({
   client,
@@ -28,10 +27,6 @@ export function AiSettings({
   const c = useAiSettings(client, open, active);
   const [selection, setSelection] = useState("openai");
   const [detail, setDetail] = useState(false);
-  const [manage, setManage] = useState(false);
-  useEffect(() => {
-    if (!open) setManage(false);
-  }, [open]);
   const settings = c.view?.settings;
   const preset = servicePresets.find((preset) => preset.id === selection);
   const provider =
@@ -41,14 +36,7 @@ export function AiSettings({
       : settings.providers.find((provider) => provider.id === selection));
   return (
     <div className="ai-settings" hidden={!active}>
-      <OperationStatus
-        operation={c.operations.load}
-        t={t}
-        onReload={() => void c.load()}
-      />
-      {c.operations.load?.error && (
-        <button onClick={() => void c.load()}>{t.aiReload}</button>
-      )}
+      <OperationStatus operation={c.operations.load} t={t} />
       {!settings ? (
         <p>{t.aiSettingsLoading}</p>
       ) : section === "defaults" ? (
@@ -83,18 +71,32 @@ export function AiSettings({
                 </button>
               );
             })}
-            {provider && !preset && (
-              <button aria-current="page" onClick={() => setDetail(true)}>
-                {provider.label}
-                <small>{t.aiSavedConfiguration}</small>
-              </button>
-            )}
-            <button
-              className="quiet-button ai-manage"
-              onClick={() => setManage(true)}
-            >
-              {t.aiManageConfigurations}
-            </button>
+            {settings.providers
+              .filter(
+                (profile) =>
+                  !servicePresets.some(
+                    (service) =>
+                      presetProvider(settings, service.id)?.id === profile.id,
+                  ),
+              )
+              .map((profile) => (
+                <button
+                  key={profile.id}
+                  aria-current={selection === profile.id ? "page" : undefined}
+                  onClick={() => {
+                    setSelection(profile.id);
+                    setDetail(true);
+                  }}
+                >
+                  <span className="ai-service-mark" aria-hidden="true">
+                    {profile.label[0]}
+                  </span>
+                  <span>
+                    {profile.label}
+                    <small>{t.aiSavedConfiguration}</small>
+                  </span>
+                </button>
+              ))}
           </nav>
           <ServiceDetails
             open={open}
@@ -104,58 +106,33 @@ export function AiSettings({
             controller={c}
             t={t}
             onBack={() => setDetail(false)}
+            assignments={
+              provider && (
+                <details className="ai-service-assignment">
+                  <summary>{t.aiServiceAssignment}</summary>
+                  <div className="ai-inline-actions">
+                    {servicePresets.map((service) => (
+                      <button
+                        key={service.id}
+                        disabled={
+                          provider.servicePreset === service.id ||
+                          c.operations[`assign:${provider.id}`]?.busy
+                        }
+                        onClick={() =>
+                          void c.mutate(`assign:${provider.id}`, (settings) =>
+                            assignPreset(settings, provider.id, service.id),
+                          )
+                        }
+                      >
+                        {t.aiAssignService.replace("{service}", service.label)}
+                      </button>
+                    ))}
+                  </div>
+                </details>
+              )
+            }
           />
         </section>
-      )}
-      {manage && open && settings && (
-        <SettingsModal
-          title={t.aiManageConfigurations}
-          t={t}
-          onClose={() => setManage(false)}
-        >
-          <p>{t.aiLegacyHint}</p>
-          {settings.providers.length === 0 && (
-            <p>{t.aiNoSavedConfigurations}</p>
-          )}
-          {settings.providers.map((provider) => (
-            <article className="ai-saved-profile" key={provider.id}>
-              <strong>{provider.label}</strong>
-              <p>{provider.baseUrl}</p>
-              <div className="ai-inline-actions">
-                <button
-                  onClick={() => {
-                    setSelection(provider.id);
-                    setDetail(true);
-                    setManage(false);
-                  }}
-                >
-                  {t.aiOpenConfiguration}
-                </button>
-                {servicePresets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    disabled={
-                      provider.servicePreset === preset.id ||
-                      c.operations[`assign:${provider.id}`]?.busy
-                    }
-                    onClick={() =>
-                      void c.mutate(`assign:${provider.id}`, (settings) =>
-                        assignPreset(settings, provider.id, preset.id),
-                      )
-                    }
-                  >
-                    {t.aiAssignService.replace("{service}", preset.label)}
-                  </button>
-                ))}
-              </div>
-              <OperationStatus
-                operation={c.operations[`assign:${provider.id}`]}
-                t={t}
-                onReload={() => void c.load()}
-              />
-            </article>
-          ))}
-        </SettingsModal>
       )}
     </div>
   );

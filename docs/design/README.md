@@ -12,10 +12,18 @@ platform gaps. The [execution workflow](../implementation-execution.md) and link
 validation reports record actual scope and limits; remaining design prose is not
 proof of implementation or platform readiness.
 
-The feature branch is `feat/script-workbench`, created directly from remote
+The original feature branch was `feat/script-workbench`, created directly from remote
 `origin/main` at `ba71ffc48946dcf11c3401b4b7c67916009b288c` after bootstrap PR #1.
 
 ## Reading order
+
+The [central writing workspace](writing-workspace.md) is the current presentation
+follow-up. It supersedes the old right-side planning form and task dashboard:
+Outline/Manuscript live in the center, Contents follows the active view, and
+AI assistant/Comments lives on the right. It also refines startup, saved-service
+navigation, owned notice recovery and output-limit handling. Existing core commands,
+evidence consent, five-step history and locks remain; see
+[validation](../validation/writing-workspace.md).
 
 The [editor saving and AI feedback follow-up](editor-save-and-ai-feedback.md)
 defines the current application save preferences, local history boundaries,
@@ -29,8 +37,8 @@ model catalog, shared manuscript default and encrypted Web credentials. It
 supersedes earlier settings presentation and session-only Web storage statements;
 see [implementation validation](../validation/ai-model-services.md).
 
-The [reference and creation workspace](reference-workspace.md) is the latest
-approved layout follow-up: Contents/Library navigation on the left, a continuous
+The [reference and creation workspace](reference-workspace.md) records the earlier
+approved layout: Contents/Library navigation on the left, a continuous
 warm-gray manuscript, and Create/Review assistance on the right. It replaces the
 fake project tab and four-tab right panel described below. Directory intake and
 explicit reference selection remain separate from manuscript import. Planning

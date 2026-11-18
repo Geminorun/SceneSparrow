@@ -86,16 +86,18 @@ test("measures Linux manuscript fixtures with real browser input and core receip
       await page.evaluate(() => {
         const target = window as unknown as { typingSample: number | null };
         target.typingSample = null;
-        document.querySelector(".tiptap")!.addEventListener(
-          "keydown",
-          () => {
-            const start = performance.now();
-            requestAnimationFrame(() => {
-              target.typingSample = performance.now() - start;
-            });
-          },
-          { once: true, capture: true },
-        );
+        document
+          .querySelector('.document-layout [role="textbox"]')!
+          .addEventListener(
+            "keydown",
+            () => {
+              const start = performance.now();
+              requestAnimationFrame(() => {
+                target.typingSample = performance.now() - start;
+              });
+            },
+            { once: true, capture: true },
+          );
       });
       await page.keyboard.press("z");
       await page.waitForFunction(

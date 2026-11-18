@@ -1,5 +1,9 @@
 # S1 specification: manuscript editing foundation
 
+Current presentation: [central writing workspace](../design/writing-workspace.md)
+adds paired central views, an immediately editable manuscript and owned top-layer
+recovery. Core-owned blocks, history, save policy and mutation guards remain.
+
 Status: execution steps 1–3 implement manual editing, bounded project history,
 source intake/extraction and prepared manuscript import. See
 [step 1](../validation/step-01.md), [step 2](../validation/step-02.md) and

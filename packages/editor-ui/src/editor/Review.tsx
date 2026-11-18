@@ -1,9 +1,6 @@
 import { createPortal } from "react-dom";
-import {
-  useErrorNotification,
-  useTaskNotifications,
-} from "../NotificationPresenter";
-import { notifyFailure, errorMessage, safeErrorCode } from "../notifications";
+import { useNoticeOwner, useOpenSettings } from "../NotificationPresenter";
+import { notifyFailure } from "../notifications";
 import {
   useCallback,
   useEffect,
@@ -11,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import type { Editor } from "@tiptap/core";
 import type { PlatformClient } from "@scenesparrow/platform-client";
@@ -26,11 +24,15 @@ import {
   bindReviewSelection,
   canonicalPositions,
   captureReviewSelection,
+  captureWholeManuscript,
 } from "./review-selection";
 import { useReviewLayout } from "./review-layout";
 import { ReviewCommands } from "./review-commands";
 import { ReviewEvidence } from "./ReviewEvidence";
 import { ReviewConversation } from "./ReviewConversation";
+import type { PlanningEvidenceBridge } from "./evidence";
+import { useSavedAiView } from "../ai-settings/saved-view";
+import type { WritingView } from "./use-planning-session";
 import { reviewDecorationKey } from "./review-decorations";
 export function Review({
   client,
@@ -40,15 +42,42 @@ export function Review({
   t,
   onOpen,
   visible: panelVisible,
+  centralView,
+  bodyInteractive,
+  tab,
+  assistant,
+  openLibrary,
+  evidence: planningEvidence,
 }: {
   client: PlatformClient;
   save: Autosave;
   editor: Editor | null;
   projectId: string;
   t: typeof en;
-  onOpen: () => void;
+  onOpen: (panel?: "assistant" | "comments") => void;
   visible: boolean;
+  centralView: WritingView;
+  bodyInteractive: boolean;
+  tab: "assistant" | "comments";
+  assistant: ReactNode;
+  openLibrary: () => void;
+  evidence: PlanningEvidenceBridge | null;
 }) {
+  const assistantMode =
+    tab === "assistant" && centralView === "manuscript" && !!save.local.length;
+  const commentsMode =
+    tab === "comments" &&
+    centralView === "manuscript" &&
+    save.state.workspaceStage === "draft";
+  const explicitWhole = useRef(false);
+  const autoCaptureIdentity = useRef("");
+  const [scope, setScope] = useState<"selection" | "whole">("whole");
+  const { report, resolve } = useNoticeOwner();
+  const openSettings = useOpenSettings();
+  const cachedAi = useSavedAiView();
+  const model = cachedAi?.settings.bindings.find(
+    (binding) => binding.category === "text",
+  );
   const [cards, setCards] = useState<ReviewCard[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
     [text, setText] = useState(""),
@@ -57,9 +86,6 @@ export function Review({
       typeof captureReviewSelection
     > | null>(null),
     [error, setError] = useState(""),
-    [conflicts, setConflicts] = useState<
-      import("@scenesparrow/contracts").CandidateConflict[]
-    >([]),
     [busy, setBusy] = useState(false),
     [showAll, setShowAll] = useState(false),
     [editing, setEditing] = useState<ReviewThread | null>(null),
@@ -73,22 +99,15 @@ export function Review({
       top: number;
       left: number;
     } | null>(null);
-  useErrorNotification(error);
+  useEffect(() => {
+    if (error)
+      report(error, {
+        identity: "review-action",
+        actions: [{ kind: "reviewChanges", run: onOpen }],
+      });
+    else resolve("review-action");
+  }, [error, report, resolve, onOpen]);
   const [loaded, setLoaded] = useState(false);
-  useTaskNotifications(
-    cards.flatMap((card) =>
-      card.task
-        ? [
-            {
-              id: card.task.run.runId,
-              status: card.task.error ? "failed" : card.task.run.status,
-              error: card.task.error ?? card.task.run.error,
-            },
-          ]
-        : [],
-    ),
-    !loaded,
-  );
   const floating = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (!selectionToolbar || !floating.current) return;
@@ -111,13 +130,24 @@ export function Review({
     composing = useRef(false),
     composerIntent = useRef(0);
   input.current = text;
+  const draftPanel = useRef<"assistant" | "comments">("comments");
+  const openDraftPanel = useRef(onOpen);
+  openDraftPanel.current = onOpen;
+  if (text.trim() && (assistantMode || (commentsMode && capture)))
+    draftPanel.current = assistantMode ? "assistant" : "comments";
   useEffect(() => {
     const dirty = () => !!input.current.trim() || composing.current;
+    const reveal = () => openDraftPanel.current(draftPanel.current);
     save.reviewDirty = dirty;
+    save.revealReviewDraft = reveal;
     return () => {
       if (save.reviewDirty === dirty) save.reviewDirty = undefined;
+      if (save.revealReviewDraft === reveal) save.revealReviewDraft = undefined;
     };
   }, [save]);
+  useEffect(() => {
+    save.reviewInputChanged();
+  }, [save, text]);
   const refresh = useCallback(async () => {
     const n = ++generation.current;
     try {
@@ -156,6 +186,11 @@ export function Review({
       stop();
     };
   }, [client, refresh]);
+  useEffect(() => {
+    if (!cards.some((card) => card.task?.application === "pending")) return;
+    const timer = setInterval(() => void refresh(), 1000);
+    return () => clearInterval(timer);
+  }, [cards, refresh]);
   useEffect(() => {
     if (!editor) return;
     const update = () => {
@@ -217,11 +252,26 @@ export function Review({
   useEffect(() => {
     if (!editor) return;
     const changed = () => {
-      if (save.composing || editor.state.selection.empty) {
+      if (
+        centralView !== "manuscript" ||
+        !bodyInteractive ||
+        save.composing ||
+        editor.state.selection.empty
+      ) {
         setSelectionToolbar(null);
         return;
       }
       try {
+        if (!explicitWhole.current) {
+          const selected = captureReviewSelection(editor),
+            identity = JSON.stringify(selected);
+          if (autoCaptureIdentity.current !== identity) {
+            autoCaptureIdentity.current = identity;
+            composerIntent.current++;
+            setScope("selection");
+            setCapture(selected);
+          }
+        }
         const start = editor.view.coordsAtPos(editor.state.selection.from),
           end = editor.view.coordsAtPos(editor.state.selection.to);
         if (
@@ -239,6 +289,7 @@ export function Review({
         setSelectionToolbar(null);
       }
     };
+    changed();
     editor.on("selectionUpdate", changed);
     window.addEventListener("resize", changed);
     window.addEventListener("scroll", changed, true);
@@ -247,14 +298,13 @@ export function Review({
       window.removeEventListener("resize", changed);
       window.removeEventListener("scroll", changed, true);
     };
-  }, [editor, save]);
+  }, [editor, save, centralView, bodyInteractive]);
   const action = async (
     identity: string,
     build: (revision: number) => ManuscriptCommand,
     options?: { validIntent?: () => boolean; requestedVisible?: string },
   ) => {
     setError("");
-    setConflicts([]);
     try {
       const result = await commands.run(identity, build, {
         ...options,
@@ -262,7 +312,6 @@ export function Review({
       });
       if (!result.ok) {
         setError(result.error || "REVIEW_VERSION_CONFLICT");
-        setConflicts(result.details?.candidateConflicts ?? []);
       }
       await refresh();
       return result.ok;
@@ -282,10 +331,69 @@ export function Review({
       expectedWorkingRevision: revision,
       payload,
     }) as ManuscriptCommand;
+  const previousTasks = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    if (!loaded) {
+      previousTasks.current = null;
+      return;
+    }
+    const old = previousTasks.current;
+    previousTasks.current = new Map(
+      cards.flatMap((card) =>
+        card.task
+          ? [
+              [
+                card.task.run.runId,
+                `${card.task.run.status}:${card.task.error ?? card.task.run.error}`,
+              ],
+            ]
+          : [],
+      ),
+    );
+    if (!old) return;
+    for (const card of cards) {
+      const task = card.task,
+        error = task?.error ?? task?.run.error;
+      if (
+        !task ||
+        !error ||
+        ["CANCELLED", "NO_CHANGE"].includes(error) ||
+        (!task.error &&
+          !["failed", "interrupted", "stale"].includes(task.run.status)) ||
+        old.get(task.run.runId) === previousTasks.current.get(task.run.runId)
+      )
+        continue;
+      report(error, {
+        identity: `review-task:${task.run.runId}`,
+        actions: [
+          { kind: "reviewChanges", run: onOpen },
+          {
+            kind: "retry",
+            run: () =>
+              action(
+                `StartReviewTask:${card.thread.id}:${card.thread.requestVersion}`,
+                (revision) =>
+                  command(
+                    "StartReviewTask",
+                    {
+                      threadId: card.thread.id,
+                      requestVersion: card.thread.requestVersion,
+                      retryOfRunId: task.run.runId,
+                      messageIds: [],
+                    },
+                    revision,
+                  ),
+              ),
+          },
+        ],
+      });
+    }
+  }, [cards, loaded, report, onOpen]);
   const begin = (whole: boolean, preserveThread = false) => {
     if (!editor || save.composing) return;
     try {
       composerIntent.current++;
+      setScope("selection");
       setCapture(captureReviewSelection(editor, whole));
       setReanchored(preserveThread);
       if (!preserveThread) {
@@ -314,35 +422,71 @@ export function Review({
       if (event.detail === 0) captureTyped(kind);
     },
   });
-  const submit = () => {
+  const submission = useRef<{
+    intent: number;
+    id: string;
+    version?: number;
+    saved?: boolean;
+  } | null>(null);
+  const submit = (sendToAi = false) => {
     const intent = composerIntent.current;
     if (submitFlight.current) {
       return submitFlight.current.intent === intent
         ? submitFlight.current.promise
         : submitFlight.current.promise.then(() => false);
     }
-    const promise = submitCore().finally(() => {
-      if (submitFlight.current?.promise === promise)
-        submitFlight.current = null;
-    });
+    const promise = submitCore(sendToAi)
+      .catch((error: unknown) => {
+        report(error, {
+          identity: "review-submit",
+          actions: [{ kind: "retry", run: () => submit(sendToAi) }],
+        });
+        return false;
+      })
+      .finally(() => {
+        if (submitFlight.current?.promise === promise)
+          submitFlight.current = null;
+      });
     submitFlight.current = { intent, promise };
     return promise;
   };
-  const submitCore = async () => {
+  const submitCore = async (sendToAi: boolean) => {
     if (composing.current) return;
     const intent = composerIntent.current;
     const requestedVisible = JSON.stringify(save.local);
-    const captured = capture,
+    let requestedCapture = capture;
+    if (sendToAi && !requestedCapture && editor) {
+      try {
+        requestedCapture =
+          scope === "whole" &&
+          (explicitWhole.current || editor.state.selection.empty)
+            ? captureWholeManuscript(editor)
+            : captureReviewSelection(editor);
+      } catch (error) {
+        report(error);
+        return;
+      }
+    }
+    const captured = requestedCapture,
       original = text,
       existing = editing,
       chosen = kind,
-      chosenEvidence = structuredClone(evidence),
+      chosenEvidence = structuredClone(
+        sendToAi && !editing ? (planningEvidence?.choices ?? []) : evidence,
+      ),
       chosenFill = fill,
       chosenReanchored = reanchored;
     if (!captured || !original.trim()) return;
-    const id = existing?.id ?? crypto.randomUUID();
+    if (submission.current?.intent !== intent)
+      submission.current = { intent, id: existing?.id ?? crypto.randomUUID() };
+    const ownedSubmission = submission.current;
+    const id = ownedSubmission.id;
     let language = existing?.language ?? "en";
     try {
+      if (!(await save.prepareInput())) {
+        report(save.error || "SAVE_FAILED");
+        return;
+      }
       const planning = await client.readPlanning();
       if (
         disposed.current ||
@@ -356,73 +500,125 @@ export function Review({
       setError("REVIEW_UNAVAILABLE");
       return;
     }
-    const ok = await action(
-      `save:${intent}`,
-      (revision) =>
-        command(
-          "SaveReview",
-          {
-            expectedRequestVersion: existing?.requestVersion ?? 0,
-            thread: {
-              id,
-              kind: chosen,
-              text: original,
-              requestVersion: 0,
-              anchor: (() => {
-                if (
-                  existing &&
-                  !chosenReanchored &&
-                  existing.anchor.state !== "mapped"
-                )
-                  return structuredClone(existing.anchor);
-                const anchor = bindReviewSelection(captured, save.state);
-                if (chosenFill) {
-                  const index = save.state.blocks.findIndex(
-                      (b) => b.id === captured[0]?.blockId,
-                    ),
-                    heading = save.state.blocks[index],
-                    next = save.state.blocks[index + 1];
+    const ok =
+      ownedSubmission.saved ||
+      (await action(
+        `save:${intent}`,
+        (revision) =>
+          command(
+            "SaveReview",
+            {
+              expectedRequestVersion: existing?.requestVersion ?? 0,
+              thread: {
+                id,
+                kind: chosen,
+                text: original,
+                requestVersion: 0,
+                anchor: (() => {
                   if (
-                    captured.length !== 1 ||
-                    heading?.kind !== "heading" ||
-                    (next &&
-                      (next.kind !== "heading" ||
-                        next.attrs.level! > heading.attrs.level!))
+                    existing &&
+                    !chosenReanchored &&
+                    existing.anchor.state !== "mapped"
                   )
-                    throw Error("ANCHOR_INVALID");
-                  anchor.slot = {
-                    headingId: heading.id,
-                    beforeId: heading.id,
-                    afterId: next?.id ?? null,
-                  };
-                }
-                return anchor;
-              })(),
-              handled: false,
-              deleted: false,
-              language,
-              evidence: chosenEvidence,
-              decision: existing?.decision ?? null,
-              userMessageIds: existing?.userMessageIds ?? [],
+                    return structuredClone(existing.anchor);
+                  const anchor = bindReviewSelection(captured, save.state);
+                  if (chosenFill) {
+                    const index = save.state.blocks.findIndex(
+                        (b) => b.id === captured[0]?.blockId,
+                      ),
+                      heading = save.state.blocks[index],
+                      next = save.state.blocks[index + 1];
+                    if (
+                      captured.length !== 1 ||
+                      heading?.kind !== "heading" ||
+                      (next &&
+                        (next.kind !== "heading" ||
+                          next.attrs.level! > heading.attrs.level!))
+                    )
+                      throw Error("ANCHOR_INVALID");
+                    anchor.slot = {
+                      headingId: heading.id,
+                      beforeId: heading.id,
+                      afterId: next?.id ?? null,
+                    };
+                  }
+                  return anchor;
+                })(),
+                handled: false,
+                deleted: false,
+                language,
+                evidence: chosenEvidence,
+                decision: existing?.decision ?? null,
+                userMessageIds: existing?.userMessageIds ?? [],
+              },
             },
-          },
-          revision,
-        ),
-      {
-        requestedVisible,
-        validIntent: () =>
-          !disposed.current &&
-          !composing.current &&
-          composerIntent.current === intent &&
-          input.current === original,
-      },
-    );
+            revision,
+          ),
+        {
+          requestedVisible,
+          validIntent: () =>
+            !disposed.current &&
+            !composing.current &&
+            composerIntent.current === intent &&
+            input.current === original,
+        },
+      ));
+    if (ok) ownedSubmission.saved = true;
+    if (ok && sendToAi) {
+      if (!ownedSubmission.version) {
+        let after: string | undefined;
+        do {
+          const page = await client.readReviews(after);
+          const saved = page.cards.find(
+            (card) => card.thread.id === id,
+          )?.thread;
+          if (saved) {
+            ownedSubmission.version = saved.requestVersion;
+            break;
+          }
+          after = page.nextCursor ?? undefined;
+        } while (after);
+      }
+      if (
+        !ownedSubmission.version ||
+        disposed.current ||
+        composing.current ||
+        composerIntent.current !== intent ||
+        input.current !== original
+      )
+        return;
+      const version = ownedSubmission.version;
+      const started = await action(
+        `StartReviewTask:${id}:${version}`,
+        (revision) =>
+          command(
+            "StartReviewTask",
+            {
+              threadId: id,
+              requestVersion: version,
+              retryOfRunId: null,
+              messageIds: existing ? [...(selectedMessages[id] ?? [])] : [],
+            },
+            revision,
+          ),
+        {
+          requestedVisible,
+          validIntent: () =>
+            !disposed.current &&
+            !composing.current &&
+            composerIntent.current === intent &&
+            input.current === original,
+        },
+      );
+      if (!started) return;
+    }
     if (
       ok &&
       input.current === original &&
       !composing.current &&
       composerIntent.current === intent
     ) {
+      resolve("review-submit");
       composerIntent.current++;
       setText("");
       setCapture(null);
@@ -463,581 +659,780 @@ export function Review({
       showAll || (!c.thread.handled && c.thread.anchor.state !== "orphaned"),
   );
   return (
-    <aside className="review-panel" aria-label={t.reviewPanel}>
-      <h2>{t.reviewPanel}</h2>
-      {selectionToolbar &&
-        !save.composing &&
-        createPortal(
-          <div
-            ref={floating}
-            className="review-floating-selection"
-            role="toolbar"
-            aria-label={t.reviewSelection}
-            style={{
-              position: "fixed",
-              top: selectionToolbar.top,
-              left: selectionToolbar.left,
-            }}
-          >
-            <button disabled={busy} {...directAction("question")}>
-              {t.reviewQuestion}
-            </button>
-            <button disabled={busy} {...directAction("revision_note")}>
-              {t.reviewNote}
-            </button>
-          </div>,
-          document.body,
-        )}
-      <div
-        className="review-selection-tools"
-        role="toolbar"
-        aria-label={t.reviewSelection}
+    <>
+      <section
+        id={assistantMode ? undefined : "auxiliary-planning"}
+        role="tabpanel"
+        aria-labelledby="auxiliary-tab-planning"
+        className="auxiliary-content"
+        hidden={tab !== "assistant" || assistantMode}
+        inert={tab !== "assistant" || assistantMode}
       >
-        <button disabled={busy || save.composing} {...directAction("question")}>
-          {t.reviewQuestion}
-        </button>
-        <button
-          disabled={busy || save.composing}
-          {...directAction("revision_note")}
+        {assistant}
+      </section>
+      {tab === "comments" && !commentsMode && (
+        <section
+          id="auxiliary-review"
+          role="tabpanel"
+          aria-labelledby="auxiliary-tab-review"
+          className="auxiliary-content"
         >
-          {t.reviewNote}
-        </button>
-        <button
-          disabled={busy || save.composing}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => begin(false)}
-        >
-          {t.reviewSelection}
-        </button>
-        <button
-          disabled={busy || save.composing}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => begin(true)}
-        >
-          {t.reviewWholeBlock}
-        </button>
-        <button
-          disabled={busy || save.composing}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            if (!editor) return;
-            try {
-              const selected = captureReviewSelection(editor, true),
-                positions = canonicalPositions(editor),
-                index = positions.findIndex(
-                  (p) => p.block.id === selected[0]?.blockId,
-                ),
-                heading = positions[index]?.block,
-                next = positions[index + 1]?.block;
-              if (
-                selected.length !== 1 ||
-                heading?.kind !== "heading" ||
-                (next &&
-                  (next.kind !== "heading" ||
-                    next.attrs.level! > heading.attrs.level!))
-              )
-                throw Error("ANCHOR_INVALID");
-              composerIntent.current++;
-              setCapture(selected);
-              setFill(true);
-              setKind("revision_note");
-              setEditing(null);
-              setEvidence([]);
-            } catch (e) {
-              setError(e instanceof Error ? e.message : "ANCHOR_INVALID");
-            }
-          }}
-        >
-          {t.reviewFillSection}
-        </button>
-      </div>
-      {capture && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-          <blockquote>{capture.map((r) => r.quote).join("\n")}</blockquote>
-          <label>
-            {t.reviewKind}
-            <select
-              value={kind}
-              disabled={!!editing || busy}
-              onChange={(e) => {
-                composerIntent.current++;
-                setKind(e.target.value as ReviewThread["kind"]);
-              }}
-            >
-              <option value="question">{t.reviewQuestion}</option>
-              <option value="revision_note">{t.reviewNote}</option>
-            </select>
-          </label>
-          <div>
-            <label htmlFor="review-instruction">{t.reviewInstruction}</label>
-            <textarea
-              id="review-instruction"
-              value={text}
-              onCompositionStart={() => {
-                composing.current = true;
-              }}
-              onCompositionEnd={() => {
-                composing.current = false;
-              }}
-              onChange={(e) => {
-                composerIntent.current++;
-                setText(e.target.value);
-              }}
-              maxLength={16384}
-            />
-          </div>
-          <ReviewEvidence
-            client={client}
-            value={evidence}
-            onChange={(v) => {
-              composerIntent.current++;
-              setEvidence(v);
-            }}
-            t={t}
-          />
-          {editing && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => begin(false, true)}
-            >
-              {t.reviewReanchor}
-            </button>
-          )}
-          <button className="primary-button" disabled={busy || !text.trim()}>
-            {t.reviewSave}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              composerIntent.current++;
-              setCapture(null);
-              setEditing(null);
-            }}
-          >
-            {t.cancel}
-          </button>
-        </form>
+          <p className="muted">{t.writingCommentsEmpty}</p>
+        </section>
       )}
-      {error && (
-        <p role="alert">
-          {errorMessage(error, t)} <code>{safeErrorCode(error)}</code>
-          {conflicts.map((c) => (
-            <span key={c.id} className="review-conflict-item">
-              {c.id} · {c.version} · {c.reason}
-            </span>
-          ))}
-        </p>
-      )}
-      <button
-        disabled={busy}
-        onClick={() => {
-          const candidates = cards
-            .filter((c) => c.candidate?.status === "pending")
-            .map((c) => ({
-              id: c.candidate!.id,
-              version: c.candidate!.version,
-            }));
-          void action(
-            `batch:${candidates.map((c) => `${c.id}:${c.version}`).join(",")}`,
-            (r) =>
-              command(
-                "AcceptReviewCandidates",
-                {
-                  candidates,
-                  expectedHistoryRevision: save.history.historyRevision,
-                },
-                r,
-              ),
-          );
-        }}
-      >
-        {t.reviewAcceptAll}
-      </button>
-      <label>
-        <input
-          type="checkbox"
-          checked={showAll}
-          onChange={(e) => setShowAll(e.target.checked)}
-        />
-        {t.reviewShowAll}
-      </label>
-      <details className="review-location-list">
-        <summary>{t.reviewOtherComments}</summary>
-        {cards
-          .filter(
-            (c) =>
-              c.thread.handled ||
-              c.thread.anchor.state === "orphaned" ||
-              layout.offscreen.includes(c.thread.id),
-          )
-          .map((c) => (
-            <button
-              type="button"
-              key={c.thread.id}
-              onClick={() => {
-                setShowAll(true);
-                const id = c.thread.anchor.ranges[0]?.blockId;
-                if (id)
-                  editor?.view.dom
-                    .querySelector(`[data-blockid="${id}"]`)
-                    ?.scrollIntoView({ block: "center" });
-              }}
-            >
-              {c.thread.text}
-            </button>
-          ))}
-      </details>
-      <div
-        ref={layout.list}
-        className={
-          layout.wide ? "review-cards review-cards-aligned" : "review-cards"
+      <section
+        className="auxiliary-content"
+        id={
+          assistantMode
+            ? "auxiliary-planning"
+            : commentsMode
+              ? "auxiliary-review"
+              : undefined
         }
-        style={layout.wide ? { minHeight: layout.height } : undefined}
+        role="tabpanel"
+        aria-labelledby={
+          assistantMode ? "auxiliary-tab-planning" : "auxiliary-tab-review"
+        }
+        hidden={!assistantMode && !commentsMode}
+        inert={!assistantMode && !commentsMode}
       >
-        {visible.map((card) => {
-          const thread = card.thread,
-            task = card.task,
-            c = card.candidate,
-            active = task?.application === "pending";
-          return (
-            <article
-              className="review-card"
-              key={thread.id}
-              style={
-                layout.wide
-                  ? {
-                      position: "absolute",
-                      insetInline: 0,
-                      top: layout.tops[thread.id] ?? 0,
-                    }
-                  : undefined
-              }
-              data-review-thread={thread.id}
-              data-review-block={thread.anchor.ranges[0]?.blockId}
-            >
-              <h3>
-                {thread.kind === "question" ? t.reviewQuestion : t.reviewNote}
-              </h3>
-              <blockquote>
-                {thread.anchor.ranges.map((r) => r.quote).join("\n")}
-              </blockquote>
-              <p>{thread.text}</p>
-              {(thread.anchor.state !== "mapped" || thread.handled) && (
-                <p className="muted">
-                  {thread.handled
-                    ? t.reviewHandled
-                    : thread.anchor.state === "orphaned"
-                      ? t.reviewOrphan
-                      : t.reviewChanged}
-                </p>
-              )}
-              {card.sourceComparisons.map((pair) => (
-                <div className="review-comparison" key={pair.blockId}>
-                  <p>{t.reviewChanged}</p>
-                  {pair.previewTruncated && (
-                    <button
-                      onClick={() => {
-                        const n = ++generation.current;
-                        void client
-                          .reviewSourceComparison(pair.blockId)
-                          .then((detail) => {
-                            if (!disposed.current && n === generation.current)
-                              setCards((old) =>
-                                old.map((card) => ({
-                                  ...card,
-                                  sourceComparisons: card.sourceComparisons.map(
-                                    (p) =>
-                                      p.blockId === detail.blockId ? detail : p,
-                                  ),
-                                })),
-                              );
-                          });
-                      }}
-                    >
-                      {t.reviewInspectFull}
-                    </button>
+        <aside
+          className="review-panel"
+          aria-label={assistantMode ? t.workspaceTab_planning : t.reviewPanel}
+        >
+          {commentsMode && <h2>{t.reviewPanel}</h2>}
+          {assistantMode && (
+            <>
+              <div className="assistant-context">
+                <span>{t.manuscript}</span>
+                <button className="quiet-button" onClick={openLibrary}>
+                  {t.librarySelectedCount.replace(
+                    "{count}",
+                    String(planningEvidence?.choices.length ?? 0),
                   )}
-                  <del>{pair.before.runs.map((r) => r.text).join("")}</del>
-                  <ins>
-                    {pair.after?.runs.map((r) => r.text).join("") ??
-                      t.reviewOrphan}
-                  </ins>
-                </div>
-              ))}
-              <ReviewConversation
-                client={client}
-                id={thread.id}
-                t={t}
-                selected={selectedMessages[thread.id] ?? []}
-                onSelected={(ids) =>
-                  setSelectedMessages((old) => ({ ...old, [thread.id]: ids }))
-                }
-              />
-              {task && task.requestVersion !== thread.requestVersion && (
-                <p className="muted">
-                  {t.reviewOlderRequest.replace(
-                    "{version}",
-                    String(task.requestVersion),
-                  )}
-                </p>
-              )}
-              {card.answer && (
-                <div className="review-answer">
-                  <p>
-                    {t.reviewRequestVersion.replace(
-                      "{version}",
-                      String(card.answer.requestVersion),
-                    )}
-                  </p>
-                  <p>{card.answer.text}</p>
-                </div>
-              )}
-              {task?.error && (
-                <p role="status">
-                  {task.error === "NO_CHANGE"
-                    ? t.reviewNoChange
-                    : errorMessage(task.error, t)}{" "}
-                  <code>{safeErrorCode(task.error)}</code>
-                </p>
-              )}
-              {c && (
-                <div className="review-comparison">
-                  <p>
-                    {c.status === "stale" ? t.reviewStale : t.reviewComparison}
-                  </p>
-                  <p>{c.explanation}</p>
-                  {c.previewTruncated && <p>{t.reviewComparisonPaged}</p>}
-                  {c.previewTruncated && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const n = ++generation.current;
-                        void client
-                          .reviewCandidate(c.id, c.detailNextCursor ?? 0)
-                          .then((detail) => {
-                            if (!disposed.current && n === generation.current)
-                              setCards((old) =>
-                                old.map((card) =>
-                                  card.candidate?.id === detail.id
-                                    ? { ...card, candidate: detail }
-                                    : card,
-                                ),
-                              );
-                          });
-                      }}
-                    >
-                      {t.reviewInspectFull}
-                    </button>
-                  )}
-                  <del>
-                    {c.before
-                      .map((b) => b.runs.map((r) => r.text).join(""))
-                      .join("\n")}
-                  </del>
-                  <ins>
-                    {c.after
-                      .map((b) => b.runs.map((r) => r.text).join(""))
-                      .join("\n")}
-                  </ins>
-                  <button
-                    disabled={busy || active || c.status !== "pending"}
-                    onClick={() => decide("AcceptReviewCandidates", card)}
-                  >
-                    {t.reviewAccept}
-                  </button>
-                  <button
-                    disabled={busy || active}
-                    onClick={() => decide("DiscardReviewCandidate", card)}
-                  >
-                    {t.reviewDiscard}
-                  </button>
-                </div>
-              )}
-              {editing?.id === thread.id && (
-                <p role="status">{t.reviewSaveFirst}</p>
-              )}
-              {!thread.handled && (
-                <>
-                  <button
-                    disabled={
-                      busy ||
-                      active ||
-                      thread.anchor.state !== "mapped" ||
-                      editing?.id === thread.id
-                    }
-                    onClick={() =>
-                      void action(
-                        `StartReviewTask:${thread.id}:${thread.requestVersion}`,
-                        (r) =>
-                          command(
-                            "StartReviewTask",
-                            {
-                              threadId: thread.id,
-                              requestVersion: thread.requestVersion,
-                              retryOfRunId:
-                                task &&
-                                ["failed", "interrupted", "cancelled"].includes(
-                                  task.run.status,
-                                )
-                                  ? task.run.runId
-                                  : null,
-                              messageIds: [
-                                ...(selectedMessages[thread.id] ?? []),
-                              ],
-                            },
-                            r,
-                          ),
-                      )
-                    }
-                  >
-                    {task &&
-                    ["failed", "interrupted", "cancelled"].includes(
-                      task.run.status,
-                    )
-                      ? t.reviewRetryAI
-                      : thread.kind === "question"
-                        ? t.reviewAskAI
-                        : t.reviewGenerate}
-                  </button>
-                  <button
-                    disabled={busy || active || !!c}
-                    onClick={() =>
-                      void action(
-                        `SetReviewHandled:${thread.id}:${thread.requestVersion}`,
-                        (r) =>
-                          command(
-                            "SetReviewHandled",
-                            {
-                              threadId: thread.id,
-                              requestVersion: thread.requestVersion,
-                              handled: true,
-                            },
-                            r,
-                          ),
-                      )
-                    }
-                  >
-                    {t.reviewHandle}
-                  </button>
-                </>
-              )}
-              {active && (
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void action(
-                      `CancelReviewTask:${thread.id}:${thread.requestVersion}`,
-                      (r) =>
-                        command(
-                          "CancelReviewTask",
-                          {
-                            threadId: thread.id,
-                            requestVersion: thread.requestVersion,
-                          },
-                          r,
-                        ),
-                    )
-                  }
-                >
-                  {t.reviewCancelTask}
                 </button>
-              )}
-              {thread.kind === "question" && (
                 <button
-                  disabled={busy}
-                  onClick={() => {
+                  className="quiet-button"
+                  onClick={() => openSettings("defaults")}
+                >
+                  {model
+                    ? t.aiCurrentModel.replace("{model}", model.modelId)
+                    : t.aiModelSettings}
+                </button>
+              </div>
+              <p className="muted">{t.writingBodyHelp}</p>
+              <div
+                className="assistant-mode"
+                role="group"
+                aria-label={t.reviewKind}
+              >
+                {(["question", "revision_note"] as const).map((value) => (
+                  <button
+                    key={value}
+                    aria-pressed={kind === value}
+                    onClick={() => {
+                      composerIntent.current++;
+                      setKind(value);
+                    }}
+                  >
+                    {value === "question" ? t.writingAsk : t.writingRevise}
+                  </button>
+                ))}
+              </div>
+              <label>
+                {t.writingScope}
+                <select
+                  aria-label={t.writingScope}
+                  value={scope}
+                  onChange={(event) => {
                     composerIntent.current++;
-                    setEditing(thread);
-                    setReanchored(false);
-                    setKind(thread.kind);
-                    setText("");
-                    setEvidence(thread.evidence);
-                    setFill(false);
-                    setCapture(
-                      thread.anchor.ranges.map((r) => ({
-                        ...r,
-                        text:
-                          save.state.blocks
-                            .find((b) => b.id === r.blockId)
-                            ?.runs.map((r) => r.text)
-                            .join("") ?? "",
-                      })),
-                    );
+                    explicitWhole.current = event.target.value === "whole";
+                    setScope(event.target.value as "selection" | "whole");
+                    setCapture(null);
+                    setEditing(null);
                   }}
                 >
-                  {t.reviewReply}
+                  <option value="selection">{t.writingSelection}</option>
+                  <option value="whole">{t.writingWhole}</option>
+                </select>
+              </label>
+              {scope === "selection" && (
+                <button
+                  className="quiet-button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => begin(false)}
+                >
+                  {t.reviewSelection}
+                </button>
+              )}
+            </>
+          )}
+          {selectionToolbar &&
+            centralView === "manuscript" &&
+            bodyInteractive &&
+            !save.composing &&
+            createPortal(
+              <div
+                ref={floating}
+                className="review-floating-selection"
+                role="toolbar"
+                aria-label={t.reviewSelection}
+                style={{
+                  position: "fixed",
+                  top: selectionToolbar.top,
+                  left: selectionToolbar.left,
+                }}
+              >
+                <button disabled={busy} {...directAction("question")}>
+                  {t.reviewQuestion}
+                </button>
+                <button disabled={busy} {...directAction("revision_note")}>
+                  {t.reviewNote}
+                </button>
+              </div>,
+              document.body,
+            )}
+          <div
+            className="review-selection-tools"
+            hidden={!commentsMode}
+            role="toolbar"
+            aria-label={t.reviewSelection}
+          >
+            <button
+              disabled={busy || save.composing}
+              {...directAction("question")}
+            >
+              {t.reviewQuestion}
+            </button>
+            <button
+              disabled={busy || save.composing}
+              {...directAction("revision_note")}
+            >
+              {t.reviewNote}
+            </button>
+            <button
+              disabled={busy || save.composing}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => begin(false)}
+            >
+              {t.reviewSelection}
+            </button>
+            <button
+              disabled={busy || save.composing}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => begin(true)}
+            >
+              {t.reviewWholeBlock}
+            </button>
+            <button
+              disabled={busy || save.composing}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (!editor) return;
+                try {
+                  const selected = captureReviewSelection(editor, true),
+                    positions = canonicalPositions(editor),
+                    index = positions.findIndex(
+                      (p) => p.block.id === selected[0]?.blockId,
+                    ),
+                    heading = positions[index]?.block,
+                    next = positions[index + 1]?.block;
+                  if (
+                    selected.length !== 1 ||
+                    heading?.kind !== "heading" ||
+                    (next &&
+                      (next.kind !== "heading" ||
+                        next.attrs.level! > heading.attrs.level!))
+                  )
+                    throw Error("ANCHOR_INVALID");
+                  composerIntent.current++;
+                  setCapture(selected);
+                  setFill(true);
+                  setKind("revision_note");
+                  setEditing(null);
+                  setEvidence([]);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "ANCHOR_INVALID");
+                }
+              }}
+            >
+              {t.reviewFillSection}
+            </button>
+          </div>
+          {(capture || assistantMode) && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submit(assistantMode);
+              }}
+            >
+              {capture && (
+                <blockquote className="review-capture-summary">
+                  {assistantMode && scope === "whole"
+                    ? t.writingWhole
+                    : capture
+                        .map((range) => range.quote)
+                        .join("\n")
+                        .slice(0, 240)}
+                </blockquote>
+              )}
+              <label hidden={assistantMode}>
+                {t.reviewKind}
+                <select
+                  value={kind}
+                  disabled={!!editing || busy}
+                  onChange={(e) => {
+                    composerIntent.current++;
+                    setKind(e.target.value as ReviewThread["kind"]);
+                  }}
+                >
+                  <option value="question">{t.reviewQuestion}</option>
+                  <option value="revision_note">{t.reviewNote}</option>
+                </select>
+              </label>
+              <div>
+                <label htmlFor="review-instruction">
+                  {assistantMode ? t.writingRequest : t.reviewInstruction}
+                </label>
+                <textarea
+                  id="review-instruction"
+                  value={text}
+                  onCompositionStart={() => {
+                    composing.current = true;
+                  }}
+                  onCompositionEnd={() => {
+                    composing.current = false;
+                  }}
+                  onChange={(e) => {
+                    composerIntent.current++;
+                    setText(e.target.value);
+                  }}
+                  maxLength={16384}
+                />
+              </div>
+              {!assistantMode && (
+                <ReviewEvidence
+                  client={client}
+                  value={evidence}
+                  onChange={(v) => {
+                    composerIntent.current++;
+                    setEvidence(v);
+                  }}
+                  t={t}
+                />
+              )}
+              {editing && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => begin(false, true)}
+                >
+                  {t.reviewReanchor}
                 </button>
               )}
               <button
-                disabled={busy}
-                onClick={() => {
-                  composerIntent.current++;
-                  setEditing(thread);
-                  setReanchored(false);
-                  setKind(thread.kind);
-                  setEvidence(thread.evidence);
-                  setFill(!!thread.anchor.slot);
-                  setText(thread.text);
-                  setCapture(
-                    thread.anchor.ranges.map((r) => ({
-                      ...r,
-                      text:
-                        save.state.blocks
-                          .find((b) => b.id === r.blockId)
-                          ?.runs.map((r) => r.text)
-                          .join("") ?? "",
-                    })),
-                  );
-                }}
+                className="primary-button"
+                disabled={busy || !text.trim()}
               >
-                {t.reviewEdit}
+                {assistantMode ? t.writingSend : t.reviewSave}
               </button>
               <button
-                disabled={busy}
+                hidden={assistantMode}
+                type="button"
                 onClick={() => {
-                  if (c && !window.confirm(t.reviewDeleteConfirm)) return;
-                  void action(
-                    `DeleteReviewThread:${thread.id}:${thread.requestVersion}`,
-                    (r) =>
-                      command(
-                        "DeleteReviewThread",
-                        {
-                          threadId: thread.id,
-                          requestVersion: thread.requestVersion,
-                          discardCandidate: !!c,
-                        },
-                        r,
-                      ),
-                  );
+                  composerIntent.current++;
+                  setText("");
+                  setCapture(null);
+                  setEditing(null);
                 }}
               >
-                {t.reviewDelete}
+                {t.cancel}
               </button>
-            </article>
-          );
-        })}
-      </div>
-      {cursor && (
-        <button
-          onClick={() => {
-            const n = ++generation.current;
-            void client.readReviews(cursor).then((p) => {
-              if (!disposed.current && n === generation.current) {
-                setCards((old) => [...old, ...p.cards]);
-                setCursor(p.nextCursor);
-              }
-            });
-          }}
-        >
-          {t.reviewMore}
-        </button>
-      )}
-    </aside>
+            </form>
+          )}
+          <button
+            hidden={!commentsMode}
+            disabled={
+              busy ||
+              !cards.some((card) => card.candidate?.status === "pending")
+            }
+            onClick={() => {
+              const candidates = cards
+                .filter((c) => c.candidate?.status === "pending")
+                .map((c) => ({
+                  id: c.candidate!.id,
+                  version: c.candidate!.version,
+                }));
+              void action(
+                `batch:${candidates.map((c) => `${c.id}:${c.version}`).join(",")}`,
+                (r) =>
+                  command(
+                    "AcceptReviewCandidates",
+                    {
+                      candidates,
+                      expectedHistoryRevision: save.history.historyRevision,
+                    },
+                    r,
+                  ),
+              );
+            }}
+          >
+            {t.reviewAcceptAll}
+          </button>
+          <label hidden={!commentsMode}>
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+            />
+            {t.reviewShowAll}
+          </label>
+          <details className="review-location-list" hidden={!commentsMode}>
+            <summary>{t.reviewOtherComments}</summary>
+            {cards
+              .filter(
+                (c) =>
+                  c.thread.handled ||
+                  c.thread.anchor.state === "orphaned" ||
+                  layout.offscreen.includes(c.thread.id),
+              )
+              .map((c) => (
+                <button
+                  type="button"
+                  key={c.thread.id}
+                  onClick={() => {
+                    setShowAll(true);
+                    const id = c.thread.anchor.ranges[0]?.blockId;
+                    if (id)
+                      editor?.view.dom
+                        .querySelector(`[data-blockid="${id}"]`)
+                        ?.scrollIntoView({ block: "center" });
+                  }}
+                >
+                  {c.thread.text}
+                </button>
+              ))}
+          </details>
+          <div
+            ref={layout.list}
+            className={
+              layout.wide && commentsMode
+                ? "review-cards review-cards-aligned"
+                : "review-cards"
+            }
+            style={
+              layout.wide && commentsMode
+                ? { minHeight: layout.height }
+                : undefined
+            }
+          >
+            {(assistantMode
+              ? visible.filter(
+                  (card) =>
+                    !card.thread.handled &&
+                    (card.answer ||
+                      card.candidate ||
+                      card.task?.application === "pending"),
+                )
+              : visible
+            ).map((card) => {
+              const thread = card.thread,
+                task = card.task,
+                c = card.candidate,
+                active = task?.application === "pending";
+              return (
+                <article
+                  className="review-card"
+                  key={thread.id}
+                  style={
+                    layout.wide && commentsMode
+                      ? {
+                          position: "absolute",
+                          insetInline: 0,
+                          top: layout.tops[thread.id] ?? 0,
+                        }
+                      : undefined
+                  }
+                  data-review-thread={thread.id}
+                  data-review-block={thread.anchor.ranges[0]?.blockId}
+                >
+                  <h3>
+                    {thread.kind === "question"
+                      ? t.reviewQuestion
+                      : t.reviewNote}
+                  </h3>
+                  {commentsMode ? (
+                    <blockquote>
+                      {thread.anchor.ranges
+                        .map((range) => range.quote)
+                        .join("\n")
+                        .slice(0, 240)}
+                    </blockquote>
+                  ) : (
+                    <details className="assistant-context-quote">
+                      <summary>{t.writingSelection}</summary>
+                      <blockquote>
+                        {thread.anchor.ranges
+                          .map((range) => range.quote)
+                          .join("\n")
+                          .slice(0, 240)}
+                      </blockquote>
+                    </details>
+                  )}
+                  <p>{thread.text}</p>
+                  {commentsMode &&
+                    (thread.anchor.state !== "mapped" || thread.handled) && (
+                      <p className="muted">
+                        {thread.handled
+                          ? t.reviewHandled
+                          : thread.anchor.state === "orphaned"
+                            ? t.reviewOrphan
+                            : t.reviewChanged}
+                      </p>
+                    )}
+                  {commentsMode &&
+                    card.sourceComparisons.map((pair) => (
+                      <div className="review-comparison" key={pair.blockId}>
+                        <p>{t.reviewChanged}</p>
+                        {pair.previewTruncated && (
+                          <button
+                            onClick={() => {
+                              const n = ++generation.current;
+                              void client
+                                .reviewSourceComparison(pair.blockId)
+                                .then((detail) => {
+                                  if (
+                                    !disposed.current &&
+                                    n === generation.current
+                                  )
+                                    setCards((old) =>
+                                      old.map((card) => ({
+                                        ...card,
+                                        sourceComparisons:
+                                          card.sourceComparisons.map((p) =>
+                                            p.blockId === detail.blockId
+                                              ? detail
+                                              : p,
+                                          ),
+                                      })),
+                                    );
+                                })
+                                .catch((error: unknown) => {
+                                  if (!disposed.current) report(error);
+                                });
+                            }}
+                          >
+                            {t.reviewInspectFull}
+                          </button>
+                        )}
+                        <del>
+                          {pair.before.runs.map((r) => r.text).join("")}
+                        </del>
+                        <ins>
+                          {pair.after?.runs.map((r) => r.text).join("") ??
+                            t.reviewOrphan}
+                        </ins>
+                      </div>
+                    ))}
+                  {commentsMode && (
+                    <ReviewConversation
+                      client={client}
+                      id={thread.id}
+                      t={t}
+                      selected={selectedMessages[thread.id] ?? []}
+                      onSelected={(ids) =>
+                        setSelectedMessages((old) => ({
+                          ...old,
+                          [thread.id]: ids,
+                        }))
+                      }
+                    />
+                  )}
+                  {commentsMode &&
+                    task &&
+                    task.requestVersion !== thread.requestVersion && (
+                      <p className="muted">
+                        {t.reviewOlderRequest.replace(
+                          "{version}",
+                          String(task.requestVersion),
+                        )}
+                      </p>
+                    )}
+                  {card.answer && (
+                    <div className="review-answer">
+                      {commentsMode && (
+                        <p>
+                          {t.reviewRequestVersion.replace(
+                            "{version}",
+                            String(card.answer.requestVersion),
+                          )}
+                        </p>
+                      )}
+                      <p>{card.answer.text}</p>
+                    </div>
+                  )}
+                  {task?.error === "NO_CHANGE" && (
+                    <p className="muted">{t.reviewNoChange}</p>
+                  )}
+                  {c && (
+                    <div className="review-comparison">
+                      <p>
+                        {c.status === "stale"
+                          ? t.reviewStale
+                          : t.reviewComparison}
+                      </p>
+                      <p>{c.explanation}</p>
+                      {c.previewTruncated && <p>{t.reviewComparisonPaged}</p>}
+                      {c.previewTruncated && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const n = ++generation.current;
+                            void client
+                              .reviewCandidate(c.id, c.detailNextCursor ?? 0)
+                              .then((detail) => {
+                                if (
+                                  !disposed.current &&
+                                  n === generation.current
+                                )
+                                  setCards((old) =>
+                                    old.map((card) =>
+                                      card.candidate?.id === detail.id
+                                        ? { ...card, candidate: detail }
+                                        : card,
+                                    ),
+                                  );
+                              })
+                              .catch((error: unknown) => {
+                                if (!disposed.current) report(error);
+                              });
+                          }}
+                        >
+                          {t.reviewInspectFull}
+                        </button>
+                      )}
+                      <details
+                        className="candidate-preview"
+                        open={commentsMode || undefined}
+                      >
+                        <summary>{t.reviewComparison}</summary>
+                        <del>
+                          {c.before
+                            .map((b) => b.runs.map((r) => r.text).join(""))
+                            .join("\n")}
+                        </del>
+                        <ins>
+                          {c.after
+                            .map((b) => b.runs.map((r) => r.text).join(""))
+                            .join("\n")}
+                        </ins>
+                      </details>
+                      <button
+                        disabled={busy || active || c.status !== "pending"}
+                        onClick={() => decide("AcceptReviewCandidates", card)}
+                      >
+                        {t.reviewAccept}
+                      </button>
+                      <button
+                        disabled={busy || active}
+                        onClick={() => decide("DiscardReviewCandidate", card)}
+                      >
+                        {t.reviewDiscard}
+                      </button>
+                    </div>
+                  )}
+                  {editing?.id === thread.id && (
+                    <p role="status">{t.reviewSaveFirst}</p>
+                  )}
+                  {!thread.handled && commentsMode && (
+                    <>
+                      <button
+                        disabled={
+                          busy ||
+                          active ||
+                          thread.anchor.state !== "mapped" ||
+                          editing?.id === thread.id
+                        }
+                        onClick={() =>
+                          void action(
+                            `StartReviewTask:${thread.id}:${thread.requestVersion}`,
+                            (r) =>
+                              command(
+                                "StartReviewTask",
+                                {
+                                  threadId: thread.id,
+                                  requestVersion: thread.requestVersion,
+                                  retryOfRunId:
+                                    task &&
+                                    [
+                                      "failed",
+                                      "interrupted",
+                                      "cancelled",
+                                    ].includes(task.run.status)
+                                      ? task.run.runId
+                                      : null,
+                                  messageIds: [
+                                    ...(selectedMessages[thread.id] ?? []),
+                                  ],
+                                },
+                                r,
+                              ),
+                          )
+                        }
+                      >
+                        {task &&
+                        ["failed", "interrupted", "cancelled"].includes(
+                          task.run.status,
+                        )
+                          ? t.reviewRetryAI
+                          : thread.kind === "question"
+                            ? t.reviewAskAI
+                            : t.reviewGenerate}
+                      </button>
+                      <button
+                        disabled={busy || active || !!c}
+                        onClick={() =>
+                          void action(
+                            `SetReviewHandled:${thread.id}:${thread.requestVersion}`,
+                            (r) =>
+                              command(
+                                "SetReviewHandled",
+                                {
+                                  threadId: thread.id,
+                                  requestVersion: thread.requestVersion,
+                                  handled: true,
+                                },
+                                r,
+                              ),
+                          )
+                        }
+                      >
+                        {t.reviewHandle}
+                      </button>
+                    </>
+                  )}
+                  {active && <p role="status">{t.writingWorking}</p>}
+                  {active && (
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void action(
+                          `CancelReviewTask:${thread.id}:${thread.requestVersion}`,
+                          (r) =>
+                            command(
+                              "CancelReviewTask",
+                              {
+                                threadId: thread.id,
+                                requestVersion: thread.requestVersion,
+                              },
+                              r,
+                            ),
+                        )
+                      }
+                    >
+                      {t.reviewCancelTask}
+                    </button>
+                  )}
+                  {thread.kind === "question" && (
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        composerIntent.current++;
+                        setScope("selection");
+                        setEditing(thread);
+                        setReanchored(false);
+                        setKind(thread.kind);
+                        setText("");
+                        setEvidence(thread.evidence);
+                        setFill(false);
+                        setCapture(
+                          thread.anchor.ranges.map((r) => ({
+                            ...r,
+                            text:
+                              save.state.blocks
+                                .find((b) => b.id === r.blockId)
+                                ?.runs.map((r) => r.text)
+                                .join("") ?? "",
+                          })),
+                        );
+                      }}
+                    >
+                      {t.reviewReply}
+                    </button>
+                  )}
+                  <button
+                    hidden={!commentsMode}
+                    disabled={busy}
+                    onClick={() => {
+                      composerIntent.current++;
+                      setEditing(thread);
+                      setReanchored(false);
+                      setKind(thread.kind);
+                      setEvidence(thread.evidence);
+                      setFill(!!thread.anchor.slot);
+                      setText(thread.text);
+                      setCapture(
+                        thread.anchor.ranges.map((r) => ({
+                          ...r,
+                          text:
+                            save.state.blocks
+                              .find((b) => b.id === r.blockId)
+                              ?.runs.map((r) => r.text)
+                              .join("") ?? "",
+                        })),
+                      );
+                    }}
+                  >
+                    {t.reviewEdit}
+                  </button>
+                  <button
+                    hidden={!commentsMode}
+                    disabled={busy}
+                    onClick={() => {
+                      if (c && !window.confirm(t.reviewDeleteConfirm)) return;
+                      void action(
+                        `DeleteReviewThread:${thread.id}:${thread.requestVersion}`,
+                        (r) =>
+                          command(
+                            "DeleteReviewThread",
+                            {
+                              threadId: thread.id,
+                              requestVersion: thread.requestVersion,
+                              discardCandidate: !!c,
+                            },
+                            r,
+                          ),
+                      );
+                    }}
+                  >
+                    {t.reviewDelete}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+          {cursor && (
+            <button
+              onClick={() => {
+                const n = ++generation.current;
+                void client
+                  .readReviews(cursor)
+                  .then((p) => {
+                    if (!disposed.current && n === generation.current) {
+                      setCards((old) => [...old, ...p.cards]);
+                      setCursor(p.nextCursor);
+                    }
+                  })
+                  .catch((error: unknown) => {
+                    if (!disposed.current) report(error);
+                  });
+              }}
+            >
+              {t.reviewMore}
+            </button>
+          )}
+        </aside>
+      </section>
+    </>
   );
 }

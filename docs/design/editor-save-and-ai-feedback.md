@@ -1,5 +1,10 @@
 # Editor saving and AI feedback follow-up
 
+Presentation follow-up: [central writing workspace](writing-workspace.md)
+replaces the old normal planning/task/recovery presentation with central views,
+persistent owned top-layer notices and explicit recovery/details dialogs. The
+5/10/30-second save policy, serialization and receipt fences below remain.
+
 Status: implemented on 2026-11-17; independent validation is recorded in the
 [validation report](../validation/editor-save-and-ai-feedback.md). Base:
 `release/1.0.0` at `cbbb721`. This follow-up addresses the user's four reported usability problems

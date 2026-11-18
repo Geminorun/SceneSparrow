@@ -15,6 +15,7 @@ import {
   safeErrorCode,
   savedDiscoveryTarget,
 } from "../notifications";
+import { useNoticeOwner } from "../NotificationPresenter";
 import { publishSavedAiView } from "./saved-view";
 import {
   assignPreset,
@@ -47,6 +48,7 @@ export function useAiSettings(
   open: boolean,
   active: boolean,
 ) {
+  const { report, resolve } = useNoticeOwner();
   const [view, setView] = useState<AiSettingsView | null>(null);
   const viewRef = useRef(view);
   const [providers, setProviders] = useState<Record<string, ProviderDraft>>({});
@@ -176,6 +178,7 @@ export function useAiSettings(
     fn: () => Promise<void>,
     requestTarget?: string,
   ) => {
+    resolve(target);
     setOperations((state) => ({
       ...state,
       [target]: {
@@ -189,7 +192,21 @@ export function useAiSettings(
       await fn();
       return true;
     } catch (error) {
-      notifyFailure(error, { target: requestTarget });
+      report(error, {
+        target: requestTarget,
+        identity: target,
+        actions:
+          target === "load" || safeErrorCode(error) === "SETTINGS_CONFLICT"
+            ? [{ kind: "retry", run: () => load() }]
+            : target.startsWith("discovery:")
+              ? [
+                  {
+                    kind: "retry",
+                    run: () => discover(target.slice("discovery:".length)),
+                  },
+                ]
+              : [],
+      });
       setOperations((state) => ({
         ...state,
         [target]: {
@@ -228,6 +245,16 @@ export function useAiSettings(
     enqueue("load", async () => {
       publish(await client.readAiSettings(), true);
     });
+  useEffect(() => {
+    for (const [id, conflict] of Object.entries(conflicts)) {
+      if (conflict)
+        report("aiRemoteDraftConflict", {
+          identity: `conflict:${id}`,
+          actions: [{ kind: "retry", run: () => load() }],
+        });
+      else resolve(`conflict:${id}`);
+    }
+  }, [conflicts, report, resolve]);
   const activated = useRef(false);
   useEffect(() => {
     if (!open) activated.current = false;
@@ -237,7 +264,8 @@ export function useAiSettings(
     }
   }, [active, open]);
   useEffect(() => {
-    if (!open)
+    if (!open) {
+      resolve();
       updateProviders((drafts) =>
         Object.fromEntries(
           Object.entries(drafts).map(([id, draft]) => [
@@ -246,7 +274,8 @@ export function useAiSettings(
           ]),
         ),
       );
-  }, [open]);
+    }
+  }, [open, resolve]);
   const providerDraft = (selection: string): ProviderDraft => {
     if (providers[providerKey(selection)])
       return providers[providerKey(selection)]!;
@@ -490,7 +519,7 @@ export function useAiSettings(
       }));
       const receipt = await client.testAiConnection(action);
       if (receipt.status === "failed")
-        notifyFailure(receipt.error ?? "AI_ERROR", {
+        report(receipt.error ?? "AI_ERROR", {
           identity: `test:${action.actionId}`,
         });
       setTests((tests) =>

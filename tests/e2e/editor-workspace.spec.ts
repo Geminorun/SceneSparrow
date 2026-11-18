@@ -97,19 +97,28 @@ test("side tabs preserve buffers and selection actions open Review from Planning
   await input(page).fill("Selected manuscript words");
   await saved(page);
   const node = await input(page).elementHandle();
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   await topic.fill("Unfinished planning buffer");
   await openPanel(page, "Sources");
   await openPanel(page, "Planning");
   await expect(topic).toHaveValue("Unfinished planning buffer");
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Manuscript", exact: true })
+    .click();
+  await expect(input(page)).toBeVisible();
   await input(page).focus();
   await page.keyboard.press("ControlOrMeta+a");
   const floating = page.locator(".review-floating-selection");
   await expect(floating).toBeVisible();
   await floating.getByRole("button", { name: "Question", exact: true }).click();
   await expect(
-    page.getByRole("tab", { name: "Review", exact: true }),
+    page.getByRole("tab", { name: "Comments", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".review-panel blockquote").first()).toContainText(
     "Selected manuscript words",
@@ -135,7 +144,7 @@ test("planning validation correction resumes autosave, error geometry is stable 
 }) => {
   await openWorkbench(page);
   await openPanel(page, "Planning");
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Your idea", { exact: true });
   const language = page.getByLabel("Manuscript language", { exact: true });
   await expect(language.locator("option")).toHaveCount(2);
   await language.selectOption("zh-CN");
@@ -162,19 +171,18 @@ test("planning validation correction resumes autosave, error geometry is stable 
     "error",
   );
   await page
-    .locator(".planning-recovery-actions")
-    .locator(":scope > summary")
+    .locator(".save-feedback")
+    .getByRole("button", { name: "Recover", exact: true })
     .click();
-  await topic.focus();
+  const recovery = page.getByRole("dialog", { name: "Recover", exact: true });
+  await expect(recovery.getByRole("textbox")).toHaveValue(/x{501}/u);
   page.once("dialog", (dialog) => void dialog.dismiss());
-  // Invoke without moving focus so cancelled destructive intent preserves the active input.
-  await page
+  await recovery
     .getByRole("button", { name: "Discard unsaved changes", exact: true })
-    .evaluate((button: HTMLButtonElement) => button.click());
-  await expect(topic).toHaveValue("x".repeat(501));
-  await expect(topic).toBeFocused();
+    .click();
+  await expect(recovery).toBeVisible();
   page.once("dialog", (dialog) => void dialog.accept());
-  await page
+  await recovery
     .getByRole("button", { name: "Discard unsaved changes", exact: true })
     .click();
   await expect(topic).toHaveValue("Corrected topic");
@@ -218,7 +226,15 @@ test("older receipts during IME and formatting cannot steal Planning focus", asy
   await editor.press("End");
   await page.keyboard.type(" delayed formatting");
   await input(page).press("ControlOrMeta+b");
-  const topic = page.getByLabel("Topic", { exact: true });
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
+  const topic = page.getByLabel("Your idea", { exact: true });
+  await expect(
+    page.getByRole("textbox", { name: "Outline", exact: true }),
+  ).toBeVisible();
+  await expect(topic).toBeVisible();
   await topic.focus();
   await topic.dispatchEvent("compositionstart", { data: "规" });
   await topic.fill("规划 planning input");
@@ -226,10 +242,15 @@ test("older receipts during IME and formatting cannot steal Planning focus", asy
   await expect(topic).toBeFocused();
   await expect(topic).toBeEnabled();
   await expect(
-    page.getByRole("button", { name: "Add section", exact: true }),
+    page.getByRole("textbox", { name: "Outline", exact: true }),
   ).toBeEnabled();
   await topic.dispatchEvent("compositionend", { data: "规划" });
   await saved(page);
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Manuscript", exact: true })
+    .click();
+  await expect(editor).toBeVisible();
   expect(
     await editor.evaluate((current, original) => current === original, node),
   ).toBe(true);
@@ -253,7 +274,11 @@ test("body-owned Retry resolves its original failure before a pending plan witho
     "error",
   );
   await page
-    .getByLabel("Topic", { exact: true })
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
+  await page
+    .getByLabel("Your idea", { exact: true })
     .fill("Plan retained while the body is offline");
   await page.waitForTimeout(450);
   await expect(page.getByTestId("save-status")).toHaveAttribute(
@@ -262,7 +287,7 @@ test("body-owned Retry resolves its original failure before a pending plan witho
   );
   blocked = false;
   await page
-    .locator(".save-feedback")
+    .locator(".notification")
     .getByRole("button", { name: "Try again", exact: true })
     .click();
   await saved(page);
@@ -302,7 +327,7 @@ test("a committed plan read failure and later body failure with the same code ke
     else await route.fallback();
   });
   await page
-    .getByLabel("Topic", { exact: true })
+    .getByLabel("Your idea", { exact: true })
     .fill("Proven plan awaiting its canonical read");
   await expect(page.getByTestId("save-status")).toHaveAttribute(
     "data-owner",
@@ -320,7 +345,7 @@ test("a committed plan read failure and later body failure with the same code ke
   blockedBody = false;
   failedReads = false;
   await page
-    .locator(".save-feedback")
+    .locator(".notification")
     .getByRole("button", { name: "Try again", exact: true })
     .click();
   await saved(page);
@@ -352,7 +377,7 @@ test("plain Markdown paste stays local during composition and previews on comple
   expect((await core.request("/manuscript")).workingRevision).toBe(
     before.workingRevision,
   );
-  const topic = page.getByLabel("Topic", { exact: true });
+  const topic = page.getByLabel("Instruction", { exact: true });
   await topic.focus();
   await topic.fill("Later input keeps focus");
   await editor.dispatchEvent("compositionend", { data: "中" });
@@ -383,11 +408,11 @@ test("pane keyboard navigation, resizing, close focus and saved preferences rema
 }) => {
   await openWorkbench(page);
   await openPanel(page, "Create");
-  const create = page.getByRole("tab", { name: "Create", exact: true });
+  const create = page.getByRole("tab", { name: "AI assistant", exact: true });
   await create.focus();
   await page.keyboard.press("ArrowRight");
   await expect(
-    page.getByRole("tab", { name: "Review", exact: true }),
+    page.getByRole("tab", { name: "Comments", exact: true }),
   ).toBeFocused();
   const separator = page.getByRole("separator", { name: "Resize assistant" });
   const prior = Number(await separator.getAttribute("aria-valuenow"));
@@ -395,7 +420,7 @@ test("pane keyboard navigation, resizing, close focus and saved preferences rema
   await page.keyboard.press("ArrowLeft");
   await expect(separator).toHaveAttribute("aria-valuenow", String(prior + 16));
   await openPanel(page, "Create");
-  await page.getByLabel("Topic", { exact: true }).focus();
+  await page.getByLabel("Your idea", { exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("button", { name: "Open assistant", exact: true }),
@@ -409,7 +434,7 @@ test("pane keyboard navigation, resizing, close focus and saved preferences rema
   await page.setViewportSize({ width: 375, height: 900 });
   await openPanel(page, "Create");
   await expect(page.locator(".manuscript-main")).toHaveAttribute("inert", "");
-  await page.getByLabel("Topic", { exact: true }).focus();
+  await page.getByLabel("Your idea", { exact: true }).focus();
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("button", { name: "Open assistant", exact: true }),
