@@ -93,9 +93,18 @@
   are inert. Preserve invalid-outline recovery, stable IDs, explicit selected or
   whole-manuscript review scope, locks and original paid-task identities across
   failed readback. The normal assistant has no old planning/task dashboard.
-  Errors stay in owned top-layer notices until resolved/dismissed; successful
-  recovery clears its own stale notice. New models default to 8192 output tokens,
-  while existing saved budgets and compatible v1 planning results remain valid.
+  The approved [interaction/generation follow-up](docs/design/writing-interaction-and-generation.md)
+  supersedes persistent notices, configured output-token budgets and the results
+  modal: use three-second fading notices, compact Library rows and auxiliary-pane
+  generation history. Remove application output-token parameters from new tasks;
+  preserve legacy data readability and compatible v1 planning results.
+
+- Ordinary typing, IME composition and background saving must not disable unrelated
+  controls, replace active inputs or steal their caret. Final-input actions wait
+  through a shared bounded composition intent, then revalidate and execute once
+  through the existing queue. Preserve native IME keys, actual business fences and
+  original ambiguous request identities. Audit related entry points and exercise
+  focused interaction regressions when changing this boundary.
 
 ## Delegation scope
 
