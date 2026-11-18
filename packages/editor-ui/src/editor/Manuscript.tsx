@@ -86,7 +86,14 @@ export function Manuscript({
       active = false;
     };
   }, [client, projectId, attempt, report, resolve]);
-  if (!initial) return <WorkspaceSkeleton t={t} busy={loading} />;
+  if (!initial)
+    return (
+      <WorkspaceSkeleton
+        t={t}
+        busy={loading}
+        onRetry={() => setAttempt((value) => value + 1)}
+      />
+    );
   return (
     <Draft
       key={projectId}
@@ -164,8 +171,20 @@ function Draft({
     }
   };
   const session = usePlanningSession(client, save, projectId, selectView);
+  useEffect(() => {
+    save.actions.cancel();
+  }, [
+    save,
+    view,
+    pane.left.tab,
+    pane.right.tab,
+    pane.left.collapsed,
+    pane.right.collapsed,
+    pane.drawer,
+  ]);
   const pendingView = useRef<WritingView | null>(null);
   const switchView = async (next: WritingView) => {
+    save.actions.cancel();
     pendingView.current = next;
     if (save.composing || session.planning?.composing) return;
     await save.prepareInput();
@@ -435,6 +454,25 @@ function Draft({
               return false;
             },
             blur: (_view, event) => {
+              save.actions.blur("manuscript", () => {
+                if (!liveEditor.current || liveEditor.current.isDestroyed)
+                  return;
+                try {
+                  save.update(
+                    fromEditorNode(
+                      liveEditor.current.state.doc,
+                      new Set(save.state.blocks.map((b) => b.id)),
+                    ),
+                  );
+                } catch (error) {
+                  save.invalidate(
+                    error instanceof Error ? error.message : "DOCUMENT_INVALID",
+                    liveEditor.current.getText({ blockSeparator: "\n" }),
+                  );
+                }
+                save.composition(false);
+                void save.boundary();
+              });
               if (
                 sourceVisible.current ||
                 (event.relatedTarget instanceof Element &&
@@ -493,11 +531,8 @@ function Draft({
   useEffect(() => {
     if (save.canonicalVersion) applyCanonical();
   }, [editor, save.canonicalVersion]);
-  const historyAction = async (type: "UndoProject" | "RedoProject") => {
-    const ok = await save.navigate(type, applyCanonical);
-    if (ok) await session.planning?.refresh();
-    return ok;
-  };
+  const historyAction = (type: "UndoProject" | "RedoProject") =>
+    save.navigate(type, applyCanonical);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -884,7 +919,6 @@ function Draft({
                       }
                       disabled={
                         save.busy ||
-                        save.composing ||
                         (undo ? !save.canUndo : !save.canRedo) ||
                         ["error", "conflict"].includes(save.status)
                       }

@@ -86,6 +86,7 @@ export type Notice = {
   key: keyof typeof en;
   tone: "error" | "success";
   expiresAt: number | null;
+  fading?: boolean;
   owner?: string | undefined;
   identity: string;
   actions: NoticeActionKind[];
@@ -99,6 +100,7 @@ export class NotificationStore {
   private recent = new Map<string, number>();
   private sequence = 0;
   private held = new Set<number>();
+  private remaining = new Map<number, number>();
   private owners = new Set<string>();
   private callbacks = new Map<
     number,
@@ -116,6 +118,11 @@ export class NotificationStore {
     this.resolveOwner(owner);
   };
   resolveOwner = (owner: string, identity?: string) => {
+    if (identity !== undefined)
+      this.recent.delete(`${owner}:${noticeIdentity(identity)}`);
+    else
+      for (const key of this.recent.keys())
+        if (key.startsWith(`${owner}:`)) this.recent.delete(key);
     const removed = this.notices.filter(
       (notice) =>
         notice.owner === owner &&
@@ -125,6 +132,7 @@ export class NotificationStore {
     for (const notice of removed) {
       this.callbacks.delete(notice.id);
       this.held.delete(notice.id);
+      this.remaining.delete(notice.id);
     }
     this.notices = this.notices.filter((notice) => !removed.includes(notice));
     if (removed.length) this.publish();
@@ -158,17 +166,70 @@ export class NotificationStore {
   dismiss = (id: number) => {
     const dismissed = this.notices.find((notice) => notice.id === id);
     if (dismissed) {
-      this.recent.set(dismissed.identity, this.now());
+      this.recent.set(
+        dismissed.owner
+          ? `${dismissed.owner}:${dismissed.identity}`
+          : dismissed.identity,
+        this.now(),
+      );
       this.recent.set(`${dismissed.tone}:${dismissed.key}`, this.now());
     }
     this.held.delete(id);
+    this.remaining.delete(id);
     this.callbacks.delete(id);
     this.notices = this.notices.filter((notice) => notice.id !== id);
     this.publish();
   };
   hold = (id: number, active: boolean) => {
-    if (active) this.held.add(id);
-    else this.held.delete(id);
+    const notice = this.notices.find((notice) => notice.id === id);
+    if (!notice || active === this.held.has(id)) return;
+    if (active) {
+      this.held.add(id);
+      this.remaining.set(
+        id,
+        Math.max(0, (notice.expiresAt ?? this.now()) - this.now()),
+      );
+    } else this.held.delete(id);
+    this.notices = this.notices.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            expiresAt: active
+              ? null
+              : this.now() + (this.remaining.get(id) ?? 3000),
+          }
+        : item,
+    );
+    if (!active) this.remaining.delete(id);
+    this.publish();
+  };
+  fade = (id: number) => {
+    const notice = this.notices.find((notice) => notice.id === id);
+    if (!notice || notice.fading) return;
+    this.held.delete(id);
+    this.remaining.delete(id);
+    this.notices = this.notices.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            fading: true,
+            expiresAt: this.now() + 190,
+          }
+        : item,
+    );
+    this.publish();
+  };
+  tick = (id: number) => {
+    const notice = this.notices.find((notice) => notice.id === id);
+    if (
+      !notice ||
+      this.held.has(id) ||
+      notice.expiresAt === null ||
+      notice.expiresAt > this.now()
+    )
+      return;
+    if (notice.fading) this.dismiss(id);
+    else this.fade(id);
   };
   push(error: unknown, options: NoticeOptions = {}) {
     if (options.owner && !this.owners.has(options.owner)) return;
@@ -201,6 +262,9 @@ export class NotificationStore {
       options.identity === undefined
         ? `${tone}:${key}`
         : noticeIdentity(options.identity);
+    const recentIdentity = options.owner
+      ? `${options.owner}:${identity}`
+      : identity;
     const now = this.now();
     const active = this.notices.find(
       (notice) =>
@@ -210,14 +274,9 @@ export class NotificationStore {
           !notice.owner ||
           (notice.owner === options.owner && notice.identity === identity)),
     );
-    if (
-      options.passive &&
-      (active ||
-        (this.recent.has(identity) && now - this.recent.get(identity)! < 15000))
-    )
-      return;
-    this.recent.delete(identity);
-    this.recent.set(identity, now);
+    if (options.passive && (active || this.recent.has(recentIdentity))) return;
+    this.recent.delete(recentIdentity);
+    this.recent.set(recentIdentity, now);
     this.recent.set(`${tone}:${key}`, now);
     while (this.recent.size > 128)
       this.recent.delete(this.recent.keys().next().value!);
@@ -248,7 +307,8 @@ export class NotificationStore {
         (error !== null && typeof error === "object");
       const next = {
         ...active,
-        expiresAt: tone === "error" ? null : now + 6000,
+        expiresAt: this.held.has(active.id) ? null : now + 3000,
+        fading: false,
         owner: options.owner,
         identity,
         actions: actions.map((action) => action.kind),
@@ -256,6 +316,7 @@ export class NotificationStore {
         traceId: replacedContext ? traceId : (traceId ?? active.traceId),
         target: replacedContext ? target : (target ?? active.target),
       };
+      if (this.held.has(active.id)) this.remaining.set(active.id, 3000);
       this.callbacks.delete(active.id);
       if (options.owner && actions.length)
         this.callbacks.set(
@@ -276,7 +337,7 @@ export class NotificationStore {
         id: ++this.sequence,
         key,
         tone,
-        expiresAt: tone === "error" ? null : now + 6000,
+        expiresAt: now + 3000,
         owner: options.owner,
         identity,
         actions: actions.map((action) => action.kind),
@@ -287,6 +348,11 @@ export class NotificationStore {
       ...this.notices,
     ].filter((notice) => this.held.has(notice.id) || available-- > 0);
     const currentIds = new Set(this.notices.map((notice) => notice.id));
+    for (const id of this.held)
+      if (!currentIds.has(id)) {
+        this.held.delete(id);
+        this.remaining.delete(id);
+      }
     for (const id of this.callbacks.keys())
       if (!currentIds.has(id)) this.callbacks.delete(id);
     if (options.owner && actions.length && currentIds.has(this.sequence))

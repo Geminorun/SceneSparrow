@@ -248,12 +248,20 @@ test("read errors never create a project; ambiguous bootstrap retries reuse the 
   expect(ensures).toBe(0);
   expect((await core.request("/project")).project).toBeNull();
   readsFail = false;
-  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await page
+    .getByTestId("workspace-skeleton")
+    .getByRole("button", { name: "Try again", exact: true })
+    .click();
   await expect.poll(() => ensures).toBe(1);
   await expect(
-    page.getByRole("button", { name: "Try again", exact: true }),
+    page
+      .getByTestId("workspace-skeleton")
+      .getByRole("button", { name: "Try again", exact: true }),
   ).toBeEnabled();
-  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await page
+    .getByTestId("workspace-skeleton")
+    .getByRole("button", { name: "Try again", exact: true })
+    .click();
   await expect(page.locator("[data-project-id]")).toBeVisible();
   expect(commands).toHaveLength(2);
   expect(commands[0]).toEqual(commands[1]);
@@ -691,8 +699,10 @@ test("startup keeps normal pane geometry while project and manuscript reads wait
     await expect(skeleton).toHaveAttribute("aria-busy", "false");
     await expect(page.locator("[contenteditable=true]")).toHaveCount(0);
     expect(ensures).toBe(1);
+    await page.waitForTimeout(3300);
+    await expect(notice).toHaveCount(0);
     manuscriptFails = false;
-    await notice
+    await skeleton
       .getByRole("button", { name: "Try again", exact: true })
       .click();
     await expect(page.getByTestId("save-status")).toBeVisible();

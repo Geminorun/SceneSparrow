@@ -37,8 +37,17 @@ export function AiSettings({
   return (
     <div className="ai-settings" hidden={!active}>
       <OperationStatus operation={c.operations.load} t={t} />
+      {(c.operations.load?.error ||
+        Object.values(c.conflicts).some(Boolean) ||
+        Object.values(c.operations).some(
+          (operation) => operation.error === "SETTINGS_CONFLICT",
+        )) && (
+        <button className="quiet-button" onClick={() => void c.load()}>
+          {t.retry}
+        </button>
+      )}
       {!settings ? (
-        <p>{t.aiSettingsLoading}</p>
+        !c.operations.load?.error && <p>{t.aiSettingsLoading}</p>
       ) : section === "defaults" ? (
         <DefaultModels controller={c} t={t} />
       ) : (

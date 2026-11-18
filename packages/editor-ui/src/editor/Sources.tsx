@@ -42,6 +42,8 @@ export function Sources({
     [title, setTitle] = useState(""),
     [error, setError] = useState("");
   useErrorNotification(error);
+  const linkInput = useRef({ url, title });
+  linkInput.current = { url, title };
   const [loaded, setLoaded] = useState(false);
   useTaskNotifications(
     items.map((item) => ({
@@ -129,6 +131,9 @@ export function Sources({
     );
     return () => {
       active.current = false;
+      save.actions.cancel("source-link");
+      save.actions.cancelScope("source:");
+      save.composition(false, "sources");
       upload.current?.abort();
       unsubscribe();
     };
@@ -139,16 +144,21 @@ export function Sources({
     payload: unknown,
     signal?: AbortSignal,
   ) =>
-    save.business(
-      (revision) =>
-        ({
-          type,
-          requestId: crypto.randomUUID(),
-          projectId,
-          expectedWorkingRevision: revision,
-          payload,
-        }) as ManuscriptCommand,
-      signal ? { signal } : {},
+    save.actions.run(
+      `source:${type}:${(payload as { sourceId?: string }).sourceId ?? type}`,
+      () =>
+        save.business(
+          (revision) =>
+            ({
+              type,
+              requestId: crypto.randomUUID(),
+              projectId,
+              expectedWorkingRevision: revision,
+              payload,
+            }) as ManuscriptCommand,
+          signal ? { signal } : {},
+        ),
+      () => active.current && !signal?.aborted,
     );
   async function extract(sourceId: string) {
     try {
@@ -451,7 +461,6 @@ export function Sources({
             </>
           )}
           <button
-            disabled={save.composing}
             onClick={() =>
               void execute("RemoveSource", {
                 sourceId: item.source.id,
@@ -526,20 +535,33 @@ export function Sources({
       <details>
         <summary>{t.addReferenceLink}</summary>
         <form
+          onCompositionStart={() => save.composition(true, "sources")}
+          onCompositionEnd={() => save.composition(false, "sources")}
+          onBlurCapture={() => {
+            save.actions.blur("sources", () =>
+              save.composition(false, "sources"),
+            );
+          }}
           onSubmit={(event) => {
             event.preventDefault();
             setError("");
-            void execute("AddSourceLink", {
-              sourceId: crypto.randomUUID(),
-              url,
-              title: title || url,
-            }).then((ok) => {
-              if (ok) {
-                setUrl("");
-                setTitle("");
-                void refresh();
-              }
-            });
+            void save.actions.run(
+              "source-link",
+              async () => {
+                const { url, title } = linkInput.current;
+                const ok = await execute("AddSourceLink", {
+                  sourceId: crypto.randomUUID(),
+                  url,
+                  title: title || url,
+                });
+                if (ok && active.current) {
+                  setUrl("");
+                  setTitle("");
+                  void refresh();
+                }
+              },
+              () => active.current,
+            );
           }}
         >
           <label>
@@ -559,9 +581,7 @@ export function Sources({
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <button disabled={save.composing} type="submit">
-            {t.addReferenceLink}
-          </button>
+          <button type="submit">{t.addReferenceLink}</button>
         </form>
       </details>
       {uploading && (

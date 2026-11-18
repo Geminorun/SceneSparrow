@@ -12,8 +12,10 @@ import {
   type ApplicationPreferencesStore,
 } from "../app-preferences";
 export type SaveStatus = "saved" | "pending" | "saving" | "error" | "conflict";
+import { CompositionActions } from "./composition-actions";
 class UncertainCommit extends Error {}
 export class Autosave {
+  readonly actions = new CompositionActions();
   reviewDirty: (() => boolean) | undefined;
   revealReviewDraft: (() => void) | undefined;
   reviewInputChanged() {
@@ -28,6 +30,8 @@ export class Autosave {
   planningAdapter?: {
     flush: (retry?: boolean) => Promise<boolean>;
     identity: () => string;
+    inputVersion?: () => number;
+    refresh?: () => Promise<void>;
     dirty: () => boolean;
     autosave: () => Promise<boolean>;
     busy: () => boolean;
@@ -139,6 +143,8 @@ export class Autosave {
   private groupKind: "typing" | "discrete" = "typing";
   private controls: Promise<unknown> = Promise.resolve();
   private controlPending: ManuscriptCommand | null = null;
+  private historyTail: Promise<unknown> = Promise.resolve();
+  private historyPending = 0;
   private controlVisible: string | null = null;
   get stageTransitionPending() {
     return (
@@ -194,7 +200,9 @@ export class Autosave {
     if (!this.acknowledgedGroup && !this.controlPending) return true;
     return this.control("CloseEditGroup");
   }
-  discrete(action: () => unknown) {
+  discrete(action: () => unknown): Promise<boolean> {
+    if (this.composing)
+      return this.actions.run("discrete", () => this.discrete(action));
     if (this.disposed || this.composing) return Promise.resolve(false);
     const blocked =
       !!this.conversionError || ["error", "conflict"].includes(this.status);
@@ -212,25 +220,62 @@ export class Autosave {
     this.freshGroup();
     return Promise.resolve(!blocked);
   }
-  navigate(direction: "UndoProject" | "RedoProject", apply: () => void) {
+  navigate(
+    direction: "UndoProject" | "RedoProject",
+    apply: () => void,
+  ): Promise<boolean> {
+    if (this.composing)
+      return this.actions.run("history", () => this.navigate(direction, apply));
     if (this.reviewDirty?.()) {
       this.operationError = { code: "UNSENT_REVIEW", details: undefined };
       this.notify();
       return Promise.resolve(false);
     }
-    if (!this.planningAdapter) return this.navigateCore(direction, apply);
+    if (this.historyPending >= 8) return Promise.resolve(false);
+    const following = this.historyPending > 0;
+    const generation = this.generation,
+      composition = this.compositionGeneration;
+    const planningInput = this.planningAdapter?.inputVersion?.();
+    const context = this.actions.contextVersion;
     const requestedVisible = JSON.stringify(this.local);
-    const intent = this.planningAdapter.identity();
-    return this.settlePlanning(intent).then((ok) =>
-      ok
-        ? this.navigateCore(
-            direction,
-            apply,
-            () => this.planningAdapter?.identity() === intent,
-            requestedVisible,
-          )
-        : false,
-    );
+    const intent = this.planningAdapter?.identity();
+    this.historyPending++;
+    const task = this.historyTail
+      .then(async () => {
+        if (
+          this.disposed ||
+          this.composing ||
+          context !== this.actions.contextVersion ||
+          (following &&
+            (generation !== this.generation ||
+              composition !== this.compositionGeneration ||
+              planningInput !== this.planningAdapter?.inputVersion?.()))
+        )
+          return false;
+        // Only preceding history may rebase this gesture; any user input cancels it.
+        const visible = following
+          ? JSON.stringify(this.local)
+          : requestedVisible;
+        const planningIntent = following
+          ? this.planningAdapter?.identity()
+          : intent;
+        if (!(await this.settlePlanning(planningIntent))) return false;
+        const ok = await this.navigateCore(
+          direction,
+          apply,
+          () =>
+            context === this.actions.contextVersion &&
+            this.planningAdapter?.identity() === planningIntent,
+          visible,
+        );
+        if (ok) await this.planningAdapter?.refresh?.();
+        return ok;
+      })
+      .finally(() => {
+        this.historyPending--;
+      });
+    this.historyTail = task.catch(() => {});
+    return task;
   }
   private navigateCore(
     direction: "UndoProject" | "RedoProject",
@@ -289,7 +334,9 @@ export class Autosave {
   get exportInputIdentity() {
     return `${this.generation}:${this.compositionGeneration}:${this.canonicalVersion}`;
   }
-  prepareInput() {
+  prepareInput(): Promise<boolean> {
+    if (this.composing)
+      return this.actions.run("prepare-input", () => this.prepareInput());
     if (!this.planningAdapter)
       return this.enqueue(async () => (this.composing ? false : this.settle()));
     const intent = this.planningAdapter?.identity();
@@ -311,7 +358,15 @@ export class Autosave {
       validIntent?: () => boolean;
       requestedVisible?: string;
     },
-  ) {
+  ): Promise<boolean> {
+    if (this.composing)
+      return this.actions.run(
+        "business",
+        () => this.business(build, options),
+        () =>
+          !options?.signal?.aborted &&
+          (!options?.validIntent || options.validIntent()),
+      );
     if (!this.planningAdapter) return this.businessCore(build, options);
     const requestedVisible =
       options?.requestedVisible ?? JSON.stringify(this.local);
@@ -858,10 +913,11 @@ export class Autosave {
     this.status = this.inFlight ? "saving" : "pending";
     this.inputActivity();
   }
-  composition(active: boolean) {
+  composition(active: boolean, source = "manuscript") {
     if (active) this.compositionGeneration++;
-    this.composing = active;
-    if (active) clearTimeout(this.timer);
+    this.actions.composition(source, active);
+    this.composing = this.actions.composing;
+    if (this.composing) clearTimeout(this.timer);
     else {
       this.schedule();
       if (this.manualSavePending) {
@@ -1273,6 +1329,7 @@ export class Autosave {
     }
   }
   dispose() {
+    this.actions.dispose();
     this.disposed = true;
     this.unsubscribePreferences();
     this.pendingReceipts.clear();

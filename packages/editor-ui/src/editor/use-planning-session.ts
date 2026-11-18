@@ -8,6 +8,7 @@ import type {
 import type { Autosave } from "./autosave";
 import { ReviewCommands } from "./review-commands";
 import { PlanningAutosave } from "./planning-autosave";
+import { safeErrorCode } from "../notifications";
 import { useNoticeOwner } from "../NotificationPresenter";
 
 export type WritingView = "outline" | "manuscript";
@@ -20,6 +21,7 @@ export function usePlanningSession(
   const [, render] = useState(0),
     [planning, setPlanning] = useState<PlanningAutosave | null>(null),
     [attempt, retry] = useState(0),
+    [loadFailed, setLoadFailed] = useState(false),
     [acting, setActing] = useState(false),
     [recovery, setRecovery] = useState(false),
     [diagnostics, setDiagnostics] = useState(false);
@@ -53,14 +55,17 @@ export function usePlanningSession(
           render((n) => n + 1),
         );
         setPlanning(owned);
+        setLoadFailed(false);
         resolve("planning-load");
       },
       (error) => {
-        if (active)
+        if (active) {
+          setLoadFailed(true);
           report(error, {
             identity: "planning-load",
             actions: [{ kind: "retry", run: () => retry((n) => n + 1) }],
           });
+        }
       },
     );
     return () => {
@@ -73,7 +78,8 @@ export function usePlanningSession(
     if (!planning) return;
     let active = true,
       refreshing = false,
-      again = false;
+      again = false,
+      lastFailure = "";
     const inspect = (state: PlanningState) => {
       for (const task of state.tasks) {
         if (task.application !== "applied" || observed.current.has(task.id))
@@ -98,12 +104,16 @@ export function usePlanningSession(
           await save.resync();
           if (active) {
             inspect(planning.state);
+            lastFailure = "";
             resolve("planning-refresh");
           }
         }
       } catch (error) {
-        if (active)
+        const code = safeErrorCode(error);
+        if (active && lastFailure !== code) {
+          lastFailure = code;
           report(error, { identity: "planning-refresh", passive: true });
+        }
       } finally {
         refreshing = false;
       }
@@ -141,14 +151,44 @@ export function usePlanningSession(
       clearInterval(timer);
     };
   }, [client, planning, save, report, resolve]);
-  async function start(
+  function start(
+    operation: PlanningPreparationRequest["operation"],
+    retryOfTaskId: string | null = null,
+  ) {
+    return save.actions.run(
+      "planning-start",
+      () => startCore(operation, retryOfTaskId),
+      () => live.current,
+    );
+  }
+  async function startCore(
     operation: PlanningPreparationRequest["operation"],
     retryOfTaskId: string | null = null,
   ) {
     if (!planning || flight.current) return false;
+    if (
+      !pendingStart.current &&
+      (planning.state.reserved ||
+        save.stageTransitionPending ||
+        planning.recoveryText !== null ||
+        !planning.local.brief.topic.trim() ||
+        planning.state.tasks.some(
+          (task) =>
+            task.application === "pending" &&
+            ["queued", "running", "cancelling", "succeeded"].includes(
+              task.run.status,
+            ),
+        ) ||
+        (operation === "generate_initial_draft" &&
+          (save.state.workspaceStage !== "outline" ||
+            save.local.length > 0 ||
+            save.recoveryText !== null)))
+    )
+      return false;
     flight.current = true;
     setActing(true);
     const intent = planning.identity();
+    const context = save.actions.contextVersion;
     let attempted = pendingStart.current;
     const recovering = !!attempted;
     try {
@@ -159,6 +199,7 @@ export function usePlanningSession(
         if (
           !live.current ||
           intent !== planning.identity() ||
+          context !== save.actions.contextVersion ||
           planning.composing
         )
           return false;
@@ -198,7 +239,9 @@ export function usePlanningSession(
               !!pendingStart.current &&
               pendingStart.current === owned &&
               !planning.composing &&
-              (recovering || planning.identity() === intent),
+              (recovering ||
+                (planning.identity() === intent &&
+                  context === save.actions.contextVersion)),
           },
         );
         if (!result.ok) {
@@ -252,7 +295,19 @@ export function usePlanningSession(
       if (live.current) setActing(false);
     }
   }
-  async function control(
+  function control(
+    type: "CancelPlanningTask" | "UsePlanningResult",
+    taskId: string,
+  ) {
+    return type === "CancelPlanningTask"
+      ? controlCore(type, taskId)
+      : save.actions.run(
+          "planning-control",
+          () => controlCore(type, taskId),
+          () => live.current,
+        );
+  }
+  async function controlCore(
     type: "CancelPlanningTask" | "UsePlanningResult",
     taskId: string,
   ) {
@@ -339,6 +394,8 @@ export function usePlanningSession(
   }, [planning?.state.tasks, report]);
   return {
     planning,
+    loadFailed,
+    retryLoad: () => retry((n) => n + 1),
     acting,
     start,
     control,

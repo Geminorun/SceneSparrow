@@ -249,3 +249,42 @@ test("simultaneous lost-response submissions retain one identity and a different
   assert.equal(f.mutations.length, 1);
   f.save.dispose();
 });
+
+test("review and lock commands wait for committed input, deduplicate clicks and revalidate navigation before queued dispatch", async () => {
+  const f = fixture();
+  try {
+    f.save.composition(true, "planning");
+    let text = "partial";
+    const build = (revision) => ({
+      ...f.build(revision),
+      payload: { thread: { id: "thread", text }, expectedRequestVersion: 0 },
+    });
+    const first = f.review.run("save:final", build);
+    const duplicate = f.review.run("save:final", build);
+    assert.equal(f.calls.length, 0);
+    f.save.composition(false, "planning");
+    text = "最终输入";
+    assert.equal((await first).ok, true);
+    assert.equal((await duplicate).ok, true);
+    assert.equal(
+      f.calls.filter((command) => command.type === "SaveReview").length,
+      1,
+    );
+    assert.equal(f.calls[0].payload.thread.text, "最终输入");
+    f.save.composition(true, "manuscript");
+    const lock = f.review.run("lock:all:true", (revision) => ({
+      ...f.build(revision),
+      type: "SetUserLocks",
+      payload: { blockIds: [], all: true, locked: true },
+    }));
+    f.save.actions.cancel();
+    f.save.composition(false, "manuscript");
+    assert.equal((await lock).error, "CANCELLED");
+    assert.equal(
+      f.calls.filter((command) => command.type === "SetUserLocks").length,
+      0,
+    );
+  } finally {
+    f.save.dispose();
+  }
+});

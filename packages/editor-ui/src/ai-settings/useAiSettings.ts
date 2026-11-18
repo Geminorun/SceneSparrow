@@ -250,6 +250,7 @@ export function useAiSettings(
       if (conflict)
         report("aiRemoteDraftConflict", {
           identity: `conflict:${id}`,
+          passive: true,
           actions: [{ kind: "retry", run: () => load() }],
         });
       else resolve(`conflict:${id}`);

@@ -2331,3 +2331,20 @@ body > .notifications {
     display: none;
   }
 }
+
+.notification {
+  transition: opacity 190ms ease;
+}
+.notification[data-fading="true"] {
+  opacity: 0;
+}
+
+.workspace-skeleton {
+  position: relative;
+}
+.skeleton-retry {
+  position: absolute;
+  inset-block-start: 0.75rem;
+  inset-inline-end: 1rem;
+  z-index: 1;
+}

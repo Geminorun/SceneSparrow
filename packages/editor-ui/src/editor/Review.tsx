@@ -99,14 +99,17 @@ export function Review({
       top: number;
       left: number;
     } | null>(null);
+  const noticeOpen = useRef(onOpen);
+  noticeOpen.current = onOpen;
   useEffect(() => {
     if (error)
       report(error, {
         identity: "review-action",
-        actions: [{ kind: "reviewChanges", run: onOpen }],
+        passive: true,
+        actions: [{ kind: "reviewChanges", run: () => noticeOpen.current() }],
       });
     else resolve("review-action");
-  }, [error, report, resolve, onOpen]);
+  }, [error, report, resolve]);
   const [loaded, setLoaded] = useState(false);
   const floating = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -129,6 +132,25 @@ export function Review({
     disposed = useRef(false),
     composing = useRef(false),
     composerIntent = useRef(0);
+  const latestSubmit = useRef<(sendToAi: boolean) => Promise<unknown>>(() =>
+    Promise.resolve(false),
+  );
+  const retryAction = useRef<() => unknown>(() => refresh());
+  useEffect(() => {
+    composerIntent.current++;
+    save.actions.cancel("review-submit");
+    save.actions.cancel("review-retry");
+    save.actions.cancel("review-begin");
+    save.actions.cancel("review-fill");
+  }, [save, centralView, panelVisible, tab, scope, kind, editing?.id, capture]);
+  useEffect(
+    () => () => {
+      save.actions.cancel("review-submit");
+      save.actions.cancel("review-retry");
+      save.composition(false, "review");
+    },
+    [save],
+  );
   input.current = text;
   const draftPanel = useRef<"assistant" | "comments">("comments");
   const openDraftPanel = useRef(onOpen);
@@ -155,11 +177,14 @@ export function Review({
       if (!disposed.current && n === generation.current) {
         setCards(page.cards);
         setLoaded(true);
+        setError((error) => (error === "REVIEW_UNAVAILABLE" ? "" : error));
         setCursor(page.nextCursor);
       }
     } catch {
-      if (!disposed.current && n === generation.current)
+      if (!disposed.current && n === generation.current) {
+        retryAction.current = () => refresh();
         setError("REVIEW_UNAVAILABLE");
+      }
     }
   }, [client]);
   useEffect(() => {
@@ -305,12 +330,13 @@ export function Review({
     options?: { validIntent?: () => boolean; requestedVisible?: string },
   ) => {
     setError("");
+    retryAction.current = () => action(identity, build, options);
     try {
       const result = await commands.run(identity, build, {
         ...options,
         dispatched: () => setBusy(true),
       });
-      if (!result.ok) {
+      if (!result.ok && result.error !== "CANCELLED") {
         setError(result.error || "REVIEW_VERSION_CONFLICT");
       }
       await refresh();
@@ -390,7 +416,15 @@ export function Review({
     }
   }, [cards, loaded, report, onOpen]);
   const begin = (whole: boolean, preserveThread = false) => {
-    if (!editor || save.composing) return;
+    if (!editor) return;
+    if (save.composing) {
+      void save.actions.run(
+        "review-begin",
+        () => begin(whole, preserveThread),
+        () => !disposed.current,
+      );
+      return;
+    }
     try {
       composerIntent.current++;
       setScope("selection");
@@ -428,7 +462,31 @@ export function Review({
     version?: number;
     saved?: boolean;
   } | null>(null);
-  const submit = (sendToAi = false) => {
+  const resumeSubmit = (sendToAi: boolean): Promise<unknown> =>
+    save.actions.run(
+      "review-retry",
+      async () => {
+        if (
+          !(await save.flush(true)) ||
+          (save.planningAdapter && !(await save.planningAdapter.flush(true)))
+        ) {
+          report(save.error || "SAVE_FAILED", {
+            identity: "review-submit",
+            actions: [{ kind: "retry", run: () => resumeSubmit(sendToAi) }],
+          });
+          return false;
+        }
+        return latestSubmit.current(sendToAi);
+      },
+      () => !disposed.current,
+    );
+  const submit = (sendToAi = false): Promise<unknown> => {
+    if (save.composing || composing.current)
+      return save.actions.run(
+        "review-submit",
+        () => latestSubmit.current(sendToAi),
+        () => !disposed.current,
+      );
     const intent = composerIntent.current;
     if (submitFlight.current) {
       return submitFlight.current.intent === intent
@@ -437,19 +495,24 @@ export function Review({
     }
     const promise = submitCore(sendToAi)
       .catch((error: unknown) => {
+        retryAction.current = () => resumeSubmit(sendToAi);
+        setError(error instanceof Error ? error.message : "REVIEW_UNAVAILABLE");
         report(error, {
           identity: "review-submit",
-          actions: [{ kind: "retry", run: () => submit(sendToAi) }],
+          actions: [{ kind: "retry", run: () => resumeSubmit(sendToAi) }],
         });
         return false;
       })
       .finally(() => {
+        if (composerIntent.current === intent)
+          retryAction.current = () => resumeSubmit(sendToAi);
         if (submitFlight.current?.promise === promise)
           submitFlight.current = null;
       });
     submitFlight.current = { intent, promise };
     return promise;
   };
+  latestSubmit.current = submit;
   const submitCore = async (sendToAi: boolean) => {
     if (composing.current) return;
     const intent = composerIntent.current;
@@ -701,6 +764,16 @@ export function Review({
           aria-label={assistantMode ? t.workspaceTab_planning : t.reviewPanel}
         >
           {commentsMode && <h2>{t.reviewPanel}</h2>}
+          {error && (
+            <button
+              className="quiet-button"
+              onClick={() => {
+                void retryAction.current();
+              }}
+            >
+              {t.retry}
+            </button>
+          )}
           {assistantMode && (
             <>
               <div className="assistant-context">
@@ -798,62 +871,64 @@ export function Review({
             role="toolbar"
             aria-label={t.reviewSelection}
           >
-            <button
-              disabled={busy || save.composing}
-              {...directAction("question")}
-            >
+            <button disabled={busy} {...directAction("question")}>
               {t.reviewQuestion}
             </button>
-            <button
-              disabled={busy || save.composing}
-              {...directAction("revision_note")}
-            >
+            <button disabled={busy} {...directAction("revision_note")}>
               {t.reviewNote}
             </button>
             <button
-              disabled={busy || save.composing}
+              disabled={busy}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => begin(false)}
             >
               {t.reviewSelection}
             </button>
             <button
-              disabled={busy || save.composing}
+              disabled={busy}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => begin(true)}
             >
               {t.reviewWholeBlock}
             </button>
             <button
-              disabled={busy || save.composing}
+              disabled={busy}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
-                if (!editor) return;
-                try {
-                  const selected = captureReviewSelection(editor, true),
-                    positions = canonicalPositions(editor),
-                    index = positions.findIndex(
-                      (p) => p.block.id === selected[0]?.blockId,
-                    ),
-                    heading = positions[index]?.block,
-                    next = positions[index + 1]?.block;
-                  if (
-                    selected.length !== 1 ||
-                    heading?.kind !== "heading" ||
-                    (next &&
-                      (next.kind !== "heading" ||
-                        next.attrs.level! > heading.attrs.level!))
-                  )
-                    throw Error("ANCHOR_INVALID");
-                  composerIntent.current++;
-                  setCapture(selected);
-                  setFill(true);
-                  setKind("revision_note");
-                  setEditing(null);
-                  setEvidence([]);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : "ANCHOR_INVALID");
-                }
+                void save.actions.run(
+                  "review-fill",
+                  () => {
+                    if (!editor) return;
+                    try {
+                      const selected = captureReviewSelection(editor, true),
+                        positions = canonicalPositions(editor),
+                        index = positions.findIndex(
+                          (p) => p.block.id === selected[0]?.blockId,
+                        ),
+                        heading = positions[index]?.block,
+                        next = positions[index + 1]?.block;
+                      if (
+                        selected.length !== 1 ||
+                        heading?.kind !== "heading" ||
+                        (next &&
+                          (next.kind !== "heading" ||
+                            next.attrs.level! > heading.attrs.level!))
+                      )
+                        throw Error("ANCHOR_INVALID");
+                      composerIntent.current++;
+                      setCapture(selected);
+                      setFill(true);
+                      setKind("revision_note");
+                      setEditing(null);
+                      setEvidence([]);
+                    } catch (e) {
+                      setError(
+                        e instanceof Error ? e.message : "ANCHOR_INVALID",
+                      );
+                    }
+                  },
+                  () => !disposed.current,
+                );
               }}
             >
               {t.reviewFillSection}
@@ -899,13 +974,29 @@ export function Review({
                   value={text}
                   onCompositionStart={() => {
                     composing.current = true;
+                    save.composition(true, "review");
                   }}
                   onCompositionEnd={() => {
                     composing.current = false;
+                    save.composition(false, "review");
                   }}
                   onChange={(e) => {
                     composerIntent.current++;
                     setText(e.target.value);
+                  }}
+                  onBlur={() => {
+                    save.actions.blur("review", () => {
+                      composing.current = false;
+                      save.composition(false, "review");
+                    });
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.nativeEvent.isComposing ||
+                      composing.current ||
+                      event.keyCode === 229
+                    )
+                      event.stopPropagation();
                   }}
                   maxLength={16384}
                 />
@@ -932,7 +1023,7 @@ export function Review({
               )}
               <button
                 className="primary-button"
-                disabled={busy || !text.trim()}
+                disabled={busy || (!text.trim() && !composing.current)}
               >
                 {assistantMode ? t.writingSend : t.reviewSave}
               </button>

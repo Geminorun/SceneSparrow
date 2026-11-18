@@ -513,7 +513,11 @@ export function App({ client }: { client: PlatformClient }) {
               />
             </section>
           ) : (
-            <WorkspaceSkeleton t={t} busy={loading} />
+            <WorkspaceSkeleton
+              t={t}
+              busy={loading}
+              onRetry={() => void load()}
+            />
           )}
         </main>
         <dialog

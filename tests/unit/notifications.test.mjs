@@ -132,6 +132,7 @@ test("same-code foreground errors refresh safe request context without replacing
     key: "AUTH_REJECTED",
     tone: "error",
     expiresAt: null,
+    fading: false,
     identity: "error:AUTH_REJECTED",
     owner: undefined,
     actions: [],
@@ -146,7 +147,7 @@ test("same-code foreground errors refresh safe request context without replacing
   );
 });
 
-test("action-required errors persist, passive duplicates preserve owner actions, explicit errors can return after dismissal", async () => {
+test("transient errors retain actions, passive duplicates preserve owner actions, explicit errors can return after dismissal", async () => {
   let now = 0,
     calls = 0;
   const store = new NotificationStore(() => now);
@@ -160,7 +161,7 @@ test("action-required errors persist, passive duplicates preserve owner actions,
   });
   const notice = store.getSnapshot()[0];
   assert.equal(store.getSnapshot().length, 1);
-  assert.equal(notice.expiresAt, null);
+  assert.equal(notice.expiresAt, 3000);
   now = 60000;
   store.push("AUTH_REJECTED", { passive: true });
   assert.equal(store.getSnapshot()[0], notice);
@@ -259,7 +260,7 @@ test("new owner request context clears stale diagnostics and failed actions are 
     /SECRET_CALLBACK_BODY/,
   );
   store.push("aiConfigurationSaved", { tone: "success" });
-  assert.equal(store.getSnapshot()[0].expiresAt, 7000);
+  assert.equal(store.getSnapshot()[0].expiresAt, 4000);
 });
 
 test("action descriptors are typed, unique, bounded and require a live owner", () => {
@@ -295,4 +296,68 @@ test("opaque operation identifiers resolve consistently without exposing user mo
   );
   store.resolveOwner(owner, identity);
   assert.equal(store.getSnapshot().length, 0);
+});
+
+test("all notices expire after three seconds and fade, holding preserves remaining lifetime and passive polling never replays expiry", () => {
+  let now = 0;
+  const store = new NotificationStore(() => now),
+    owner = store.createOwner();
+  store.push("AI_ERROR", {
+    owner,
+    identity: "original",
+    actions: [{ kind: "retry", run() {} }],
+  });
+  const id = store.getSnapshot()[0].id;
+  now = 1000;
+  store.hold(id, true);
+  assert.equal(store.getSnapshot()[0].expiresAt, null);
+  now = 6000;
+  store.tick(id);
+  assert.equal(store.getSnapshot().length, 1);
+  store.hold(id, false);
+  assert.equal(store.getSnapshot()[0].expiresAt, 8000);
+  now = 7999;
+  store.tick(id);
+  assert.equal(store.getSnapshot()[0].fading, undefined);
+  now = 8000;
+  store.tick(id);
+  assert.equal(store.getSnapshot()[0].fading, true);
+  now = 8189;
+  store.tick(id);
+  assert.equal(store.getSnapshot().length, 1);
+  now = 8190;
+  store.tick(id);
+  assert.equal(store.getSnapshot().length, 0);
+  now = 60000;
+  store.push("AI_ERROR", { owner, identity: "original", passive: true });
+  assert.equal(store.getSnapshot().length, 0);
+  store.push("AI_ERROR", { owner, identity: "original" });
+  assert.equal(store.getSnapshot()[0].expiresAt, 63000);
+  store.push("aiConfigurationSaved", { tone: "success" });
+  assert.equal(store.getSnapshot()[0].expiresAt, 63000);
+});
+
+test("a recovered owner or a fresh error episode can report the same code after an earlier toast expired", () => {
+  let now = 0;
+  const store = new NotificationStore(() => now),
+    owner = store.createOwner();
+  store.push("AI_ERROR", { owner, identity: "load", passive: true });
+  const expire = () => {
+    const id = store.getSnapshot()[0].id;
+    now += 3000;
+    store.tick(id);
+    now += 190;
+    store.tick(id);
+    assert.equal(store.getSnapshot().length, 0);
+  };
+  expire();
+  now = 60000;
+  store.push("AI_ERROR", { owner, identity: "load", passive: true });
+  assert.equal(store.getSnapshot().length, 0);
+  store.resolveOwner(owner, "load");
+  store.push("AI_ERROR", { owner, identity: "load", passive: true });
+  assert.equal(store.getSnapshot()[0].expiresAt, 63000);
+  expire();
+  store.push("AI_ERROR", { identity: "hook:episode:2", passive: true });
+  assert.equal(store.getSnapshot().length, 1);
 });
