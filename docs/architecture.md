@@ -68,6 +68,7 @@ SceneSparrow/
 ├── packages/
 │   ├── editor-ui/           # Shared application workspaces
 │   ├── contracts/           # JSON Schema and generated protocol types
+│   ├── manuscript-format/   # Pure Markdown projection shared by editor and worker
 │   ├── platform-client/     # Application client and platform interfaces
 │   └── video-runtime/       # Remotion components and project interpreter
 ├── crates/
