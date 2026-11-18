@@ -3,14 +3,7 @@
   "private": true,
   "type": "module",
   "name": "@scenesparrow/agent",
-  "exports": {
-    ".": "./src/index.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
   "dependencies": {
-    "@scenesparrow/contracts": "workspace:*",
     "@scenesparrow/ai-runtime": "workspace:*"
   }
 }

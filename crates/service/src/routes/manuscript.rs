@@ -143,13 +143,10 @@ async fn command(
             if matches!(command, ManuscriptCommand::StartReviewTask { .. }) {
                 return state.service.repository().start_review(settings, &command);
             }
-            state.service.repository().start_planning(
-                state
-                    .ai
-                    .settings()
-                    .map_err(|e| ManuscriptError(e.0, None))?,
-                &command,
-            )
+            state
+                .service
+                .repository()
+                .start_planning(settings, &command)
         })
         .await
         .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),

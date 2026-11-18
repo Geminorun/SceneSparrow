@@ -158,9 +158,6 @@ importers:
       '@scenesparrow/ai-runtime':
         specifier: workspace:*
         version: link:../../packages/ai-runtime
-      '@scenesparrow/contracts':
-        specifier: workspace:*
-        version: link:../../packages/contracts
 
   workers/document:
     dependencies:

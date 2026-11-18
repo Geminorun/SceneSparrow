@@ -58,7 +58,7 @@ export class ProjectCommands {
         : this.flight.promise.then((result) => ({ ...result, ok: false }));
     }
     const context = this.save.actions.contextVersion;
-    const promise = this.execute(identity, build, {
+    const promise = this.execute(identity, build, independent, {
       ...options,
       validIntent: () =>
         this.save.actions.contextVersion === context &&
@@ -72,6 +72,7 @@ export class ProjectCommands {
   private async execute(
     identity: string,
     build: (revision: number) => ManuscriptCommand,
+    independent: boolean,
     options?: {
       validIntent?: () => boolean;
       requestedVisible?: string;
@@ -114,11 +115,7 @@ export class ProjectCommands {
       prior?.visible ??
       options?.requestedVisible ??
       JSON.stringify(this.save.local);
-    const requestedMetadata =
-      identity.startsWith("CancelReviewTask:") ||
-      identity.startsWith("CancelPlanningTask:") ||
-      (identity.startsWith("lock:") && identity.endsWith(":false"));
-    if (!attempted && requestedMetadata)
+    if (!attempted && independent)
       attempted = build(this.save.state.workingRevision);
     const cancellation =
       attempted?.type === "CancelReviewTask" ||
