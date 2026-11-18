@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import type en from "../locales/en.json";
-import { trapDialogFocus } from "../dialog-focus";
+import { trapDialogFocus } from "../ui/dialog-focus";
 export function SettingsModal({
   title,
   t,

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{SqliteProjectRepository, manuscript::hash};
+use crate::{SqliteProjectRepository, storage::hash};
 use atomic_write_file::AtomicWriteFile;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use scenesparrow_application::ai::*;

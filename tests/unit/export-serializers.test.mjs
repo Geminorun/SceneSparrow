@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { plain, markdown, word } from "../../workers/document/src/export.mjs";
+import {
+  serializeMarkdown,
+  parseMarkdown,
+} from "../../packages/editor-ui/src/manuscript/markdown.ts";
+import {
+  plain,
+  markdown,
+  word,
+  serializerVersion,
+} from "../../workers/document/src/export.mjs";
 import { fromMarkdown } from "../../workers/document/node_modules/mdast-util-from-markdown/index.js";
 import yauzl from "../../workers/document/node_modules/yauzl/index.js";
 const run = (text, marks = []) => ({ text, marks });
@@ -141,4 +150,84 @@ test("canonical UTF-8 noncharacters remain in TXT/Markdown while DOCX rejects un
   assert.equal(plain(s), value + "\n");
   assert.equal(text(fromMarkdown(markdown(s)).children[0]), value);
   await assert.rejects(word(s), /EXPORT_INVALID/);
+});
+
+test("real UI and worker Markdown consumers share overlapping marks, list and hard-break semantics", () => {
+  const overlap = block("paragraph", [
+    run("bold", [{ type: "bold" }]),
+    run("code", [{ type: "bold" }, { type: "italic" }, { type: "code" }]),
+    run("tail", [{ type: "bold" }]),
+    run("link", [{ type: "link", href: "https://example.com" }]),
+    run("marked", [
+      { type: "bold" },
+      { type: "link", href: "https://example.com" },
+    ]),
+    run("\r\nnext\rline\r\n \t"),
+  ]);
+  const blocks = [overlap, ...snapshot.blocks.slice(2)];
+  const output = markdown({ version: 1, blocks });
+  assert.equal(output, serializeMarkdown(blocks));
+  const parsed = parseMarkdown(output);
+  assert.deepEqual(parsed[0].runs, [
+    run("bold", [{ type: "bold" }]),
+    run("code", [{ type: "bold" }, { type: "italic" }, { type: "code" }]),
+    run("tail", [{ type: "bold" }]),
+    run("link", [{ type: "link", href: "https://example.com" }]),
+    run("marked", [
+      { type: "bold" },
+      { type: "link", href: "https://example.com" },
+    ]),
+    run("\nnext\nline"),
+  ]);
+  assert.deepEqual(
+    parsed.filter((b) => b.kind === "list_item").map((b) => b.attrs),
+    [
+      { listKind: "ordered", depth: 0 },
+      { listKind: "bullet", depth: 1 },
+      { listKind: "ordered", depth: 0 },
+      { listKind: "ordered", depth: 0 },
+    ],
+  );
+  for (const value of ["a\n", "a\n\n", "a\n \t", "a\nb\n", "\n\n"]) {
+    const blocks = [block("paragraph", [run(value)])];
+    const output = markdown({ version: 1, blocks });
+    assert.equal(output, serializeMarkdown(blocks).replace(/\n*$/, "") + "\n");
+    assert.equal(
+      fromMarkdown(output).children.map(text).join("\n\n"),
+      value.replace(/(?:\n[ \t]*)+$/u, ""),
+    );
+  }
+  assert.equal(serializeMarkdown([]), "");
+  assert.equal(markdown({ version: 1, blocks: [] }), "\n");
+  assert.equal(serializerVersion, "canonical-1");
+});
+
+test("worker Markdown retains validation and maps shared writer failures to EXPORT_INVALID", () => {
+  for (const invalid of [
+    { version: 2, blocks: [] },
+    { version: 1, blocks: null },
+  ])
+    assert.throws(() => markdown(invalid), /^Error: EXPORT_INVALID$/);
+  for (const href of [
+    "javascript:alert(1)",
+    "/relative",
+    "https://",
+    "https://example.com/ bad",
+  ]) {
+    const blocks = [
+      block("paragraph", [run("label", [{ type: "link", href }])]),
+    ];
+    assert.throws(
+      () => markdown({ version: 1, blocks }),
+      /^Error: EXPORT_INVALID$/,
+    );
+  }
+  const orphan = block("list_item", [run("orphan")], {
+    listKind: "bullet",
+    depth: 1,
+  });
+  assert.throws(
+    () => markdown({ version: 1, blocks: [orphan] }),
+    /^Error: EXPORT_INVALID$/,
+  );
 });

@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApplicationPreferencesStore } from "../../packages/editor-ui/src/app-preferences.ts";
-import { Autosave } from "../../packages/editor-ui/src/editor/autosave.ts";
+import { ProjectSession } from "../../packages/editor-ui/src/project-session/project-session.ts";
 import { ApiError } from "../../packages/platform-client/src/index.ts";
 import {
   PlanningAutosave,
   normalizePlanningLanguage,
-} from "../../packages/editor-ui/src/editor/planning-autosave.ts";
+} from "../../packages/editor-ui/src/planning/planning-autosave.ts";
 const clone = structuredClone;
 const deferred = () => {
   let resolve;
@@ -149,7 +149,7 @@ function fixture(preferences) {
       return clone(receipt);
     },
   };
-  const save = new Autosave(
+  const save = new ProjectSession(
     clone(document),
     crypto.randomUUID(),
     client,
@@ -934,7 +934,7 @@ test("explicit planning cancellation remains possible while an invalid outline i
   const f = fixture();
   try {
     f.planning.invalidate("# Unfinished\nunsupported syntax");
-    const ok = await f.save.cancelReviewCommand({
+    const ok = await f.save.cancelOrUnlock({
       type: "CancelPlanningTask",
       requestId: crypto.randomUUID(),
       projectId: "project",

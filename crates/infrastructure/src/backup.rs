@@ -118,7 +118,7 @@ pub(super) fn migration_backup(
 }
 impl SqliteProjectRepository {
     pub fn verified_backup(&self) -> Result<PathBuf, Error> {
-        let _operation = crate::operation::Operation::begin("backup");
+        let _operation = crate::storage::operation::Operation::begin("backup");
         let c = storage(self.connection.lock())?;
         let state = self.load(&c).map_err(|_| Error::Storage)?;
         self.verify_history(&c, &state)

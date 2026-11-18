@@ -6,7 +6,7 @@ import { SecretEntry } from "./SecretEntry";
 import { ModelDetails } from "./ModelDetails";
 import { OperationStatus } from "./OperationStatus";
 import { SettingsModal } from "./SettingsModal";
-import { savedDiscoveryTarget } from "../notifications";
+import { savedDiscoveryTarget } from "../feedback/notifications";
 import type { AiSettingsController } from "./useAiSettings";
 
 export function ServiceDetails({
@@ -108,7 +108,7 @@ export function ServiceDetails({
               <button
                 className="quiet-button"
                 disabled={busy}
-                onClick={() => void c.deleteCredential(selection, provider!.id)}
+                onClick={() => void c.deleteCredential(provider!.id)}
               >
                 {t.aiDeleteKey}
               </button>
@@ -177,7 +177,7 @@ export function ServiceDetails({
           <button
             className="quiet-button"
             disabled={busy}
-            onClick={() => void c.deleteCredential(selection, provider.id)}
+            onClick={() => void c.deleteCredential(provider.id)}
           >
             {t.aiDeleteKey}
           </button>

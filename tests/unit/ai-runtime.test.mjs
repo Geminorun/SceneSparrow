@@ -174,7 +174,6 @@ test("independent fake consumer uses opaque schema, same output guards and no bu
   assert.equal(untouched.calls, 0);
   for (const p of [
     "packages/ai-runtime/src/index.ts",
-    "workers/agent/src/index.ts",
     "workers/agent/src/entry.mjs",
   ]) {
     const source = await readFile(p, "utf8");

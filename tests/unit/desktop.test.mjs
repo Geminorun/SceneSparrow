@@ -56,6 +56,12 @@ test("desktop errors keep stable API classification and bridge exposes scoped me
   assert.match(main, /contextIsolation: true/);
   assert.match(main, /nodeIntegration: false/);
   assert.match(main, /sandbox: true/);
+  assert.match(main, /event\.sender !== primaryWindow\.webContents/);
+  assert.match(
+    main,
+    /event\.senderFrame !== primaryWindow\.webContents\.mainFrame/,
+  );
+  assert.match(main, /event\.senderFrame\.url !== entryUrl/);
   assert.match(main, /event\.senderFrame\?\.url !== entryUrl/);
   for (const unsafe of ["readFile:", "fetch:", "request:", "ipcRenderer:"])
     assert.ok(!preload.includes(unsafe));

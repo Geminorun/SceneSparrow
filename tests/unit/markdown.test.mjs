@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseMarkdown,
   serializeMarkdown,
-} from "../../packages/editor-ui/src/editor/markdown.ts";
+} from "../../packages/editor-ui/src/manuscript/markdown.ts";
 const semantic = (blocks) => blocks.map(({ id: _, ...block }) => block);
 const text = (block) => block.runs.map((run) => run.text).join("");
 test("browser Markdown codec preserves headings, Unicode, soft/hard breaks, safe links and nested list semantics", () => {
@@ -162,5 +162,36 @@ test("source terminal empty lines normalize away without producing a visible bac
       .join("\n\n");
     assert.equal(reparsed, text.replace(/(?:\n[ \t]*)+$/u, ""));
     assert.ok(!reparsed.endsWith("\\"));
+  }
+});
+
+test("Markdown source normalizes canonical CRLF and rejects unsafe canonical links", () => {
+  const block = {
+    id: crypto.randomUUID(),
+    kind: "paragraph",
+    attrs: {},
+    runs: [{ text: "first\r\nsecond\rthird\r\n \t", marks: [] }],
+  };
+  assert.equal(
+    text(parseMarkdown(serializeMarkdown([block]))[0]),
+    "first\nsecond\nthird",
+  );
+  assert.equal(block.runs[0].text, "first\r\nsecond\rthird\r\n \t");
+  for (const href of [
+    "javascript:alert(1)",
+    "/relative",
+    "https://",
+    "https://example.com/ bad",
+  ]) {
+    assert.throws(
+      () =>
+        serializeMarkdown([
+          {
+            ...block,
+            runs: [{ text: "label", marks: [{ type: "link", href }] }],
+          },
+        ]),
+      /DOCUMENT_INVALID/,
+    );
   }
 });

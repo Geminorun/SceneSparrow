@@ -1,7 +1,10 @@
 # Development setup
 
 For the production private Web entry, use the [self-hosted deployment runbook](web-deployment.md).
-Development Vite servers and preview are not production servers.
+Development Vite servers and preview are not production servers. The production
+host starts at [`apps/web/server/start.mjs`](../apps/web/server/start.mjs); its
+gateway, diagnostics and credential-key validation modules live alongside it.
+Deployment configuration and container/worker smoke tools live in `scripts/web/`.
 
 ## What the foundation implements
 

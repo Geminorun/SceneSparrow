@@ -1,4 +1,4 @@
-use crate::manuscript::hash;
+use crate::storage::hash;
 use scenesparrow_domain::{ai::*, contracts::*};
 fn safe<T>(result: std::result::Result<T, impl std::fmt::Debug>) -> Result<T> {
     result.map_err(|_| AiError("STORAGE_UNAVAILABLE"))

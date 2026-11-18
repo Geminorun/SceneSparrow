@@ -1,5 +1,6 @@
-use super::manuscript::{Result, db, hash};
+use super::storage::{Result, db, hash};
 use super::*;
+use crate::worker_process::{self, WorkerChild};
 use scenesparrow_application::manuscript::DocumentRepository;
 use scenesparrow_domain::{
     contracts::*,
@@ -8,7 +9,6 @@ use scenesparrow_domain::{
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{Read, Write},
-    process::{Command, Stdio},
     time::Instant,
 };
 const MAX_INPUT: u64 = 25 * 1024 * 1024;
@@ -163,19 +163,6 @@ impl SqliteProjectRepository {
         self.verify_sources(&root.sources)
             .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         Ok(root)
-    }
-    pub(super) fn read_object(&self, digest: &str) -> Result<Vec<u8>> {
-        if digest.len() != 64
-            || !digest
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        {
-            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-        }
-        db(crate::operation::read(
-            &self.directory.join("objects").join(digest),
-            digest,
-        ))
     }
     fn verify_sources(&self, sources: &[Source]) -> Result<()> {
         let mut ids = BTreeSet::new();
@@ -577,29 +564,7 @@ impl SqliteProjectRepository {
         crate::diagnostics::emit(crate::diagnostics::Event::WorkerStart);
         let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../workers/document/src/entry.mjs");
-        let mut command = Command::new("node");
-        command.env_clear();
-        for key in [
-            "PATH",
-            "SystemRoot",
-            "WINDIR",
-            "TEMP",
-            "TMP",
-            "TMPDIR",
-            "LANG",
-        ] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-        let child = match command
-            .arg("--max-old-space-size=384")
-            .arg(entry)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
+        let child = match worker_process::document_command(&entry).spawn() {
             Ok(child) => child,
             Err(_) => return self.finish_job(id, attempt, Err("WORKER_UNAVAILABLE")),
         };
@@ -657,16 +622,7 @@ impl SqliteProjectRepository {
                 failure = Some("DOCUMENT_PARSE_TIMEOUT");
             }
             #[cfg(target_os = "linux")]
-            if std::fs::read_to_string(format!("/proc/{}/status", child.id()))
-                .ok()
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.starts_with("VmRSS:"))
-                        .and_then(|l| l.split_whitespace().nth(1))
-                        .and_then(|n| n.parse::<u64>().ok())
-                })
-                .is_some_and(|kb| kb * 1024 > memory)
-            {
+            if worker_process::resident_kib(child.id()).is_some_and(|kb| kb * 1024 > memory) {
                 failure = Some("DOCUMENT_RESOURCE_LIMIT");
             }
             #[cfg(not(target_os = "linux"))]
@@ -809,66 +765,6 @@ impl SqliteProjectRepository {
             [owner],
         ))?;
         Ok(())
-    }
-    pub fn collect_objects(&self, grace: Duration) -> Result<usize> {
-        // Capture, reconciliation, row pruning and deletion share the exact writer
-        // coordinator used by promotion and command commit. Backups are not traversed.
-        let mut c = db(self.connection.lock())?;
-        let roots = self.retention_roots(&c)?;
-        for h in &roots {
-            self.read_object(h)?;
-        }
-        let mut candidates = vec![];
-        for entry in db(std::fs::read_dir(self.directory.join("objects")))? {
-            let entry = db(entry)?;
-            let h = entry.file_name().to_string_lossy().into_owned();
-            if !roots.contains(&h)
-                && db(entry.file_type())?.is_file()
-                && db(entry.metadata())?
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.elapsed().ok())
-                    .is_some_and(|age| age >= grace)
-            {
-                candidates.push((h, entry.path()));
-            }
-        }
-        let tx = db(c.transaction())?;
-        for (h, _) in &candidates {
-            db(tx.execute("DELETE FROM content_revisions WHERE payload_hash=?1", [h]))?;
-            db(tx.execute(
-                "DELETE FROM import_provenance WHERE input_hash=?1 OR result_hash=?1",
-                [h],
-            ))?;
-            db(tx.execute("DELETE FROM document_attempts WHERE status NOT IN ('queued','running') AND (input_hash=?1 OR result_hash=?1)",[h]))?;
-        }
-        db(tx.commit())?;
-        // A failure after metadata pruning leaves harmless orphan bytes. Never unlink
-        // first: rollback must not restore a committed row pointing to deleted bytes.
-        let mut removed = 0;
-        for (_, path) in candidates {
-            db(std::fs::remove_file(path))?;
-            removed += 1;
-        }
-        Ok(removed)
-    }
-}
-struct WorkerChild(std::process::Child);
-impl std::ops::Deref for WorkerChild {
-    type Target = std::process::Child;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl std::ops::DerefMut for WorkerChild {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-impl Drop for WorkerChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
     }
 }
 fn validate_url(text: &str) -> Result<()> {

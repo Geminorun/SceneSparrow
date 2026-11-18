@@ -1,7 +1,7 @@
 //! User approval and future-consumer inputs share the manuscript commit boundary.
 use crate::{
     SqliteProjectRepository,
-    manuscript::{Result, db, hash},
+    storage::{Result, db, hash},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_domain::{

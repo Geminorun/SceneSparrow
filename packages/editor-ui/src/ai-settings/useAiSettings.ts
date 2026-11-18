@@ -14,8 +14,8 @@ import {
   notifyFailure,
   safeErrorCode,
   savedDiscoveryTarget,
-} from "../notifications";
-import { useNoticeOwner } from "../NotificationPresenter";
+} from "../feedback/notifications";
+import { useNoticeOwner } from "../feedback/NotificationPresenter";
 import { publishSavedAiView } from "./saved-view";
 import {
   assignPreset,
@@ -552,7 +552,7 @@ export function useAiSettings(
     discover,
     testModel,
     load,
-    deleteCredential: (selection: string, id: string) =>
+    deleteCredential: (id: string) =>
       enqueue(`provider:${id}`, async () => {
         publish(
           await client.deleteAiCredential({

@@ -9,6 +9,11 @@ and native lifecycle/backup endpoints are unavailable over the public gateway;
 browser copy and TXT/Markdown/DOCX downloads remain available. The render sample
 does not become a production video service through this deployment.
 
+The container starts `node apps/web/server/start.mjs`. The Web app owns the
+production supervisor, gateway, diagnostics and master-key validation modules in
+[`apps/web/server/`](../apps/web/server/). Deployment/operator configuration and
+container/worker smoke tools remain in `scripts/web/`.
+
 ## Server and repository prerequisites
 
 - Ubuntu 24.04 x86_64, Docker Engine and Compose v2 with `up --wait`, Python 3,

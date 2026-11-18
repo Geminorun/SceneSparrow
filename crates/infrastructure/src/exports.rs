@@ -1,12 +1,12 @@
-use super::manuscript::{Result, db, hash};
+use super::storage::{Result, db, hash};
 use super::*;
+use crate::worker_process::{self, WorkerChild};
 use scenesparrow_domain::{
     contracts::*,
     manuscript::{self, ManuscriptError},
 };
 use std::{
     io::{Read, Write},
-    process::{Command, Stdio},
     time::Instant,
 };
 
@@ -539,35 +539,16 @@ impl SqliteProjectRepository {
             .join(std::format!("export-{id}-{}", current.attempt));
         crate::diagnostics::emit(crate::diagnostics::Event::WorkerStart);
         let input = self.directory.join("objects").join(&current.snapshot_hash);
-        let mut command = Command::new("node");
-        command.env_clear();
-        for k in [
-            "PATH",
-            "SystemRoot",
-            "WINDIR",
-            "TEMP",
-            "TMP",
-            "TMPDIR",
-            "LANG",
-        ] {
-            if let Some(v) = std::env::var_os(k) {
-                command.env(k, v);
-            }
-        }
-        let child = command
-            .arg("--max-old-space-size=384")
-            .arg(entry.map(Path::to_path_buf).unwrap_or_else(|| {
+        let child =
+            worker_process::document_command(&entry.map(Path::to_path_buf).unwrap_or_else(|| {
                 Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../../workers/document/src/export-entry.mjs")
             }))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
             .spawn();
         let Ok(child) = child else {
             return self.finish_export(id, current.attempt, Err("WORKER_UNAVAILABLE"));
         };
-        let mut child = ExportChild(child);
+        let mut child = WorkerChild(child);
         let request = serde_json::json!({"version":1,"attempt":current.attempt,"format":current.format,"input":input,"expectedHash":current.snapshot_hash,"output":staging});
         let stdin = child.0.stdin.take();
         let writer = std::thread::spawn(move || {
@@ -596,14 +577,7 @@ impl SqliteProjectRepository {
                 failure = Some("EXPORT_INTERRUPTED");
             }
             #[cfg(target_os = "linux")]
-            if std::fs::read_to_string(std::format!("/proc/{}/status", child.0.id()))
-                .ok()
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.starts_with("VmRSS:"))
-                        .and_then(|l| l.split_whitespace().nth(1))
-                        .and_then(|n| n.parse::<u64>().ok())
-                })
+            if worker_process::resident_kib(child.0.id())
                 .is_some_and(|kb| kb.saturating_mul(1024) > memory)
             {
                 failure = Some("EXPORT_TOO_LARGE");
@@ -875,14 +849,6 @@ impl SqliteProjectRepository {
         })
     }
 }
-struct ExportChild(std::process::Child);
-impl Drop for ExportChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,24 +7,10 @@ import {
   shell,
   clipboard,
 } from "electron";
-import {
-  NativeDelivery,
-  NativeClipboard,
-  deliveryError,
-} from "./export-delivery.js";
-import {
-  commitExportFile,
-  prepareDestination,
-  suggestedExportName,
-} from "./export-files.js";
-import { createHash } from "node:crypto";
-import type {
-  PreparedCopy,
-  ExportJob,
-  DeliveryAction,
-  DeliveryReceipt,
-  ProjectResponse,
-} from "@scenesparrow/contracts";
+import { registerAiIpc } from "./ai-ipc.js";
+import { registerExportIpc } from "./export-ipc.js";
+import { suggestedExportName } from "./export-files.js";
+import type { ProjectResponse } from "@scenesparrow/contracts";
 import { intakeSelectedFile } from "./file-intake.js";
 import {
   ReferenceDirectoryRegistry,
@@ -328,16 +314,12 @@ async function main() {
       throw Error("ORIGIN_DENIED");
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
-  const nativeDelivery = new NativeDelivery<
-    Awaited<ReturnType<typeof prepareDestination>>
-  >({
-    intent: async (action) => {
-      const r = await request("/manuscript/deliveries", action);
-      if (!r.ok) throw Error(r.code);
-      return r.data as unknown as DeliveryReceipt;
-    },
-    artifact: (action) => verifiedArtifact(action.jobId, action.artifactHash),
-    choose: async (job) => {
+  const exports = registerExportIpc(ipcMain, {
+    checkSender,
+    request,
+    session: () => ({ core, baseUrl, token }),
+    fetch,
+    chooseFile: async (job) => {
       const selected = await dialog.showSaveDialog(primaryWindow!, {
         defaultPath: suggestedExportName(
           job.filename.slice(0, -(job.format.length + 1)),
@@ -345,142 +327,9 @@ async function main() {
         ),
         filters: [{ name: job.format.toUpperCase(), extensions: [job.format] }],
       });
-      return selected.canceled || !selected.filePath
-        ? null
-        : prepareDestination(selected.filePath, job.format);
+      return selected.canceled ? null : (selected.filePath ?? null);
     },
-    commit: commitExportFile,
-    finish: async (action, status) => {
-      const r = await request(`/manuscript/deliveries/${status}`, action);
-      if (!r.ok) throw Error(r.code);
-      return r.data as unknown as DeliveryReceipt;
-    },
-  });
-  const nativeClipboard = new NativeClipboard(
-    async (id) => {
-      const result = await request(`/manuscript/copies/${id}`);
-      if (!result.ok) throw Error(result.code);
-      return result.data as unknown as PreparedCopy;
-    },
-    (text) => clipboard.writeText(text),
-  );
-  const idValid = (id: unknown): id is string =>
-    typeof id === "string" && /^[0-9a-f-]{36}$/.test(id);
-  async function verifiedArtifact(id: string, hash?: string) {
-    const result = await request(`/manuscript/exports/${id}`);
-    if (!result.ok)
-      throw Error("code" in result ? result.code : "EXPORT_FAILED");
-    const job = result.data as unknown as ExportJob;
-    if (job.status !== "ready" || (hash && job.artifactHash !== hash))
-      throw Error("ARTIFACT_MISMATCH");
-    const response = await fetch(
-      `${baseUrl}/manuscript/exports/${id}/artifact`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!response.ok) throw Error("DOWNLOAD_UNAVAILABLE");
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (
-      bytes.length > 32 * 1024 * 1024 ||
-      createHash("sha256").update(bytes).digest("hex") !== job.artifactHash
-    )
-      throw Error("ARTIFACT_MISMATCH");
-    return { job, bytes };
-  }
-  for (const [channel, action] of [
-    ["export:start", ""],
-    ["export:job", "read"],
-    ["export:cancel", "cancel"],
-    ["export:retry", "retry"],
-  ] as const) {
-    ipcMain.handle(channel, (event, id: unknown, body: unknown) => {
-      checkSender(event);
-      if (!action) return request("/manuscript/exports", id);
-      if (!idValid(id)) return { ok: false, code: "INVALID_REQUEST" };
-      return request(
-        `/manuscript/exports/${id}${action === "read" ? "" : `/${action}`}`,
-        action === "read" ? undefined : body,
-      );
-    });
-  }
-  ipcMain.handle("export:bytes", async (event, id: unknown) => {
-    checkSender(event);
-    if (!idValid(id)) return { ok: false, code: "INVALID_REQUEST" };
-    try {
-      return { ok: true, data: (await verifiedArtifact(id)).bytes };
-    } catch (e) {
-      return {
-        ok: false,
-        code: e instanceof Error ? e.message : "DOWNLOAD_UNAVAILABLE",
-      };
-    }
-  });
-  function deliveryAction(value: unknown): DeliveryAction {
-    const a = value as DeliveryAction;
-    if (
-      !a ||
-      Object.keys(a).some(
-        (k) => !["deliveryId", "jobId", "artifactHash"].includes(k),
-      ) ||
-      !idValid(a.deliveryId) ||
-      !idValid(a.jobId) ||
-      !/^[a-f0-9]{64}$/.test(a.artifactHash)
-    )
-      throw Error("INVALID_REQUEST");
-    return a;
-  }
-  ipcMain.handle("export:list", (event) => {
-    checkSender(event);
-    return request("/manuscript/exports");
-  });
-  ipcMain.handle("copy:prepare", (event, body: unknown) => {
-    checkSender(event);
-    return request("/manuscript/copies", body);
-  });
-  ipcMain.handle("export:clipboard", async (event, value: unknown) => {
-    checkSender(event);
-    try {
-      const a = value as {
-        deliveryId: string;
-        preparationId: string;
-        bodyHash: string;
-      };
-      if (
-        !a ||
-        Object.keys(a).some(
-          (k) => !["deliveryId", "preparationId", "bodyHash"].includes(k),
-        ) ||
-        !idValid(a.deliveryId) ||
-        !idValid(a.preparationId) ||
-        !/^[a-f0-9]{64}$/.test(a.bodyHash)
-      )
-        throw Error("INVALID_REQUEST");
-      const owningCore = core;
-      await nativeClipboard.copy(a, () => {
-        checkSender(event, true);
-        if (core !== owningCore) throw Error("CAPABILITY_EXPIRED");
-      });
-      return { ok: true, data: null };
-    } catch {
-      return { ok: false, code: "CLIPBOARD_UNAVAILABLE" };
-    }
-  });
-  ipcMain.handle("export:save", async (event, value: unknown) => {
-    checkSender(event);
-    const owningCore = core;
-    try {
-      return {
-        ok: true,
-        data: await nativeDelivery.save(deliveryAction(value), () => {
-          checkSender(event, true);
-          if (core !== owningCore) throw Error("CAPABILITY_EXPIRED");
-        }),
-      };
-    } catch (e) {
-      return { ok: false, code: deliveryError(e) };
-    }
+    writeClipboard: (text) => clipboard.writeText(text),
   });
   for (const [channel, path] of [
     ["sources:read", "/sources"],
@@ -582,48 +431,11 @@ async function main() {
       return request(path, method === "POST" ? value : undefined, method);
     });
   }
-  for (const [channel, path, method] of [
-    ["ai:settings-read", "/ai/settings", "GET"],
-    ["ai:settings-update", "/ai/settings", "PUT"],
-    ["ai:credential-update", "/ai/credentials", "POST"],
-    ["ai:credential-delete", "/ai/credentials/delete", "POST"],
-    ["ai:configuration", "/ai/configuration", "GET"],
-    ["ai:models", "/ai/models/discover", "POST"],
-    ["ai:test-prepare", "/ai/connection-tests/prepare", "POST"],
-    ["ai:test", "/ai/connection-tests", "POST"],
-    ["ai:run", "/ai/runs", "GET"],
-    ["ai:cancel", "/ai/runs", "POST"],
-  ] as const) {
-    ipcMain.handle(channel, (event, value: unknown) => {
-      checkSender(event);
-      if (channel === "ai:run" || channel === "ai:cancel") {
-        if (typeof value !== "string" || !/^[0-9a-f-]{36}$/.test(value))
-          return { ok: false, code: "INVALID_REQUEST" };
-        return request(
-          `${path}/${value}${channel === "ai:cancel" ? "/cancel" : ""}`,
-          undefined,
-          method,
-        );
-      }
-      return request(path, method === "GET" ? undefined : value, method);
-    });
-  }
-  ipcMain.handle("ai:result", async (event, id: unknown) => {
-    checkSender(event);
-    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id))
-      return { ok: false, code: "INVALID_REQUEST" };
-    const response = await fetch(`${baseUrl}/ai/runs/${id}/result`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      return { ok: false, code: error.code ?? "RESULT_UNAVAILABLE" };
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > 8388608)
-      return { ok: false, code: "OUTPUT_TRUNCATED" };
-    return { ok: true, data: bytes };
+  registerAiIpc(ipcMain, {
+    checkSender,
+    request,
+    session: () => ({ baseUrl, token }),
+    fetch,
   });
   const fileSelections = new Map<
     string,
@@ -861,8 +673,7 @@ async function main() {
           for (const selection of fileSelections.values())
             selection.abort.abort();
           await referenceDirectories.abortAndSettle();
-          await nativeDelivery.settled();
-          await nativeClipboard.settled();
+          await exports.settled();
           if (coreIsRunning(core)) {
             const result = await request("/project/quiesce", {});
             if (!result.ok) throw Error("SHUTDOWN_FAILED");
@@ -876,8 +687,7 @@ async function main() {
             const previous = projectDirectory,
               candidate = nextProject;
             nextProject = null;
-            nativeDelivery.clear();
-            nativeClipboard.clear();
+            exports.clear();
             try {
               const result = await activateProject(previous, candidate, {
                 stop: stopCore,

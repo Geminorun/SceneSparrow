@@ -1,4 +1,4 @@
-import { validateOperator } from "./gateway.mjs";
+import { validateOperator } from "../../apps/web/server/gateway.mjs";
 
 export function operatorConfiguration(env) {
   const hasUsername = Boolean(env.OPERATOR_USERNAME);

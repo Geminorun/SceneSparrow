@@ -1,9 +1,8 @@
-mod ai;
 pub mod contracts;
-mod documents;
-mod exports;
-mod manuscript;
-mod planning;
+mod jobs;
+mod routes;
+
+use routes::{ai, manuscript};
 
 use axum::{
     Json, Router,
@@ -14,6 +13,7 @@ use axum::{
     routing::get,
 };
 use scenesparrow_application::{Error, ProjectService};
+use scenesparrow_domain::manuscript::ManuscriptError;
 use scenesparrow_infrastructure::SqliteProjectRepository;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -29,6 +29,26 @@ struct AppState {
     native_authorization: Option<String>,
 }
 
+async fn database<T: serde::Serialize + Send + 'static>(
+    state: AppState,
+    request_id: Option<String>,
+    op: impl FnOnce(&SqliteProjectRepository) -> Result<T, ManuscriptError> + Send + 'static,
+) -> Response {
+    let Ok(permit) = state.database_slots.acquire_owned().await else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
+    };
+    manuscript::result(
+        tokio::task::spawn_blocking(move || {
+            // Blocking work outlives a cancelled HTTP future, so it owns the slot.
+            let _permit = permit;
+            op(state.service.repository())
+        })
+        .await
+        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
+        request_id,
+    )
+}
+
 pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: &str) -> Router {
     let state = AppState {
         service: Arc::new(ProjectService::new(repository)),
@@ -39,8 +59,7 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
         ai: Arc::new(ai::AiState::default()),
         native_authorization: std::env::var("SCENESPARROW_NATIVE_TOKEN").ok(),
     };
-    planning::drive(&state);
-    exports::drive(&state);
+    jobs::start(&state);
     state_router(state)
 }
 fn state_router(state: AppState) -> Router {
@@ -49,12 +68,7 @@ fn state_router(state: AppState) -> Router {
         .route("/v1/project", get(read_project).post(create_project))
         .route("/v1/project/ensure", axum::routing::post(ensure_project))
         .route("/v1/project/rename", axum::routing::post(rename_project))
-        .merge(manuscript::routes())
-        .merge(documents::routes())
-        .merge(exports::routes())
-        .merge(ai::routes())
-        .merge(planning::routes())
-        .merge(review::routes())
+        .merge(routes::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -266,6 +280,102 @@ mod tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn database_work_retains_its_slot_after_http_cancellation_and_maps_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let state = AppState {
+            service: Arc::new(ProjectService::new(
+                SqliteProjectRepository::open(directory.path()).unwrap(),
+            )),
+            authorization: "Bearer test-token".into(),
+            allowed_origin: "http://127.0.0.1:5173".into(),
+            database_slots: Arc::new(Semaphore::new(1)),
+            document_slots: Arc::new(Semaphore::new(1)),
+            ai: Arc::new(ai::AiState::default()),
+            native_authorization: None,
+        };
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first = tokio::spawn(database(state.clone(), None, move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(contracts::EmptyPayload {})
+        }));
+        tokio::time::timeout(std::time::Duration::from_secs(2), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        assert_eq!(state.database_slots.available_permits(), 0);
+        let (second_started_tx, mut second_started_rx) = tokio::sync::oneshot::channel();
+        let second = tokio::spawn(database(
+            state.clone(),
+            Some("receipt-id".into()),
+            move |_| {
+                second_started_tx.send(()).unwrap();
+                Err::<contracts::EmptyPayload, _>(ManuscriptError(
+                    "REVISION_CONFLICT",
+                    Some(contracts::HistoryErrorDetails {
+                        reason: "CONTENT_LOCKED".into(),
+                        affected_ids: vec!["block-id".into()],
+                        candidate_conflicts: None,
+                    }),
+                ))
+            },
+        ));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut second_started_rx,)
+                .await
+                .is_err()
+        );
+        release_tx.send(()).unwrap();
+        let response = tokio::time::timeout(std::time::Duration::from_secs(2), second)
+            .await
+            .unwrap()
+            .unwrap();
+        second_started_rx.await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = to_bytes(response.into_body(), 16384).await.unwrap();
+        let error: contracts::ApiError = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(error.code, "REVISION_CONFLICT");
+        assert_eq!(error.request_id.as_deref(), Some("receipt-id"));
+        assert_eq!(
+            error.details,
+            Some(contracts::HistoryErrorDetails {
+                reason: "CONTENT_LOCKED".into(),
+                affected_ids: vec!["block-id".into()],
+                candidate_conflicts: None,
+            })
+        );
+        assert_eq!(state.database_slots.available_permits(), 1);
+
+        let response = database::<contracts::EmptyPayload>(
+            state.clone(),
+            Some("panicked-request".into()),
+            |_| panic!("simulated blocking worker panic"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = to_bytes(response.into_body(), 16384).await.unwrap();
+        let error: contracts::ApiError = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(error.code, "STORAGE_UNAVAILABLE");
+        assert_eq!(error.request_id.as_deref(), Some("panicked-request"));
+        assert_eq!(state.database_slots.available_permits(), 1);
+
+        state.database_slots.close();
+        let response =
+            database::<contracts::EmptyPayload>(state, Some("unstarted-request".into()), |_| {
+                panic!("closed semaphore must not run work")
+            })
+            .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let bytes = to_bytes(response.into_body(), 16384).await.unwrap();
+        let error: contracts::ApiError = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(error.code, "STORAGE_UNAVAILABLE");
+        assert_eq!(error.request_id, None);
+    }
 
     async fn project_post(app: Router, path: &str, body: serde_json::Value) -> Response {
         app.oneshot(
@@ -566,5 +676,3 @@ mod tests {
         assert_eq!(project.approved_baseline, None);
     }
 }
-
-mod review;

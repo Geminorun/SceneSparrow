@@ -5,7 +5,7 @@ import {
   textRange,
   evidenceChoice,
   evidenceTextLimit,
-} from "../../packages/editor-ui/src/editor/evidence.ts";
+} from "../../packages/editor-ui/src/library/evidence.ts";
 
 test("reference selections convert DOM UTF-16 selections to complete UTF-8 ranges", () => {
   const text = "甲🐦乙";

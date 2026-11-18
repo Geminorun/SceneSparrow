@@ -2,7 +2,7 @@ import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { validateOrigin } from "./gateway.mjs";
+import { validateOrigin } from "../../apps/web/server/gateway.mjs";
 
 import { operatorConfiguration } from "./operator-config.mjs";
 

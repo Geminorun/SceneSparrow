@@ -1,13 +1,7 @@
 :root {
   --canvas: #fff;
   --rail: #f6f6f6;
-  --panel: #f6f6f6;
-  --hover: #eaeaea;
   --primary: #37352f;
-  --paper: #fff;
-  --ink: #37352f;
-  --muted: #706f69;
-  --border: #e9e9e7;
   --accent: #4070a0;
   --danger: #a3332b;
   font-size: 14px;
@@ -125,14 +119,9 @@ p {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 4px;
-  flex: 1;
 }
 .project-heading h1 {
-  font-size: 1.1rem;
-  font-weight: 550;
   margin: 0;
-  max-width: 38ch;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -155,21 +144,16 @@ p {
   color: var(--muted);
   font-size: 0.875rem;
 }
-.language select {
-  padding: 7px;
-}
 .project-menu {
   position: relative;
   font-size: 0.875rem;
 }
 .project-menu summary {
   white-space: nowrap;
-  padding: 8px;
 }
 .project-menu nav {
   position: absolute;
   inset-inline-end: 0;
-  top: calc(100% + 10px);
   z-index: 30;
   width: min(320px, calc(100vw - 32px));
   background: var(--paper);
@@ -193,9 +177,6 @@ p {
 }
 .project-menu p {
   margin: 8px;
-}
-.workspace-loading {
-  padding: 32px 0;
 }
 .error {
   background: #fff0e9;
@@ -245,13 +226,9 @@ dialog::backdrop {
 .dialog-heading h2 {
   margin: 0;
 }
-.settings-dialog {
-  width: 900px;
-}
 .settings-layout {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
-  gap: 24px;
 }
 .settings-layout > nav {
   display: flex;
@@ -304,10 +281,6 @@ dialog::backdrop {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.ai-settings .ai-protocol {
-  font-size: 0.875rem;
-  margin-bottom: 18px;
-}
 .ai-advanced {
   border-block: 1px solid var(--border);
   padding-block: 12px;
@@ -332,9 +305,6 @@ dialog::backdrop {
   margin-top: 24px;
 }
 @media (max-width: 600px) {
-  .settings-layout {
-    gap: 20px;
-  }
   .settings-dialog {
     padding: 16px;
   }
@@ -343,16 +313,9 @@ dialog::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-
-.manuscript-header h3 {
-  margin: 0;
-}
 .manuscript-header [data-testid="save-status"],
 .approval-status {
   color: var(--muted);
-}
-.tiptap p {
-  margin: 0.75em 0;
 }
 .tiptap ul,
 .tiptap ol {
@@ -368,7 +331,6 @@ dialog::backdrop {
   text-decoration: underline;
 }
 .recovery {
-  border: 2px solid #a75325;
   padding: 1rem;
   margin-top: 1rem;
 }
@@ -386,9 +348,7 @@ dialog::backdrop {
   padding-top: 1rem;
 }
 .source-panel form {
-  display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
   align-items: end;
 }
 .source-panel label {
@@ -400,7 +360,6 @@ dialog::backdrop {
   padding-inline-start: 1.2rem;
 }
 .source-panel li {
-  padding: 0.6rem;
   border-bottom: 1px solid var(--border);
 }
 .source-panel li button {
@@ -432,8 +391,6 @@ dialog::backdrop {
 
 .review-panel {
   min-width: 0;
-  padding: 1rem;
-  background: var(--panel);
   border-inline-start: 1px solid var(--border);
 }
 .review-panel h2 {
@@ -459,9 +416,7 @@ dialog::backdrop {
 }
 .review-card {
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
   margin-block: 1rem;
-  padding: 0.7rem;
   background: white;
   overflow-wrap: anywhere;
 }
@@ -494,9 +449,6 @@ dialog::backdrop {
 .review-cards-aligned {
   position: relative;
 }
-.review-cards-aligned .review-card {
-  margin-block: 0;
-}
 .review-location-list button {
   display: block;
   max-width: 100%;
@@ -504,17 +456,7 @@ dialog::backdrop {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.review-conflict-item {
-  display: block;
-}
-.review-evidence-preview {
-  max-height: 12rem;
-  overflow: auto;
-  white-space: pre-wrap;
-}
 .review-floating-selection {
-  z-index: 20;
-  display: flex;
   gap: 0.25rem;
   padding: 0.3rem;
   border: 1px solid var(--border);
@@ -529,12 +471,6 @@ dialog::backdrop {
 }
 .lock-column-heading {
   position: relative;
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-.lock-column-heading button {
-  font-size: 0.7rem;
-  padding: 0.25rem;
 }
 .lock-controls {
   position: absolute;
@@ -552,8 +488,6 @@ dialog::backdrop {
   position: relative;
   inset-inline-end: 0;
   pointer-events: auto;
-  padding: 0.25rem;
-  min-width: 2rem;
 }
 .lock-header-target {
   margin-inline-start: auto;
@@ -561,15 +495,8 @@ dialog::backdrop {
 }
 .lock-column-heading {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
-  font-size: 0.8rem;
   overflow-wrap: normal;
-}
-.lock-column-heading button {
-  font-size: 0.8rem;
-  padding: 0.4rem;
-  white-space: normal;
 }
 .protected-block {
   background: var(--rail);
@@ -667,17 +594,13 @@ select:focus {
 }
 .workspace-header {
   display: flex;
-  align-items: center;
   border-bottom: 1px solid var(--border);
   flex: 0 0 48px;
-  min-height: 48px;
   padding: 0 14px;
   margin: 0;
   gap: 12px;
   flex-wrap: nowrap;
   background: var(--panel);
-  align-items: end;
-  padding-top: 7px;
 }
 .workspace-brand {
   display: none;
@@ -697,19 +620,12 @@ select:focus {
   font-weight: 500;
   max-width: 50ch;
 }
-.document-tab-icon {
-  color: var(--muted);
-  flex-shrink: 0;
-}
 .workspace-actions {
   display: flex;
   align-items: center;
-  width: auto;
   gap: 8px;
   flex-shrink: 0;
   align-self: center;
-  margin-left: auto;
-  padding-bottom: 5px;
 }
 .language > span {
   display: none;
@@ -792,7 +708,6 @@ select:focus {
   align-items: center;
   min-width: 0;
   flex: 1;
-  gap: 12px;
 }
 .manuscript-header h3 {
   font-size: 13px;
@@ -894,13 +809,6 @@ select:focus {
   font-size: 12px;
   white-space: nowrap;
 }
-.save-error-code {
-  max-width: 28ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-}
 .save-feedback button {
   min-height: 26px;
   padding: 2px 6px;
@@ -929,13 +837,9 @@ select:focus {
 }
 .editor-workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5px var(--auxiliary-width);
   flex: 1;
   min-height: 0;
   position: relative;
-}
-.editor-workspace-grid.auxiliary-collapsed {
-  grid-template-columns: minmax(0, 1fr);
 }
 .manuscript-main {
   min-width: 0;
@@ -971,7 +875,6 @@ select:focus {
   color: var(--ink);
   font-family: inherit;
   font-size: 17px;
-  line-height: 1.8;
   overflow-wrap: anywhere;
 }
 .tiptap :is(h1, h2, h3, h4, h5, h6) {
@@ -1035,7 +938,6 @@ select:focus {
 .auxiliary-heading {
   display: flex;
   align-items: center;
-  gap: 0;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   min-height: 44px;
@@ -1048,7 +950,6 @@ select:focus {
   flex: 1;
 }
 .auxiliary-heading [role="tab"] {
-  flex: 1;
   min-width: 0;
   font-size: 13px;
   padding: 5px 4px;
@@ -1080,7 +981,6 @@ select:focus {
   min-width: 0;
   flex: 1;
   overflow: auto;
-  padding: 20px 16px;
   font-size: 13px;
 }
 .auxiliary-content nav button {
@@ -1111,12 +1011,6 @@ select:focus {
 }
 .auxiliary-content :is(button, input, textarea, select) {
   font-size: 13px;
-}
-.field-error {
-  color: #a12d32;
-  font-size: 12px;
-  margin: 4px 0;
-  overflow-wrap: anywhere;
 }
 .review-panel {
   padding: 0;
@@ -1167,9 +1061,7 @@ select:focus {
   z-index: 40;
 }
 .source-panel {
-  padding: 0;
   margin: 0;
-  border: 0;
 }
 .source-panel form {
   display: grid;
@@ -1266,9 +1158,6 @@ select:focus {
   .project-heading h1 {
     font-size: 12px;
   }
-  .document-tab-icon {
-    display: none;
-  }
   .workspace-actions {
     gap: 3px;
   }
@@ -1284,18 +1173,6 @@ select:focus {
     padding: 0 8px;
     gap: 6px;
   }
-  .manuscript-header h3,
-  .save-error-code {
-    display: none;
-  }
-  .lock-header-target {
-    margin: 0;
-    max-width: 36px;
-  }
-  .document-layout,
-  .document-layout:has(.lock-column) {
-    padding: 32px 8px 80px 20px;
-  }
   .tiptap {
     padding: 0 12px 32px 0;
     font-size: 16px;
@@ -1308,9 +1185,6 @@ select:focus {
   }
   .settings-layout {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .settings-layout > nav {
-    flex-direction: row;
   }
   input,
   textarea,
@@ -1499,9 +1373,6 @@ select:focus {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.save-feedback .save-error-code {
-  display: none;
 }
 .save-feedback button {
   flex: 0 0 auto;
@@ -2466,7 +2337,6 @@ body > .notifications {
 .writing-dialog-body {
   padding: 16px 20px 20px;
   overflow: auto;
-  max-height: calc(85vh - 80px);
 }
 .writing-dialog-body pre {
   white-space: pre-wrap;

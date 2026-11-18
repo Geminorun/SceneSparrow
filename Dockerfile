@@ -30,6 +30,7 @@ COPY --from=dependencies /app/packages/ packages/
 COPY --from=dependencies /app/workers/ workers/
 COPY --from=dependencies /app/package.json package.json
 COPY --from=dependencies /app/apps/web/dist/ apps/web/dist/
+COPY --from=dependencies /app/apps/web/server/ apps/web/server/
 COPY --from=core /app/target/release/scenesparrow-service bin/scenesparrow-service
 COPY scripts/web/ scripts/web/
 RUN mkdir -p /app/crates/infrastructure /data/project /data/app && chmod -R a+rX /app && chown -R node:node /data
@@ -37,4 +38,4 @@ ENV NODE_ENV=production
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=6 CMD ["node", "-e", "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-CMD ["node", "scripts/web/start.mjs"]
+CMD ["node", "apps/web/server/start.mjs"]

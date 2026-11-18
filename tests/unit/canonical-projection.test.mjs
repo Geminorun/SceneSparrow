@@ -5,8 +5,8 @@ import {
   fromEditor,
   fromEditorNode,
   toEditor,
-} from "../../packages/editor-ui/src/editor/canonical.ts";
-import { canonicalTransaction } from "../../packages/editor-ui/src/editor/canonical-transaction.ts";
+} from "../../packages/editor-ui/src/manuscript/canonical.ts";
+import { canonicalTransaction } from "../../packages/editor-ui/src/manuscript/canonical-transaction.ts";
 const require = createRequire(
   new URL("../../packages/editor-ui/package.json", import.meta.url),
 );

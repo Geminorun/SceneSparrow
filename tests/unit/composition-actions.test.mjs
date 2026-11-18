@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { CompositionActions } from "../../packages/editor-ui/src/editor/composition-actions.ts";
+import { CompositionActions } from "../../packages/editor-ui/src/project-session/composition-actions.ts";
 const turn = () => new Promise((resolve) => setTimeout(resolve, 5));
 test("composition actions read final input once, wait for every owner, and bound/deduplicate queued intent", async () => {
   const actions = new CompositionActions();

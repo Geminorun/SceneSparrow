@@ -6,12 +6,12 @@ const require = createRequire(
 );
 const { getSchema } = require("@tiptap/core");
 const { default: StarterKit } = require("@tiptap/starter-kit");
-import { CanonicalIdentity } from "../../packages/editor-ui/src/editor/identity.ts";
-import { toEditor } from "../../packages/editor-ui/src/editor/canonical.ts";
+import { CanonicalIdentity } from "../../packages/editor-ui/src/manuscript/identity.ts";
+import { toEditor } from "../../packages/editor-ui/src/manuscript/canonical.ts";
 import {
   captureWholeManuscript,
   bindReviewSelection,
-} from "../../packages/editor-ui/src/editor/review-selection.ts";
+} from "../../packages/editor-ui/src/review/review-selection.ts";
 const block = (kind, text, attrs = {}) => ({
   id: crypto.randomUUID(),
   revision: 1,

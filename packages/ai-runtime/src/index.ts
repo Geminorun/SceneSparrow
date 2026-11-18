@@ -678,11 +678,6 @@ export async function discoverModels(
     throw normalizeError(error, signal, "discovery");
   }
 }
-export const unavailableSearch = () => ({
-  available: false as const,
-  entries: [],
-  reason: "CAPABILITY_UNAVAILABLE",
-});
 export class FakeTransport {
   calls = 0;
   private readonly output: string;

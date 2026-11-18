@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventEmitter, once } from "node:events";
 import { createServer } from "node:net";
-import { readOperator } from "../../scripts/web/gateway.mjs";
-import { startRuntime } from "../../scripts/web/start.mjs";
-import { validateMasterKeyFile } from "../../scripts/web/master-key.mjs";
+import { readOperator } from "../../apps/web/server/gateway.mjs";
+import { startRuntime } from "../../apps/web/server/start.mjs";
+import { validateMasterKeyFile } from "../../apps/web/server/master-key.mjs";
 
 async function port() {
   const server = createServer();

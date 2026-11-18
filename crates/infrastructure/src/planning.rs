@@ -2,7 +2,8 @@
 use crate::{
     SqliteProjectRepository,
     ai::execution::AiUnitOfWork,
-    manuscript::{Result, db, hash},
+    storage::{Result, db, hash},
+    worker_process::{self, WorkerChild},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::ai::*;
@@ -158,7 +159,6 @@ impl SqliteProjectRepository {
         restore: bool,
     ) -> Result<()> {
         for (position, node) in new.nodes.iter_mut().enumerate() {
-            let previous = old.nodes.iter().find(|n| n.id == node.id);
             let high: Option<i64> = db(c
                 .query_row(
                     "SELECT high_water FROM planning_node_identities WHERE id=?1",
@@ -166,25 +166,8 @@ impl SqliteProjectRepository {
                     |r| r.get(0),
                 )
                 .optional())?;
-            if let Some(prior) = previous {
-                ensure(
-                    restore || node.revision == prior.revision,
-                    "REVISION_CONFLICT",
-                )?;
-                let mut compare = node.clone();
-                compare.revision = prior.revision;
-                let moved = old.nodes.iter().position(|n| n.id == node.id) != Some(position);
-                node.revision = if compare == *prior && !moved {
-                    prior.revision
-                } else {
-                    manuscript::next_revision(high.unwrap_or(prior.revision))?
-                };
-            } else {
-                ensure(restore || high.is_none(), "OUTLINE_INVALID")?;
-                node.revision = manuscript::next_revision(high.unwrap_or(0))?;
-            }
+            node.revision = planning::node_revision(&old.nodes, node, position, high, restore)?;
         }
-        // Reorders change outline dependencies even when per-node wording is stable.
         Ok(())
     }
     pub(crate) fn planning_transition(
@@ -1209,7 +1192,6 @@ impl SqliteProjectRepository {
         use base64::{Engine, engine::general_purpose::STANDARD};
         use std::{
             io::{Read, Write},
-            process::{Command, Stdio},
             time::{Duration, Instant},
         };
         let (source, index) = {
@@ -1241,39 +1223,12 @@ impl SqliteProjectRepository {
         };
         let mut diagnostics = crate::diagnostics::WorkerSummary::new(None);
         let work = (|| -> Result<(Vec<u8>, i64, i64, String)> {
-            let mut command = Command::new("node");
-            command.env_clear();
-            for key in [
-                "PATH",
-                "SystemRoot",
-                "WINDIR",
-                "TEMP",
-                "TMP",
-                "TMPDIR",
-                "LANG",
-            ] {
-                if let Some(v) = std::env::var_os(key) {
-                    command.env(key, v);
-                }
-            }
-            let child = db(command
-                .arg("--max-old-space-size=384")
-                .arg(
-                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("../../workers/document/src/visual-entry.mjs"),
-                )
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn())?;
-            struct Child(std::process::Child);
-            impl Drop for Child {
-                fn drop(&mut self) {
-                    let _ = self.0.kill();
-                    let _ = self.0.wait();
-                }
-            }
-            let mut child = Child(child);
+            let child = db(worker_process::document_command(
+                &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../workers/document/src/visual-entry.mjs"),
+            )
+            .spawn())?;
+            let mut child = WorkerChild(child);
             let path = self.directory.join("objects").join(
                 source
                     .object_hash
@@ -1310,16 +1265,7 @@ impl SqliteProjectRepository {
                     failure = Some("DOCUMENT_PARSE_TIMEOUT");
                 }
                 #[cfg(target_os = "linux")]
-                if std::fs::read_to_string(format!("/proc/{}/status", child.0.id()))
-                    .ok()
-                    .and_then(|s| {
-                        s.lines()
-                            .find(|s| s.starts_with("VmRSS:"))
-                            .and_then(|s| s.split_whitespace().nth(1))
-                            .and_then(|s| s.parse::<u64>().ok())
-                    })
-                    .is_some_and(|kb| kb > 512 * 1024)
-                {
+                if worker_process::resident_kib(child.0.id()).is_some_and(|kb| kb > 512 * 1024) {
                     failure = Some("DOCUMENT_RESOURCE_LIMIT");
                 }
                 if failure.is_some() {
