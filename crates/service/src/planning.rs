@@ -56,32 +56,10 @@ pub fn drive(state: &AppState) {
     });
 }
 async fn read(State(state): State<AppState>) -> Response {
-    let Ok(slot) = state.database_slots.acquire_owned().await else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
-    };
-    manuscript::result(
-        tokio::task::spawn_blocking(move || {
-            let _slot = slot;
-            state.service.repository().read_planning()
-        })
-        .await
-        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
-        None,
-    )
+    database(state, None, |r| r.read_planning()).await
 }
 async fn task(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    let Ok(slot) = state.database_slots.acquire_owned().await else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
-    };
-    manuscript::result(
-        tokio::task::spawn_blocking(move || {
-            let _slot = slot;
-            state.service.repository().planning_task(&id)
-        })
-        .await
-        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
-        None,
-    )
+    database(state, None, move |r| r.planning_task(&id)).await
 }
 async fn prepare(
     State(state): State<AppState>,

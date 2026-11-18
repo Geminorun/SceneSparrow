@@ -81,6 +81,9 @@ importers:
       '@scenesparrow/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@scenesparrow/manuscript-format':
+        specifier: workspace:*
+        version: link:../manuscript-format
       '@scenesparrow/platform-client':
         specifier: workspace:*
         version: link:../platform-client
@@ -108,9 +111,6 @@ importers:
       mdast-util-from-markdown:
         specifier: 2.0.2
         version: 2.0.2(supports-color@8.1.1)
-      mdast-util-to-markdown:
-        specifier: 2.1.2
-        version: 2.1.2
       react:
         specifier: 19.3.1
         version: 19.3.1
@@ -124,6 +124,15 @@ importers:
       '@types/react-dom':
         specifier: 19.2.3
         version: 19.2.3(@types/react@19.3.0)
+
+  packages/manuscript-format:
+    dependencies:
+      '@scenesparrow/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      mdast-util-to-markdown:
+        specifier: 2.1.2
+        version: 2.1.2
 
   packages/platform-client:
     dependencies:
@@ -158,6 +167,9 @@ importers:
       '@napi-rs/canvas':
         specifier: 0.1.100
         version: 0.1.100
+      '@scenesparrow/manuscript-format':
+        specifier: workspace:*
+        version: link:../../packages/manuscript-format
       docx:
         specifier: 9.5.1
         version: 9.5.1
@@ -167,9 +179,6 @@ importers:
       mdast-util-from-markdown:
         specifier: 2.0.2
         version: 2.0.2(supports-color@8.1.1)
-      mdast-util-to-markdown:
-        specifier: 2.1.2
-        version: 2.1.2
       pdfjs-dist:
         specifier: 5.4.624
         version: 5.4.624

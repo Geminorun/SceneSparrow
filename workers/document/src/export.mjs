@@ -1,4 +1,4 @@
-import { toMarkdown } from "mdast-util-to-markdown";
+import { serializeMarkdown } from "@scenesparrow/manuscript-format";
 import {
   Document,
   Packer,
@@ -57,95 +57,13 @@ export function plain(snapshot) {
   });
   return blocks.join("\n\n").replace(/\n*$/, "") + "\n";
 }
-function inline(runs) {
-  return contiguous(runs).flatMap(({ href, runs }) => {
-    const children = runs.flatMap((r) =>
-      newline(r.text)
-        .split("\n")
-        .flatMap((part, i) => {
-          let n = {
-            type: r.marks.some((m) => m.type === "code")
-              ? "inlineCode"
-              : "text",
-            value: part,
-          };
-          if (r.marks.some((m) => m.type === "bold"))
-            n = { type: "strong", children: [n] };
-          if (r.marks.some((m) => m.type === "italic"))
-            n = { type: "emphasis", children: [n] };
-          if (r.marks.some((m) => m.type === "code"))
-            return [...(i ? [{ type: "break" }] : []), ...(part ? [n] : [])];
-          const prefix = /^\s+/u.exec(part)?.[0] ?? "";
-          const suffix = /\s+$/u.exec(part.slice(prefix.length))?.[0] ?? "";
-          const middle = part.slice(
-            prefix.length,
-            suffix ? -suffix.length : undefined,
-          );
-          // CommonMark emphasis cannot enclose edge whitespace. Keep it as literal
-          // neighboring text while preserving the marked semantic run in the middle.
-          let marked = {
-            type: r.marks.some((m) => m.type === "code")
-              ? "inlineCode"
-              : "text",
-            value: middle,
-          };
-          if (r.marks.some((m) => m.type === "bold"))
-            marked = { type: "strong", children: [marked] };
-          if (r.marks.some((m) => m.type === "italic"))
-            marked = { type: "emphasis", children: [marked] };
-          return [
-            ...(i ? [{ type: "break" }] : []),
-            ...(prefix ? [{ type: "text", value: prefix }] : []),
-            ...(middle ? [marked] : []),
-            ...(suffix ? [{ type: "text", value: suffix }] : []),
-          ];
-        }),
-    );
-    return href ? [{ type: "link", url: href, children }] : children;
-  });
-}
 export function markdown(snapshot) {
   validateBody(snapshot);
-  const root = { type: "root", children: [] };
-  const stack = [];
-  for (const b of snapshot.blocks) {
-    const node = {
-      type: b.kind === "heading" ? "heading" : "paragraph",
-      ...(b.kind === "heading" ? { depth: b.attrs.level } : {}),
-      children: inline(b.runs),
-    };
-    if (b.kind !== "list_item") {
-      stack.length = 0;
-      root.children.push(node);
-      continue;
-    }
-    const depth = b.attrs.depth ?? 0;
-    const ordered = b.attrs.listKind === "ordered";
-    stack.length = Math.min(stack.length, depth + 1);
-    let list = stack[depth];
-    if (!list || list.ordered !== ordered) {
-      list = {
-        type: "list",
-        ordered,
-        ...(ordered ? { start: 1 } : {}),
-        spread: false,
-        children: [],
-      };
-      const parent = depth ? stack[depth - 1]?.children.at(-1) : root;
-      if (!parent) fail();
-      parent.children.push(list);
-      stack[depth] = list;
-    }
-    list.children.push({ type: "listItem", spread: false, children: [node] });
+  try {
+    return serializeMarkdown(snapshot.blocks).replace(/\n*$/, "") + "\n";
+  } catch {
+    fail();
   }
-  return (
-    toMarkdown(root, {
-      bullet: "-",
-      fences: true,
-      emphasis: "*",
-      strong: "*",
-    }).replace(/\n*$/, "") + "\n"
-  );
 }
 export async function word(snapshot) {
   validateBody(snapshot);

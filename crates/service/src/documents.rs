@@ -32,44 +32,27 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/v1/source-extractions/{id}", get(extraction))
         .route("/v1/project/events", get(events))
 }
-async fn blocking<T: serde::Serialize + Send + 'static>(
-    state: AppState,
-    op: impl FnOnce(&SqliteProjectRepository) -> Result<T, ManuscriptError> + Send + 'static,
-) -> Response {
-    let Ok(permit) = state.database_slots.acquire_owned().await else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
-    };
-    super::manuscript::result(
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            op(state.service.repository())
-        })
-        .await
-        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
-        None,
-    )
-}
 async fn sources(State(state): State<AppState>, Query(page): Query<Page>) -> Response {
-    blocking(state, move |r| r.read_sources(page.after.as_deref())).await
+    database(state, None, move |r| r.read_sources(page.after.as_deref())).await
 }
 async fn job(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    blocking(state, move |r| r.document_job(&id)).await
+    database(state, None, move |r| r.document_job(&id)).await
 }
 async fn extraction(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(page): Query<Page>,
 ) -> Response {
-    blocking(state, move |r| {
+    database(state, None, move |r| {
         r.extraction_page(&id, page.offset.unwrap_or(0))
     })
     .await
 }
 async fn read_intake(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    blocking(state, move |r| r.read_intake(&id)).await
+    database(state, None, move |r| r.read_intake(&id)).await
 }
 async fn cancel_intake(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    blocking(state, move |r| {
+    database(state, None, move |r| {
         r.cancel_intake(&id).map(|_| EmptyPayload {})
     })
     .await
@@ -176,7 +159,7 @@ async fn upload(State(state): State<AppState>, headers: HeaderMap, body: Body) -
         let _ = tokio::task::spawn_blocking(move || service.repository().cancel_intake(&id)).await;
         return super::manuscript::result::<Intake>(Err(error), None);
     }
-    blocking(state, move |r| r.complete_intake(&id)).await
+    database(state, None, move |r| r.complete_intake(&id)).await
 }
 fn decode_name(s: &str) -> Result<String, ()> {
     let mut bytes = vec![];

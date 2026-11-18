@@ -164,3 +164,34 @@ test("source terminal empty lines normalize away without producing a visible bac
     assert.ok(!reparsed.endsWith("\\"));
   }
 });
+
+test("Markdown source normalizes canonical CRLF and rejects unsafe canonical links", () => {
+  const block = {
+    id: crypto.randomUUID(),
+    kind: "paragraph",
+    attrs: {},
+    runs: [{ text: "first\r\nsecond\rthird\r\n \t", marks: [] }],
+  };
+  assert.equal(
+    text(parseMarkdown(serializeMarkdown([block]))[0]),
+    "first\nsecond\nthird",
+  );
+  assert.equal(block.runs[0].text, "first\r\nsecond\rthird\r\n \t");
+  for (const href of [
+    "javascript:alert(1)",
+    "/relative",
+    "https://",
+    "https://example.com/ bad",
+  ]) {
+    assert.throws(
+      () =>
+        serializeMarkdown([
+          {
+            ...block,
+            runs: [{ text: "label", marks: [{ type: "link", href }] }],
+          },
+        ]),
+      /DOCUMENT_INVALID/,
+    );
+  }
+});

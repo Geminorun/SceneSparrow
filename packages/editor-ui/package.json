@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@scenesparrow/contracts": "workspace:*",
+    "@scenesparrow/manuscript-format": "workspace:*",
     "@scenesparrow/platform-client": "workspace:*",
     "@tiptap/core": "3.34.0",
     "@tiptap/extension-code": "3.34.0",
@@ -21,7 +22,6 @@
     "@tiptap/react": "3.34.0",
     "@tiptap/starter-kit": "3.34.0",
     "mdast-util-from-markdown": "2.0.2",
-    "mdast-util-to-markdown": "2.1.2",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

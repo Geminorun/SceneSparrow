@@ -38,23 +38,6 @@ pub fn drive(state: &AppState) {
         }
     });
 }
-async fn blocking<T: serde::Serialize + Send + 'static>(
-    state: AppState,
-    op: impl FnOnce(&SqliteProjectRepository) -> Result<T, ManuscriptError> + Send + 'static,
-) -> Response {
-    let Ok(slot) = state.database_slots.acquire_owned().await else {
-        return api_error(StatusCode::SERVICE_UNAVAILABLE, "STORAGE_UNAVAILABLE");
-    };
-    manuscript::result(
-        tokio::task::spawn_blocking(move || {
-            let _slot = slot;
-            op(state.service.repository())
-        })
-        .await
-        .unwrap_or(Err(ManuscriptError("STORAGE_UNAVAILABLE", None))),
-        None,
-    )
-}
 async fn start(
     State(s): State<AppState>,
     body: Result<Json<ExportRequest>, JsonRejection>,
@@ -62,10 +45,10 @@ async fn start(
     let Ok(Json(r)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    blocking(s, move |p| p.start_export(&r)).await
+    database(s, None, move |p| p.start_export(&r)).await
 }
 async fn read(State(s): State<AppState>, Path(id): Path<String>) -> Response {
-    blocking(s, move |p| p.export_job(&id)).await
+    database(s, None, move |p| p.export_job(&id)).await
 }
 async fn cancel(
     State(s): State<AppState>,
@@ -75,7 +58,7 @@ async fn cancel(
     let Ok(Json(r)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    blocking(s, move |p| p.cancel_export(&id, &r)).await
+    database(s, None, move |p| p.cancel_export(&id, &r)).await
 }
 async fn retry(
     State(s): State<AppState>,
@@ -85,7 +68,7 @@ async fn retry(
     let Ok(Json(r)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    blocking(s, move |p| p.retry_export(&id, &r)).await
+    database(s, None, move |p| p.retry_export(&id, &r)).await
 }
 async fn artifact(State(s): State<AppState>, Path(id): Path<String>) -> Response {
     let result = tokio::task::spawn_blocking(move || s.service.repository().export_bytes(&id))
@@ -136,7 +119,7 @@ async fn intent(
     let Ok(Json(r)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    blocking(s, move |p| p.delivery_receipt(&r, None)).await
+    database(s, None, move |p| p.delivery_receipt(&r, None)).await
 }
 async fn finish(
     State(s): State<AppState>,
@@ -149,7 +132,7 @@ async fn finish(
     if !["saved", "unknown", "failed"].contains(&status.as_str()) {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     }
-    blocking(s, move |p| p.delivery_receipt(&r, Some(&status))).await
+    database(s, None, move |p| p.delivery_receipt(&r, Some(&status))).await
 }
 
 async fn quiesce(State(s): State<AppState>) -> Response {
@@ -181,16 +164,16 @@ async fn copy(
     let Ok(Json(r)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    blocking(s, move |p| p.prepare_copy(&r)).await
+    database(s, None, move |p| p.prepare_copy(&r)).await
 }
 async fn read_copy(State(s): State<AppState>, Path(id): Path<String>) -> Response {
-    blocking(s, move |p| p.prepared_copy(&id)).await
+    database(s, None, move |p| p.prepared_copy(&id)).await
 }
 
 async fn list(State(s): State<AppState>) -> Response {
-    blocking(s, move |p| p.read_exports()).await
+    database(s, None, move |p| p.read_exports()).await
 }
 
 async fn identity(State(s): State<AppState>) -> Response {
-    blocking(s, move |p| p.manuscript_identity()).await
+    database(s, None, move |p| p.manuscript_identity()).await
 }

@@ -5,10 +5,10 @@
   "type": "module",
   "dependencies": {
     "@napi-rs/canvas": "0.1.100",
+    "@scenesparrow/manuscript-format": "workspace:*",
     "docx": "9.5.1",
     "fast-xml-parser": "5.3.6",
     "mdast-util-from-markdown": "2.0.2",
-    "mdast-util-to-markdown": "2.1.2",
     "pdfjs-dist": "5.4.624",
     "yauzl": "3.2.0"
   }
