@@ -54,7 +54,7 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
       { Authorization: `Bearer ${token}` },
       child,
     );
-    await configurePlanning(req, provider.root, { maxOutputTokens: 8192 });
+    await configurePlanning(req, provider.root);
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith("/project/events")) {

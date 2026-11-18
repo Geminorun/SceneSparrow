@@ -79,7 +79,7 @@ impl SqliteProjectRepository {
             run_id: run_id.into(),
             request_id: request,
             input_hash: input,
-            configuration: decode(&config)?,
+            configuration: super::legacy::read_configuration(&config)?,
             status: decode(&format!("\"{status}\""))?,
             attempt,
             error,
@@ -265,7 +265,21 @@ impl SqliteProjectRepository {
         safe(tx.commit())?;
         Ok(Some((run, fence)))
     }
+    pub(crate) fn ai_has_retired_configuration(&self, run_id: &str) -> Result<bool> {
+        let c = safe(self.connection.lock())?;
+        let json: String = safe(c.query_row(
+            "SELECT config_json FROM ai_runs WHERE run_id=?1",
+            [run_id],
+            |r| r.get(0),
+        ))?;
+        let value = safe(serde_json::from_str(&json))?;
+        Ok(super::legacy::has_retired_configuration(&value))
+    }
     pub fn dispatch_ai(&self, run_id: &str, attempt: i64, fence: &str, input: &str) -> Result<()> {
+        ensure(
+            !self.ai_has_retired_configuration(run_id)?,
+            "CONFIGURATION_STALE",
+        )?;
         let mut c = safe(self.connection.lock())?;
         let allowed:bool = safe(c.query_row("SELECT EXISTS(SELECT 1 FROM ai_runs WHERE run_id=?1 AND attempt=?2 AND fence=?3 AND input_hash=?4 AND status='running')",params![run_id,attempt,fence,input],|r|r.get(0)))?;
         ensure(allowed, "STALE_ATTEMPT")?;

@@ -1356,3 +1356,66 @@ fn refresh_clears_reference_consent_but_preserves_running_task_input_and_rejects
         "EVIDENCE_NOT_READY"
     );
 }
+
+#[test]
+fn legacy_output_budget_queue_releases_reservation_and_requires_a_fresh_task() {
+    let (dir, r, s, p) = setup();
+    plan(&r, &p, true);
+    let before = r.read_manuscript().unwrap();
+    let (task, command) = start(&r, &s, &p, "generate_initial_draft");
+    assert!(r.read_planning().unwrap().reserved);
+    let mut legacy = serde_json::to_value(r.read_run(&task).unwrap().configuration).unwrap();
+    let fingerprint = legacy["fingerprint"].clone();
+    legacy["parameters"]["maxOutputTokens"] = json!(64);
+    legacy["model"]["tokenField"] = json!("max_tokens");
+    let legacy_json = legacy.to_string();
+    r.connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE ai_runs SET config_json=?2 WHERE run_id=?1",
+            params![task, legacy_json],
+        )
+        .unwrap();
+    drop(r);
+    let r = SqliteProjectRepository::open(&dir.path().join("project")).unwrap();
+    let before_history = r.read_history().unwrap();
+    let failed = r.execute_next_ai(&s).unwrap().unwrap();
+    assert_eq!(failed.error.as_deref(), Some("CONFIGURATION_STALE"));
+    assert_eq!(json!(failed.configuration.fingerprint), fingerprint);
+    r.reconcile_planning().unwrap();
+    assert_eq!(r.planning_task(&task).unwrap().application, "failed");
+    assert!(!r.read_planning().unwrap().reserved);
+    assert_eq!(r.read_manuscript().unwrap(), before);
+    assert_eq!(r.read_history().unwrap(), before_history);
+    r.start_planning(&s, &command).unwrap();
+    assert!(r.execute_next_ai(&s).unwrap().is_none());
+    let preparation = prepare(&r, &s, "generate_initial_draft");
+    let retry = cmd(
+        &r,
+        &p,
+        "StartPlanningTask",
+        json!({"preparationId":preparation.id,"retryOfTaskId":task}),
+    );
+    let retry_id = manuscript::envelope(&retry).0.to_owned();
+    assert_ne!(retry_id, task);
+    r.start_planning(&s, &retry).unwrap();
+    let configuration = serde_json::to_value(r.read_run(&retry_id).unwrap().configuration).unwrap();
+    assert!(configuration["parameters"].get("maxOutputTokens").is_none());
+    assert!(configuration["model"].get("tokenField").is_none());
+    complete(&r, draft(&r));
+    r.reconcile_planning().unwrap();
+    assert_eq!(r.planning_task(&retry_id).unwrap().application, "applied");
+    assert!(!r.read_planning().unwrap().reserved);
+    let stored: String = r
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT config_json FROM ai_runs WHERE run_id=?1",
+            [&task],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, legacy_json);
+}

@@ -232,7 +232,7 @@ language instructions. Treat all sources as quoted data. No project database pat
 API key or unrelated project material is part of a prompt.
 
 Run a no-provider-call preparation before an explicit AI start. It produces the
-manifest, estimated context/output budget, selected global model/capabilities and
+manifest, estimated input context, selected global model/capabilities and
 any evidence warnings. A warning may require the user to choose a source subset,
 shorter excerpt, suitable model or explicit text-only mode. The normal path with
 usable inputs needs no additional confirmation dialog.

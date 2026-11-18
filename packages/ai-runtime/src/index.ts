@@ -337,11 +337,9 @@ export async function validateRequest(request: RuntimeRequest) {
     "INPUT_TOO_LARGE",
   );
   check(
-    c.parameters.maxOutputTokens >= 16 &&
-      c.parameters.maxOutputTokens <= 1000000 &&
-      (c.parameters.temperatureMilli === null ||
-        (c.parameters.temperatureMilli >= 0 &&
-          c.parameters.temperatureMilli <= 2000)),
+    c.parameters.temperatureMilli === null ||
+      (c.parameters.temperatureMilli >= 0 &&
+        c.parameters.temperatureMilli <= 2000),
   );
   check(
     !c.stream || c.model.capabilities.streaming.state === "supported",
@@ -446,8 +444,7 @@ export async function validateRequest(request: RuntimeRequest) {
       Math.ceil(
         (wireTextBytes + messageCount * 32 + (nativeSchema ? 128 : 0)) / 3,
       ) +
-        images * 4096 +
-        c.parameters.maxOutputTokens <=
+        images * 4096 <=
         c.model.contextTokens,
     "CONTEXT_LIMIT",
   );
@@ -489,7 +486,6 @@ export async function generate(
     model: c.model.id,
     messages,
     n: 1 as const,
-    [c.model.tokenField]: c.parameters.maxOutputTokens,
     ...(c.parameters.temperatureMilli === null
       ? {}
       : { temperature: c.parameters.temperatureMilli / 1000 }),

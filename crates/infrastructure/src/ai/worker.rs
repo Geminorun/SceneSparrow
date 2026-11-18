@@ -374,6 +374,12 @@ impl SqliteProjectRepository {
             return Ok(None);
         };
         let result = (|| {
+            // A claimed legacy queue has never dispatched. Preserve its pinned
+            // record and settle via consumer cleanup instead of changing its request.
+            ensure(
+                !self.ai_has_retired_configuration(&run.run_id)?,
+                "CONFIGURATION_STALE",
+            )?;
             let lease = settings.lease(&run.configuration)?;
             let (bytes, artifacts) = self.ai_input_bytes(&run)?;
             let (receipt, output) = run_worker(

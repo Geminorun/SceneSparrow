@@ -228,7 +228,6 @@ for (const encrypted of [false, true]) {
           },
           contextTokens: null,
           outputTokens: null,
-          tokenField: "max_tokens",
         },
       ];
       s.bindings = [
@@ -238,7 +237,6 @@ for (const encrypted of [false, true]) {
           modelId: "manually-entered-model",
           parameters: {
             temperatureMilli: null,
-            maxOutputTokens: 64,
             requestStreaming: false,
             requestNativeJson: false,
           },
@@ -290,7 +288,6 @@ for (const encrypted of [false, true]) {
       const target = {
         providerId: id,
         modelId: "manually-entered-model",
-        tokenField: "max_tokens",
       };
       const ready = (await req("/ai/connection-tests/prepare", target)).data;
       assert.equal(ready.configuration.model.id, "manually-entered-model");
@@ -339,7 +336,6 @@ for (const encrypted of [false, true]) {
       const btarget = {
         providerId: bid,
         modelId: "manual-B",
-        tokenField: "max_tokens",
       };
       const breadiness = (await req("/ai/connection-tests/prepare", btarget))
         .data;

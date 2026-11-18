@@ -2142,9 +2142,6 @@
         "estimatedInputTokens": {
           "type": "integer"
         },
-        "outputTokens": {
-          "type": "integer"
-        },
         "configuration": {
           "$ref": "#/definitions/AiResolvedConfig"
         }
@@ -2158,7 +2155,6 @@
         "evidence",
         "warnings",
         "estimatedInputTokens",
-        "outputTokens",
         "configuration"
       ]
     },

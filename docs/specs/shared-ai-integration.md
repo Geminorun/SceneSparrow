@@ -145,15 +145,22 @@ attempt without relabeling it verified. Unknown image capability requires an
 explicit attempt declaration or a deliberate text-only choice in consumer preflight;
 never drop images and claim they were understood.
 
-Validate temperature/output/context parameters before dispatch. Omit unset or known
-unsupported optional fields. A compatibility declaration selects token-limit field
-`max_tokens` or `max_completion_tokens` and response-format/stream options; freeze
-that choice. Never send a failed request again with parameters removed or another
-transport/model. Unsupported parameters are an explicit failure to fix in settings.
+Validate temperature and bounded input against known model context before dispatch.
+No application output-token amount or token-field selector is configured or reserved;
+new requests omit both `max_tokens` and `max_completion_tokens`. Keep actual reported
+usage and independently known model output capabilities. Omit unset or known
+unsupported optional fields and freeze response-format/stream options. Never send a
+failed request again with parameters removed or another transport/model. Unsupported parameters are an explicit failure to fix in settings.
+
+The [interaction/generation follow-up](../design/writing-interaction-and-generation.md)
+defines strict current DTOs with narrow legacy persisted-settings/run read support.
+Historical JSON/fingerprints remain immutable. Pre-upgrade queued, undispatched
+tasks with retired parameters fail `CONFIGURATION_STALE` through consumer cleanup
+before a provider call; only an explicit fresh task uses the new configuration.
 
 Connection testing is an explicitly labeled inference action and may consume the
-provider's quota. Use the selected model/root/key and a small compatible output
-budget, without assuming temperature zero or one output token works for all models.
+provider's quota. Use the selected model/root/key and a short test prompt, with
+bounded response bytes and deadline, without an application output-token cap.
 Record the tested tuple, scope and time, not an invented price/latency guarantee.
 Test failure changes neither the binding nor other model defaults automatically.
 Give an app-scoped connection test its own action ID/digest and session receipt,
@@ -664,7 +671,7 @@ General, Model services and Default models sections. The OpenAI/DeepSeek service
 presets, independent saved-model catalog, shared text default and legacy profile
 management follow the [model-services design](../design/ai-model-services.md).
 Opening the workbench does not read credentials/settings or run inference.
-Advanced capability/token/temperature declarations start collapsed. Dismissal
+Advanced capability/context/temperature declarations start collapsed. Dismissal
 clears unsaved secret input while preserving uncertain test action/receipt identity,
 so resolving an action never becomes an implicit new paid test. Both presets use
 the existing compatible Chat Completions adapter; no native vendor/media adapter

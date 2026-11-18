@@ -1,5 +1,4 @@
 import type { AiEvidence, AiModel } from "@scenesparrow/contracts";
-import { useId } from "react";
 import type en from "../locales/en.json";
 import {
   bindText,
@@ -23,7 +22,6 @@ export function ModelDetails({
   t: typeof en;
   providerDirty: boolean;
 }) {
-  const tokensHintId = useId();
   const settings = c.view!.settings;
   const id = modelKey(model.providerId, model.id);
   const saved = {
@@ -189,59 +187,6 @@ export function ModelDetails({
                   })
                 }
               />
-            </label>
-            <label>
-              {t.aiOutputLimit}
-              <input
-                type="number"
-                min={16}
-                max={1000000}
-                value={draft.outputTokens ?? ""}
-                onChange={(event) =>
-                  edit({
-                    outputTokens:
-                      event.target.value === ""
-                        ? null
-                        : Number(event.target.value),
-                  })
-                }
-              />
-            </label>
-            <label>
-              {t.aiTokens}
-              <input
-                aria-label={t.aiTokens}
-                aria-describedby={tokensHintId}
-                type="number"
-                min={16}
-                max={draft.outputTokens ?? 1000000}
-                value={parameters.maxOutputTokens}
-                onChange={(event) =>
-                  edit({
-                    defaultParameters: {
-                      ...parameters,
-                      maxOutputTokens: Number(event.target.value),
-                    },
-                  })
-                }
-              />
-              <small id={tokensHintId}>{t.aiTokensHint}</small>
-            </label>
-            <label>
-              {t.aiTokenField}
-              <select
-                value={draft.tokenField}
-                onChange={(event) =>
-                  edit({
-                    tokenField: event.target.value as AiModel["tokenField"],
-                  })
-                }
-              >
-                <option value="max_tokens">max_tokens</option>
-                <option value="max_completion_tokens">
-                  max_completion_tokens
-                </option>
-              </select>
             </label>
             <label>
               {t.aiTemperature}

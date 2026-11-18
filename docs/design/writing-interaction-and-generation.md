@@ -80,6 +80,15 @@ local fake-provider tests cannot certify unlimited real-provider completion.
 Supplier truncation remains a typed incomplete result, never partial manuscript
 application, and the UI no longer tells users to increase an application token cap.
 
+Compatibility decision: strict live DTOs reject retired fields. Narrow persisted
+settings/run readers remove only the known retired keys in memory, preserving
+stored bytes and historical fingerprints. A pre-upgrade queued, undispatched run
+settles with `CONFIGURATION_STALE` through existing consumer cleanup before any
+credential lease/provider call; a user can explicitly start a distinct fresh task.
+This prevents silently changing already pinned request semantics. Completed and
+already dispatched facts/receipt identities remain unchanged. Upgrade the shared
+clients/core/worker together; an already open old client needs a refresh.
+
 ## WIG-05: Three-second transient notices
 
 Both errors and success notices remain visible for three seconds, then fade out

@@ -1045,9 +1045,7 @@ impl SqliteProjectRepository {
             .sum::<usize>();
         if let Some(limit) = config.model.context_tokens {
             ensure(
-                (bytes / 3 + visuals.len() * 4096 + 512) as i64
-                    + config.parameters.max_output_tokens
-                    <= limit,
+                (bytes / 3 + visuals.len() * 4096 + 512) as i64 <= limit,
                 "CONTEXT_LIMIT",
             )?;
         }

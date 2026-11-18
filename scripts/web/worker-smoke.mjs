@@ -109,7 +109,6 @@ try {
             },
             contextTokens: 32768,
             outputTokens: 8192,
-            tokenField: "max_tokens",
           },
         ],
         bindings: [
@@ -119,7 +118,6 @@ try {
             modelId: "smoke-model",
             parameters: {
               temperatureMilli: null,
-              maxOutputTokens: 2048,
               requestStreaming: false,
               requestNativeJson: false,
             },

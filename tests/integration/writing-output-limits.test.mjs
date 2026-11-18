@@ -40,7 +40,7 @@ const draftFrom = (plan) => ({
   planningNotes: [],
 });
 
-test("WW-04: one complete 2000-character Chinese draft; counted token/size failures preserve content across history/restart", async () => {
+test("WIG-04: one complete 2000-character Chinese draft; counted token/size failures preserve content across history/restart", async () => {
   const dir = await mkdtemp(join(tmpdir(), "scenesparrow-output-limits-"));
   const provider = await planningProvider();
   const token = randomBytes(32).toString("hex");
@@ -143,10 +143,10 @@ test("WW-04: one complete 2000-character Chinese draft; counted token/size failu
     project = (
       await req("/project", {
         requestId: randomUUID(),
-        title: "Output allowance fixture",
+        title: "Uncapped output fixture",
       })
     ).data.project;
-    await configurePlanning(req, provider.root, { maxOutputTokens: 8192 });
+    await configurePlanning(req, provider.root);
     const plan = (await req("/planning")).data.content;
     plan.brief.topic = "观察小鸟与自然";
     plan.brief.language = "zh-CN";
@@ -175,7 +175,8 @@ test("WW-04: one complete 2000-character Chinese draft; counted token/size failu
       const input = inputFrom(body);
       assert.equal(input.operation, "generate_initial_draft");
       assert.deepEqual(input.planning, expectedPlan);
-      assert.equal(body.max_tokens, 8192);
+      assert.equal(Object.hasOwn(body, "max_tokens"), false);
+      assert.equal(Object.hasOwn(body, "max_completion_tokens"), false);
       const output = draftFrom(input.planning);
       if (mode === "size")
         output.sections[0].blocks[0].runs[0].text = "字".repeat(
@@ -198,7 +199,10 @@ test("WW-04: one complete 2000-character Chinese draft; counted token/size failu
     const complete = await waitTask(completeStart.requestId);
     assert.equal(complete.application, "applied", JSON.stringify(complete));
     assert.equal(provider.calls.length, 1);
-    assert.equal(complete.run.configuration.parameters.maxOutputTokens, 8192);
+    assert.equal(
+      Object.hasOwn(complete.run.configuration.parameters, "maxOutputTokens"),
+      false,
+    );
     assert.deepEqual(
       complete.metadata.sectionMapping.map((section) => section.outlineNodeId),
       savedPlan.nodes.map((node) => node.id),
@@ -292,9 +296,9 @@ test("WW-04: one complete 2000-character Chinese draft; counted token/size failu
     }
     console.log(
       JSON.stringify({
-        fixture: "WW-04",
+        fixture: "WIG-04",
         chineseCharacters: 2000,
-        outputAllowance: 8192,
+        applicationTokenBudget: false,
         completeDraftCalls: 1,
         tokenFailureCalls: 1,
         sizeFailureCalls: 1,
