@@ -13,7 +13,11 @@ import { useNoticeOwner } from "../NotificationPresenter";
 import { Review } from "./Review";
 import { OutlineEditor } from "./OutlineEditor";
 import { usePlanningSession, type WritingView } from "./use-planning-session";
-import { PlanningDialogs } from "./PlanningDialogs";
+import {
+  GenerationHistory,
+  GenerationHistoryButton,
+} from "./GenerationHistory";
+import { PlanningDialogs, WritingDialog } from "./PlanningDialogs";
 import { outlineSource } from "./outline-codec";
 import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 import { SaveStatus } from "./SaveStatus";
@@ -86,7 +90,14 @@ export function Manuscript({
       active = false;
     };
   }, [client, projectId, attempt, report, resolve]);
-  if (!initial) return <WorkspaceSkeleton t={t} busy={loading} />;
+  if (!initial)
+    return (
+      <WorkspaceSkeleton
+        t={t}
+        busy={loading}
+        onRetry={() => setAttempt((value) => value + 1)}
+      />
+    );
   return (
     <Draft
       key={projectId}
@@ -123,7 +134,13 @@ function Draft({
   const beforeClose = useRef(onBeforeClose);
   beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
-  const [recovery, setRecovery] = useState(false);
+  const [recovery, setRecoveryVisible] = useState(false);
+  const recoveryEpoch = useRef(0),
+    recoveryMounted = useRef(true);
+  const setRecovery = (visible: boolean) => {
+    recoveryEpoch.current++;
+    setRecoveryVisible(visible);
+  };
   const [protectionReady, setProtectionReady] = useState(
     initial.workspaceStage === "outline",
   );
@@ -163,9 +180,30 @@ function Draft({
       /* Optional UI metadata. */
     }
   };
-  const session = usePlanningSession(client, save, projectId, selectView);
+  const session = usePlanningSession(
+    client,
+    save,
+    projectId,
+    selectView,
+    () => pane.open("planning"),
+    (next) => {
+      void switchView(next);
+    },
+  );
+  useEffect(() => {
+    save.actions.cancel();
+  }, [
+    save,
+    view,
+    pane.left.tab,
+    pane.right.tab,
+    pane.left.collapsed,
+    pane.right.collapsed,
+    pane.drawer,
+  ]);
   const pendingView = useRef<WritingView | null>(null);
   const switchView = async (next: WritingView) => {
+    save.actions.cancel();
     pendingView.current = next;
     if (save.composing || session.planning?.composing) return;
     await save.prepareInput();
@@ -435,6 +473,25 @@ function Draft({
               return false;
             },
             blur: (_view, event) => {
+              save.actions.blur("manuscript", () => {
+                if (!liveEditor.current || liveEditor.current.isDestroyed)
+                  return;
+                try {
+                  save.update(
+                    fromEditorNode(
+                      liveEditor.current.state.doc,
+                      new Set(save.state.blocks.map((b) => b.id)),
+                    ),
+                  );
+                } catch (error) {
+                  save.invalidate(
+                    error instanceof Error ? error.message : "DOCUMENT_INVALID",
+                    liveEditor.current.getText({ blockSeparator: "\n" }),
+                  );
+                }
+                save.composition(false);
+                void save.boundary();
+              });
               if (
                 sourceVisible.current ||
                 (event.relatedTarget instanceof Element &&
@@ -493,11 +550,8 @@ function Draft({
   useEffect(() => {
     if (save.canonicalVersion) applyCanonical();
   }, [editor, save.canonicalVersion]);
-  const historyAction = async (type: "UndoProject" | "RedoProject") => {
-    const ok = await save.navigate(type, applyCanonical);
-    if (ok) await session.planning?.refresh();
-    return ok;
-  };
+  const historyAction = (type: "UndoProject" | "RedoProject") =>
+    save.navigate(type, applyCanonical);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -550,6 +604,7 @@ function Draft({
   useEffect(
     () =>
       client.onCloseAborted?.(() => {
+        recoveryEpoch.current++;
         freeze(false);
         setClosing(false);
       }),
@@ -559,6 +614,7 @@ function Draft({
     onRevision(save.state.workingRevision);
   }, [save.state.workingRevision, onRevision]);
   useEffect(() => {
+    recoveryMounted.current = true;
     const blur = () => {
       void save.windowChanged();
     };
@@ -579,6 +635,7 @@ function Draft({
     };
     window.addEventListener("beforeunload", warning);
     const remove = client.onCloseRequested?.(async () => {
+      recoveryEpoch.current++;
       sourceDialog.current?.close();
       sourceVisible.current = false;
       beforeClose.current();
@@ -593,6 +650,8 @@ function Draft({
       });
     });
     return () => {
+      recoveryMounted.current = false;
+      recoveryEpoch.current++;
       closeDecision.current?.(false);
       closeDecision.current = null;
       save.dispose();
@@ -626,13 +685,15 @@ function Draft({
         ? t.historyStartDraft
         : label === "addSource"
           ? t.historyAddSource
-          : label === "refreshSource"
-            ? t.historyRefreshSource
-            : label === "removeSource"
-              ? t.historyRemoveSource
-              : label === "import"
-                ? t.historyImport
-                : t.historyEdit;
+          : label === "renameSource"
+            ? t.historyRenameSource
+            : label === "refreshSource"
+              ? t.historyRefreshSource
+              : label === "removeSource"
+                ? t.historyRemoveSource
+                : label === "import"
+                  ? t.historyImport
+                  : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
   const outlineHeadings = session.planning?.local.nodes ?? [];
   const assistantPlanning = (
@@ -720,6 +781,13 @@ function Draft({
               }
               tab={pane.right.tab === "review" ? "comments" : "assistant"}
               assistant={assistantPlanning}
+              historyOpen={session.historyOpen}
+              history={
+                <GenerationHistory session={session} save={save} t={t} />
+              }
+              historyButton={
+                <GenerationHistoryButton session={session} t={t} />
+              }
               openLibrary={() => pane.open("sources")}
               evidence={evidence}
             />
@@ -884,7 +952,6 @@ function Draft({
                       }
                       disabled={
                         save.busy ||
-                        save.composing ||
                         (undo ? !save.canUndo : !save.canRedo) ||
                         ["error", "conflict"].includes(save.status)
                       }
@@ -981,7 +1048,18 @@ function Draft({
         />
       </dialog>
       {recovery && (
-        <div className="recovery" role="dialog" aria-label={t.recover}>
+        <WritingDialog
+          title={t.recover}
+          closeDisabled={frozen}
+          closeLabel={t.close}
+          close={() => {
+            freeze(false);
+            setRecovery(false);
+            setClosing(false);
+            closeDecision.current?.(false);
+            closeDecision.current = null;
+          }}
+        >
           <p>{t.recoveryHelp}</p>
           {save.error === "COMMAND_UNRESOLVED" && (
             <p role="status">{t.workspaceDiscardBlocked}</p>
@@ -996,6 +1074,29 @@ function Draft({
                 .join("\n")
             }
           />
+          {!closing && (
+            <button
+              disabled={frozen}
+              onClick={async () => {
+                const epoch = recoveryEpoch.current,
+                  decision = closeDecision.current;
+                const current = () =>
+                  recoveryMounted.current &&
+                  recoveryEpoch.current === epoch &&
+                  closeDecision.current === decision;
+                const saved = await save.flush(true);
+                if (!current() || !saved) return;
+                if (save.planningAdapter) {
+                  const planningSaved = await save.planningAdapter.flush(true);
+                  if (!current() || !planningSaved) return;
+                }
+                // An older receipt cannot dismiss a newer recovery or native close decision.
+                if (current()) setRecovery(false);
+              }}
+            >
+              {t.retry}
+            </button>
+          )}
           <button disabled={frozen} onClick={() => void reload()}>
             {t.discardAndReload}
           </button>
@@ -1041,7 +1142,7 @@ function Draft({
               </button>
             </>
           )}
-        </div>
+        </WritingDialog>
       )}
     </section>
   );

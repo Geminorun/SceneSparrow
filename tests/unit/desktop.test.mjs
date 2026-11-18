@@ -183,11 +183,10 @@ test("preload close registration has a safe default, scoped IPC and cleanup with
   await exposed.prepareAiTest({
     providerId: "fixture",
     modelId: "manual",
-    tokenField: "max_tokens",
   });
   assert.deepEqual(calls.pop(), [
     "ai:test-prepare",
-    { providerId: "fixture", modelId: "manual", tokenField: "max_tokens" },
+    { providerId: "fixture", modelId: "manual" },
   ]);
   await exposed.preparePlanning({ operation: "generate_outline" });
   assert.deepEqual(calls.pop(), [

@@ -7,6 +7,12 @@ conflicting presentation in reference-workspace.md and editor-save-and-ai-feedba
 Keep existing durable planning/manuscript commands, evidence consent, locks,
 five-step history, task-start configuration pinning and one-dispatch recovery.
 
+The approved [interaction/generation follow-up](writing-interaction-and-generation.md)
+supersedes the original persistent-notice policy, output-token allowance and
+results-dialog presentation below. Current notices expire after three seconds
+with a brief fade; recovery remains available. New requests omit output-token
+parameters and generation history lives in the auxiliary pane.
+
 ## WW-01: Keys and service navigation
 
 Saved credentials appear as a noneditable constant eight-bullet value with Saved,
@@ -38,8 +44,8 @@ Expose read failure/retry at the top notification layer rather than an inline pa
 ## WW-03: One top-layer error surface
 
 All operation failures use the localized, bounded native-dialog-aware presenter.
-Action-required errors remain until dismissed, resolved or deliberately replaced;
-success notifications may time out. Preserve queue bounds, suppression of passive
+Errors and success notices expire after three seconds with a brief fade; hover
+and keyboard focus pause the remaining lifetime. Preserve queue bounds, suppression of passive
 repeats, current-action reporting, locale switching, safe codes/details, focus
 and Tab/Shift+Tab behavior. Reopening must not replay historical task failures.
 
@@ -67,14 +73,15 @@ known size failures as network/auth failures. Expose actionable Model settings
 for token failures and appropriate length guidance for size failures; no silent
 continuation, repair, retry, provider fallback or partial-draft application.
 
-New manually/discovered models default to an 8192-token output allowance, clamped
-to an explicitly known model limit. Preserve existing explicitly saved budgets,
-bindings and legacy preference inheritance; do not silently raise existing users'
-cost limits or claim model names prove capabilities. Initial-draft prompts request
+New requests omit both compatible output-token parameters; no editable allowance
+or hidden application default remains. Narrow legacy readers preserve stored
+identities, while old undispatched queued runs require explicit fresh generation.
+Keep model capability metadata and actual usage; model names do not prove
+capabilities. Initial-draft prompts request
 concise valid structure and the saved language/length, with a version bump if the
 prompt changes. Reuse context/preparation checks and task-start snapshots.
 Test an approximately 2000-Chinese-character complete initial draft in one counted
-SDK request under the new allowance, plus truncated output preserving old content.
+SDK request without a token cap, plus truncated output preserving old content.
 Real-provider acceptance remains independent of local fixtures.
 
 ## WW-05: Central outline and manuscript views

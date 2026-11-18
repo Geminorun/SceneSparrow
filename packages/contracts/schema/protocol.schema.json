@@ -704,6 +704,37 @@
           "properties": {
             "type": {
               "type": "string",
+              "enum": ["RenameSourceLink"]
+            },
+            "requestId": {
+              "type": "string"
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "expectedWorkingRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payload": {
+              "$ref": "#/definitions/RenameSourceLinkPayload"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "requestId",
+            "projectId",
+            "expectedWorkingRevision",
+            "payload"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
               "enum": ["AddSourceFile"]
             },
             "requestId": {
@@ -2142,9 +2173,6 @@
         "estimatedInputTokens": {
           "type": "integer"
         },
-        "outputTokens": {
-          "type": "integer"
-        },
         "configuration": {
           "$ref": "#/definitions/AiResolvedConfig"
         }
@@ -2158,7 +2186,6 @@
         "evidence",
         "warnings",
         "estimatedInputTokens",
-        "outputTokens",
         "configuration"
       ]
     },
@@ -3346,6 +3373,24 @@
         },
         "truncated": {
           "type": "boolean"
+        }
+      }
+    },
+    "RenameSourceLinkPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceId", "expectedSourceRevision", "title"],
+      "properties": {
+        "sourceId": {
+          "type": "string"
+        },
+        "expectedSourceRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "title": {
+          "type": "string"
         }
       }
     }

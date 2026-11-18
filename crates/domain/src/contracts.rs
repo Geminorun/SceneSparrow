@@ -282,6 +282,17 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: AddSourceLinkPayload,
     },
+    #[serde(rename = "RenameSourceLink")]
+    RenameSourceLink {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: RenameSourceLinkPayload,
+    },
     #[serde(rename = "AddSourceFile")]
     AddSourceFile {
         #[serde(rename = "requestId")]
@@ -1135,8 +1146,6 @@ pub struct PlanningPreparation {
     pub warnings: Vec<String>,
     #[serde(rename = "estimatedInputTokens")]
     pub estimated_input_tokens: i64,
-    #[serde(rename = "outputTokens")]
-    pub output_tokens: i64,
     #[serde(rename = "configuration")]
     pub configuration: AiResolvedConfig,
 }
@@ -1851,6 +1860,16 @@ pub struct ReferenceDirectoryBatch {
     pub truncated: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameSourceLinkPayload {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "expectedSourceRevision")]
+    pub expected_source_revision: i64,
+    #[serde(rename = "title")]
+    pub title: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,
@@ -1955,13 +1974,6 @@ pub struct AiProvider {
     pub service_preset: Option<AiProviderServicePreset>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AiModelTokenField {
-    #[serde(rename = "max_tokens")]
-    Maxtokens,
-    #[serde(rename = "max_completion_tokens")]
-    Maxcompletiontokens,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiModel {
     #[serde(rename = "providerId")]
@@ -1976,8 +1988,6 @@ pub struct AiModel {
     pub context_tokens: Option<i64>,
     #[serde(rename = "outputTokens", deserialize_with = "required_nullable")]
     pub output_tokens: Option<i64>,
-    #[serde(rename = "tokenField")]
-    pub token_field: AiModelTokenField,
     #[serde(
         rename = "defaultParameters",
         default,
@@ -1991,8 +2001,6 @@ pub struct AiModel {
 pub struct AiParameters {
     #[serde(rename = "temperatureMilli", deserialize_with = "required_nullable")]
     pub temperature_milli: Option<i64>,
-    #[serde(rename = "maxOutputTokens")]
-    pub max_output_tokens: i64,
     #[serde(rename = "requestStreaming")]
     pub request_streaming: bool,
     #[serde(rename = "requestNativeJson")]
@@ -2497,19 +2505,10 @@ pub struct AiSearchResult {
     pub reason: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AiTestTargetTokenField {
-    #[serde(rename = "max_tokens")]
-    Maxtokens,
-    #[serde(rename = "max_completion_tokens")]
-    Maxcompletiontokens,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AiTestTarget {
     #[serde(rename = "providerId")]
     pub provider_id: String,
     #[serde(rename = "modelId")]
     pub model_id: String,
-    #[serde(rename = "tokenField")]
-    pub token_field: AiTestTargetTokenField,
 }

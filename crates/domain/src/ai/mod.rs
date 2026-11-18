@@ -103,7 +103,7 @@ pub fn validate_settings(s: &AiSettings) -> Result<()> {
             "INVALID_SETTINGS",
         )?;
         if let Some(parameters) = &m.default_parameters {
-            validate_parameters(parameters, m)?;
+            validate_parameters(parameters)?;
         }
         for evidence in [
             &m.capabilities.images,
@@ -125,24 +125,15 @@ pub fn validate_settings(s: &AiSettings) -> Result<()> {
                 && b.revision > 0,
             "INVALID_SETTINGS",
         )?;
-        let m = s
-            .models
-            .iter()
-            .find(|m| m.id == b.model_id && m.provider_id == b.provider_id)
-            .ok_or(AiError("INVALID_SETTINGS"))?;
-        validate_parameters(&b.parameters, m)?;
+        validate_parameters(&b.parameters)?;
     }
     Ok(())
 }
-pub fn validate_parameters(parameters: &AiParameters, model: &AiModel) -> Result<()> {
+pub fn validate_parameters(parameters: &AiParameters) -> Result<()> {
     ensure(
-        (16..=1000000).contains(&parameters.max_output_tokens)
-            && parameters
-                .temperature_milli
-                .is_none_or(|v| (0..=2000).contains(&v))
-            && model
-                .output_tokens
-                .is_none_or(|v| parameters.max_output_tokens <= v),
+        parameters
+            .temperature_milli
+            .is_none_or(|v| (0..=2000).contains(&v)),
         "INVALID_SETTINGS",
     )
 }
@@ -232,9 +223,10 @@ pub fn validate_input(input: &AiInput, config: &AiResolvedConfig) -> Result<()> 
         )?;
     }
     ensure(
-        config.model.context_tokens.is_none_or(|v| {
-            (total as i64 + 2) / 3 + images * 4096 + config.parameters.max_output_tokens <= v
-        }),
+        config
+            .model
+            .context_tokens
+            .is_none_or(|v| (total as i64 + 2) / 3 + images * 4096 <= v),
         "CONTEXT_LIMIT",
     )
 }

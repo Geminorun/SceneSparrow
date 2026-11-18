@@ -250,6 +250,7 @@ export function OutlineEditor({
               return false;
             },
             blur: () => {
+              planning.compositionBlur(sync);
               planning.boundary();
               return false;
             },

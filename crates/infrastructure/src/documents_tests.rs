@@ -1080,3 +1080,97 @@ fn reopen_rejects_invalid_or_colliding_reference_path_projections() {
         assert!(SqliteProjectRepository::open(dir.path()).is_err());
     }
 }
+
+#[test]
+fn rename_link_cas_receipt_noop_history_and_reopen_preserve_identity() {
+    let (dir, r, p) = setup();
+    let source = id();
+    let url = "https://example.com/a%2Fb?q=中文#Exact";
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceLink",
+        json!({"sourceId":source,"url":url,"title":"Original"}),
+    ))
+    .unwrap();
+    let old = r.read_sources(None).unwrap().items.remove(0).source;
+    let stale = cmd(
+        &r,
+        &p,
+        "RenameSourceLink",
+        json!({"sourceId":source,"expectedSourceRevision":0,"title":"Stale"}),
+    );
+    assert_eq!(
+        r.execute_manuscript(&stale).unwrap_err().0,
+        "REVISION_CONFLICT"
+    );
+    for title in [
+        " ".to_string(),
+        "界".repeat(342),
+        "Control\u{0001}".to_string(),
+    ] {
+        assert_eq!(
+            r.execute_manuscript(&cmd(
+                &r,
+                &p,
+                "RenameSourceLink",
+                json!({"sourceId":source,"expectedSourceRevision":old.revision,"title":title})
+            ))
+            .unwrap_err()
+            .0,
+            "INVALID_REQUEST"
+        );
+    }
+    let history_before = r.read_history().unwrap();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "RenameSourceLink",
+        json!({"sourceId":source,"expectedSourceRevision":old.revision,"title":"Original"}),
+    ))
+    .unwrap();
+    assert_eq!(r.read_history().unwrap(), history_before);
+    let rename = cmd(
+        &r,
+        &p,
+        "RenameSourceLink",
+        json!({"sourceId":source,"expectedSourceRevision":old.revision,"title":"改名 · Evidence"}),
+    );
+    let receipt = r.execute_manuscript(&rename).unwrap();
+    assert_eq!(r.execute_manuscript(&rename).unwrap(), receipt);
+    let renamed = r.read_sources(None).unwrap().items.remove(0).source;
+    assert_eq!(renamed.id, old.id);
+    assert_eq!(renamed.url.as_deref(), Some(url));
+    assert!(renamed.revision > old.revision);
+    assert_eq!(
+        r.read_history().unwrap().undo_label.as_deref(),
+        Some("renameSource")
+    );
+    r.execute_manuscript(&history(&r, &p, "UndoProject"))
+        .unwrap();
+    let undone = r.read_sources(None).unwrap().items.remove(0).source;
+    assert_eq!(undone.title, "Original");
+    assert!(undone.revision > renamed.revision);
+    r.execute_manuscript(&history(&r, &p, "RedoProject"))
+        .unwrap();
+    drop(r);
+    let r = SqliteProjectRepository::open(dir.path()).unwrap();
+    let reopened = r.read_sources(None).unwrap().items.remove(0).source;
+    assert_eq!(reopened.id, source);
+    assert_eq!(reopened.url.as_deref(), Some(url));
+    assert_eq!(reopened.title, "改名 · Evidence");
+    assert!(reopened.revision > undone.revision);
+    let file = upload(&r, "file.txt", b"content");
+    let file_id = add_file(&r, &p, &file);
+    assert_eq!(
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "RenameSourceLink",
+            json!({"sourceId":file_id,"expectedSourceRevision":1,"title":"Disallowed"})
+        ))
+        .unwrap_err()
+        .0,
+        "INVALID_REQUEST"
+    );
+}

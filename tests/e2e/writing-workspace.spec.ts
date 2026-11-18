@@ -236,10 +236,21 @@ test("late outline receipts during composition retain the visible buffer and def
   await seen;
   await editor.dispatchEvent("compositionstart", { data: "中" });
   await editor.fill("# 输入中的大纲");
+  await editor.press("Home");
+  const caret = await editor.evaluate(() => ({
+    anchor: getSelection()?.anchorOffset,
+    focus: getSelection()?.focusOffset,
+  }));
   release();
   await page.waitForTimeout(300);
   await expect(editor).toBeFocused();
   expect(writes).toHaveLength(1);
+  expect(
+    await editor.evaluate(() => ({
+      anchor: getSelection()?.anchorOffset,
+      focus: getSelection()?.focusOffset,
+    })),
+  ).toEqual(caret);
   await editor.dispatchEvent("compositionend", { data: "输入中的大纲" });
   await saved(page);
   expect((await core.request("/planning")).content.nodes[0].title).toBe(
@@ -332,12 +343,31 @@ test("unsent review recovery returns from Outline to the owning assistant or Com
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.locator("#review-instruction")).toBeHidden();
   await view(page, "Outline");
+  let releaseUndo = () => {},
+    enterUndo = () => {},
+    redoCommands = 0;
+  const undoGate = new Promise<void>((resolve) => {
+    releaseUndo = resolve;
+  });
+  const undoEntered = new Promise<void>((resolve) => {
+    enterUndo = resolve;
+  });
+  core.intercept(async (_path, body, phase) => {
+    if (phase === "before" && body?.type === "RedoProject") redoCommands++;
+    if (phase === "after" && body?.type === "UndoProject") {
+      enterUndo();
+      await undoGate;
+    }
+  });
   await outline(page).press("ControlOrMeta+z");
+  await undoEntered;
   await expect(notice).toHaveCount(0);
   await expect
     .poll(async () => (await core.request("/manuscript")).blocks.length)
     .toBe(0);
   await outline(page).press("ControlOrMeta+Shift+z");
+  expect(redoCommands).toBe(0);
+  releaseUndo();
   await expect
     .poll(async () =>
       (await core.request("/manuscript")).blocks.map((block: any) => block.id),

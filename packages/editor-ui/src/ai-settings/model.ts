@@ -68,11 +68,6 @@ export function modelParameters(
         )
       )?.parameters ?? {
         temperatureMilli: null,
-        maxOutputTokens: Math.min(
-          4096,
-          model.outputTokens ?? 4096,
-          model.contextTokens ?? 4096,
-        ),
         requestStreaming: false,
         requestNativeJson: false,
       },
@@ -112,14 +107,8 @@ export function newModel(
     },
     contextTokens: limits.contextTokens,
     outputTokens: limits.outputTokens,
-    tokenField: "max_tokens",
     defaultParameters: {
       temperatureMilli: null,
-      maxOutputTokens: Math.min(
-        8192,
-        limits.outputTokens ?? 8192,
-        limits.contextTokens ?? 8192,
-      ),
       requestStreaming: false,
       requestNativeJson: false,
     },

@@ -8,6 +8,7 @@ import type {
 import type { Autosave } from "./autosave";
 import { ReviewCommands } from "./review-commands";
 import { PlanningAutosave } from "./planning-autosave";
+import { safeErrorCode } from "../notifications";
 import { useNoticeOwner } from "../NotificationPresenter";
 
 export type WritingView = "outline" | "manuscript";
@@ -16,13 +17,16 @@ export function usePlanningSession(
   save: Autosave,
   projectId: string,
   onApplied: (view: WritingView) => void,
+  onHistoryOpen: () => void,
+  onViewCurrent: (view: WritingView) => void,
 ) {
   const [, render] = useState(0),
     [planning, setPlanning] = useState<PlanningAutosave | null>(null),
     [attempt, retry] = useState(0),
+    [loadFailed, setLoadFailed] = useState(false),
     [acting, setActing] = useState(false),
     [recovery, setRecovery] = useState(false),
-    [diagnostics, setDiagnostics] = useState(false);
+    [historyOpen, setHistoryOpen] = useState(false);
   const { report, resolve } = useNoticeOwner();
   const commands = useMemo(() => new ReviewCommands(save), [save]);
   const pendingStart = useRef<{
@@ -33,6 +37,10 @@ export function usePlanningSession(
   } | null>(null);
   const applied = useRef(onApplied);
   applied.current = onApplied;
+  const openHistoryPane = useRef(onHistoryOpen),
+    selectCurrentView = useRef(onViewCurrent);
+  openHistoryPane.current = onHistoryOpen;
+  selectCurrentView.current = onViewCurrent;
   const live = useRef(true),
     flight = useRef(false),
     observed = useRef(new Set<string>()),
@@ -53,14 +61,17 @@ export function usePlanningSession(
           render((n) => n + 1),
         );
         setPlanning(owned);
+        setLoadFailed(false);
         resolve("planning-load");
       },
       (error) => {
-        if (active)
+        if (active) {
+          setLoadFailed(true);
           report(error, {
             identity: "planning-load",
             actions: [{ kind: "retry", run: () => retry((n) => n + 1) }],
           });
+        }
       },
     );
     return () => {
@@ -73,7 +84,8 @@ export function usePlanningSession(
     if (!planning) return;
     let active = true,
       refreshing = false,
-      again = false;
+      again = false,
+      lastFailure = "";
     const inspect = (state: PlanningState) => {
       for (const task of state.tasks) {
         if (task.application !== "applied" || observed.current.has(task.id))
@@ -98,12 +110,16 @@ export function usePlanningSession(
           await save.resync();
           if (active) {
             inspect(planning.state);
+            lastFailure = "";
             resolve("planning-refresh");
           }
         }
       } catch (error) {
-        if (active)
+        const code = safeErrorCode(error);
+        if (active && lastFailure !== code) {
+          lastFailure = code;
           report(error, { identity: "planning-refresh", passive: true });
+        }
       } finally {
         refreshing = false;
       }
@@ -141,24 +157,60 @@ export function usePlanningSession(
       clearInterval(timer);
     };
   }, [client, planning, save, report, resolve]);
-  async function start(
+  function start(
+    operation: PlanningPreparationRequest["operation"],
+    retryOfTaskId: string | null = null,
+  ) {
+    return save.actions.run(
+      "planning-start",
+      () => startCore(operation, retryOfTaskId),
+      () => live.current,
+    );
+  }
+  async function startCore(
     operation: PlanningPreparationRequest["operation"],
     retryOfTaskId: string | null = null,
   ) {
     if (!planning || flight.current) return false;
+    if (
+      !pendingStart.current &&
+      (planning.state.reserved ||
+        save.stageTransitionPending ||
+        planning.recoveryText !== null ||
+        !planning.local.brief.topic.trim() ||
+        planning.state.tasks.some(
+          (task) =>
+            task.application === "pending" &&
+            ["queued", "running", "cancelling", "succeeded"].includes(
+              task.run.status,
+            ),
+        ) ||
+        (operation === "generate_initial_draft" &&
+          (save.state.workspaceStage !== "outline" ||
+            save.local.length > 0 ||
+            save.recoveryText !== null)))
+    )
+      return false;
     flight.current = true;
     setActing(true);
     const intent = planning.identity();
+    const context = save.actions.contextVersion;
     let attempted = pendingStart.current;
     const recovering = !!attempted;
     try {
       if (!attempted) {
-        if (!(await planning.flush()) || intent !== planning.identity())
+        if (!(await planning.flush())) {
+          report(planning.error || save.error || "SAVE_FAILED", {
+            identity: "planning-start",
+          });
           return false;
+        }
+        if (intent !== planning.identity()) return false;
         const preparation = await client.preparePlanning({ operation });
         if (
           !live.current ||
           intent !== planning.identity() ||
+          context !== save.actions.contextVersion ||
           planning.composing
         )
           return false;
@@ -198,7 +250,9 @@ export function usePlanningSession(
               !!pendingStart.current &&
               pendingStart.current === owned &&
               !planning.composing &&
-              (recovering || planning.identity() === intent),
+              (recovering ||
+                (planning.identity() === intent &&
+                  context === save.actions.contextVersion)),
           },
         );
         if (!result.ok) {
@@ -252,7 +306,19 @@ export function usePlanningSession(
       if (live.current) setActing(false);
     }
   }
-  async function control(
+  function control(
+    type: "CancelPlanningTask" | "UsePlanningResult",
+    taskId: string,
+  ) {
+    return type === "CancelPlanningTask"
+      ? controlCore(type, taskId)
+      : save.actions.run(
+          "planning-control",
+          () => controlCore(type, taskId),
+          () => live.current,
+        );
+  }
+  async function controlCore(
     type: "CancelPlanningTask" | "UsePlanningResult",
     taskId: string,
   ) {
@@ -332,20 +398,43 @@ export function usePlanningSession(
                   task.id,
                 ),
             },
-            { kind: "recovery", run: () => setDiagnostics(true) },
+            { kind: "recovery", run: () => navigateHistory(true) },
           ],
         });
     }
   }, [planning?.state.tasks, report]);
+  function navigateHistory(open: boolean) {
+    save.actions.cancel();
+    if (open) openHistoryPane.current();
+    setHistoryOpen(open);
+    requestAnimationFrame(() => {
+      const target = open
+        ? ".generation-history-back"
+        : "[data-generation-history]:not([hidden])";
+      const controls = document.querySelectorAll<HTMLElement>(target);
+      [...controls].find((node) => node.getClientRects().length)?.focus();
+    });
+  }
   return {
     planning,
+    loadFailed,
+    retryLoad: () => retry((n) => n + 1),
     acting,
     start,
     control,
     recovery,
     setRecovery,
-    diagnostics,
-    setDiagnostics,
+    historyOpen,
+    navigateHistory,
+    viewCurrent: (view: WritingView) => {
+      navigateHistory(false);
+      selectCurrentView.current(view);
+    },
+    pendingStart: pendingStart.current !== null,
+    recoverStart: () =>
+      pendingStart.current
+        ? start(pendingStart.current.operation)
+        : Promise.resolve(false),
   };
 }
 export type PlanningSession = ReturnType<typeof usePlanningSession>;

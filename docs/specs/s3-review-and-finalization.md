@@ -73,7 +73,7 @@ whole block. Cross-block selection records one range per block in document order
 Saving a comment creates no paid call. The card's explicit **Ask AI** or
 **Generate change** submission saves the current request and starts one AI run.
 Opening a card, typing a message, changing selection, or receiving a result never
-starts another run. Failed calls show persistent safe errors plus settings/manual
+starts another run. Failed calls show transient safe notices plus durable settings/manual
 retry actions. Use the same global text category as outlining and drafting.
 
 The two kinds have distinct results:
@@ -396,6 +396,11 @@ including unanswered ones, do not block. Do not silently discard their content.
 `UnlockBlocks` removes only user locks, leaves temporary reservations intact, and
 is one history operation. Lock/unlock advances project/review state as needed,
 not the protected body-content revision merely because approval changed.
+
+Explicit Review retry captures committed composer/context identity before any
+input flush and revalidates after every asynchronous flush. Resolving an older
+receipt never sends newly typed instruction text or a newly selected scope; the
+new draft remains available for a separate Send action.
 
 Read-only question tasks never prevent body edits or locking. A revision task
 reserves its input scope, including user-locked text, only until terminal/fenced

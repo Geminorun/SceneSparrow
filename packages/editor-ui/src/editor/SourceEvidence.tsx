@@ -19,6 +19,7 @@ export function SourceEvidence({
   update,
   locked = false,
   purpose = "creation",
+  compact = false,
   t,
 }: {
   item: SourceSummary;
@@ -27,6 +28,7 @@ export function SourceEvidence({
   update: (choice: PlanningEvidenceChoice | null) => void;
   locked?: boolean;
   purpose?: "creation" | "review";
+  compact?: boolean;
   t: typeof en;
 }) {
   const [busy, setBusy] = useState(false),
@@ -120,7 +122,11 @@ export function SourceEvidence({
     }
   }
   return (
-    <div className="source-evidence">
+    <div
+      className={
+        compact ? "source-evidence source-evidence-compact" : "source-evidence"
+      }
+    >
       <label className="reference-select">
         <input
           type="checkbox"
@@ -134,9 +140,11 @@ export function SourceEvidence({
             event.target.checked ? void load(true) : update(null)
           }
         />
-        {purpose === "review" ? t.reviewUseReference : t.libraryUseReference}
+        <span className={compact ? "visually-hidden" : undefined}>
+          {purpose === "review" ? t.reviewUseReference : t.libraryUseReference}
+        </span>
       </label>
-      {choice && (
+      {choice && !compact && (
         <p className="muted">
           {choice.mode === "link_only"
             ? t.linkOnly

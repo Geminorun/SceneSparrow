@@ -1579,7 +1579,8 @@ select:focus {
   opacity: 0.5;
   cursor: default;
 }
-.library-tree {
+.source-panel .library-tree {
+  padding-inline-start: 0;
   list-style: none;
   padding-left: 0;
   margin: 10px 0;
@@ -1600,28 +1601,135 @@ select:focus {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.library-source strong {
-  font-size: 13px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
+/* Explicit slots keep narrow Library titles independent of URLs and actions. */
 .library-source {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 8px;
-  align-items: baseline;
+  grid-template-columns: 18px 16px minmax(0, 1fr) 26px;
+  gap: 3px 5px;
+  align-items: start;
+  min-width: 0;
+}
+.source-kind-icon {
+  grid-column: 2;
+  grid-row: 1;
+  padding-top: 5px;
+  color: var(--muted);
+}
+.source-kind-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.library-source .source-title {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+}
+.source-title > summary {
+  display: block;
+  cursor: pointer;
+  padding-block: 3px;
+}
+.source-title strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.source-title[open] strong {
+  -webkit-line-clamp: unset;
+}
+.source-title > p {
+  display: none;
 }
 .library-source > .source-status {
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
   font-size: 11px;
 }
-.library-source > :is(.source-evidence, details) {
+.library-source > .source-evidence-compact {
+  display: contents;
+}
+.library-source .source-evidence-compact > .reference-select {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 5px 0;
+}
+.library-source .source-evidence-compact > :not(.reference-select) {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.library-source > .source-actions {
+  grid-column: 4;
+  grid-row: 1;
+  display: block;
+  width: 26px;
+  min-height: 26px;
+  padding: 0;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 26px;
+  margin: 0;
+}
+.source-actions:hover {
+  background: var(--panel);
+}
+.source-action-body {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+  padding: 8px;
+  background: var(--panel);
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+.source-action-body button {
+  margin: 3px 4px 3px 0;
+  max-width: 100%;
+}
+.library-source > p:not(.source-status) {
   grid-column: 1 / -1;
 }
 .library-source p {
   margin: 4px 0;
   font-size: 12px;
+}
+.library-link-form form {
+  padding-top: 8px;
+}
+.library-link-form input,
+.source-action-body input {
+  min-width: 0;
+  width: 100%;
+}
+.library-read-status {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.library-read-status p {
+  margin: 4px 0;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 .source-panel .reference-select {
   display: flex;
@@ -2125,8 +2233,8 @@ body > .notifications {
   font-size: 0.78rem;
 }
 .writing-view-switch button[aria-pressed="true"] {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--paper);
+  color: var(--ink);
   box-shadow: 0 1px 3px #0001;
 }
 .manuscript-header {
@@ -2294,12 +2402,12 @@ body > .notifications {
 .writing-dialog {
   width: min(680px, 90vw);
   max-height: 85vh;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px;
-  background: var(--surface);
-  color: var(--text);
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
 }
 .writing-dialog textarea {
   display: block;
@@ -2330,4 +2438,126 @@ body > .notifications {
   .manuscript-header .manuscript-context h3 {
     display: none;
   }
+}
+
+.notification {
+  transition: opacity 190ms ease;
+}
+.notification[data-fading="true"] {
+  opacity: 0;
+}
+
+.workspace-skeleton {
+  position: relative;
+}
+.skeleton-retry {
+  position: absolute;
+  inset-block-start: 0.75rem;
+  inset-inline-end: 1rem;
+  z-index: 1;
+}
+
+.writing-dialog .dialog-heading {
+  margin: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper);
+}
+.writing-dialog-body {
+  padding: 16px 20px 20px;
+  overflow: auto;
+  max-height: calc(85vh - 80px);
+}
+.writing-dialog-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.history-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 5px;
+}
+.history-icon svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+.generation-history {
+  min-width: 0;
+}
+.generation-history-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-block: 4px 10px;
+  background: var(--panel);
+}
+.generation-history-heading h2 {
+  margin: 10px 0 0;
+  font-size: 1rem;
+}
+.generation-history h3 {
+  font-size: 0.88rem;
+  margin: 0 0 6px;
+}
+.generation-history p,
+.generation-history button,
+.generation-history summary {
+  font-size: 0.8rem;
+}
+.generation-history button {
+  max-width: 100%;
+}
+.generation-diagnostics {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.generation-diagnostics pre {
+  overflow-wrap: anywhere;
+}
+
+.library-heading {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
+.library-heading > p {
+  flex: 1;
+  min-width: 0;
+}
+.library-reload-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 4px;
+  margin-top: 8px;
+}
+.library-reload-icon svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+.library-read-status:empty {
+  margin: 0;
+}
+.writing-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.writing-dialog .dialog-heading {
+  flex: none;
+}
+.writing-dialog-body {
+  min-height: 0;
+  max-height: none;
+}
+
+.source-action-body .reference-url {
+  max-height: 108px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding-inline-end: 4px;
 }

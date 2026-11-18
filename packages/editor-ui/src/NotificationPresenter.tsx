@@ -53,9 +53,17 @@ export function useNoticeOwner() {
   return { report, resolve };
 }
 /** Passive effects cannot replace a foreground notice's richer actions/context. */
+let errorHookSequence = 0;
 export function useErrorNotification(error: string | null | undefined) {
+  const identity = useRef<string | null>(null),
+    episode = useRef(0);
+  identity.current ??= `error-hook-${++errorHookSequence}`;
   useEffect(() => {
-    if (error) notifyFailure(error, { passive: true });
+    if (error)
+      notifyFailure(error, {
+        identity: `${identity.current}:${++episode.current}`,
+        passive: true,
+      });
   }, [error]);
 }
 export function useTaskNotifications(
@@ -95,23 +103,26 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   useEffect(() => {
-    notifications.hold(notice.id, hovered || focused);
+    notifications.hold(notice.id, !notice.fading && (hovered || focused));
     return () => notifications.hold(notice.id, false);
-  }, [notice.id, hovered, focused]);
+  }, [notice.id, notice.fading, hovered, focused]);
   useEffect(() => {
-    if (hovered || focused || notice.expiresAt === null) return;
+    if (((hovered || focused) && !notice.fading) || notice.expiresAt === null)
+      return;
     const timer = window.setTimeout(
-      () => notifications.dismiss(notice.id),
+      () => notifications.tick(notice.id),
       Math.max(0, notice.expiresAt - Date.now()),
     );
     return () => clearTimeout(timer);
-  }, [notice.id, notice.expiresAt, hovered, focused]);
-  const settingsSection =
-    notice.key === "CONFIGURATION_UNAVAILABLE"
-      ? "defaults"
-      : ["CREDENTIAL_UNAVAILABLE", "OUTPUT_TOKEN_LIMIT"].includes(notice.key)
-        ? "services"
-        : null;
+  }, [notice.id, notice.expiresAt, notice.fading, hovered, focused]);
+  const settingsSection = [
+    "CONFIGURATION_UNAVAILABLE",
+    "OUTPUT_TOKEN_LIMIT",
+  ].includes(notice.key)
+    ? "defaults"
+    : notice.key === "CREDENTIAL_UNAVAILABLE"
+      ? "services"
+      : null;
   const actionLabels: Record<NoticeActionKind, keyof typeof en> = {
     retry: "retry",
     reviewChanges: "noticeReviewChanges",
@@ -121,7 +132,9 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
   return (
     <div
       className="notification"
+      inert={notice.fading || undefined}
       data-tone={notice.tone}
+      data-fading={notice.fading || undefined}
       data-error-code={notice.key}
       data-testid={
         notice.key.startsWith("TRANSPORT_")
@@ -194,7 +207,7 @@ function NotificationItem({ notice, t }: { notice: Notice; t: typeof en }) {
         onPointerDown={(event) => event.preventDefault()}
         onClick={(event) => {
           const restore = document.activeElement === event.currentTarget;
-          notifications.dismiss(notice.id);
+          notifications.fade(notice.id);
           if (restore && previousFocus.current?.isConnected)
             previousFocus.current.focus();
         }}

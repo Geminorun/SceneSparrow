@@ -64,7 +64,6 @@ export class PlanningAutosave {
     kind: "typing" | "discrete";
   }[] = [];
   private tail: Promise<unknown> = Promise.resolve();
-  private deferredActions: (() => void)[] = [];
   private adapter;
   constructor(
     state: PlanningState,
@@ -81,6 +80,10 @@ export class PlanningAutosave {
     this.adapter = {
       flush: (retry = false) => this.flush(true, retry),
       identity: () => this.identity(),
+      inputVersion: () => this.generation,
+      refresh: async () => {
+        await this.refresh();
+      },
       dirty: () => this.status !== "saved",
       autosave: () => this.flush(false),
       busy: () => this.busy,
@@ -180,20 +183,22 @@ export class PlanningAutosave {
     if (active) this.capture();
     if (active) this.generation++;
     this.composing = active;
-    this.save.composition(active);
+    this.save.composition(active, "planning");
     if (!active) {
       this.groupId = crypto.randomUUID();
       this.schedule();
-      const actions = this.deferredActions.splice(0);
-      queueMicrotask(() => {
-        if (!this.disposed) for (const action of actions) action();
-      });
     }
     this.notify();
   }
-  afterComposition(action: () => void) {
-    if (this.composing) this.deferredActions.push(action);
-    else action();
+  compositionBlur(beforeCommit?: () => void) {
+    this.save.actions.blur("planning", () => {
+      beforeCommit?.();
+      this.composition(false);
+      this.boundary();
+    });
+  }
+  afterComposition(action: () => void, key = "planning-evidence") {
+    void this.save.actions.run(key, action, () => !this.disposed);
   }
   boundary() {
     if (this.disposed || this.composing) return;
@@ -547,6 +552,10 @@ export class PlanningAutosave {
     });
   }
   dispose() {
+    this.save.actions.cancel("planning-start");
+    this.save.actions.cancel("planning-control");
+    this.save.actions.cancelScope("planning-evidence:");
+    this.save.composition(false, "planning");
     this.disposed = true;
     clearTimeout(this.idleTimer);
     if (this.save.planningAdapter === this.adapter)

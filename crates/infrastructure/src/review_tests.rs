@@ -2404,3 +2404,86 @@ fn refresh_invalidates_review_consent_and_retains_old_task_and_history_evidence(
     assert_eq!(candidate(&r, &thread_id).status, "stale");
     assert!(!r.has_queued_ai().unwrap());
 }
+
+#[test]
+fn rename_link_preserves_current_review_consent_and_historical_handled_facts() {
+    let (_dir, r, settings, p) = setup();
+    let source = id();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceLink",
+        json!({"sourceId":source,"url":"https://example.com/exact","title":"Original"}),
+    ))
+    .unwrap();
+    let active = note(&r, &p, false, 0);
+    let handled = note(&r, &p, true, 0);
+    for thread_id in [&active, &handled] {
+        let mut thread = SelfThread::get(&r, thread_id);
+        thread.evidence = serde_json::from_value(json!([{"sourceId":source,"mode":"link_only","start":0,"end":0,"visualId":"","allowUnknownImages":false}])).unwrap();
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "SaveReview",
+            json!({"expectedRequestVersion":thread.request_version,"thread":thread}),
+        ))
+        .unwrap();
+    }
+    let handled_thread = SelfThread::get(&r, &handled);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "SetReviewHandled",
+        json!({"threadId":handled,"requestVersion":handled_thread.request_version,"handled":true}),
+    ))
+    .unwrap();
+    let handled_before = SelfThread::get(&r, &handled);
+    let before = SelfThread::get(&r, &active);
+    let run = cmd(
+        &r,
+        &p,
+        "StartReviewTask",
+        json!({"threadId":active,"requestVersion":before.request_version}),
+    );
+    r.start_review(&settings, &run).unwrap();
+    let run_id = manuscript::envelope(&run).0;
+    let pinned = r.read_run(run_id).unwrap();
+    assert_eq!(
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "RenameSourceLink",
+            json!({"sourceId":source,"expectedSourceRevision":1,"title":"Blocked"})
+        ))
+        .unwrap_err()
+        .0,
+        "TASK_USING_CONTENT"
+    );
+    assert_eq!(r.read_run(run_id).unwrap(), pinned);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "CancelReviewTask",
+        json!({"threadId":active,"requestVersion":before.request_version}),
+    ))
+    .unwrap();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "RenameSourceLink",
+        json!({"sourceId":source,"expectedSourceRevision":1,"title":"Renamed"}),
+    ))
+    .unwrap();
+    let after = SelfThread::get(&r, &active);
+    assert_eq!(after.evidence, before.evidence);
+    assert!(after.request_version > before.request_version);
+    assert_eq!(SelfThread::get(&r, &handled), handled_before);
+    assert_eq!(
+        r.read_manuscript().unwrap().blocks[0].runs[0].text,
+        "hello 🐦 é 中文"
+    );
+    history(&r, &p, false);
+    assert_eq!(SelfThread::get(&r, &active).evidence, before.evidence);
+    history(&r, &p, true);
+    assert_eq!(SelfThread::get(&r, &active).evidence, before.evidence);
+}

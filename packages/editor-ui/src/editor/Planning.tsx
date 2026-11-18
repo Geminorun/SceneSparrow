@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { GenerationHistoryButton, planningProgress } from "./GenerationHistory";
 import type en from "../locales/en.json";
 import type { PlanningContent } from "@scenesparrow/contracts";
 import type { Autosave, SaveStatus } from "./autosave";
@@ -28,8 +29,7 @@ export function Planning({
   onEvidence: (bridge: PlanningEvidenceBridge) => void;
   openLibrary: () => void;
 }) {
-  const { planning, acting, start, control, setRecovery, setDiagnostics } =
-    session;
+  const { planning, acting, start, control, setRecovery } = session;
   const openSettings = useOpenSettings(),
     cached = useSavedAiView();
   const model = cached?.settings.bindings.find(
@@ -67,11 +67,18 @@ export function Planning({
             "evidence",
             true,
           );
-        });
+        }, `planning-evidence:${sourceId}`);
       },
     });
   }, [planning, p, locked, onEvidence, save]);
-  if (!planning || !p) return <p role="status">{t.planningLoading}</p>;
+  if (!planning || !p)
+    return session.loadFailed ? (
+      <button className="quiet-button" onClick={session.retryLoad}>
+        {t.retry}
+      </button>
+    ) : (
+      <p role="status">{t.planningLoading}</p>
+    );
   const patch = (field: keyof PlanningContent["brief"], value: string) =>
     planning.edit(
       { ...planning.local, brief: { ...planning.local.brief, [field]: value } },
@@ -94,27 +101,19 @@ export function Planning({
     !save.local.length &&
     !save.recoveryText;
   const adjust = hasOutline && !!p.instruction.trim();
-  const disabled = locked || acting || !!active || !ready || planning.composing;
+  const disabled = locked || acting || !!active || !ready;
   return (
     <section
       className="writing-assistant"
       aria-label={t.workspaceTab_planning}
       onCompositionStart={() => planning.composition(true)}
       onCompositionEnd={() => planning.composition(false)}
-      onClickCapture={(event) => {
-        const button = (event.target as Element).closest<HTMLButtonElement>(
-          "button",
-        );
-        if (planning.composing && button) {
-          event.preventDefault();
-          event.stopPropagation();
-          planning.afterComposition(() => {
-            if (button.isConnected && !button.disabled) button.click();
-          });
-        }
+      onBlurCapture={() => {
+        planning.compositionBlur();
       }}
     >
       <div className="assistant-context">
+        <GenerationHistoryButton session={session} t={t} />
         <span>{view === "outline" ? t.writingOutline : t.manuscript}</span>
         <button className="quiet-button" onClick={openLibrary}>
           {t.librarySelectedCount.replace("{count}", String(p.evidence.length))}
@@ -133,7 +132,7 @@ export function Planning({
       </p>
       {active && (
         <p className="assistant-progress" role="status">
-          {t.writingWorking}
+          {planningProgress(active, t)}
           <button onClick={() => void control("CancelPlanningTask", active.id)}>
             {t.cancel}
           </button>
@@ -244,9 +243,14 @@ export function Planning({
         <p className="muted">{t.workspacePlanPreservesBody}</p>
       )}
       <div className="assistant-secondary">
-        <button className="quiet-button" onClick={() => setDiagnostics(true)}>
-          {t.writingResults}
-        </button>
+        {session.pendingStart && (
+          <button
+            className="quiet-button"
+            onClick={() => void session.recoverStart()}
+          >
+            {t.writingCheckTask}
+          </button>
+        )}
         {["error", "conflict"].includes(planning.status) && (
           <button className="quiet-button" onClick={() => setRecovery(true)}>
             {t.noticeRecovery}

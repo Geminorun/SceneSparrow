@@ -212,8 +212,10 @@ does not establish endpoint compatibility. Recheck preset URLs when implementing
 real credentials and a selected model are needed for an actual connection test.
 The current [model-services design](ai-model-services.md) limits new-service
 presets to OpenAI and DeepSeek; this broader BiliNote list remains reference data.
-Use a small supported output budget, not universally hardcoded temperature/token
-parameters. A successful text test proves neither vision nor all other capabilities.
+Use a small test prompt without output-token parameters or universally hardcoded
+temperature, following the current
+[interaction/generation policy](writing-interaction-and-generation.md).
+A successful text test proves neither vision nor all other capabilities.
 Any copied code must preserve the applicable MIT notice; this design copies no
 implementation code.
 
@@ -353,8 +355,9 @@ nearby manuscript context within a deterministic budget. Expand context delibera
 when needed; never send every file by default. Record which evidence was included,
 omitted or truncated. Keep source metadata and model-generated conclusions separate.
 
-Check estimated context/output limits before dispatch where possible; token
-estimates vary across compatible providers. If a request cannot fit, explain how
+Check bounded estimated input against known context limits before dispatch where
+possible, without inventing an output reservation; token estimates vary across
+compatible providers. If a request cannot fit, explain how
 to reduce sources/length or change configuration. Do not silently truncate the
 required target/outline or claim a complete draft after an output-limit finish.
 

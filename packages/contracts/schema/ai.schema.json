@@ -152,10 +152,6 @@
             }
           ]
         },
-        "tokenField": {
-          "type": "string",
-          "enum": ["max_tokens", "max_completion_tokens"]
-        },
         "defaultParameters": {
           "$ref": "#/definitions/AiParameters"
         }
@@ -166,8 +162,7 @@
         "label",
         "capabilities",
         "contextTokens",
-        "outputTokens",
-        "tokenField"
+        "outputTokens"
       ]
     },
     "AiParameters": {
@@ -186,11 +181,6 @@
             }
           ]
         },
-        "maxOutputTokens": {
-          "type": "integer",
-          "minimum": 16,
-          "maximum": 1000000
-        },
         "requestStreaming": {
           "type": "boolean"
         },
@@ -198,12 +188,7 @@
           "type": "boolean"
         }
       },
-      "required": [
-        "temperatureMilli",
-        "maxOutputTokens",
-        "requestStreaming",
-        "requestNativeJson"
-      ]
+      "required": ["temperatureMilli", "requestStreaming", "requestNativeJson"]
     },
     "AiBinding": {
       "type": "object",
@@ -1272,7 +1257,7 @@
     "AiTestTarget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["providerId", "modelId", "tokenField"],
+      "required": ["providerId", "modelId"],
       "properties": {
         "providerId": {
           "type": "string",
@@ -1281,10 +1266,6 @@
         "modelId": {
           "type": "string",
           "maxLength": 256
-        },
-        "tokenField": {
-          "type": "string",
-          "enum": ["max_tokens", "max_completion_tokens"]
         }
       }
     }

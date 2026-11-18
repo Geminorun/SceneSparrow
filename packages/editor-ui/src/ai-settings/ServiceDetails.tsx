@@ -319,6 +319,15 @@ export function ServiceDetails({
             operation={c.operations[`discovery:${picker}`]}
             t={t}
           />
+          {c.operations[`discovery:${picker}`]?.error && (
+            <button
+              className="quiet-button"
+              disabled={c.operations[`discovery:${picker}`]?.busy}
+              onClick={() => void c.discover(picker)}
+            >
+              {t.retry}
+            </button>
+          )}
           <div className="ai-discovery-list">
             {(c.catalogs[picker] ?? [])
               .filter((id) =>

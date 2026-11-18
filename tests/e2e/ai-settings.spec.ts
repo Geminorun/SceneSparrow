@@ -143,7 +143,7 @@ test("two bilingual services support manual models after discovery failure and e
     ).toBeVisible();
     const bindingBefore = (await core.request("/ai/settings")).settings
       .bindings;
-    expect(bindingBefore[0].parameters.maxOutputTokens).toBe(8192);
+    expect(bindingBefore[0].parameters).not.toHaveProperty("maxOutputTokens");
     let loseTestResponse = true;
     const actions: unknown[] = [];
     core.intercept(async (path, body, phase) => {
@@ -462,7 +462,7 @@ test("legacy configurations stay readable and usable; explicit assignment preser
   };
   const parameters = {
     temperatureMilli: 700,
-    maxOutputTokens: 512,
+
     requestStreaming: false,
     requestNativeJson: false,
   };
@@ -487,7 +487,6 @@ test("legacy configurations stay readable and usable; explicit assignment preser
       },
       contextTokens: null,
       outputTokens: null,
-      tokenField: "max_tokens",
     },
   ];
   view.settings.bindings = [
@@ -557,8 +556,16 @@ test("legacy configurations stay readable and usable; explicit assignment preser
   await row.locator(".ai-advanced > summary").click();
   await expect(
     row.getByLabel("Maximum output tokens", { exact: true }),
-  ).toHaveValue("512");
-  await row.getByLabel("Maximum output tokens", { exact: true }).fill("1024");
+  ).toHaveCount(0);
+  await expect(
+    row.getByLabel("Compatible token parameter", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    row.getByLabel("Model output limit (blank means unknown)", { exact: true }),
+  ).toHaveCount(0);
+  await row
+    .getByLabel("Temperature (blank to omit)", { exact: true })
+    .fill("0.8");
   await row
     .getByRole("button", { name: "Save model preferences", exact: true })
     .click();
@@ -566,9 +573,9 @@ test("legacy configurations stay readable and usable; explicit assignment preser
     .poll(
       async () =>
         (await core.request("/ai/settings")).settings.bindings[0].parameters
-          .maxOutputTokens,
+          .temperatureMilli,
     )
-    .toBe(1024);
+    .toBe(800);
   await page.setViewportSize({ width: 1280, height: 850 });
   await page.screenshot({ path: ".artifacts/model-services-legacy.png" });
 });

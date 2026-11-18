@@ -463,7 +463,7 @@ test("unsafe planning actions wait for composition end without disabling inputs"
     assert.equal(actions, 0);
     topic(f, "Final IME text");
     f.planning.composition(false);
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(actions, 1);
     assert.equal(f.planning.local.brief.topic, "Final IME text");
   } finally {

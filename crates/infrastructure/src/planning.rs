@@ -840,9 +840,8 @@ impl SqliteProjectRepository {
         let estimated = (text_bytes + schema_bytes).div_ceil(3)
             + visuals.len() * 4096
             + input.messages.len() * 128;
-        let output = config.parameters.max_output_tokens;
         if let Some(context) = config.model.context_tokens {
-            ensure(estimated as i64 + output <= context, "CONTEXT_LIMIT")?;
+            ensure(estimated as i64 <= context, "CONTEXT_LIMIT")?;
         }
         warnings.push("TOKEN_COUNT_ESTIMATE".into());
         let id = uuid::Uuid::new_v4().to_string();
@@ -914,7 +913,6 @@ impl SqliteProjectRepository {
             evidence: manifest,
             warnings,
             estimated_input_tokens: estimated as i64,
-            output_tokens: output,
             configuration: config,
         })
     }

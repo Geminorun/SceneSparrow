@@ -9,9 +9,8 @@ import {
   assignPreset,
   validModelId,
 } from "../../packages/editor-ui/src/ai-settings/model.ts";
-const parameters = (tokens) => ({
-  temperatureMilli: null,
-  maxOutputTokens: tokens,
+const parameters = (temperatureMilli = null) => ({
+  temperatureMilli,
   requestStreaming: false,
   requestNativeJson: false,
 });
@@ -73,7 +72,7 @@ test("standalone model preferences seed from text before audio and preserve othe
   delete model.defaultParameters;
   model.outputTokens = 2048;
   s.models = [model];
-  assert.deepEqual(modelParameters(s, model), parameters(2048));
+  assert.deepEqual(modelParameters(s, model), parameters());
   s.bindings = [
     {
       category: "audio",
@@ -94,13 +93,13 @@ test("standalone model preferences seed from text before audio and preserve othe
   bindText(s, model);
   assert.equal(
     s.bindings.find((binding) => binding.category === "text").parameters
-      .maxOutputTokens,
+      .temperatureMilli,
     512,
   );
   saveModel(s, { ...model, defaultParameters: parameters(1024) });
   assert.equal(
     s.bindings.find((binding) => binding.category === "text").parameters
-      .maxOutputTokens,
+      .temperatureMilli,
     1024,
   );
   assert.deepEqual(s.bindings[0], audio);
@@ -117,39 +116,23 @@ test("manual Unicode IDs remain exact while labels respect the core UTF-8 budget
   assert.equal(validModelId("model\ncontrol"), false);
   assert.equal(validModelId(" "), false);
   assert.equal(model.capabilities.images.state, "unknown");
-  assert.deepEqual(model.defaultParameters, parameters(8192));
+  assert.deepEqual(model.defaultParameters, parameters());
 });
 
-test("new output allowances clamp only to explicit limits while saved and legacy budgets stay intact", () => {
-  const s = settings();
-  for (const [contextTokens, outputTokens, expected] of [
-    [null, null, 8192],
-    [32768, 4096, 4096],
-    [2048, 16384, 2048],
-    [32768, 16384, 8192],
+test("new models retain known capabilities without an application output budget", () => {
+  for (const [contextTokens, outputTokens] of [
+    [null, null],
+    [32768, 4096],
+    [2048, 16384],
   ]) {
     const model = newModel("p", "any-name", { contextTokens, outputTokens });
-    assert.equal(model.defaultParameters.maxOutputTokens, expected);
+    assert.deepEqual(model.defaultParameters, parameters());
+    assert.equal(Object.hasOwn(model, "tokenField"), false);
+    assert.equal(model.contextTokens, contextTokens);
+    assert.equal(model.outputTokens, outputTokens);
     assert.equal(model.capabilities.nativeJson.state, "unknown");
     assert.equal(model.capabilities.streaming.state, "unknown");
   }
-  const saved = newModel("p", "saved");
-  saved.defaultParameters = parameters(4096);
-  s.models = [saved];
-  bindText(s, saved);
-  assert.deepEqual(modelParameters(s, saved), parameters(4096));
-  assert.deepEqual(s.bindings[0].parameters, parameters(4096));
-  delete saved.defaultParameters;
-  s.bindings = [];
-  assert.deepEqual(modelParameters(s, saved), parameters(4096));
-  s.bindings.push({
-    category: "audio",
-    providerId: "p",
-    modelId: "saved",
-    parameters: parameters(128),
-  });
-  assert.deepEqual(modelParameters(s, saved), parameters(128));
-  assert.equal(saved.defaultParameters, undefined);
 });
 
 test("secret entry is masked on first render, with secure password fallback and explicit reveal", async () => {

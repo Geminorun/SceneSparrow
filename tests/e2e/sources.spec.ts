@@ -37,9 +37,13 @@ test("references retain copied files, link-only metadata and source membership h
     .fill("https://example.com/reference-only");
   await page.getByLabel("Reference title").fill("Link evidence");
   await page.getByRole("button", { name: "Add link reference" }).click();
-  await expect(
-    page.getByTestId("source-item").filter({ hasText: "Link evidence" }),
-  ).toContainText("page content has not been fetched");
+  const link = page
+    .getByTestId("source-item")
+    .filter({ hasText: "Link evidence" });
+  await expect(link).toContainText("Link only");
+  await link.locator(".source-actions").click();
+  await expect(link).toContainText("page content has not been fetched");
+  await link.locator(".source-actions").click();
   await page.getByLabel("Add file reference", { exact: true }).setInputFiles({
     name: "reference.md",
     mimeType: "text/markdown",
@@ -50,7 +54,7 @@ test("references retain copied files, link-only metadata and source membership h
     .filter({ hasText: "reference.md" });
   await expect(file).toContainText("Text ready");
   expect((await state(page)).blocks).toEqual(before.blocks);
-  await file.locator(":scope > details > summary").click();
+  await file.locator(":scope > .source-actions").click();
   await file.getByRole("button", { name: "View extracted text" }).click();
   await expect(
     page.getByRole("dialog", { name: "Extracted text", exact: true }),
@@ -332,7 +336,7 @@ test("uncertain file membership retains its intake and retries the original requ
   await expect(source).toContainText("Processing interrupted");
   expect(commands.length).toBe(2);
   expect(commands[1]).toEqual(commands[0]);
-  await source.locator(":scope > details > summary").click();
+  await source.locator(":scope > .source-actions").click();
   await source
     .getByRole("button", { name: "Retry extraction", exact: true })
     .click();

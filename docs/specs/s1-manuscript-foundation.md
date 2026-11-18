@@ -206,16 +206,17 @@ bytes; a known-rejected operation is reissued with a new ID only after recovery.
 
 ### 4.2 Commands and structural primitives
 
-| Command                       | Payload and result                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| `StartManualDraft`            | No body payload; outline-to-empty-draft transition, only when no draft exists                    |
-| `ApplyDocumentEdit`           | Atomic ordered primitive operations plus edit-group data; validate complete resulting document   |
-| `CommitManuscriptImport`      | Prepared import ID/hash, mode `start`, `append`, or `replace`, expected document revision        |
-| `AddSourceLink`               | URL and optional title; create one source membership entry without fetching                      |
-| `AddSourceFile`               | Completed upload/import artifact ID/hash and display metadata; create source membership          |
-| `RemoveSource`                | Source ID and expected source revision; remove membership, retain referenced objects             |
-| `UndoProject` / `RedoProject` | Expected `historyRevision` and cursor in addition to project revision                            |
-| `CloseEditGroup`              | Group ID and expected group sequence; close grouping metadata without another user history entry |
+| Command                       | Payload and result                                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `StartManualDraft`            | No body payload; outline-to-empty-draft transition, only when no draft exists                                                                                |
+| `ApplyDocumentEdit`           | Atomic ordered primitive operations plus edit-group data; validate complete resulting document                                                               |
+| `CommitManuscriptImport`      | Prepared import ID/hash, mode `start`, `append`, or `replace`, expected document revision                                                                    |
+| `AddSourceLink`               | URL and optional title; create one source membership entry without fetching                                                                                  |
+| `AddSourceFile`               | Completed upload/import artifact ID/hash and display metadata; create source membership                                                                      |
+| `RenameSourceLink`            | Source ID, expected source revision and nonblank title (1024 UTF-8 bytes); preserve exact URL/ID, current link-only consent and ordinary history/task guards |
+| `RemoveSource`                | Source ID and expected source revision; remove membership, retain referenced objects                                                                         |
+| `UndoProject` / `RedoProject` | Expected `historyRevision` and cursor in addition to project revision                                                                                        |
+| `CloseEditGroup`              | Group ID and expected group sequence; close grouping metadata without another user history entry                                                             |
 
 `ApplyDocumentEdit` uses a discriminated primitive set: `insertBlock` (fresh block,
 preceding block ID or null for document start), `setBlockContent` (runs),
@@ -373,6 +374,17 @@ add review/lock fields to this same machinery, not an independent history stack.
 ## 7. Sources, extraction, and manuscript import
 
 ### 7.1 Sources and upload
+
+The approved WIG-02 presentation keeps files, folders and links in one compact
+Library tree. Rows have explicit consent/icon/title/menu slots, two-line titles
+with keyboard disclosure and a single domain/status line. Full URLs and copy/open
+controls are in details. A focused URL-required/title-optional form closes only
+when its successful acknowledgment still matches that form generation and input.
+Closing the form cancels pending input intents; failures retain its draft.
+Reads distinguish loading, known empty and failure, keep rows on refresh failure,
+and retain a reload control after transient feedback expires. Rename is one
+source/history transition; it never removes/re-adds the link or rewrites frozen
+AI evidence. Review request versions advance only for affected current requests.
 
 A source stores ID, revision, kind `link | file`, title/display name, URL or object
 reference, MIME type/hash/size, and input provenance. A file's display name is not

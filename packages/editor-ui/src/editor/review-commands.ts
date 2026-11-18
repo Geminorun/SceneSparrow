@@ -29,12 +29,39 @@ export class ReviewCommands {
       dispatched?: () => void;
     },
   ): Promise<ReviewOutcome> {
+    const independent =
+      identity.startsWith("CancelReviewTask:") ||
+      identity.startsWith("CancelPlanningTask:") ||
+      (identity.startsWith("lock:") && identity.endsWith(":false"));
+    if (this.save.composing && !independent) {
+      return this.save.actions
+        .run(
+          `review-command:${identity}`,
+          () => this.run(identity, build, options),
+          () => !options?.validIntent || options.validIntent(),
+        )
+        .then(
+          (result) =>
+            result || {
+              ok: false,
+              completed: null,
+              error: "CANCELLED",
+              details: undefined,
+            },
+        );
+    }
     if (this.flight) {
       return this.flight.identity === identity
         ? this.flight.promise
         : this.flight.promise.then((result) => ({ ...result, ok: false }));
     }
-    const promise = this.execute(identity, build, options).finally(() => {
+    const context = this.save.actions.contextVersion;
+    const promise = this.execute(identity, build, {
+      ...options,
+      validIntent: () =>
+        this.save.actions.contextVersion === context &&
+        (!options?.validIntent || options.validIntent()),
+    }).finally(() => {
       if (this.flight?.promise === promise) this.flight = null;
     });
     this.flight = { identity, promise };

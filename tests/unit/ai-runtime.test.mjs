@@ -43,11 +43,9 @@ export function fixture(root = "http://127.0.0.1:1/custom") {
       },
       contextTokens: null,
       outputTokens: null,
-      tokenField: "max_tokens",
     },
     parameters: {
       temperatureMilli: null,
-      maxOutputTokens: 64,
       requestStreaming: false,
       requestNativeJson: false,
     },
@@ -200,8 +198,36 @@ test("official SDK uses manual root and one nonstream call without optional gues
     assert.equal(ep.bodies[0].path, "/custom/chat/completions");
     assert.equal(ep.bodies[0].headers.authorization, undefined);
     assert.equal(ep.bodies[0].body.temperature, undefined);
-    assert.equal(ep.bodies[0].body.max_tokens, 64);
+    assert.equal(Object.hasOwn(ep.bodies[0].body, "max_tokens"), false);
+    assert.equal(
+      Object.hasOwn(ep.bodies[0].body, "max_completion_tokens"),
+      false,
+    );
     assert.equal(ep.bodies[0].body.stream, false);
+  } finally {
+    await ep.close();
+  }
+});
+
+test("known context checks only bounded input without an output reservation", async () => {
+  const ep = await endpoint((_req, res) => json(res, completion("complete")));
+  try {
+    const r = fixture(ep.root);
+    const estimate = Math.ceil(
+      (Buffer.byteLength(r.input.messages[0].content[0].text) + 32) / 3,
+    );
+    r.configuration.model.contextTokens = estimate;
+    r.configuration.model.outputTokens = 1000000;
+    await generate(r);
+    assert.equal(ep.calls, 1);
+    r.configuration.model.contextTokens = estimate - 1;
+    await fails(r, "CONTEXT_LIMIT");
+    assert.equal(ep.calls, 1);
+    assert.equal(Object.hasOwn(ep.bodies[0].body, "max_tokens"), false);
+    assert.equal(
+      Object.hasOwn(ep.bodies[0].body, "max_completion_tokens"),
+      false,
+    );
   } finally {
     await ep.close();
   }
@@ -255,7 +281,6 @@ test("stream mode and native schema are chosen before one dispatch; Unicode prev
     const r = fixture(native.root);
     r.configuration.nativeJson = true;
     r.configuration.model.capabilities.nativeJson.state = "supported";
-    r.configuration.model.tokenField = "max_completion_tokens";
     r.input.inputArtifacts = [
       {
         id,
@@ -271,7 +296,7 @@ test("stream mode and native schema are chosen before one dispatch; Unicode prev
     assert.equal(native.calls, 1);
     assert.equal(native.bodies[0].body.response_format.type, "json_schema");
     assert.equal(native.bodies[0].body.max_tokens, undefined);
-    assert.equal(native.bodies[0].body.max_completion_tokens, 64);
+    assert.equal(native.bodies[0].body.max_completion_tokens, undefined);
   } finally {
     await native.close();
   }
@@ -449,7 +474,6 @@ test("redirect never forwards bearer and timeout never retries including SDK-onl
       client.chat.completions.create({
         model: "manual",
         messages: [],
-        max_tokens: 64,
       }),
       (e) => normalizeError(e).code === "REQUEST_TIMEOUT",
     );

@@ -104,6 +104,7 @@ export function Exports({
     active.current = true;
     return () => {
       active.current = false;
+      save.actions.cancel("export-start");
     };
   }, [client]);
   useEffect(() => {
@@ -227,7 +228,14 @@ export function Exports({
       if (active.current) setMessage("exportClipboardFallback");
     }
   }
-  async function start(copy: boolean, recapture?: ExportJob) {
+  function start(copy: boolean, recapture?: ExportJob) {
+    return save.actions.run(
+      "export-start",
+      () => startCore(copy, recapture),
+      () => active.current,
+    );
+  }
+  async function startCore(copy: boolean, recapture?: ExportJob) {
     touched.current = true;
     clearFailure();
     setBusy(true);
@@ -371,7 +379,7 @@ export function Exports({
       <p>{t.exportExcludes}</p>
       <div role="group" aria-label={t.exportTitle}>
         <button
-          disabled={busy || save.composing || !!pending.current}
+          disabled={busy || !!pending.current}
           onClick={() => void start(true)}
         >
           {t.copyManuscript}
@@ -385,10 +393,7 @@ export function Exports({
           <option value="txt">TXT</option>
           <option value="docx">DOCX</option>
         </select>
-        <button
-          disabled={busy || save.composing}
-          onClick={() => void start(false)}
-        >
+        <button disabled={busy} onClick={() => void start(false)}>
           {pending.current ? t.exportResolve : t.exportTitle}
         </button>
       </div>

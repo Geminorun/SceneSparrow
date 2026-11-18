@@ -1,6 +1,7 @@
 import {
   useErrorNotification,
   useTaskNotifications,
+  useNoticeOwner,
 } from "../NotificationPresenter";
 import { notifyFailure } from "../notifications";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -17,6 +18,7 @@ import type en from "../locales/en.json";
 import type { Autosave } from "./autosave";
 import type { PlanningEvidenceBridge } from "./evidence";
 import { SourceEvidence } from "./SourceEvidence";
+import { WritingDialog } from "./PlanningDialogs";
 
 type UploadRow = {
   path: string;
@@ -42,7 +44,30 @@ export function Sources({
     [title, setTitle] = useState(""),
     [error, setError] = useState("");
   useErrorNotification(error);
-  const [loaded, setLoaded] = useState(false);
+  const { report: reportAction, resolve: resolveAction } = useNoticeOwner();
+  const linkInput = useRef({ url, title });
+  linkInput.current = { url, title };
+  const [loaded, setLoaded] = useState(false),
+    [reading, setReading] = useState(true),
+    [readFailed, setReadFailed] = useState(false),
+    [readError, setReadError] = useState(""),
+    [linkOpen, setLinkOpen] = useState(false),
+    [linkError, setLinkError] = useState("");
+  useErrorNotification(readError);
+  const linkForm = useRef<HTMLDetailsElement>(null);
+  const linkField = useRef<HTMLInputElement>(null);
+  const linkEpoch = useRef(0);
+  const linkAbort = useRef<AbortController | null>(null);
+  const linkVisible = useRef(false);
+  function closeLink() {
+    linkEpoch.current++;
+    linkAbort.current?.abort();
+    linkVisible.current = false;
+    save.actions.cancel("source-link");
+    save.composition(false, "sources");
+    setLinkOpen(false);
+    linkForm.current?.querySelector("summary")?.focus();
+  }
   useTaskNotifications(
     items.map((item) => ({
       id: item.jobId ?? item.source.id,
@@ -51,6 +76,7 @@ export function Sources({
     })),
     !loaded,
   );
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [rows, setRows] = useState<UploadRow[]>([]),
     [uploading, setUploading] = useState(false),
     [association, setAssociation] =
@@ -86,17 +112,31 @@ export function Sources({
     } while (next);
     return result;
   }
-  async function refresh() {
+  async function refresh(explicit = false) {
     const ticket = ++sourceRead.current;
+    if (explicit) {
+      setReadError("");
+      resolveAction("source-read");
+    }
+    setReading(true);
     try {
       const result = await readAll();
       if (active.current && ticket === sourceRead.current) {
         setItems(result);
         setLoaded(true);
+        setReadFailed(false);
+        setReadError("");
+        resolveAction("source-read");
       }
     } catch {
-      if (active.current && ticket === sourceRead.current)
-        setError("STORAGE_UNAVAILABLE");
+      if (active.current && ticket === sourceRead.current) {
+        setReadFailed(true);
+        setReadError("SOURCE_READ_FAILED");
+        if (explicit)
+          reportAction("SOURCE_READ_FAILED", { identity: "source-read" });
+      }
+    } finally {
+      if (active.current && ticket === sourceRead.current) setReading(false);
     }
   }
   useEffect(() => {
@@ -129,26 +169,69 @@ export function Sources({
     );
     return () => {
       active.current = false;
+      linkAbort.current?.abort();
+      save.actions.cancel("source-link");
+      save.actions.cancelScope("source:");
+      save.composition(false, "sources");
       upload.current?.abort();
       unsubscribe();
     };
   }, [client, save]);
   const execute = (
     type:
-      "AddSourceLink" | "AddSourceFile" | "RefreshSourceFile" | "RemoveSource",
+      | "AddSourceLink"
+      | "RenameSourceLink"
+      | "AddSourceFile"
+      | "RefreshSourceFile"
+      | "RemoveSource",
     payload: unknown,
     signal?: AbortSignal,
+    failed?: (code: string) => void,
   ) =>
-    save.business(
-      (revision) =>
-        ({
-          type,
-          requestId: crypto.randomUUID(),
-          projectId,
-          expectedWorkingRevision: revision,
-          payload,
-        }) as ManuscriptCommand,
-      signal ? { signal } : {},
+    save.actions.run(
+      `source:${type}:${(payload as { sourceId?: string }).sourceId ?? type}`,
+      async () => {
+        let attempted: ManuscriptCommand | undefined;
+        setError("");
+        resolveAction("source-action");
+        const ok = await save.business(
+          (revision) => {
+            attempted = {
+              type,
+              requestId: crypto.randomUUID(),
+              projectId,
+              expectedWorkingRevision: revision,
+              payload,
+            } as ManuscriptCommand;
+            return attempted;
+          },
+          signal ? { signal } : {},
+        );
+        if (!ok) {
+          const code = save.error || "SAVE_FAILED";
+          const failure =
+            attempted &&
+            ["AddSourceLink", "RenameSourceLink"].includes(type) &&
+            code === "INVALID_URL"
+              ? "SOURCE_LINK_URL_INVALID"
+              : attempted &&
+                  ["AddSourceLink", "RenameSourceLink"].includes(type) &&
+                  code === "INVALID_REQUEST"
+                ? "SOURCE_LINK_INVALID"
+                : code;
+          if (
+            attempted &&
+            save.businessRejection?.requestId === attempted.requestId
+          )
+            save.acknowledgeBusinessRejection();
+          failed?.(failure);
+          if (attempted) setError(failure);
+          if (!signal?.aborted)
+            reportAction(failure, { identity: "source-action" });
+        }
+        return ok;
+      },
+      () => active.current && !signal?.aborted,
     );
   async function extract(sourceId: string) {
     try {
@@ -391,28 +474,51 @@ export function Sources({
         data-testid="source-item"
         className="library-source"
       >
-        <strong>{item.source.title}</strong>
-        <p className="source-status">{t[`source_${item.status}`]}</p>
-        {item.source.kind === "link" && (
-          <>
-            <p className="muted">{t.linkOnly}</p>
-            <button
-              className="quiet-button reference-url"
-              onClick={() =>
-                void client
-                  .openExternalLink(item.source.url!)
-                  .catch(() => setError("INVALID_URL"))
-              }
-            >
-              {item.source.url}
-            </button>
-          </>
-        )}
+        <span className="source-kind-icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          >
+            {item.source.kind === "link" ? (
+              <>
+                <path d="m10 13 4-4" />
+                <path
+                  d="M8 16 6 18a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0M16 8l2-2a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0"
+                  transform="translate(2 0) scale(.83 1)"
+                />
+              </>
+            ) : (
+              <path d="M6 3h8l4 4v14H6zM14 3v5h4" />
+            )}
+          </svg>
+        </span>
+        <details className="source-title">
+          <summary title={item.source.title}>
+            <strong>{item.source.title}</strong>
+          </summary>
+          <p>{item.source.title}</p>
+        </details>
+        <p
+          className="source-status"
+          title={
+            item.source.kind === "link"
+              ? item.source.url
+              : item.source.relativePath
+          }
+        >
+          {item.source.kind === "link"
+            ? linkDomain(item.source.url!)
+            : t[`source_${item.status}`]}
+          {item.source.kind === "link" && <> · {t.source_link_only}</>}
+        </p>
         {item.warnings.map((warning) => (
           <p key={warning}>{warningMessage(warning, t)}</p>
         ))}
         {evidence && (
           <SourceEvidence
+            compact
             item={item}
             client={client}
             t={t}
@@ -423,51 +529,145 @@ export function Sources({
             update={(choice) => evidence.update(item.source.id, choice)}
           />
         )}
-        <details>
-          <summary>{t.libraryFileActions}</summary>
-          {item.source.kind === "file" && (
-            <>
-              {item.jobId && ["ready", "failed"].includes(item.status) && (
-                <button onClick={() => void view(item.jobId!)}>
-                  {t.viewExtractedText}
+        <button
+          className="quiet-button source-actions"
+          aria-label={t.libraryFileActions}
+          title={t.libraryFileActions}
+          aria-expanded={expanded.has(item.source.id)}
+          aria-controls={`source-details-${item.source.id}`}
+          onClick={() =>
+            setExpanded((old) => {
+              const next = new Set(old);
+              if (next.has(item.source.id)) next.delete(item.source.id);
+              else next.add(item.source.id);
+              return next;
+            })
+          }
+        >
+          ⋯
+        </button>
+        {expanded.has(item.source.id) && (
+          <div
+            className="source-action-body"
+            id={`source-details-${item.source.id}`}
+          >
+            {item.source.kind === "link" && (
+              <>
+                <p
+                  className="reference-url"
+                  role="region"
+                  aria-label={t.libraryFullUrl}
+                  tabIndex={0}
+                >
+                  {item.source.url}
+                </p>
+                <p className="muted">{t.linkOnly}</p>
+                <button
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(item.source.url!)
+                      .catch(() => setError("STORAGE_UNAVAILABLE"))
+                  }
+                >
+                  {t.libraryCopyLink}
                 </button>
-              )}
-              {["pending", "interrupted", "failed"].includes(item.status) && (
-                <button onClick={() => void extract(item.source.id)}>
-                  {t.retryExtraction}
-                </button>
-              )}
-              {item.jobId && ["queued", "running"].includes(item.status) && (
                 <button
                   onClick={() =>
                     void client
-                      .documentAction({ type: "cancel", jobId: item.jobId! })
-                      .then(refresh)
+                      .openExternalLink(item.source.url!)
+                      .catch(() => setError("INVALID_URL"))
                   }
                 >
-                  {t.cancel}
+                  {t.libraryOpenLink}
                 </button>
-              )}
-            </>
-          )}
-          <button
-            disabled={save.composing}
-            onClick={() =>
-              void execute("RemoveSource", {
-                sourceId: item.source.id,
-                expectedSourceRevision: item.source.revision,
-              }).then(refresh)
-            }
-          >
-            {t.removeReference}
-          </button>
-        </details>
+                <LinkRename
+                  item={item}
+                  t={t}
+                  save={save}
+                  rename={async (title, signal) => {
+                    let error = "";
+                    const ok = await execute(
+                      "RenameSourceLink",
+                      {
+                        sourceId: item.source.id,
+                        expectedSourceRevision: item.source.revision,
+                        title,
+                      },
+                      signal,
+                      (code) => {
+                        error = code;
+                      },
+                    );
+                    if (ok) await refresh();
+                    return { ok: !!ok, error };
+                  }}
+                />
+              </>
+            )}
+            {item.source.kind === "file" && (
+              <>
+                {item.jobId && ["ready", "failed"].includes(item.status) && (
+                  <button onClick={() => void view(item.jobId!)}>
+                    {t.viewExtractedText}
+                  </button>
+                )}
+                {["pending", "interrupted", "failed"].includes(item.status) && (
+                  <button onClick={() => void extract(item.source.id)}>
+                    {t.retryExtraction}
+                  </button>
+                )}
+                {item.jobId && ["queued", "running"].includes(item.status) && (
+                  <button
+                    onClick={() =>
+                      void client
+                        .documentAction({ type: "cancel", jobId: item.jobId! })
+                        .then(() => refresh())
+                    }
+                  >
+                    {t.cancel}
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              onClick={() =>
+                void execute("RemoveSource", {
+                  sourceId: item.source.id,
+                  expectedSourceRevision: item.source.revision,
+                }).then(() => refresh())
+              }
+            >
+              {t.removeReference}
+            </button>
+          </div>
+        )}
       </li>
     );
   }
   return (
     <section className="source-panel" aria-label={t.sources}>
-      <p className="muted">{t.referenceHelp}</p>
+      <div className="library-heading">
+        <p className="muted">{t.referenceHelp}</p>
+        {!readFailed && (
+          <button
+            className="quiet-button library-reload-icon"
+            title={t.libraryReload}
+            aria-label={t.libraryReload}
+            disabled={reading}
+            onClick={() => void refresh(true)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              aria-hidden="true"
+            >
+              <path d="M20 10a8 8 0 1 0 0 5M20 4v6h-6" />
+            </svg>
+          </button>
+        )}
+      </div>
       <div className="library-intake">
         {client.pickFileIntake ? (
           <button disabled={uploading} onClick={() => void batch()}>
@@ -523,30 +723,85 @@ export function Sources({
           </button>
         )}
       </div>
-      <details>
+      <details
+        ref={linkForm}
+        open={linkOpen}
+        className="library-link-form"
+        onToggle={(event) => {
+          const open = event.currentTarget.open;
+          if (open === linkVisible.current) return;
+          if (open) {
+            linkVisible.current = true;
+            setLinkOpen(true);
+            linkField.current?.focus();
+          } else closeLink();
+        }}
+      >
         <summary>{t.addReferenceLink}</summary>
         <form
+          onCompositionStart={() => save.composition(true, "sources")}
+          onCompositionEnd={() => save.composition(false, "sources")}
+          onBlurCapture={() => {
+            save.actions.blur("sources", () =>
+              save.composition(false, "sources"),
+            );
+          }}
           onSubmit={(event) => {
             event.preventDefault();
-            setError("");
-            void execute("AddSourceLink", {
-              sourceId: crypto.randomUUID(),
-              url,
-              title: title || url,
-            }).then((ok) => {
-              if (ok) {
-                setUrl("");
-                setTitle("");
-                void refresh();
-              }
-            });
+            setLinkError("");
+            const epoch = linkEpoch.current;
+            void save.actions.run(
+              "source-link",
+              async () => {
+                const abort = new AbortController();
+                linkAbort.current = abort;
+                const { url, title } = linkInput.current;
+                let failure = "";
+                const ok = await execute(
+                  "AddSourceLink",
+                  {
+                    sourceId: crypto.randomUUID(),
+                    url,
+                    title: title.trim() || linkDomain(url),
+                  },
+                  abort.signal,
+                  (code) => {
+                    failure = code;
+                  },
+                );
+                if (ok && active.current) {
+                  void refresh();
+                  if (
+                    epoch === linkEpoch.current &&
+                    linkVisible.current &&
+                    linkInput.current.url === url &&
+                    linkInput.current.title === title
+                  ) {
+                    setUrl("");
+                    setTitle("");
+                    closeLink();
+                  }
+                } else if (
+                  active.current &&
+                  linkVisible.current &&
+                  epoch === linkEpoch.current
+                )
+                  setLinkError(failure || "SAVE_FAILED");
+              },
+              () =>
+                active.current &&
+                linkVisible.current &&
+                epoch === linkEpoch.current,
+            );
           }}
         >
           <label>
             {t.referenceUrl}
             <input
+              ref={linkField}
               type="url"
               value={url}
+              aria-invalid={linkError === "SOURCE_LINK_URL_INVALID"}
               required
               onChange={(event) => setUrl(event.target.value)}
             />
@@ -556,11 +811,13 @@ export function Sources({
             <input
               value={title}
               maxLength={1024}
+              aria-invalid={linkError === "SOURCE_LINK_INVALID"}
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <button disabled={save.composing} type="submit">
-            {t.addReferenceLink}
+          <button type="submit">{t.addReferenceLink}</button>
+          <button type="button" onClick={closeLink}>
+            {t.cancel}
           </button>
         </form>
       </details>
@@ -602,11 +859,29 @@ export function Sources({
           </ul>
         </details>
       )}
-      {!items.length && <p className="muted">{t.libraryEmpty}</p>}
+      <div className="library-read-status">
+        {reading && !loaded && <p role="status">{t.libraryLoading}</p>}
+        {readFailed && <p role="status">{t.libraryReadFailed}</p>}
+        {readFailed && (
+          <button
+            className="quiet-button"
+            disabled={reading}
+            onClick={() => void refresh(true)}
+          >
+            {t.libraryReload}
+          </button>
+        )}
+      </div>
+      {loaded && !items.length && !readFailed && (
+        <p className="muted">{t.libraryEmpty}</p>
+      )}
       <LibraryTree items={items} renderItem={renderItem} />
       {text && (
-        <div role="dialog" aria-label={t.extractedText}>
-          <h4>{t.extractedText}</h4>
+        <WritingDialog
+          closeLabel={t.close}
+          title={t.extractedText}
+          close={() => setText(null)}
+        >
           <pre>{text.text}</pre>
           <p>
             {t.parserProvenance}: {text.parser}
@@ -617,10 +892,116 @@ export function Sources({
               {t.loadMore}
             </button>
           )}
-          <button onClick={() => setText(null)}>{t.close}</button>
-        </div>
+        </WritingDialog>
       )}
     </section>
+  );
+}
+function linkDomain(url: string) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+function LinkRename({
+  item,
+  t,
+  save,
+  rename,
+}: {
+  item: SourceSummary;
+  t: typeof en;
+  save: Autosave;
+  rename: (
+    title: string,
+    signal: AbortSignal,
+  ) => Promise<{ ok: boolean; error: string }>;
+}) {
+  const [editing, setEditing] = useState(false),
+    [title, setTitle] = useState(item.source.title),
+    [error, setError] = useState("");
+  const input = useRef(title);
+  input.current = title;
+  const live = useRef(false),
+    abort = useRef<AbortController | null>(null),
+    epoch = useRef(0);
+  const key = `source-rename:${item.source.id}`;
+  useEffect(
+    () => () => {
+      live.current = false;
+      abort.current?.abort();
+      save.actions.cancel(key);
+      save.composition(false, key);
+    },
+    [save, key],
+  );
+  function close() {
+    live.current = false;
+    abort.current?.abort();
+    epoch.current++;
+    save.actions.cancel(key);
+    save.composition(false, key);
+    setEditing(false);
+  }
+  return editing ? (
+    <form
+      onCompositionStart={() => save.composition(true, key)}
+      onCompositionEnd={() => save.composition(false, key)}
+      onBlurCapture={() =>
+        save.actions.blur(key, () => save.composition(false, key))
+      }
+      onSubmit={(event) => {
+        event.preventDefault();
+        setError("");
+        void save.actions.run(
+          key,
+          async () => {
+            const submitted = input.current,
+              generation = epoch.current;
+            abort.current = new AbortController();
+            const result = await rename(submitted, abort.current.signal);
+            if (result.ok) {
+              if (
+                live.current &&
+                generation === epoch.current &&
+                submitted === input.current
+              )
+                close();
+            } else if (live.current && generation === epoch.current)
+              setError(result.error || "SAVE_FAILED");
+          },
+          () => live.current,
+        );
+      }}
+    >
+      <label>
+        {t.libraryRenameLink}
+        <input
+          autoFocus
+          aria-invalid={error === "SOURCE_LINK_INVALID"}
+          required
+          maxLength={1024}
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+      </label>
+      <button type="submit">{t.librarySaveTitle}</button>
+      <button type="button" onClick={close}>
+        {t.cancel}
+      </button>
+    </form>
+  ) : (
+    <button
+      onClick={() => {
+        setTitle(item.source.title);
+        setError("");
+        live.current = true;
+        setEditing(true);
+      }}
+    >
+      {t.libraryRenameLink}
+    </button>
   );
 }
 type Tree = { files: SourceSummary[]; folders: Map<string, Tree> };

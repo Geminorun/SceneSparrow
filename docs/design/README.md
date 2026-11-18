@@ -17,6 +17,11 @@ The original feature branch was `feat/script-workbench`, created directly from r
 
 ## Reading order
 
+The approved [writing interaction and generation follow-up](writing-interaction-and-generation.md)
+removes application output-token budgets, separates input from operation availability,
+adds compact references and auxiliary-pane generation history, and makes notices
+fade after three seconds. It supersedes conflicting presentation/defaults below.
+
 The [central writing workspace](writing-workspace.md) is the current presentation
 follow-up. It supersedes the old right-side planning form and task dashboard:
 Outline/Manuscript live in the center, Contents follows the active view, and

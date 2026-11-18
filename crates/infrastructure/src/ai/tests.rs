@@ -46,7 +46,6 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
         },
         context_tokens: None,
         output_tokens: None,
-        token_field: AiModelTokenField::Maxtokens,
     });
     view.settings.bindings.push(AiBinding {
         category: AiCategory::Text,
@@ -54,7 +53,7 @@ pub(crate) fn configured(store: &SettingsStore, auth: &str) -> AiSettingsView {
         model_id: "manual-model".into(),
         parameters: AiParameters {
             temperature_milli: None,
-            max_output_tokens: 64,
+
             request_streaming: true,
             request_native_json: true,
         },
@@ -134,6 +133,31 @@ fn accept(repo: &SqliteProjectRepository, store: &SettingsStore, s: &AiStart) ->
         )
     })
     .unwrap()
+}
+// Reconstruct the pre-WIG-04 serialized configuration and its original start digest.
+fn install_legacy_run(repo: &SqliteProjectRepository, start: &mut AiStart) -> String {
+    let run = repo.read_run(&start.run_id).unwrap();
+    let mut legacy = serde_json::to_value(&run.configuration).unwrap();
+    legacy["model"]["tokenField"] = serde_json::json!("max_completion_tokens");
+    legacy["parameters"]["maxOutputTokens"] = serde_json::json!(64);
+    let c = &run.configuration;
+    let tuple = serde_json::json!({"category":c.category,"capability":c.capability,"providerId":c.provider.id,"adapter":c.provider.adapter,"root":c.provider.base_url,"auth":c.provider.auth_mode,"credential":c.provider.credential_revision,"modelId":c.model.id,"capabilities":c.model.capabilities,"context":c.model.context_tokens,"output":c.model.output_tokens,"tokenField":"max_completion_tokens","parameters":legacy["parameters"],"policy":c.policy,"adapterVersion":"openai-compatible/1"});
+    start.fingerprint = hash(&serde_json::to_vec(&tuple).unwrap());
+    legacy["fingerprint"] = serde_json::json!(start.fingerprint);
+    let json = serde_json::to_string(&legacy).unwrap();
+    repo.connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE ai_runs SET config_json=?2,request_digest=?3 WHERE run_id=?1",
+            rusqlite::params![
+                start.run_id,
+                json,
+                hash(&serde_json::to_vec(start).unwrap())
+            ],
+        )
+        .unwrap();
+    json
 }
 fn completion(run: &AiRun, fence: &str, bytes: &[u8]) -> AiCompletion {
     AiCompletion {
@@ -354,6 +378,14 @@ fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisio
         )
         .unwrap();
     let before = config(&store);
+    let path = directory.join("ai-settings.json");
+    let mut legacy_settings = serde_json::to_value(&view.settings).unwrap();
+    legacy_settings["models"][0]["tokenField"] = serde_json::json!("max_tokens");
+    legacy_settings["bindings"][0]["parameters"]["maxOutputTokens"] = serde_json::json!(64);
+    let legacy_bytes = serde_json::to_vec(&legacy_settings).unwrap();
+    std::fs::write(&path, &legacy_bytes).unwrap();
+    assert_eq!(config(&store).fingerprint, before.fingerprint);
+    assert_eq!(std::fs::read(&path).unwrap(), legacy_bytes);
     let lease = store.lease(&before).unwrap();
     assert_eq!(
         view.credential_backend,
@@ -362,6 +394,8 @@ fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisio
     drop(store);
     assert!(SettingsStore::open_with_master_key_file(&directory, None).is_err());
     let store = SettingsStore::open_with_master_key_file(&directory, Some(&master)).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), legacy_bytes);
+    assert_eq!(store.read_settings().unwrap().settings, view.settings);
     assert_eq!(
         store.lease(&config(&store)).unwrap().expose(),
         Some("ENCRYPTED_SETTINGS_CANARY_A")
@@ -538,7 +572,27 @@ fn dispatch_and_completion_are_lifetime_fenced_and_result_application_is_separat
     let done = repo.complete_ai(&receipt, b"42").unwrap();
     assert_eq!(done.status, AiRunStatus::Succeeded);
     assert_eq!(done.usage, receipt.usage);
+    let mut historical_start = s.clone();
+    let historical_json = install_legacy_run(&repo, &mut historical_start);
+    let done = repo.read_run(&run.run_id).unwrap();
+    assert_eq!(done.configuration.fingerprint, historical_start.fingerprint);
     assert_eq!(repo.complete_ai(&receipt, b"42").unwrap(), done);
+    assert_eq!(
+        repo.accept_ai(&settings, &historical_start, &mut |_, _| panic!())
+            .unwrap(),
+        done
+    );
+    let stored: String = repo
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT config_json FROM ai_runs WHERE run_id=?1",
+            [&run.run_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, historical_json);
     let mut wrong = receipt.clone();
     wrong.output_hash = hash(b"43");
     assert_eq!(
@@ -565,7 +619,7 @@ fn dispatch_and_completion_are_lifetime_fenced_and_result_application_is_separat
     repo.collect_objects(Duration::ZERO).unwrap();
     assert!(repo.read_result(&run.run_id).is_err());
     assert_eq!(
-        repo.accept_ai(&settings, &s, &mut |_, _| panic!())
+        repo.accept_ai(&settings, &historical_start, &mut |_, _| panic!())
             .unwrap()
             .status,
         AiRunStatus::Succeeded
@@ -838,6 +892,10 @@ fn actual_sdk_worker_commits_one_result_and_reopen_applies_locally_without_netwo
         let text = String::from_utf8(request).unwrap();
         assert!(text.starts_with("POST /custom/chat/completions HTTP/1.1"));
         assert!(!text.to_ascii_lowercase().contains("authorization:"));
+        let payload: serde_json::Value =
+            serde_json::from_str(text.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert!(payload.get("max_tokens").is_none());
+        assert!(payload.get("max_completion_tokens").is_none());
         let body = r#"{"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"42"}}]}"#;
         write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
     });
@@ -852,7 +910,48 @@ fn actual_sdk_worker_commits_one_result_and_reopen_applies_locally_without_netwo
             settings: view.settings,
         })
         .unwrap();
+    let mut legacy_start = start(&repo, &settings);
+    accept(&repo, &settings, &legacy_start);
+    let historical_json = install_legacy_run(&repo, &mut legacy_start);
+    drop(repo);
+    let repo = SqliteProjectRepository::open(dir.path()).unwrap();
+    repo.register_ai_consumer(Arc::new(Owner)).unwrap();
+    assert_eq!(
+        repo.read_run(&legacy_start.run_id).unwrap().status,
+        AiRunStatus::Queued
+    );
+    let failed = repo.execute_next_ai(&settings).unwrap().unwrap();
+    assert_eq!(failed.status, AiRunStatus::Failed);
+    assert_eq!(failed.error.as_deref(), Some("CONFIGURATION_STALE"));
+    assert_eq!(failed.configuration.fingerprint, legacy_start.fingerprint);
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        repo.accept_ai(&settings, &legacy_start, &mut |_, _| panic!())
+            .unwrap(),
+        failed
+    );
+    let c = repo.connection.lock().unwrap();
+    let state: String = c
+        .query_row(
+            "SELECT applicability FROM application_execution_bindings WHERE binding_id=?1",
+            [&legacy_start.binding_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "cancelled");
+    let stored: String = c
+        .query_row(
+            "SELECT config_json FROM ai_runs WHERE run_id=?1",
+            [&legacy_start.run_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, historical_json);
+    drop(c);
     let mut start = start(&repo, &settings);
+    assert_ne!(start.run_id, legacy_start.run_id);
+    assert_ne!(start.fingerprint, legacy_start.fingerprint);
+    start.retry_of_run_id = Some(legacy_start.run_id);
     let mut escaped = input();
     escaped.messages[0].content = vec![AiPart::Text {
         text: "\\".repeat(1048576),
@@ -976,7 +1075,7 @@ fn model_service_metadata_legacy_compatibility_preferences_and_semantic_fingerpr
     let mut settings = legacy.clone();
     settings.providers[0].service_preset = Some(AiProviderServicePreset::Openai);
     let mut preferences = settings.bindings[0].parameters.clone();
-    preferences.max_output_tokens = 512;
+    preferences.temperature_milli = Some(512);
     settings.models[0].default_parameters = Some(preferences.clone());
     let saved = store
         .update_settings(&AiSettingsUpdate {
@@ -995,7 +1094,11 @@ fn model_service_metadata_legacy_compatibility_preferences_and_semantic_fingerpr
         "INVALID_SETTINGS"
     );
     let mut invalid = saved.settings.clone();
-    invalid.models[0].output_tokens = Some(128);
+    invalid.models[0]
+        .default_parameters
+        .as_mut()
+        .unwrap()
+        .temperature_milli = Some(2001);
     assert_eq!(
         validate_settings(&invalid).unwrap_err().0,
         "INVALID_SETTINGS"
@@ -1017,4 +1120,64 @@ fn model_service_metadata_legacy_compatibility_preferences_and_semantic_fingerpr
     let backend: AiSettingsViewCredentialBackend =
         serde_json::from_str("\"encrypted_file\"").unwrap();
     assert_eq!(word(&backend), "encrypted_file");
+}
+
+#[test]
+fn retired_fields_are_read_only_compatibility_and_context_reserves_no_output() {
+    let sd = tempfile::tempdir().unwrap();
+    let store = SettingsStore::open(sd.path()).unwrap();
+    let view = configured(&store, "none");
+    let mut legacy = serde_json::to_value(&view.settings).unwrap();
+    legacy["models"][0]["tokenField"] = serde_json::json!("max_tokens");
+    legacy["models"][0]["defaultParameters"] = legacy["bindings"][0]["parameters"].clone();
+    legacy["models"][0]["defaultParameters"]["maxOutputTokens"] = serde_json::json!(8192);
+    legacy["bindings"][0]["parameters"]["maxOutputTokens"] = serde_json::json!(64);
+    let normalized = super::legacy::read_settings(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(serde_json::from_value::<AiSettings>(legacy.clone()).is_err());
+    let current = serde_json::to_value(&normalized).unwrap();
+    assert!(current["models"][0].get("tokenField").is_none());
+    assert!(
+        current["models"][0]["defaultParameters"]
+            .get("maxOutputTokens")
+            .is_none()
+    );
+    assert!(
+        current["bindings"][0]["parameters"]
+            .get("maxOutputTokens")
+            .is_none()
+    );
+    legacy["bindings"][0]["parameters"]["unrecognized"] = serde_json::json!(1);
+    assert!(super::legacy::read_settings(&serde_json::to_vec(&legacy).unwrap()).is_err());
+    assert!(
+        serde_json::from_value::<AiTestTarget>(
+            serde_json::json!({"providerId":uuid(),"modelId":"m","tokenField":"max_tokens"})
+        )
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<AiTestTarget>(
+            serde_json::json!({"providerId":uuid(),"modelId":"m","unexpected":true})
+        )
+        .is_err()
+    );
+    let mut configuration = config(&store);
+    configuration.model.output_tokens = Some(1000000);
+    let i = input();
+    let text_bytes = match &i.messages[0].content[0] {
+        AiPart::Text { text } => text.len(),
+        _ => unreachable!(),
+    };
+    let input_estimate = text_bytes.div_ceil(3) as i64;
+    configuration.model.context_tokens = Some(input_estimate);
+    validate_input(&i, &configuration).unwrap();
+    configuration.model.context_tokens = Some(input_estimate - 1);
+    assert_eq!(
+        validate_input(&i, &configuration).unwrap_err().0,
+        "CONTEXT_LIMIT"
+    );
+    let mut old_config = serde_json::to_value(config(&store)).unwrap();
+    old_config["model"]["tokenField"] = serde_json::json!("max_tokens");
+    old_config["parameters"]["maxOutputTokens"] = serde_json::json!(64);
+    old_config["model"]["unexpected"] = serde_json::json!(true);
+    assert!(super::legacy::read_configuration(&old_config.to_string()).is_err());
 }

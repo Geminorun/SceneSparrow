@@ -5,9 +5,11 @@ import { WorkspacePane, useAuxiliaryPane } from "./WorkspacePane";
 export function WorkspaceSkeleton({
   t,
   busy = true,
+  onRetry,
 }: {
   t: typeof en;
   busy?: boolean;
+  onRetry?: () => void;
 }) {
   const pane = useAuxiliaryPane();
   const lines = (
@@ -25,6 +27,11 @@ export function WorkspaceSkeleton({
       aria-label={t.workspaceLoading}
       data-testid="workspace-skeleton"
     >
+      {!busy && onRetry && (
+        <button className="quiet-button skeleton-retry" onClick={onRetry}>
+          {t.retry}
+        </button>
+      )}
       <div inert>
         <WorkspacePane
           pane={pane}

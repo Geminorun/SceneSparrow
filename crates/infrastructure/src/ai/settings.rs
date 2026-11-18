@@ -85,7 +85,7 @@ impl SettingsStore {
     fn load(&self) -> Result<AiSettings> {
         let bytes = safe(std::fs::read(self.directory.join("ai-settings.json")))?;
         ensure(bytes.len() <= 4 * 1024 * 1024, "INVALID_SETTINGS")?;
-        let s: AiSettings = safe(serde_json::from_slice(&bytes))?;
+        let s = super::legacy::read_settings(&bytes)?;
         validate_settings(&s)?;
         Ok(s)
     }
@@ -247,11 +247,9 @@ impl SettingsStore {
                 },
                 context_tokens: None,
                 output_tokens: None,
-                token_field: AiModelTokenField::Maxtokens,
             },
             parameters: AiParameters {
                 temperature_milli: None,
-                max_output_tokens: 64,
                 request_streaming: false,
                 request_native_json: false,
             },
@@ -278,7 +276,7 @@ impl SettingsStore {
             s.providers.iter().any(|p| p.id == target.provider_id),
             "PROFILE_NOT_FOUND",
         )?;
-        let mut model = s
+        let model = s
             .models
             .iter()
             .find(|m| m.provider_id == target.provider_id && m.id == target.model_id)
@@ -302,13 +300,8 @@ impl SettingsStore {
                     },
                     context_tokens: None,
                     output_tokens: None,
-                    token_field: AiModelTokenField::Maxtokens,
                 }
             });
-        model.token_field = safe(serde_json::from_value(safe(serde_json::to_value(
-            &target.token_field,
-        ))?))?;
-        let max_output_tokens = model.output_tokens.unwrap_or(64).min(64);
         s.models
             .retain(|m| !(m.id == target.model_id && m.provider_id == target.provider_id));
         s.models.push(model);
@@ -318,7 +311,6 @@ impl SettingsStore {
             model_id: target.model_id.clone(),
             parameters: AiParameters {
                 temperature_milli: None,
-                max_output_tokens,
                 request_streaming: false,
                 request_native_json: false,
             },
@@ -374,7 +366,7 @@ impl SettingsStore {
         let native_json = b.parameters.request_native_json
             && word(&m.capabilities.native_json.state) == "supported";
         // Display names and unrelated global settings do not invalidate a prepared start.
-        let tuple = serde_json::json!({"category": category,"capability":capability,"providerId":p.id,"adapter":p.adapter,"root":p.base_url,"auth":p.auth_mode,"credential":p.credential_revision,"modelId":m.id,"capabilities":m.capabilities,"context":m.context_tokens,"output":m.output_tokens,"tokenField":m.token_field,"parameters":b.parameters,"policy":s.policy,"adapterVersion":"openai-compatible/1"});
+        let tuple = serde_json::json!({"category": category,"capability":capability,"providerId":p.id,"adapter":p.adapter,"root":p.base_url,"auth":p.auth_mode,"credential":p.credential_revision,"modelId":m.id,"capabilities":m.capabilities,"context":m.context_tokens,"output":m.output_tokens,"parameters":b.parameters,"policy":s.policy,"adapterVersion":"openai-compatible/1"});
         Ok(AiResolvedConfig {
             category,
             capability,

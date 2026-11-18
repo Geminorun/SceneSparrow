@@ -7,6 +7,7 @@ pub mod settings;
 
 pub mod actions;
 pub(crate) mod execution;
+mod legacy;
 #[cfg(test)]
 pub(crate) mod tests;
 pub mod worker;

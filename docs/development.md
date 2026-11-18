@@ -37,8 +37,9 @@ protected separately. A crash can lose unacknowledged input in every mode.
 
 The gear opens global General, Model services and Default models; Application
 menu → Project settings owns the existing project name. Failures use compact
-persistent localized notifications above the active browser dialog, with owned
-retry/settings actions and explicit recovery/details dialogs. Saved keys use a constant mask and explicit replacement;
+localized notifications above the active browser dialog for three seconds, then a
+brief fade. Hover/focus pauses the remaining lifetime. Compact save/reload recovery
+and auxiliary-pane generation history remain available after expiration. Saved keys use a constant mask and explicit replacement;
 saved does not mean verified by a provider. Discovery shows its saved request
 target and separates authentication, access, unsupported listing, quota and server
 errors. See the [follow-up evidence](validation/editor-save-and-ai-feedback.md).
@@ -94,10 +95,16 @@ and a clearly labeled normalized read-only source view. This layout change does
 not introduce byte-exact editable Markdown source storage. The outline codec
 supports #..#### headings and key-point bullets with retained node IDs; unsupported
 syntax stays locally recoverable and blocks dependent dispatch. Alt+Up/Down moves
-a heading subtree. New models default to 8192 output tokens without raising saved
-limits. OUTPUT_TOKEN_LIMIT and OUTPUT_SIZE_LIMIT have separate localized guidance;
+a heading subtree. New compatible requests omit `max_tokens` and
+`max_completion_tokens`; model settings have no application output-token control.
+Known model capability metadata, actual usage and input/context/response bounds
+remain. Legacy settings and immutable task facts remain readable; old queued,
+undispatched runs settle before dispatch and require an explicit new task.
+OUTPUT_TOKEN_LIMIT and OUTPUT_SIZE_LIMIT have separate localized guidance;
 compatible prompt-v1 results remain usable through the pinned interpreter.
 See [writing validation](validation/writing-workspace.md).
+Current interaction, Library, history and compatibility evidence is recorded in
+[the follow-up validation](validation/writing-interaction-and-generation.md).
 
 The supervised non-AI Node utility has pinned parsers, bounded input/output, a
 60-second wall limit and sampled 512 MiB Linux RSS enforcement. Windows/macOS RSS

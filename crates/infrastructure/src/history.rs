@@ -329,6 +329,7 @@ impl SqliteProjectRepository {
                 });
             }
             ManuscriptCommand::AddSourceLink { .. }
+            | ManuscriptCommand::RenameSourceLink { .. }
             | ManuscriptCommand::AddSourceFile { .. }
             | ManuscriptCommand::RefreshSourceFile { .. }
             | ManuscriptCommand::RemoveSource { .. }
@@ -551,6 +552,7 @@ impl SqliteProjectRepository {
                         label: match command {
                             ManuscriptCommand::AddSourceLink { .. }
                             | ManuscriptCommand::AddSourceFile { .. } => "addSource",
+                            ManuscriptCommand::RenameSourceLink { .. } => "renameSource",
                             ManuscriptCommand::RefreshSourceFile { .. } => "refreshSource",
                             ManuscriptCommand::RemoveSource { .. } => "removeSource",
                             ManuscriptCommand::SavePlanning { .. } => "planning",

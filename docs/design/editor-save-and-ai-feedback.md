@@ -2,7 +2,10 @@
 
 Presentation follow-up: [central writing workspace](writing-workspace.md)
 replaces the old normal planning/task/recovery presentation with central views,
-persistent owned top-layer notices and explicit recovery/details dialogs. The
+owned top-layer notices and explicit recovery/details dialogs. The newer
+[interaction/generation follow-up](writing-interaction-and-generation.md)
+sets a three-second notice lifetime with paused hover/focus and a brief fade,
+keeps recovery outside notices and replaces the results modal with pane history. The
 5/10/30-second save policy, serialization and receipt fences below remain.
 
 Status: implemented on 2026-11-17; independent validation is recorded in the
