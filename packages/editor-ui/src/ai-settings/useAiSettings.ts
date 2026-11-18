@@ -552,7 +552,7 @@ export function useAiSettings(
     discover,
     testModel,
     load,
-    deleteCredential: (selection: string, id: string) =>
+    deleteCredential: (id: string) =>
       enqueue(`provider:${id}`, async () => {
         publish(
           await client.deleteAiCredential({

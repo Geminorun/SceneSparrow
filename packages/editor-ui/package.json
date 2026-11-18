@@ -11,10 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@remotion/player": "4.0.543",
     "@scenesparrow/contracts": "workspace:*",
     "@scenesparrow/platform-client": "workspace:*",
-    "@scenesparrow/video-runtime": "workspace:*",
     "@tiptap/core": "3.34.0",
     "@tiptap/extension-code": "3.34.0",
     "@tiptap/extension-link": "3.34.0",

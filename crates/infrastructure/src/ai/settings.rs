@@ -431,24 +431,13 @@ impl AiSettingsPort for SettingsStore {
             }
             validate_settings(&s)?;
             self.write(&s)?;
-            let retired: Vec<String> = old
-                .providers
-                .iter()
-                .filter_map(|p| p.credential_revision.clone())
-                .filter(|id| {
-                    !s.providers
-                        .iter()
-                        .any(|p| p.credential_revision.as_ref() == Some(id))
-                })
-                .collect();
-            (s, retired)
+            s
         };
         {
             let _lock = self.lock()?;
             self.reconcile_credentials(&self.load()?)?;
         }
-        let _ = result.1;
-        Ok(self.view(result.0))
+        Ok(self.view(result))
     }
     fn resolve_configuration(
         &self,

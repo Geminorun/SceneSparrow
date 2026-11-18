@@ -108,7 +108,7 @@ export function ServiceDetails({
               <button
                 className="quiet-button"
                 disabled={busy}
-                onClick={() => void c.deleteCredential(selection, provider!.id)}
+                onClick={() => void c.deleteCredential(provider!.id)}
               >
                 {t.aiDeleteKey}
               </button>
@@ -177,7 +177,7 @@ export function ServiceDetails({
           <button
             className="quiet-button"
             disabled={busy}
-            onClick={() => void c.deleteCredential(selection, provider.id)}
+            onClick={() => void c.deleteCredential(provider.id)}
           >
             {t.aiDeleteKey}
           </button>
