@@ -132,6 +132,11 @@ same queue through the existing planning adapter. `ProjectCommands` retains each
 caller's pending command identity; changing UI context cannot replace an uncertain
 request with a new paid or mutating action.
 
+The session keeps each pending control command with its original visible-input
+snapshot and owns the pure local/canonical body comparison. Content equality
+does not settle unsaved history checkpoints. Body edits, metadata cancellation
+and caller intent retain their separate lifetimes.
+
 `useManuscriptEditor` owns Tiptap configuration, paste/keyboard/IME handling,
 identity repair and local-to-canonical conversion. Workbench owns pane/view
 presentation, recovery/close decisions and mounting. Outline and manuscript
@@ -173,7 +178,9 @@ error mapping. The framed AI worker retains its separate credentials, artifact
 transfer and dispatch protocol.
 
 All authoritative writes use the existing repository connection/writer
-coordinator. `storage/objects.rs` promotes verified immutable bytes;
+coordinator. Domain planning rules calculate node revisions from current content,
+position and stored high-water tokens; infrastructure reads those tokens through
+the existing per-node adapter. `storage/objects.rs` promotes verified immutable bytes;
 `storage/retention.rs` traverses retention roots and collects unreferenced objects.
 Root capture, metadata pruning and collection share the writer lock with object
 preparation. Collection commits metadata before unlinking bytes. The
