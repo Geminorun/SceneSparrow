@@ -82,9 +82,18 @@ Ordinary refresh/history cannot repeatedly switch views or overwrite local input
 The assistant owns a compact brief, selected-reference summary, one persisted
 overall instruction and stage-appropriate generation/confirmation actions. The
 central outline supports heading hierarchy/key-point Markdown, stable identities
-and recoverable invalid buffers. Current progress/cancel stays compact; retained
-results/provenance and recovery are explicitly opened dialogs. Failures use
-persistent actionable top-layer notices, not a task dashboard. Support:
+and recoverable invalid buffers. Current progress/cancel stays compact.
+Generation history opens inside the same right auxiliary pane from both outline
+and manuscript assistants. The central editor and hidden/inert composers stay
+mounted. History shows real stage progress/cancellation, localized outcomes and
+safe failure reasons; current-artifact navigation, retained unapplied-result use
+and explicitly paid new generation are separate actions. Raw results/provenance
+stay in collapsed technical details; recovery alone uses an opaque native dialog.
+Original uncertain starts have a distinct status-check action and retain their
+immutable command identity. Explicit history navigation cancels deferred input
+intents without cancelling active runs. Failures use
+three-second actionable top-layer notices, with recovery accessible after
+expiration, rather than a task dashboard. Support:
 
 - Adding, renaming, deleting, indenting/outdenting and reordering outline nodes.
 - Editing each node's key points directly; empty key-point lists are valid.
@@ -388,7 +397,7 @@ application committed first, return already-applied. If cancellation won first,
 the result cannot mutate planning/body even if a provider later completes.
 
 Release only the task's reservation. Preserve the user's brief, outline, sources
-and acknowledged edits. A provider failure shows a persistent tip/task error with
+and acknowledged edits. A provider failure shows a transient tip and durable task outcome with
 settings and manual retry actions. The script never retries, changes model/provider,
 switches transport or requests output repair automatically. SDK-level suppression
 belongs to shared AI but is asserted by the integration tests.

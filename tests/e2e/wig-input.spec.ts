@@ -517,3 +517,125 @@ test("user outline edits cancel Redo queued behind an acknowledged but unread Un
     releaseUndo();
   }
 });
+
+for (const change of ["text", "scope", "history"] as const) {
+  test(`Review retry after saved-thread read failure cannot submit changed ${change} context during held input flush`, async ({
+    page,
+    core,
+  }) => {
+    const provider = await planningProvider();
+    let release = () => {};
+    try {
+      await configurePlanning(
+        async (path: string, body?: unknown, method?: string) => ({
+          status: 200,
+          data: await core.request(path, body, method),
+        }),
+        provider.root,
+      );
+      await openWorkbench(page);
+      const body = page.getByRole("textbox", {
+        name: "Manuscript",
+        exact: true,
+      });
+      await body.fill(
+        "Original manuscript for saved Review readback recovery.",
+      );
+      await body.press("ControlOrMeta+s");
+      await expect(page.getByTestId("save-status")).toHaveAttribute(
+        "data-state",
+        "saved",
+      );
+      await openPanel(page, "AI assistant");
+      const input = page.getByLabel("Instruction", { exact: true });
+      await input.fill("Original saved question?");
+      let failReads = false,
+        holdBody = false,
+        entered = () => {};
+      const writes: any[] = [];
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const seen = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      core.intercept(async (path, command, phase) => {
+        if (
+          phase === "before" &&
+          ["SaveReview", "StartReviewTask"].includes(command?.type)
+        )
+          writes.push(command);
+        if (phase === "after" && command?.type === "SaveReview")
+          failReads = true;
+        if (phase === "after" && failReads && path.endsWith("/reviews"))
+          return "abort";
+        if (
+          phase === "after" &&
+          holdBody &&
+          command?.type === "ApplyDocumentEdit"
+        ) {
+          entered();
+          await gate;
+        }
+      });
+      await page.getByRole("button", { name: "Send", exact: true }).click();
+      const retry = page
+        .locator(".review-panel")
+        .getByRole("button", { name: "Try again", exact: true });
+      await expect(retry).toBeVisible();
+      await page.mouse.move(1, 600);
+      await page.waitForTimeout(3300);
+      await expect(page.locator(".notification")).toHaveCount(0);
+      expect(
+        writes.filter((write) => write.type === "SaveReview"),
+      ).toHaveLength(1);
+      expect(provider.calls).toHaveLength(0);
+      failReads = false;
+      holdBody = true;
+      await body.fill(
+        "New manuscript edit whose receipt is held during explicit Review retry.",
+      );
+      await retry.click();
+      await seen;
+      if (change === "text")
+        await input.fill("New unsent question during the retry flush?");
+      else if (change === "scope")
+        await page
+          .getByRole("combobox", { name: "Scope", exact: true })
+          .selectOption("selection");
+      else
+        await page
+          .getByRole("button", { name: "Generation history", exact: true })
+          .click();
+      release();
+      await expect(page.getByTestId("save-status")).toHaveAttribute(
+        "data-state",
+        "saved",
+      );
+      if (change === "history")
+        await page
+          .getByRole("button", { name: "Back to assistant", exact: false })
+          .click();
+      await expect(input).toHaveValue(
+        change === "text"
+          ? "New unsent question during the retry flush?"
+          : "Original saved question?",
+      );
+      await page.waitForTimeout(150);
+      expect(
+        writes.filter((write) => write.type === "SaveReview"),
+      ).toHaveLength(1);
+      expect(
+        writes.filter((write) => write.type === "StartReviewTask"),
+      ).toHaveLength(0);
+      expect(provider.calls).toHaveLength(0);
+      const cards = (await core.request("/reviews")).cards;
+      expect(cards).toHaveLength(1);
+      expect(cards[0].thread.text).toBe("Original saved question?");
+      expect(cards[0].thread.id).toBe(writes[0].payload.thread.id);
+    } finally {
+      release();
+      await provider.close();
+    }
+  });
+}

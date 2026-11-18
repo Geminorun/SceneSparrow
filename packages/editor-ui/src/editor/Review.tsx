@@ -46,6 +46,9 @@ export function Review({
   bodyInteractive,
   tab,
   assistant,
+  historyOpen,
+  history,
+  historyButton,
   openLibrary,
   evidence: planningEvidence,
 }: {
@@ -60,6 +63,9 @@ export function Review({
   bodyInteractive: boolean;
   tab: "assistant" | "comments";
   assistant: ReactNode;
+  historyOpen: boolean;
+  history: ReactNode;
+  historyButton: ReactNode;
   openLibrary: () => void;
   evidence: PlanningEvidenceBridge | null;
 }) {
@@ -466,16 +472,37 @@ export function Review({
     save.actions.run(
       "review-retry",
       async () => {
-        if (
-          !(await save.flush(true)) ||
-          (save.planningAdapter && !(await save.planningAdapter.flush(true)))
-        ) {
+        const intent = composerIntent.current;
+        const context = save.actions.contextVersion;
+        const original = input.current;
+        const valid = () =>
+          !disposed.current &&
+          !composing.current &&
+          !save.composing &&
+          composerIntent.current === intent &&
+          save.actions.contextVersion === context &&
+          input.current === original;
+        const bodySaved = await save.flush(true);
+        if (!valid()) return false;
+        if (!bodySaved) {
           report(save.error || "SAVE_FAILED", {
             identity: "review-submit",
             actions: [{ kind: "retry", run: () => resumeSubmit(sendToAi) }],
           });
           return false;
         }
+        if (save.planningAdapter) {
+          const planningSaved = await save.planningAdapter.flush(true);
+          if (!valid()) return false;
+          if (!planningSaved) {
+            report(save.error || "SAVE_FAILED", {
+              identity: "review-submit",
+              actions: [{ kind: "retry", run: () => resumeSubmit(sendToAi) }],
+            });
+            return false;
+          }
+        }
+        if (!valid()) return false;
         return latestSubmit.current(sendToAi);
       },
       () => !disposed.current,
@@ -723,13 +750,23 @@ export function Review({
   );
   return (
     <>
+      {tab === "assistant" && historyOpen && (
+        <section
+          className="auxiliary-content"
+          role="tabpanel"
+          id="auxiliary-generation-history"
+          aria-labelledby="auxiliary-tab-planning"
+        >
+          {history}
+        </section>
+      )}
       <section
         id={assistantMode ? undefined : "auxiliary-planning"}
         role="tabpanel"
         aria-labelledby="auxiliary-tab-planning"
         className="auxiliary-content"
-        hidden={tab !== "assistant" || assistantMode}
-        inert={tab !== "assistant" || assistantMode}
+        hidden={tab !== "assistant" || assistantMode || historyOpen}
+        inert={tab !== "assistant" || assistantMode || historyOpen}
       >
         {assistant}
       </section>
@@ -756,8 +793,14 @@ export function Review({
         aria-labelledby={
           assistantMode ? "auxiliary-tab-planning" : "auxiliary-tab-review"
         }
-        hidden={!assistantMode && !commentsMode}
-        inert={!assistantMode && !commentsMode}
+        hidden={
+          (!assistantMode && !commentsMode) ||
+          (tab === "assistant" && historyOpen)
+        }
+        inert={
+          (!assistantMode && !commentsMode) ||
+          (tab === "assistant" && historyOpen)
+        }
       >
         <aside
           className="review-panel"
@@ -777,6 +820,7 @@ export function Review({
           {assistantMode && (
             <>
               <div className="assistant-context">
+                {historyButton}
                 <span>{t.manuscript}</span>
                 <button className="quiet-button" onClick={openLibrary}>
                   {t.librarySelectedCount.replace(

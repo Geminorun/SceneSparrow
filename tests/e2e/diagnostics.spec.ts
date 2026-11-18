@@ -301,7 +301,10 @@ test("RD-A06 mounted application shows safe localized response class, status and
     await expect(alert).toContainText(trace);
     // A failed project read is never evidence of an empty workspace. Explicit
     // retry must retain the failure class and must not initialize a replacement.
-    await page.getByRole("button", { name: "重试", exact: true }).click();
+    await page
+      .locator(".workspace-skeleton")
+      .getByRole("button", { name: "重试", exact: true })
+      .click();
     await expect(alert).toContainText("服务器返回了意外的响应格式。");
     await expect(alert).toContainText(trace);
     expect(ensureCalls).toBe(0);

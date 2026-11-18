@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { GenerationHistoryButton, planningProgress } from "./GenerationHistory";
 import type en from "../locales/en.json";
 import type { PlanningContent } from "@scenesparrow/contracts";
 import type { Autosave, SaveStatus } from "./autosave";
@@ -28,8 +29,7 @@ export function Planning({
   onEvidence: (bridge: PlanningEvidenceBridge) => void;
   openLibrary: () => void;
 }) {
-  const { planning, acting, start, control, setRecovery, setDiagnostics } =
-    session;
+  const { planning, acting, start, control, setRecovery } = session;
   const openSettings = useOpenSettings(),
     cached = useSavedAiView();
   const model = cached?.settings.bindings.find(
@@ -113,6 +113,7 @@ export function Planning({
       }}
     >
       <div className="assistant-context">
+        <GenerationHistoryButton session={session} t={t} />
         <span>{view === "outline" ? t.writingOutline : t.manuscript}</span>
         <button className="quiet-button" onClick={openLibrary}>
           {t.librarySelectedCount.replace("{count}", String(p.evidence.length))}
@@ -131,7 +132,7 @@ export function Planning({
       </p>
       {active && (
         <p className="assistant-progress" role="status">
-          {t.writingWorking}
+          {planningProgress(active, t)}
           <button onClick={() => void control("CancelPlanningTask", active.id)}>
             {t.cancel}
           </button>
@@ -242,9 +243,14 @@ export function Planning({
         <p className="muted">{t.workspacePlanPreservesBody}</p>
       )}
       <div className="assistant-secondary">
-        <button className="quiet-button" onClick={() => setDiagnostics(true)}>
-          {t.writingResults}
-        </button>
+        {session.pendingStart && (
+          <button
+            className="quiet-button"
+            onClick={() => void session.recoverStart()}
+          >
+            {t.writingCheckTask}
+          </button>
+        )}
         {["error", "conflict"].includes(planning.status) && (
           <button className="quiet-button" onClick={() => setRecovery(true)}>
             {t.noticeRecovery}

@@ -98,6 +98,47 @@ test(
         revision = receipt.workingRevision;
         return receipt;
       };
+      const linkId = randomUUID();
+      const exactUrl = "https://example.com/path%2Fpart?case=Exact#Hash";
+      await command("AddSourceLink", {
+        sourceId: linkId,
+        url: exactUrl,
+        title: "Original",
+      });
+      const rename = {
+        type: "RenameSourceLink",
+        requestId: randomUUID(),
+        projectId: project.id,
+        expectedWorkingRevision: revision,
+        payload: {
+          sourceId: linkId,
+          expectedSourceRevision: 1,
+          title: "Renamed 中文",
+        },
+      };
+      const renamedReceipt = await request("/manuscript/commands", rename);
+      revision = renamedReceipt.workingRevision;
+      assert.deepEqual(
+        await request("/manuscript/commands", rename),
+        renamedReceipt,
+      );
+      const source = (await request("/sources")).items.find(
+        (item) => item.source.id === linkId,
+      ).source;
+      assert.equal(source.url, exactUrl);
+      assert.equal(source.title, "Renamed 中文");
+      assert.equal(source.revision, 2);
+      const stale = await fetch(base + "/manuscript/commands", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          ...rename,
+          requestId: randomUUID(),
+          expectedWorkingRevision: revision,
+        }),
+      });
+      assert.equal(stale.status, 409);
+      assert.equal((await stale.json()).code, "REVISION_CONFLICT");
       assert.equal(
         (await fetch(base + "/intakes", { method: "POST", body: "untrusted" }))
           .status,
@@ -251,7 +292,12 @@ test(
       assert.deepEqual(await request("/manuscript"), manuscript);
       assert.deepEqual(await request("/history"), history);
       assert.deepEqual(await request(`/commands/${commit.requestId}`), receipt);
-      assert.equal((await request("/sources")).items[0].status, "ready");
+      assert.equal(
+        (await request("/sources")).items.find(
+          (item) => item.source.id === sourceId,
+        ).status,
+        "ready",
+      );
       assert.equal((await request(`/document-jobs/${extractId}`)).attempt, 1);
       assert.equal(
         (await request(`/document-jobs/${extractId}`)).status,

@@ -637,6 +637,29 @@ impl SqliteProjectRepository {
         before: &ManuscriptState,
         t: &mut Transition,
     ) -> Result<()> {
+        if let ManuscriptCommand::RenameSourceLink { payload, .. } = _command
+            && t.sources.is_some()
+        {
+            let mut threads = Self::review_threads(c)?;
+            let mut changed = false;
+            // Choices resolve their source revision through the live library. Keep
+            // existing link consent; frozen manifests and historical decisions stay immutable.
+            for thread in &mut threads {
+                if !thread.deleted
+                    && !thread.handled
+                    && thread.evidence.iter().any(|e| {
+                        e.source_id == payload.source_id
+                            && e.mode == PlanningEvidenceChoiceMode::Linkonly
+                    })
+                {
+                    thread.request_version = manuscript::next_revision(thread.request_version)?;
+                    changed = true;
+                }
+            }
+            if changed {
+                t.reviews = Some(threads);
+            }
+        }
         if let ManuscriptCommand::RefreshSourceFile { payload, .. } = _command {
             let mut threads = Self::review_threads(c)?;
             let mut changed = false;

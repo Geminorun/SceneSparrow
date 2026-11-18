@@ -38,6 +38,22 @@ Keep link-only references honest; do not fetch metadata, screenshots or webpage
 contents automatically. Use a generic link icon and a domain fallback title.
 Selection continues through the existing evidence owner and task-start snapshot.
 
+Link rename uses a narrow `RenameSourceLink` business command with `sourceId`,
+`expectedSourceRevision` and `title`, plus the normal project revision/request
+envelope. Require a nonblank title within the existing 1024-byte bound; preserve
+the source ID and exact URL, increment its monotonic source revision, and reuse
+receipts, history, policy and active-task guards. Do not remove/re-add a source.
+Because the URL/content is unchanged, keep existing current link-only reference
+choices by source ID. Choices do not store a source revision; task preparation
+resolves the current revision into its immutable evidence manifest. Advance only
+affected current, unhandled and nondeleted review request versions under the
+existing applicability rules. Never mutate
+already pinned task input, retained decision evidence or historical objects. Test
+rename CAS/idempotency, selected-reference continuity, Undo/Redo and reopen.
+
+Library reads distinguish loading, known empty and failure. Keep existing rows on
+refresh failure and provide compact reload access after the toast expires.
+
 ## WIG-03: Current progress and generation history
 
 Remove the Results and details modal from normal creation. An accessible History

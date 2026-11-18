@@ -243,6 +243,41 @@ impl SqliteProjectRepository {
                     relative_path: None,
                 });
             }
+            ManuscriptCommand::RenameSourceLink { payload, .. } => {
+                text_check(&payload.title, 1024)?;
+                if payload.title.trim().is_empty() {
+                    return invalid();
+                }
+                let source = members
+                    .iter_mut()
+                    .find(|s| s.id == payload.source_id)
+                    .ok_or(ManuscriptError("OBJECT_NOT_FOUND", None))?;
+                if source.revision != payload.expected_source_revision {
+                    return Err(ManuscriptError("REVISION_CONFLICT", None));
+                }
+                if source.kind != SourceKind::Link {
+                    return invalid();
+                }
+                if source.title == payload.title {
+                    return Ok(Transition {
+                        locks: None,
+                        reviews: None,
+                        state: before.clone(),
+                        affected,
+                        normalized: false,
+                        sources: None,
+                        planning: None,
+                        planning_metadata: None,
+                    });
+                }
+                source.revision = manuscript::next_revision(
+                    *identities
+                        .get(&source.id)
+                        .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?,
+                )?;
+                source.title = payload.title.clone();
+                affected.insert(source.id.clone());
+            }
             ManuscriptCommand::AddSourceFile { payload, .. } => {
                 id_check(&payload.source_id)?;
                 if identities.contains_key(&payload.source_id) {

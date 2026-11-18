@@ -514,13 +514,15 @@ manual model addition after listing failure. Shared AI remains independent of
 the manuscript's settings-navigation actions.
 
 Retain durable task outcomes and explicit details/recovery access. Current failures
-use persistent owned top-layer notices with settings/manual retry actions; ordinary
+use three-second owned top-layer notices with settings/manual retry actions;
+recovery and generation history remain accessible after expiration. Ordinary
 panels do not duplicate full failure prose. Successful recovery clears only its
 own stale notices. OUTPUT_TOKEN_LIMIT means a known provider finish_reason=length;
 OUTPUT_SIZE_LIMIT means an application response/output byte bound. Neither permits
 automatic continuation or partial business application. The
-[writing follow-up](../design/writing-workspace.md) specifies presentation and
-new-model defaults without coupling the runtime to manuscript prompts. HTTP input/config/state errors return 400/422,
+[interaction/generation follow-up](../design/writing-interaction-and-generation.md)
+specifies current presentation and removal of application output-token parameters
+without coupling the runtime to manuscript prompts. HTTP input/config/state errors return 400/422,
 409 or 413 as appropriate; asynchronous provider failure is a terminal run outcome.
 Server-local storage and protocol errors have their own safe diagnostic mapping.
 

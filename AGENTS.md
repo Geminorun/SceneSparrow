@@ -105,6 +105,12 @@
   through the existing queue. Preserve native IME keys, actual business fences and
   original ambiguous request identities. Audit related entry points and exercise
   focused interaction regressions when changing this boundary.
+- Capture the owning input/context before an asynchronous action and revalidate
+  it after each prerequisite await. Late acknowledgments must not clear newer
+  input, dispatch a newer unsent draft, dismiss a later recovery decision or
+  replace the cancellation controller for an already deduplicated action. Keep
+  compact recovery available after transient feedback expires; explicit retries
+  report a new failure episode without replaying passive polling failures.
 
 ## Delegation scope
 

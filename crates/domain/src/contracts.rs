@@ -282,6 +282,17 @@ pub enum ManuscriptCommand {
         #[serde(rename = "payload")]
         payload: AddSourceLinkPayload,
     },
+    #[serde(rename = "RenameSourceLink")]
+    RenameSourceLink {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "expectedWorkingRevision")]
+        expected_working_revision: i64,
+        #[serde(rename = "payload")]
+        payload: RenameSourceLinkPayload,
+    },
     #[serde(rename = "AddSourceFile")]
     AddSourceFile {
         #[serde(rename = "requestId")]
@@ -1847,6 +1858,16 @@ pub struct ReferenceDirectoryBatch {
     pub outcomes: Vec<ReferenceDirectoryOutcome>,
     #[serde(rename = "truncated")]
     pub truncated: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameSourceLinkPayload {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "expectedSourceRevision")]
+    pub expected_source_revision: i64,
+    #[serde(rename = "title")]
+    pub title: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

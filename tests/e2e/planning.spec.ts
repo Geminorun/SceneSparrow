@@ -256,6 +256,31 @@ test("plans a bilingual outline and complete draft through counted SDK; manual a
     await expect(body).toContainText("清晨的麻雀");
     expect(provider.calls).toHaveLength(3);
     expect(planningStarts).toBe(3);
+    await page
+      .getByRole("button", { name: "Generation history", exact: true })
+      .click();
+    const draftHistory = page.locator(".writing-result").filter({
+      has: page.getByRole("heading", {
+        name: "Generate initial draft",
+        exact: true,
+      }),
+    });
+    await expect(
+      draftHistory.getByRole("button", {
+        name: "View current manuscript",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      draftHistory.getByRole("button", {
+        name: "Generate again · current settings",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Back to assistant", exact: false })
+      .click();
+
     expect(
       operations.filter((operation) => operation === "generate_initial_draft"),
     ).toHaveLength(1);

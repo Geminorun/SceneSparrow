@@ -279,6 +279,12 @@ pub fn envelope(command: &ManuscriptCommand) -> (&str, &str, i64) {
             expected_working_revision,
             ..
         }
+        | ManuscriptCommand::RenameSourceLink {
+            request_id,
+            project_id,
+            expected_working_revision,
+            ..
+        }
         | ManuscriptCommand::AddSourceFile {
             request_id,
             project_id,
@@ -424,6 +430,7 @@ pub fn apply(
         | ManuscriptCommand::CancelPlanningTask { .. }
         | ManuscriptCommand::UsePlanningResult { .. }
         | ManuscriptCommand::AddSourceLink { .. }
+        | ManuscriptCommand::RenameSourceLink { .. }
         | ManuscriptCommand::AddSourceFile { .. }
         | ManuscriptCommand::RefreshSourceFile { .. }
         | ManuscriptCommand::RemoveSource { .. }

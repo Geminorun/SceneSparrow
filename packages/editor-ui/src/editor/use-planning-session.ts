@@ -17,6 +17,8 @@ export function usePlanningSession(
   save: Autosave,
   projectId: string,
   onApplied: (view: WritingView) => void,
+  onHistoryOpen: () => void,
+  onViewCurrent: (view: WritingView) => void,
 ) {
   const [, render] = useState(0),
     [planning, setPlanning] = useState<PlanningAutosave | null>(null),
@@ -24,7 +26,7 @@ export function usePlanningSession(
     [loadFailed, setLoadFailed] = useState(false),
     [acting, setActing] = useState(false),
     [recovery, setRecovery] = useState(false),
-    [diagnostics, setDiagnostics] = useState(false);
+    [historyOpen, setHistoryOpen] = useState(false);
   const { report, resolve } = useNoticeOwner();
   const commands = useMemo(() => new ReviewCommands(save), [save]);
   const pendingStart = useRef<{
@@ -35,6 +37,10 @@ export function usePlanningSession(
   } | null>(null);
   const applied = useRef(onApplied);
   applied.current = onApplied;
+  const openHistoryPane = useRef(onHistoryOpen),
+    selectCurrentView = useRef(onViewCurrent);
+  openHistoryPane.current = onHistoryOpen;
+  selectCurrentView.current = onViewCurrent;
   const live = useRef(true),
     flight = useRef(false),
     observed = useRef(new Set<string>()),
@@ -193,8 +199,13 @@ export function usePlanningSession(
     const recovering = !!attempted;
     try {
       if (!attempted) {
-        if (!(await planning.flush()) || intent !== planning.identity())
+        if (!(await planning.flush())) {
+          report(planning.error || save.error || "SAVE_FAILED", {
+            identity: "planning-start",
+          });
           return false;
+        }
+        if (intent !== planning.identity()) return false;
         const preparation = await client.preparePlanning({ operation });
         if (
           !live.current ||
@@ -387,11 +398,23 @@ export function usePlanningSession(
                   task.id,
                 ),
             },
-            { kind: "recovery", run: () => setDiagnostics(true) },
+            { kind: "recovery", run: () => navigateHistory(true) },
           ],
         });
     }
   }, [planning?.state.tasks, report]);
+  function navigateHistory(open: boolean) {
+    save.actions.cancel();
+    if (open) openHistoryPane.current();
+    setHistoryOpen(open);
+    requestAnimationFrame(() => {
+      const target = open
+        ? ".generation-history-back"
+        : "[data-generation-history]:not([hidden])";
+      const controls = document.querySelectorAll<HTMLElement>(target);
+      [...controls].find((node) => node.getClientRects().length)?.focus();
+    });
+  }
   return {
     planning,
     loadFailed,
@@ -401,8 +424,17 @@ export function usePlanningSession(
     control,
     recovery,
     setRecovery,
-    diagnostics,
-    setDiagnostics,
+    historyOpen,
+    navigateHistory,
+    viewCurrent: (view: WritingView) => {
+      navigateHistory(false);
+      selectCurrentView.current(view);
+    },
+    pendingStart: pendingStart.current !== null,
+    recoverStart: () =>
+      pendingStart.current
+        ? start(pendingStart.current.operation)
+        : Promise.resolve(false),
   };
 }
 export type PlanningSession = ReturnType<typeof usePlanningSession>;

@@ -1419,3 +1419,62 @@ fn legacy_output_budget_queue_releases_reservation_and_requires_a_fresh_task() {
         .unwrap();
     assert_eq!(stored, legacy_json);
 }
+
+#[test]
+fn rename_link_keeps_current_consent_but_respects_frozen_draft_inputs() {
+    let (_dir, r, settings, p) = setup();
+    plan(&r, &p, true);
+    let source = id();
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "AddSourceLink",
+        json!({"sourceId":source,"url":"https://example.com/exact?x=1","title":"Original"}),
+    ))
+    .unwrap();
+    let mut content = r.read_planning().unwrap().content;
+    content.evidence.push(PlanningEvidenceChoice {
+        source_id: source.clone(),
+        mode: PlanningEvidenceChoiceMode::Linkonly,
+        start: 0,
+        end: 0,
+        visual_id: String::new(),
+        allow_unknown_images: false,
+    });
+    save(&r, &p, &content);
+    r.execute_manuscript(&cmd(
+        &r,
+        &p,
+        "RenameSourceLink",
+        json!({"sourceId":source,"expectedSourceRevision":1,"title":"Renamed"}),
+    ))
+    .unwrap();
+    assert_eq!(
+        r.read_planning().unwrap().content.evidence,
+        content.evidence
+    );
+    let prep = prepare(&r, &settings, "generate_initial_draft");
+    assert_eq!(prep.evidence[0].source_revision, 2);
+    history(&r, &p, false);
+    assert_eq!(
+        r.read_planning().unwrap().content.evidence,
+        content.evidence
+    );
+    history(&r, &p, true);
+    let (task, _) = start(&r, &settings, &p, "generate_initial_draft");
+    let before = r.read_run(&task).unwrap();
+    let member = r.read_sources(None).unwrap().items.remove(0).source;
+    assert_eq!(
+        r.execute_manuscript(&cmd(
+            &r,
+            &p,
+            "RenameSourceLink",
+            json!({"sourceId":source,"expectedSourceRevision":member.revision,"title":"Blocked"})
+        ))
+        .unwrap_err()
+        .0,
+        "TASK_USING_CONTENT"
+    );
+    assert_eq!(r.read_run(&task).unwrap(), before);
+    cancel(&r, &p, &task).unwrap();
+}
