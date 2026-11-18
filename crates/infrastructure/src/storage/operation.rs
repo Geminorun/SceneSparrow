@@ -24,7 +24,7 @@ struct Metrics {
     cached_bytes: usize,
 }
 thread_local! {static VERIFIED:RefCell<Option<Metrics>>=const{RefCell::new(None)};}
-pub(super) struct Operation {
+pub(crate) struct Operation {
     label: &'static str,
     started: Instant,
     last: Instant,
@@ -61,7 +61,7 @@ impl Drop for Operation {
 }
 /// Reuse verified bytes only while their file identity/size/time still match in this
 /// operation. Missing/replaced/corrupt bytes are never reconstructed from a cache.
-pub fn read(path: &Path, digest: &str) -> std::io::Result<Vec<u8>> {
+pub(crate) fn read(path: &Path, digest: &str) -> std::io::Result<Vec<u8>> {
     let metadata = std::fs::symlink_metadata(path)?;
     if !metadata.is_file() {
         return Err(std::io::Error::other("immutable object unavailable"));
@@ -85,7 +85,7 @@ pub fn read(path: &Path, digest: &str) -> std::io::Result<Vec<u8>> {
             metrics.read_bytes += bytes.len() as u64;
             metrics.hash_bytes += bytes.len() as u64;
         }
-        if crate::manuscript::hash(&bytes) != digest {
+        if crate::storage::hash(&bytes) != digest {
             return Err(std::io::Error::other("immutable object integrity"));
         }
         if let Some(metrics) = state.as_mut()

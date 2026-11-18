@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 use axum::{
     extract::Path,
     http::{HeaderValue, header},
@@ -21,23 +21,7 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/manuscript/deliveries", post(intent))
         .route("/v1/manuscript/deliveries/{status}", post(finish))
 }
-pub fn drive(state: &AppState) {
-    let service = Arc::downgrade(&state.service);
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            let Some(service) = service.upgrade() else {
-                break;
-            };
-            let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(Some(id)) = service.repository().next_export() {
-                    let _ = service.repository().run_export(&id);
-                }
-            })
-            .await;
-        }
-    });
-}
+
 async fn start(
     State(s): State<AppState>,
     body: Result<Json<ExportRequest>, JsonRejection>,

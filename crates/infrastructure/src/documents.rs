@@ -1,4 +1,4 @@
-use super::manuscript::{Result, db, hash};
+use super::storage::{Result, db, hash};
 use super::*;
 use scenesparrow_application::manuscript::DocumentRepository;
 use scenesparrow_domain::{
@@ -163,19 +163,6 @@ impl SqliteProjectRepository {
         self.verify_sources(&root.sources)
             .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         Ok(root)
-    }
-    pub(super) fn read_object(&self, digest: &str) -> Result<Vec<u8>> {
-        if digest.len() != 64
-            || !digest
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        {
-            return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-        }
-        db(crate::operation::read(
-            &self.directory.join("objects").join(digest),
-            digest,
-        ))
     }
     fn verify_sources(&self, sources: &[Source]) -> Result<()> {
         let mut ids = BTreeSet::new();
@@ -809,48 +796,6 @@ impl SqliteProjectRepository {
             [owner],
         ))?;
         Ok(())
-    }
-    pub fn collect_objects(&self, grace: Duration) -> Result<usize> {
-        // Capture, reconciliation, row pruning and deletion share the exact writer
-        // coordinator used by promotion and command commit. Backups are not traversed.
-        let mut c = db(self.connection.lock())?;
-        let roots = self.retention_roots(&c)?;
-        for h in &roots {
-            self.read_object(h)?;
-        }
-        let mut candidates = vec![];
-        for entry in db(std::fs::read_dir(self.directory.join("objects")))? {
-            let entry = db(entry)?;
-            let h = entry.file_name().to_string_lossy().into_owned();
-            if !roots.contains(&h)
-                && db(entry.file_type())?.is_file()
-                && db(entry.metadata())?
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.elapsed().ok())
-                    .is_some_and(|age| age >= grace)
-            {
-                candidates.push((h, entry.path()));
-            }
-        }
-        let tx = db(c.transaction())?;
-        for (h, _) in &candidates {
-            db(tx.execute("DELETE FROM content_revisions WHERE payload_hash=?1", [h]))?;
-            db(tx.execute(
-                "DELETE FROM import_provenance WHERE input_hash=?1 OR result_hash=?1",
-                [h],
-            ))?;
-            db(tx.execute("DELETE FROM document_attempts WHERE status NOT IN ('queued','running') AND (input_hash=?1 OR result_hash=?1)",[h]))?;
-        }
-        db(tx.commit())?;
-        // A failure after metadata pruning leaves harmless orphan bytes. Never unlink
-        // first: rollback must not restore a committed row pointing to deleted bytes.
-        let mut removed = 0;
-        for (_, path) in candidates {
-            db(std::fs::remove_file(path))?;
-            removed += 1;
-        }
-        Ok(removed)
     }
 }
 struct WorkerChild(std::process::Child);

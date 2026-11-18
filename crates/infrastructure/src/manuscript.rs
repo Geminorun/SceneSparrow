@@ -1,18 +1,11 @@
 use super::*;
+use crate::storage::{Result, db, hash};
 use scenesparrow_application::manuscript::ManuscriptRepository;
 use scenesparrow_domain::{
     contracts::*,
     manuscript::{self, ManuscriptError},
 };
-use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, io::Write};
-pub(super) type Result<T> = std::result::Result<T, ManuscriptError>;
-pub(super) fn db<T>(r: std::result::Result<T, impl std::fmt::Debug>) -> Result<T> {
-    r.map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))
-}
-pub(super) fn hash(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
-}
+use std::collections::BTreeMap;
 pub(super) fn initialize(c: &Connection) -> std::result::Result<(), Error> {
     let id = uuid::Uuid::new_v4().to_string();
     storage(c.execute("INSERT INTO manuscripts(singleton,id,workspace_stage,schema_version,working_revision) SELECT 1,?1,'outline',1,working_revision FROM project WHERE singleton=1",[&id]))?;
@@ -21,31 +14,6 @@ pub(super) fn initialize(c: &Connection) -> std::result::Result<(), Error> {
     Ok(())
 }
 impl SqliteProjectRepository {
-    pub(super) fn object(&self, bytes: &[u8]) -> Result<String> {
-        let digest = hash(bytes);
-        let path = self.directory.join("objects").join(&digest);
-        if path.exists() {
-            if !db(std::fs::symlink_metadata(&path))?.is_file() {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-            }
-            if db(std::fs::read(&path))? != bytes {
-                return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
-            }
-            return Ok(digest);
-        }
-        let staging = self
-            .directory
-            .join("staging")
-            .join(uuid::Uuid::new_v4().to_string());
-        let mut file = db(File::options().create_new(true).write(true).open(&staging))?;
-        db(file.write_all(bytes))?;
-        db(file.sync_all())?;
-        drop(file);
-        db(std::fs::rename(&staging, &path))?;
-        #[cfg(unix)]
-        db(File::open(self.directory.join("objects")).and_then(|f| f.sync_all()))?;
-        Ok(digest)
-    }
     pub(super) fn load(&self, c: &Connection) -> Result<ManuscriptState> {
         #[cfg(test)]
         self.business_read_count
@@ -273,7 +241,7 @@ impl SqliteProjectRepository {
         if matches!(command, ManuscriptCommand::CloseEditGroup { .. }) {
             return self.close_group_fast(c, command, &digest);
         }
-        let mut profile = crate::operation::Operation::begin(match command {
+        let mut profile = crate::storage::operation::Operation::begin(match command {
             ManuscriptCommand::ApplyDocumentEdit { .. } => "edit",
             ManuscriptCommand::UndoProject { .. } => "undo",
             ManuscriptCommand::RedoProject { .. } => "redo",

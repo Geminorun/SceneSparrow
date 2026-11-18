@@ -2,7 +2,7 @@
 use crate::{
     SqliteProjectRepository,
     ai::execution::AiUnitOfWork,
-    manuscript::{Result, db, hash},
+    storage::{Result, db, hash},
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use scenesparrow_application::ai::*;

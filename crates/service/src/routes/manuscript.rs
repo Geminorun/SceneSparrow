@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 use axum::{extract::Path, routing::post};
 use scenesparrow_application::manuscript::ManuscriptRepository;
 use scenesparrow_domain::{contracts::ManuscriptCommand, manuscript::ManuscriptError};
@@ -12,7 +12,7 @@ pub(super) fn routes() -> Router<AppState> {
         )
         .route("/v1/commands/{request_id}", get(receipt))
 }
-pub(super) fn result<T: serde::Serialize>(
+pub(crate) fn result<T: serde::Serialize>(
     value: Result<T, ManuscriptError>,
     request_id: Option<String>,
 ) -> Response {

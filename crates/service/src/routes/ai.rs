@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 use axum::{extract::Path, routing::post};
 use scenesparrow_application::ai::{AiExecutionPort, AiSettingsPort};
 use scenesparrow_domain::{ai::AiError, contracts::*};
@@ -9,7 +9,7 @@ pub struct AiState {
     settings: OnceLock<Result<SettingsStore, AiError>>,
     actions: SettingsActions,
     slots: Arc<Semaphore>,
-    pub(super) blocking_slots: Arc<Semaphore>,
+    pub(crate) blocking_slots: Arc<Semaphore>,
 }
 impl Default for AiState {
     fn default() -> Self {
@@ -22,7 +22,7 @@ impl Default for AiState {
     }
 }
 impl AiState {
-    pub(super) fn settings(&self) -> Result<&SettingsStore, AiError> {
+    pub(crate) fn settings(&self) -> Result<&SettingsStore, AiError> {
         self.settings
             .get_or_init(|| {
                 SettingsStore::open(
@@ -304,7 +304,7 @@ mod tests {
             ai: Arc::new(ai),
             native_authorization: None,
         };
-        let app = super::super::state_router(state);
+        let app = crate::state_router(state);
         let file = std::fs::File::options()
             .read(true)
             .write(true)

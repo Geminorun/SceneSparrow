@@ -1,4 +1,4 @@
-use super::manuscript::{Result, db, hash};
+use super::storage::{Result, db, hash};
 use super::*;
 use scenesparrow_domain::{
     contracts::*,

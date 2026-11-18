@@ -1,9 +1,8 @@
-mod ai;
 pub mod contracts;
-mod documents;
-mod exports;
-mod manuscript;
-mod planning;
+mod jobs;
+mod routes;
+
+use routes::{ai, manuscript};
 
 use axum::{
     Json, Router,
@@ -60,8 +59,7 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
         ai: Arc::new(ai::AiState::default()),
         native_authorization: std::env::var("SCENESPARROW_NATIVE_TOKEN").ok(),
     };
-    planning::drive(&state);
-    exports::drive(&state);
+    jobs::start(&state);
     state_router(state)
 }
 fn state_router(state: AppState) -> Router {
@@ -70,12 +68,7 @@ fn state_router(state: AppState) -> Router {
         .route("/v1/project", get(read_project).post(create_project))
         .route("/v1/project/ensure", axum::routing::post(ensure_project))
         .route("/v1/project/rename", axum::routing::post(rename_project))
-        .merge(manuscript::routes())
-        .merge(documents::routes())
-        .merge(exports::routes())
-        .merge(ai::routes())
-        .merge(planning::routes())
-        .merge(review::routes())
+        .merge(routes::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -683,5 +676,3 @@ mod tests {
         assert_eq!(project.approved_baseline, None);
     }
 }
-
-mod review;
