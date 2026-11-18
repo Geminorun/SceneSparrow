@@ -18,7 +18,7 @@ import { join } from "node:path";
 const schema = JSON.parse(
   await readFile(
     new URL(
-      "../../packages/contracts/schema/diagnostics.schema.json",
+      "../../../packages/contracts/schema/diagnostics.schema.json",
       import.meta.url,
     ),
     "utf8",

@@ -207,7 +207,7 @@ if (
       process.env.OPERATOR_AUTH_FILE ?? "/run/secrets/operator_auth",
     );
     const { version } = JSON.parse(
-      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+      await readFile(new URL("../../../package.json", import.meta.url), "utf8"),
     );
     await startRuntime({
       origin,

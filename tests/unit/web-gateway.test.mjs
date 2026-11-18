@@ -9,7 +9,7 @@ import {
   createGateway,
   readOperator,
   validateOrigin,
-} from "../../scripts/web/gateway.mjs";
+} from "../../apps/web/server/gateway.mjs";
 
 test("production gateway authenticates all content, enforces origin, strips secrets and cancels SSE", async () => {
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-gateway-"));

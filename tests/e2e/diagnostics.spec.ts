@@ -6,8 +6,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { startRuntime } from "../../scripts/web/start.mjs";
-import { readOperator } from "../../scripts/web/gateway.mjs";
+import { startRuntime } from "../../apps/web/server/start.mjs";
+import { readOperator } from "../../apps/web/server/gateway.mjs";
 
 // Production gateway coverage is intentionally separate from the Vite entry.
 // Traces can contain authentication headers, so keep only explicit safe screenshots.

@@ -5,7 +5,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { operatorConfiguration } from "../../scripts/web/operator-config.mjs";
-import { readOperator } from "../../scripts/web/gateway.mjs";
+import { readOperator } from "../../apps/web/server/gateway.mjs";
 
 test("operator pair overrides legacy, rejects partial pairs and enforces shared ASCII bounds", async () => {
   const password = "pass6!";

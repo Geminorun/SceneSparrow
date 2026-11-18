@@ -25,8 +25,8 @@ import {
   collectChild,
   createGrantStore,
   createDiagnosticLimiter,
-} from "../../scripts/web/diagnostics.mjs";
-import { createGateway, readOperator } from "../../scripts/web/gateway.mjs";
+} from "../../apps/web/server/diagnostics.mjs";
+import { createGateway, readOperator } from "../../apps/web/server/gateway.mjs";
 
 const event = (extra = {}) => ({
   schemaVersion: 1,
@@ -457,7 +457,7 @@ test(
   { timeout: 5000 },
   async () => {
     const moduleUrl = new URL(
-      "../../scripts/web/diagnostics.mjs",
+      "../../apps/web/server/diagnostics.mjs",
       import.meta.url,
     ).href;
     const directory = await fixture();
