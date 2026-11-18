@@ -495,6 +495,111 @@ test("ambiguous committed undo resolves the original receipt without a second un
   assert.equal(save.local[0].runs[0].text, "history result");
   save.dispose();
 });
+for (const readback of ["readManuscript", "readHistory"]) {
+  test(`undo retains its original input snapshot across failed ${readback} and repeated retries`, async () => {
+    const { save, client, calls } = historySetup();
+    try {
+      const original = structuredClone(save.local);
+      const execute = client.executeManuscript;
+      const receipts = new Map();
+      client.executeManuscript = async (command) => {
+        if (!receipts.has(command.requestId))
+          receipts.set(command.requestId, await execute(command));
+        else calls.push(command);
+        return receipts.get(command.requestId);
+      };
+      const read = client[readback];
+      let fail = true;
+      client[readback] = async () => {
+        if (fail) throw Error("readback unavailable");
+        return read();
+      };
+      assert.equal(await save.navigate("UndoProject", () => {}), false);
+      const command = structuredClone(calls[0]);
+      assert.equal(save.businessReceipt.requestId, command.requestId);
+      assert.deepEqual(save.local, original);
+
+      fail = false;
+      for (const text of ["later private input", "newer private input"]) {
+        save.update(local(save, text));
+        assert.equal(await save.flush(true), false);
+        assert.equal(save.status, "conflict");
+        assert.equal(save.local[0].runs[0].text, text);
+        assert.equal(save.state.workingRevision, 1);
+        assert.equal(save.canonicalVersion, 0);
+      }
+      assert.deepEqual(calls, [command, command, command]);
+
+      save.update(original);
+      assert.equal(await save.flush(true), true);
+      assert.equal(save.local[0].runs[0].text, "history result");
+      assert.equal(save.state.workingRevision, 2);
+      assert.deepEqual(calls, [command, command, command, command]);
+      assert.equal(await save.navigate("UndoProject", () => {}), true);
+      assert.notEqual(calls.at(-1).requestId, command.requestId);
+      assert.equal(save.history.cursor, 0);
+    } finally {
+      save.dispose();
+    }
+  });
+}
+test("a rejected undo clears its command and snapshot before newer input and navigation", async () => {
+  const { save, client, calls } = historySetup();
+  try {
+    const execute = client.executeManuscript;
+    let reject = true;
+    client.executeManuscript = async (command) => {
+      if (reject) {
+        calls.push(command);
+        throw new ApiError("HISTORY_BLOCKED");
+      }
+      return execute(command);
+    };
+    assert.equal(await save.navigate("UndoProject", () => {}), false);
+    const rejected = calls[0];
+    assert.equal(save.businessRejection.requestId, rejected.requestId);
+    assert.equal(save.status, "saved");
+
+    reject = false;
+    save.update(local(save, "new input after rejection"));
+    assert.equal(await save.navigate("UndoProject", () => {}), true);
+    const undos = calls.filter((command) => command.type === "UndoProject");
+    assert.equal(undos.length, 2);
+    assert.notEqual(undos[1].requestId, rejected.requestId);
+    assert.equal(undos[1].expectedWorkingRevision, 2);
+    assert.equal(save.status, "saved");
+    assert.equal(save.local[0].runs[0].text, "history result");
+  } finally {
+    save.dispose();
+  }
+});
+test("body equality does not settle a local history round trip before its checkpoints save", async () => {
+  const { save, calls } = setup();
+  try {
+    const original = structuredClone(save.local);
+    save.update(local(save, "intermediate history checkpoint"));
+    await save.boundary();
+    save.update(original);
+    save.state.blocks[0].revision++;
+    assert.equal(save.localBodyMatchesCanonical, true);
+    assert.equal(save.hasLocalBodyChanges, true);
+    assert.equal(save.canUndo, true);
+    assert.equal(await save.flush(), true);
+    assert.deepEqual(
+      calls
+        .filter((command) => command.type === "ApplyDocumentEdit")
+        .map(
+          (command) =>
+            command.payload.operations.find((op) => op.op === "setBlockContent")
+              .runs[0].text,
+        ),
+      ["intermediate history checkpoint", "Text"],
+    );
+    assert.equal(save.hasLocalBodyChanges, false);
+  } finally {
+    save.dispose();
+  }
+});
 test("delayed metadata-only group close cannot acknowledge invalid visible input or authorize close", async () => {
   const { save, client, calls } = historySetup();
   save.update(local(save, "acknowledged"));

@@ -97,10 +97,7 @@ export class ProjectCommands {
       prior &&
       this.save.businessReceipt?.requestId === prior.command.requestId &&
       this.save.status === "saved" &&
-      JSON.stringify(this.save.local) ===
-        JSON.stringify(
-          this.save.state.blocks.map(({ revision: _, ...block }) => block),
-        )
+      this.save.localBodyMatchesCanonical
     ) {
       this.pending = null;
       return {

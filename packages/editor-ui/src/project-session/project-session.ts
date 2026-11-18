@@ -142,25 +142,27 @@ export class ProjectSession {
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private groupKind: "typing" | "discrete" = "typing";
   private controls: Promise<unknown> = Promise.resolve();
-  private controlPending: ManuscriptCommand | null = null;
+  private pendingControl: {
+    command: ManuscriptCommand;
+    visible: string;
+  } | null = null;
   private historyTail: Promise<unknown> = Promise.resolve();
   private historyPending = 0;
-  private controlVisible: string | null = null;
   get stageTransitionPending() {
     return (
       this.busy &&
-      !!this.controlPending &&
-      (this.controlPending.type === "StartManualDraft" ||
-        (this.controlPending.type === "CommitManuscriptImport" &&
-          this.controlPending.payload.mode === "start"))
+      !!this.pendingControl &&
+      (this.pendingControl.command.type === "StartManualDraft" ||
+        (this.pendingControl.command.type === "CommitManuscriptImport" &&
+          this.pendingControl.command.payload.mode === "start"))
     );
   }
   get hasUnresolvedBusiness() {
     return (
       !!this.metadataPending ||
-      (!!this.controlPending &&
+      (!!this.pendingControl &&
         !["CloseEditGroup", "UndoProject", "RedoProject"].includes(
-          this.controlPending.type,
+          this.pendingControl.command.type,
         ))
     );
   }
@@ -197,7 +199,7 @@ export class ProjectSession {
     return Promise.resolve(true);
   }
   private async closeGroup(): Promise<boolean> {
-    if (!this.acknowledgedGroup && !this.controlPending) return true;
+    if (!this.acknowledgedGroup && !this.pendingControl) return true;
     return this.control("CloseEditGroup");
   }
   discrete(action: () => unknown): Promise<boolean> {
@@ -285,8 +287,8 @@ export class ProjectSession {
   ) {
     return this.enqueue(async () => {
       if (this.disposed || this.metadataPending) return false;
-      if (this.controlPending) {
-        const type = this.controlPending.type as
+      if (this.pendingControl) {
+        const type = this.pendingControl.command.type as
           "UndoProject" | "RedoProject" | "CloseEditGroup";
         const ok = await this.control(type);
         if (ok && type !== "CloseEditGroup" && this.canPresentCanonical)
@@ -398,9 +400,8 @@ export class ProjectSession {
       )
         return false;
       this.state = canonical;
-      if (this.controlPending?.requestId === command.requestId) {
-        this.controlPending = null;
-        this.controlVisible = null;
+      if (this.pendingControl?.command.requestId === command.requestId) {
+        this.pendingControl = null;
       }
       if (!this.conversionError) {
         this.error = "";
@@ -418,7 +419,7 @@ export class ProjectSession {
         command.type !== "CancelPlanningTask" &&
         !(command.type === "SetUserLocks" && !command.payload.locked)) ||
       this.disposed ||
-      this.controlPending ||
+      this.pendingControl ||
       this.unresolved ||
       (this.metadataPending &&
         this.metadataPending.requestId !== command.requestId)
@@ -474,11 +475,12 @@ export class ProjectSession {
     return this.enqueue(async () => {
       if (options?.signal?.aborted || this.disposed || this.metadataPending)
         return false;
-      if (this.controlPending) {
+      if (this.pendingControl) {
         const candidate = options?.replayCommand?.();
         if (
           candidate &&
-          JSON.stringify(candidate) === JSON.stringify(this.controlPending)
+          JSON.stringify(candidate) ===
+            JSON.stringify(this.pendingControl.command)
         )
           return this.control("CloseEditGroup");
         await this.control("CloseEditGroup");
@@ -515,7 +517,7 @@ export class ProjectSession {
     return this.enqueue(async () => {
       if (
         this.disposed ||
-        this.controlPending ||
+        this.pendingControl ||
         this.unresolved ||
         this.metadataPending
       )
@@ -635,7 +637,7 @@ export class ProjectSession {
       if (!(await this.drain(retry)) || !(await this.closeGroup()))
         return false;
       if (this.disposed || this.composing || this.conversionError) return false;
-      if (this.same() && !this.acknowledgedGroup && !this.controlPending)
+      if (this.same() && !this.acknowledgedGroup && !this.pendingControl)
         return true;
       retry = false;
     }
@@ -646,7 +648,7 @@ export class ProjectSession {
   ): Promise<boolean> {
     if (this.disposed || this.composing || this.conversionError) return false;
     const command =
-      this.controlPending ??
+      this.pendingControl?.command ??
       override ??
       ({
         type,
@@ -657,10 +659,9 @@ export class ProjectSession {
         expectedCursor: this.history.cursor,
         payload: type === "CloseEditGroup" ? this.acknowledgedGroup! : {},
       } as ManuscriptCommand);
-    this.controlPending = command;
+    this.pendingControl ??= { command, visible: JSON.stringify(this.local) };
+    const { visible } = this.pendingControl;
     const compositionGeneration = this.compositionGeneration;
-    const visible = this.controlVisible ?? JSON.stringify(this.local);
-    this.controlVisible = visible;
     this.businessRejection = undefined;
     this.operationError = null;
     this.busy = true;
@@ -760,8 +761,7 @@ export class ProjectSession {
         this.error = "";
         this.status = this.same() ? "saved" : "pending";
         this.history = metadata;
-        this.controlPending = null;
-        this.controlVisible = null;
+        this.pendingControl = null;
         if (this.conversionError) {
           this.status = "error";
           this.error = this.conversionError;
@@ -797,8 +797,7 @@ export class ProjectSession {
             requestId: command.requestId,
             code: error.code,
           };
-          this.controlPending = null;
-          this.controlVisible = null;
+          this.pendingControl = null;
         }
         if (
           !proven &&
@@ -857,7 +856,7 @@ export class ProjectSession {
   }
   acknowledgeBusinessRejection(preserveLocal = false) {
     if (
-      !this.controlPending &&
+      !this.pendingControl &&
       !this.unresolved &&
       (preserveLocal || this.same()) &&
       !this.conversionError &&
@@ -872,11 +871,14 @@ export class ProjectSession {
       this.status === "saved" || (preserveLocal && this.status === "pending")
     );
   }
-  private same() {
-    const same =
-      this.segments.length === 0 &&
+  get localBodyMatchesCanonical() {
+    return (
       JSON.stringify(this.local) ===
-        JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b));
+      JSON.stringify(this.state.blocks.map(({ revision: _, ...b }) => b))
+    );
+  }
+  private same() {
+    const same = this.segments.length === 0 && this.localBodyMatchesCanonical;
     if (same) this.settledGeneration = this.generation;
     return same;
   }
@@ -901,7 +903,7 @@ export class ProjectSession {
     }, 750);
     if (
       this.errorOwner === "planning" &&
-      !this.controlPending &&
+      !this.pendingControl &&
       !this.metadataPending &&
       !this.unresolved
     )
@@ -1068,7 +1070,7 @@ export class ProjectSession {
   }
   async start() {
     return this.enqueue(async () => {
-      if (this.inFlight || this.unresolved || this.controlPending) return false;
+      if (this.inFlight || this.unresolved || this.pendingControl) return false;
       const command: ManuscriptCommand = {
         type: "StartManualDraft",
         requestId: crypto.randomUUID(),
@@ -1093,11 +1095,11 @@ export class ProjectSession {
     if (this.disposed) return false;
     clearTimeout(this.timer);
     if (this.composing || this.conversionError) return false;
-    if (this.controlPending && !this.inFlight) {
+    if (this.pendingControl && !this.inFlight) {
       if (
         !retry ||
         !(await this.control(
-          this.controlPending.type as
+          this.pendingControl.command.type as
             "UndoProject" | "RedoProject" | "CloseEditGroup",
         ))
       )
@@ -1294,7 +1296,7 @@ export class ProjectSession {
     if (
       this.inFlight ||
       this.unresolved ||
-      this.controlPending ||
+      this.pendingControl ||
       this.metadataPending
     ) {
       this.error = "COMMAND_UNRESOLVED";
@@ -1308,8 +1310,7 @@ export class ProjectSession {
         throw new ApiError("REVISION_CONFLICT");
       this.state = state;
       this.history = history;
-      this.controlPending = null;
-      this.controlVisible = null;
+      this.pendingControl = null;
       this.local = this.state.blocks.map(({ revision: _, ...b }) => b);
       this.unresolved = null;
       this.segments = [];
