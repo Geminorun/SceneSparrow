@@ -24,6 +24,7 @@ import ts from "typescript";
 import * as registryModule from "../../apps/desktop/src/project-registry.ts";
 import * as activationModule from "../../apps/desktop/src/project-activation.ts";
 import * as closeModule from "../../apps/desktop/src/close-handshake.ts";
+import * as projectTransferIpcModule from "../../apps/desktop/src/project-transfer-ipc.ts";
 import * as externalWorkIpcModule from "../../apps/desktop/src/external-work-ipc.ts";
 import * as exportIpcModule from "../../apps/desktop/src/export-ipc.ts";
 import * as aiIpcModule from "../../apps/desktop/src/ai-ipc.ts";
@@ -152,6 +153,7 @@ async function desktop(t, fixture, options = {}) {
     "./close-handshake.js": closeModule,
     "./export-ipc.js": exportIpcModule,
     "./external-work-ipc.js": externalWorkIpcModule,
+    "./project-transfer-ipc.js": projectTransferIpcModule,
     "./ai-ipc.js": aiIpcModule,
     "./export-files.js": exportModule,
     "./file-intake.js": intakeModule,

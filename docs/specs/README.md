@@ -69,8 +69,12 @@ specs aligned with the final behavior and record material deviations.
 
 - [OP4-B recorded acceptance](open-project-op4b.md): scoped work copies, production locks and Changes integration; see the [frozen handoff](open-project-op4b-handoff.md) and [validation](../validation/open-project-op4b.md).
 
-- [OP5 preparation](open-project-op5.md): explicit migration, fixed-snapshot ZIPs and verified restore; dispatch awaits OP4.
+- [OP5 migration and packages](open-project-op5.md): explicit migration, fixed-snapshot ZIPs and verified restore; conversion backend is locally reviewed, package/UI gates remain pending.
 
-- [OP5-A preparation](open-project-op5a.md): read-only legacy inspection and staged identity-preserving conversion; root freezes its accepted B handoff before dispatch.
+- [OP5-A conversion](open-project-op5a.md): read-only legacy inspection and staged identity-preserving conversion; see its [frozen handoff](open-project-op5a-handoff.md) and [validation](../validation/open-project-op5a.md).
+
+- [OP5-B package backend preparation](open-project-op5b.md): fixed snapshots, bounded ZIP inspection/restore and returned edits; freeze after A acceptance.
+
+- [OP5-C transfer UI preparation](open-project-op5c.md): visible conversion/package flows and streamed browser/native adapters; freeze after B acceptance.
 
 - [OP6 preparation](open-project-op6.md): native capabilities, recovery startup and final readiness; dispatch awaits OP5.

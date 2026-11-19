@@ -1,9 +1,10 @@
 # OP5-A: explicit legacy-to-file project conversion
 
-Status: root preparation while OP4-B is implemented, 2026-11-19. Not dispatched.
-Root must freeze the accepted B commit/schema and exact named operation handoff
-before a coding writer starts. Parent [OP5](open-project-op5.md) owns the resource,
-preservation and packaging contracts. This checkpoint implements OP5-T01–T03;
+Status: root-frozen assignment after independently reviewed OP4-B
+`77c0044cb0e6aa34e7d9dd1e0e6b758020ff0855`, 2026-11-19. Delivered migrations
+001–014 are immutable. The [exact native/transport handoff](open-project-op5a-handoff.md)
+is part of this assignment. Parent [OP5](open-project-op5.md) owns the resource,
+preservation and packaging contracts. This checkpoint implements OP5-T01–T02 and the verification/fencing portion of T03;
 complete ZIP exchange and visible package flows remain OP5-B.
 
 ## Read-only source and operation ownership
@@ -90,8 +91,11 @@ preserve the newly registered manifest/media, matching A's old-entry semantics.
 
 Augment approval source evidence while retaining baseline IDs/sequences, original
 block/revision/hash locks and original objects. Current finalized state must verify
-against its derived raw source; Undo/Redo must reuse the corresponding baseline
-identities. Original downstream/export captures keep their original immutable
+against its derived raw source. Preserve migration-time retained baseline IDs and
+sequences. Existing text-changing history replay keeps monotonic block tokens and
+may create a new exact-revision current binding; do not reset tokens or overwrite
+an immutable historical approval to force ID reuse. Identical-token/source
+lock-only replay may reuse its baseline. Original downstream/export captures keep their original immutable
 input identity and legacy serialization meaning. Registration provenance must not
 be labeled historical media approval.
 
@@ -120,8 +124,8 @@ root/session ownership identity even for the same project UUID. B/OP6 lifecycle
 seams must be frozen before adding visible switching; never activate by path string.
 
 Provide named read-only inspection and conversion/status/retry operations over the
-existing authenticated generated HTTP/preload boundary. The preparation contracts
-below will be frozen with the accepted B checkpoint before dispatch. Keep status
+existing authenticated generated HTTP/preload boundary. The named contracts
+below and the exact handoff are frozen for this checkpoint. Keep status
 responsive while bulk copying, retain original uncertain IDs and safe failure codes,
 and add en/zh-CN presentation when that UI is connected. Do not autoactivate.
 
@@ -197,5 +201,4 @@ One fresh gpt-6.1-sol/high writer after root dispatch, no children/Git/worktrees
 deploy/tag/environment publication. Preserve `.agents/` and root docs. Every shell
 sources scripts/cloud-env.sh; Rust wrappers use both zero-debug profiles and
 CARGO_BUILD_JOBS=4, no parallel Cargo. Freeze all writes/owned checks/processes with
-`.artifacts/op5a/HANDOFF.md` before root review/commit/push. This preparation document
-does not itself dispatch coding.
+`.artifacts/op5a/HANDOFF.md` before root review/commit/push. Root explicitly dispatches the sole coding writer after this brief is complete.

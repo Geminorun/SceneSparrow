@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod project_transfer;
 use std::{
     fs::File,
     path::Path,
@@ -111,6 +112,15 @@ impl SqliteProjectRepository {
         require_existing: bool,
         creative_root: Option<&Path>,
     ) -> Result<Self, Error> {
+        Self::open_storage_mode(directory, require_existing, creative_root, true)
+    }
+    /// Schema construction only: no origin registration, recovery, jobs or collection.
+    fn open_storage_mode(
+        directory: &Path,
+        require_existing: bool,
+        creative_root: Option<&Path>,
+        startup: bool,
+    ) -> Result<Self, Error> {
         if require_existing && !storage(std::fs::metadata(directory))?.is_dir() {
             return Err(Error::Storage);
         }
@@ -168,18 +178,22 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 2 {
-            backup::migration_backup(&connection, directory, 2)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 2)?;
+            }
             // Keep the original bare SQLite compatibility restore point as well.
             // SQLite's backup API includes committed WAL pages in a consistent snapshot.
-            let mut backup_path = directory.join("pre-migration-002.sqlite");
-            if backup_path.exists() {
-                backup_path =
-                    directory.join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+            if startup {
+                let mut backup_path = directory.join("pre-migration-002.sqlite");
+                if backup_path.exists() {
+                    backup_path = directory
+                        .join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+                }
+                let mut backup = storage(Connection::open(&backup_path))?;
+                storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                    .run_to_completion(32, Duration::from_millis(10), None)
+                    .map_err(|_| Error::Storage)?;
             }
-            let mut backup = storage(Connection::open(&backup_path))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
             let transaction = storage(connection.transaction())?;
             storage(transaction.execute_batch(include_str!("../migrations/002_manuscript.sql")))?;
             if read_project(&transaction)?.is_some() {
@@ -188,13 +202,17 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 3 {
-            backup::migration_backup(&connection, directory, 3)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 3)?;
+            }
             let transaction = storage(connection.transaction())?;
             storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
             storage(transaction.commit())?;
         }
         if version < 4 {
-            backup::migration_backup(&connection, directory, 4)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 4)?;
+            }
             let transaction = storage(connection.transaction())?;
             storage(
                 transaction.execute_batch(include_str!("../migrations/004_sources_import.sql")),
@@ -202,7 +220,9 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 5 {
-            backup::migration_backup(&connection, directory, 5)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 5)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/005_shared_ai.sql")))?;
             storage(tx.execute(
@@ -212,65 +232,85 @@ impl SqliteProjectRepository {
             storage(tx.commit())?;
         }
         if version < 6 {
-            backup::migration_backup(&connection, directory, 6)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 6)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/006_planning.sql")))?;
             storage(tx.execute("INSERT OR IGNORE INTO planning_state(singleton,revision,content_json) VALUES(1,0,?1)", [serde_json::to_string(&scenesparrow_domain::planning::empty()).map_err(|_| Error::Storage)?]))?;
             storage(tx.commit())?;
         }
         if version < 7 {
-            backup::migration_backup(&connection, directory, 7)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 7)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/007_review.sql")))?;
             storage(tx.commit())?;
         }
         if version < 8 {
-            backup::migration_backup(&connection, directory, 8)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 8)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/008_finalization.sql")))?;
             storage(tx.commit())?;
         }
         if version < 9 {
-            backup::migration_backup(&connection, directory, 9)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 9)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/009_exports.sql")))?;
             storage(tx.commit())?;
         }
         if version < 10 {
-            backup::migration_backup(&connection, directory, 10)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 10)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/010_project_metadata.sql")))?;
             storage(tx.commit())?;
         }
         if version < 11 {
-            backup::migration_backup(&connection, directory, 11)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 11)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/011_open_source.sql")))?;
             storage(tx.commit())?;
         }
         if version < 12 {
-            backup::migration_backup(&connection, directory, 12)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 12)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/012_source_candidates.sql")))?;
             storage(tx.commit())?;
         }
         if version < 13 {
-            backup::migration_backup(&connection, directory, 13)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 13)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/013_file_graph.sql")))?;
             storage(tx.commit())?;
         }
         if version < 14 {
-            backup::migration_backup(&connection, directory, 14)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 14)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/014_external_work.sql")))?;
             storage(tx.commit())?;
         }
-        storage(connection.execute("UPDATE work_operations SET status='interrupted',failure_code='WORK_OPERATION_INTERRUPTED' WHERE status IN ('queued','running')", []))?;
-        storage(connection.execute(
+        if startup {
+            storage(connection.execute("UPDATE work_operations SET status='interrupted',failure_code='WORK_OPERATION_INTERRUPTED' WHERE status IN ('queued','running')", []))?;
+            storage(connection.execute(
             "UPDATE work_items SET state='interrupted' WHERE state IN ('preparing','inspecting')",
             [],
         ))?;
+        }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
@@ -295,6 +335,9 @@ impl SqliteProjectRepository {
             ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
             _owner: Some(owner),
         };
+        if !startup {
+            return Ok(repository);
+        }
         if version < 5 {
             repository
                 .initialize_ai_origin()

@@ -13,6 +13,16 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  inspectLegacyMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:inspectLegacyMigration", ...args),
+  issueMigrationTarget: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:issueMigrationTarget", ...args),
+  startLegacyMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:startLegacyMigration", ...args),
+  readMigrationOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:readMigrationOperation", ...args),
+  controlMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:controlMigration", ...args),
   inspectProjectFormat: () => ipcRenderer.invoke("project:format"),
   inspectGraphRecovery: (intent: string) =>
     ipcRenderer.invoke("external-work:inspectGraphRecovery", intent),

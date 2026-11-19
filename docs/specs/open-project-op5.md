@@ -1,7 +1,7 @@
 # OP5: explicit migration and complete portable packages
 
-Status: root preparation, 2026-11-19; not dispatched. Freeze exact accepted OP4
-APIs and checkpoint before assigning coding. Parent: open-project-format.md,
+Status: root-owned contract, 2026-11-19. OP5-A is frozen after accepted OP4-B
+`77c0044`; see its separate brief/handoff. OP5-B/C remain preparation until their preceding checkpoints pass. Parent: open-project-format.md,
 OPF-AC13–AC15/17/19. Root owns design/specs, one writer per checkpoint and Git.
 
 ## Delivery tasks and sequential checkpoints
@@ -14,10 +14,11 @@ OP5-T05: bounded ZIP intake/inspection and independent verified restore.
 OP5-T06: returned work-copy intake through OP4's recorded candidate base.
 OP5-T07: named platform operations, accessible UI and interoperability evidence.
 
-Use OP5-A for T01–T03 native conversion/verification plus named operations needed
-to exercise it, then OP5-B for T04–T07 and visible migration/package workflows.
+Use OP5-A for T01–T02 and T03 native conversion/verification/fencing plus named operations needed
+to exercise it, then [OP5-B](open-project-op5b.md) for the package backend and
+[OP5-C](open-project-op5c.md) for visible workflows/streaming platform adapters.
 The exact assignment brief follows the prior accepted checkpoint. OP5 is not
-accepted at A alone. Append migrations after delivered versions; no old SQL edits.
+accepted at A alone; actual host activation/session switching has the OP6 gate. Append migrations after delivered versions; no old SQL edits.
 No destructive conversion of real projects, autoactivation, inference or code
 execution during inspection. Root owns docs and acceptance summaries.
 
@@ -106,7 +107,12 @@ legacy backup records the original normalized representation and source generati
 Augment source-bearing target history/approval representations with derived raw
 evidence while retaining original immutable objects/provenance and stable history/
 baseline IDs/sequences. Current approval verification must match the derived current
-raw source; historical approvals must still restore their original IDs/locks.
+raw source; retained historical approvals keep their original IDs/sequences and
+immutable ordered payload meaning. History replay still uses monotonic block
+revision tokens: restoring changed text may create the existing new exact-revision
+baseline binding, rather than reusing an incompatible old manifest hash. Lock-only
+replay with identical tokens/source can reuse the same baseline. Preserve the
+original retained approval evidence; do not reset revisions to force ID reuse.
 Original downstream/export captures keep their original immutable input identity;
 do not relabel past media inputs as having used newly derived Markdown spelling.
 Planning/review task contexts use canonical IDs/revision tokens, so preserve those

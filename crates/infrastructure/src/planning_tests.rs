@@ -1616,3 +1616,94 @@ fn source_recovery_rejects_only_the_application_request_and_explicitly_reuses_on
     );
     assert!(r.execute_next_ai(&settings).unwrap().is_none());
 }
+
+#[test]
+fn migration_reuses_succeeded_planning_artifact_without_sdk_and_revokes_old_preparation() {
+    let (d, r, settings, p) = setup();
+    plan(&r, &p, false);
+    let (count, server) = crate::project_transfer::tests::mock_provider(&settings, outline());
+    let (task, _) = start(&r, &settings, &p, "generate_outline");
+    let run = r.execute_next_ai(&settings).unwrap().unwrap();
+    server.join().unwrap();
+    assert_eq!(run.status, AiRunStatus::Succeeded);
+    let old_preparation = prepare(&r, &settings, "generate_outline");
+    let identities = {
+        let c = r.connection.lock().unwrap();
+        let mut q = c
+            .prepare("SELECT run_id,input_hash FROM ai_runs ORDER BY run_id")
+            .unwrap();
+        q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let target = crate::project_transfer::tests::convert(d.path(), &d.path().join("project"), &r);
+    let native = SqliteProjectRepository::open(&target).unwrap();
+    native.reconcile_planning().unwrap();
+    assert_eq!(native.planning_task(&task).unwrap().application, "applied");
+    assert_eq!(native.planning_task(&task).unwrap().run.run_id, run.run_id);
+    let copied = cmd(
+        &native,
+        &p,
+        "StartPlanningTask",
+        json!({"preparationId":old_preparation.id,"retryOfTaskId":null}),
+    );
+    assert_eq!(
+        native.start_planning(&settings, &copied).unwrap_err().0,
+        "PREFLIGHT_STALE"
+    );
+    assert!(native.execute_next_ai(&settings).unwrap().is_none());
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let c = native.connection.lock().unwrap();
+    let mut q = c
+        .prepare("SELECT run_id,input_hash FROM ai_runs ORDER BY run_id")
+        .unwrap();
+    assert_eq!(
+        q.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap(),
+        identities
+    );
+}
+#[test]
+fn migration_fences_copied_queued_ai_documents_visuals_and_preserves_original_origin() {
+    let (d, r, settings, p) = setup();
+    plan(&r, &p, true);
+    let (task, _) = start(&r, &settings, &p, "generate_initial_draft");
+    let original = r.planning_task(&task).unwrap().run;
+    let visual = id();
+    let document = id();
+    let input = r.object(b"sanitized source").unwrap();
+    {
+        let c = r.connection.lock().unwrap();
+        c.execute("INSERT INTO planning_visuals(id,source_id,source_revision,selection_index,status) VALUES(?1,?2,1,0,'queued')",params![visual,id()]).unwrap();
+        c.execute("INSERT INTO document_attempts VALUES(?1,1,'queued','reference',?2,'source.txt',0,NULL,NULL,NULL,NULL)",params![document,input]).unwrap();
+    }
+    let target = crate::project_transfer::tests::convert(d.path(), &d.path().join("project"), &r);
+    let native = SqliteProjectRepository::open(&target).unwrap();
+    assert_eq!(
+        native.planning_task(&task).unwrap().run.status,
+        AiRunStatus::Interrupted
+    );
+    assert!(native.execute_next_ai(&settings).unwrap().is_none());
+    assert_eq!(
+        native.planning_visual(&visual).unwrap().status,
+        "interrupted"
+    );
+    let c = native.connection.lock().unwrap();
+    let status: String = c
+        .query_row(
+            "SELECT status FROM document_attempts WHERE id=?1",
+            [document],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "interrupted");
+    drop(c);
+    assert_eq!(
+        r.planning_task(&task).unwrap().run.status,
+        AiRunStatus::Queued
+    );
+    assert_eq!(r.planning_task(&task).unwrap().run.run_id, original.run_id);
+}

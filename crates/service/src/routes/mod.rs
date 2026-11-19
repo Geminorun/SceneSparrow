@@ -5,6 +5,7 @@ mod exports;
 mod external_work;
 pub(crate) mod manuscript;
 mod planning;
+pub(crate) mod project_transfer;
 mod review;
 
 use crate::{AppState, Router};
@@ -19,4 +20,5 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(ai::routes())
         .merge(planning::routes())
         .merge(review::routes())
+        .merge(project_transfer::routes())
 }

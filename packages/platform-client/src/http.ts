@@ -38,6 +38,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | Work.MigrationTargetRequest
+      | Work.LegacyMigrationRequest
+      | Work.MigrationControlRequest
       | Work.GraphRegisterRequest
       | Work.WorkItemCreateRequest
       | Work.WorkItemInspectRequest
@@ -133,6 +136,18 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     return true;
   };
   return {
+    inspectLegacyMigration: () => request("/v1/project/migration"),
+    issueMigrationTarget: (body: Work.MigrationTargetRequest) =>
+      request("/v1/project/migration-targets", body),
+    startLegacyMigration: (body: Work.LegacyMigrationRequest) =>
+      request("/v1/project/migrations", body),
+    readMigrationOperation: (id: string) =>
+      request(`/v1/project/migrations/${encodeURIComponent(id)}`),
+    controlMigration: (body: Work.MigrationControlRequest) =>
+      request(
+        `/v1/project/migrations/${encodeURIComponent(body.operationId)}/control`,
+        body,
+      ),
     readFileGraph: () => request("/v1/project/file-graph"),
     readGraphFiles: (cursor) =>
       request(`/v1/project/file-graph/files${pageQuery(cursor)}`),

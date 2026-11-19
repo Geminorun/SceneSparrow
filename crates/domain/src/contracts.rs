@@ -3492,3 +3492,182 @@ pub struct GraphRecoveryInspection {
     #[serde(rename = "observationFingerprint")]
     pub observation_fingerprint: String,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyMigrationInspection {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "legacySchema")]
+    pub legacy_schema: i64,
+    #[serde(rename = "workingRevision")]
+    pub working_revision: i64,
+    #[serde(rename = "historyRevision")]
+    pub history_revision: i64,
+    #[serde(rename = "cursor")]
+    pub cursor: i64,
+    #[serde(rename = "historyCount")]
+    pub history_count: i64,
+    #[serde(rename = "blockCount")]
+    pub block_count: i64,
+    #[serde(rename = "retainedObjectCount")]
+    pub retained_object_count: i64,
+    #[serde(rename = "contentBase")]
+    pub content_base: String,
+    #[serde(rename = "supported")]
+    pub supported: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationTargetRequestDestination {
+    #[serde(rename = "managed")]
+    Managed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationTargetRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "destination")]
+    pub destination: MigrationTargetRequestDestination,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationTargetDestination {
+    #[serde(rename = "managed")]
+    Managed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationTarget {
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "destination")]
+    pub destination: MigrationTargetDestination,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyMigrationRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "contentBase")]
+    pub content_base: String,
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationOperationViewPhase {
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "backup")]
+    Backup,
+    #[serde(rename = "upgrade")]
+    Upgrade,
+    #[serde(rename = "serialize")]
+    Serialize,
+    #[serde(rename = "verify")]
+    Verify,
+    #[serde(rename = "promote")]
+    Promote,
+    #[serde(rename = "ready")]
+    Ready,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationOperationViewState {
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationOperationView {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "targetId")]
+    pub target_id: String,
+    #[serde(rename = "contentBase")]
+    pub content_base: String,
+    #[serde(rename = "operationRevision")]
+    pub operation_revision: i64,
+    #[serde(rename = "phase")]
+    pub phase: MigrationOperationViewPhase,
+    #[serde(rename = "state")]
+    pub state: MigrationOperationViewState,
+    #[serde(rename = "completedBytes")]
+    pub completed_bytes: i64,
+    #[serde(rename = "completedObjects")]
+    pub completed_objects: i64,
+    #[serde(
+        rename = "failureCode",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub failure_code: Option<String>,
+    #[serde(
+        rename = "backupId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub backup_id: Option<String>,
+    #[serde(
+        rename = "resultId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub result_id: Option<String>,
+    #[serde(rename = "normalizedOrigin")]
+    pub normalized_origin: bool,
+    #[serde(
+        rename = "lastControlId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub last_control_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationStartResponse {
+    #[serde(rename = "accepted")]
+    pub accepted: bool,
+    #[serde(rename = "operation")]
+    pub operation: MigrationOperationView,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MigrationControlRequestAction {
+    #[serde(rename = "cancel")]
+    Cancel,
+    #[serde(rename = "retry")]
+    Retry,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MigrationControlRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "operationId")]
+    pub operation_id: String,
+    #[serde(rename = "expectedOperationRevision")]
+    pub expected_operation_revision: i64,
+    #[serde(rename = "action")]
+    pub action: MigrationControlRequestAction,
+}

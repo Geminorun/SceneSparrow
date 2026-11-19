@@ -35,6 +35,49 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     }
   }
   return {
+    ...(bridge.inspectLegacyMigration
+      ? {
+          inspectLegacyMigration: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["inspectLegacyMigration"]>
+            >
+          ) => unwrap(bridge.inspectLegacyMigration!(...args)),
+        }
+      : {}),
+    ...(bridge.issueMigrationTarget
+      ? {
+          issueMigrationTarget: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["issueMigrationTarget"]>
+            >
+          ) => unwrap(bridge.issueMigrationTarget!(...args)),
+        }
+      : {}),
+    ...(bridge.startLegacyMigration
+      ? {
+          startLegacyMigration: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["startLegacyMigration"]>
+            >
+          ) => unwrap(bridge.startLegacyMigration!(...args)),
+        }
+      : {}),
+    ...(bridge.readMigrationOperation
+      ? {
+          readMigrationOperation: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readMigrationOperation"]>
+            >
+          ) => unwrap(bridge.readMigrationOperation!(...args)),
+        }
+      : {}),
+    ...(bridge.controlMigration
+      ? {
+          controlMigration: (
+            ...args: Parameters<NonNullable<DesktopBridge["controlMigration"]>>
+          ) => unwrap(bridge.controlMigration!(...args)),
+        }
+      : {}),
     ...(bridge.inspectGraphRecovery
       ? {
           inspectGraphRecovery: (intent: string) =>

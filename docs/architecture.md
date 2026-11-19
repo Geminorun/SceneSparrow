@@ -25,13 +25,18 @@ creative graphs, scoped source/name saves, multi-file recovery and graph-aware
 history/backup through the same writer. OP4-B adds recorded grants/work copies,
 production file locks, bounded preparation/readers, original DTO outcomes and
 Changes integration through that same owner. Unknown outcomes fence writes; proved
-applied text conflicts preserve the local buffer for explicit merge/reload. Packaging
+applied text conflicts preserve the local buffer for explicit merge/reload.
+OP5-A adds read-only legacy inspection, consistent verified backup and staged
+conversion preserving identity/history/approval evidence. Global app-data transfer
+receipts track filesystem lifecycle independently of project content and shared
+AI; copied runtime capabilities are fenced before target readiness. Packaging
 and full platform/lifecycle support retain their later gates. See
 [OP2 validation](validation/open-project-op2.md) and
 [OP3-A validation](validation/open-project-op3a.md) and
 [OP3-B validation](validation/open-project-op3b.md) and
 [OP4-A validation](validation/open-project-op4a.md) and
-[OP4-B validation](validation/open-project-op4b.md).
+[OP4-B validation](validation/open-project-op4b.md) and
+[OP5-A validation](validation/open-project-op5a.md).
 
 ## Runtime and dependency boundaries
 
@@ -104,7 +109,7 @@ packages/
     transport.ts                 # HTTP response validation/classification
     links.ts                     # External-link validation used by both adapters
   contracts/                     # Schemas and generated TypeScript types
-  manuscript-format/             # Independent legacy writer and ./source codec
+  manuscript-format/             # Legacy writer, ./source codec and isolated ./migration serializer
   ai-runtime/                    # Generic provider runtime and output guards
   video-runtime/                 # Separate Remotion sample
 
@@ -131,6 +136,8 @@ crates/
     ai/                          # Settings, durable execution and framed AI host
     credentials/                 # Platform/session/encrypted credential adapters
     backup.rs                    # Verified backup and recovered-copy operations
+    project_transfer.rs          # Explicit conversion and global lifecycle receipts
+    project_transfer/            # Schema-only conversion, bounded journals and tests
 
 workers/
   agent/                         # Supervised AI process host

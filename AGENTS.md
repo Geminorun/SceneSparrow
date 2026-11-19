@@ -118,7 +118,11 @@
   `docs/open-project-execution.md` and ADR 0005. OP1 contracts/codec are locally
   reviewed, along with Linux OP2 storage, OP3 source authoring/reconciliation and
   OP4 recorded file graphs/work copies. See `docs/validation/open-project-op4b.md`.
-  Complete packages and platform support retain their later gates. OP2 currently refuses
+  OP5-A adds read-only verified legacy conversion and named transfer receipts;
+  see `docs/validation/open-project-op5a.md`. It preserves the source and prepares
+  a new target without activation. Actual output I/O uses held native parent
+  descriptors; never replace that binding with preflight-only path checks.
+  Complete packages, visible transfer flows and platform support retain their later gates. OP2 currently refuses
   native file promotion outside Linux; Windows source access is also unsupported.
   OP6 must implement these capabilities before claiming cross-platform delivery.
   For authorized coding,

@@ -20,7 +20,7 @@ export const safeMarkdownLink = (href: string) => {
 };
 
 type Atom = { text: string; marks: Mark[] };
-function writeInline(runs: TextRun[]): InlineNode[] {
+export function writeInline(runs: TextRun[]): InlineNode[] {
   runs = runs.map((run) => ({
     ...run,
     text: run.text.replace(/\r\n?/g, "\n"),

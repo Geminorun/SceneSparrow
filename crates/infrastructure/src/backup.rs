@@ -6,10 +6,10 @@ fn digest(b: &[u8]) -> String {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Inventory {
-    schema: i64,
-    objects: std::collections::BTreeSet<String>,
-    exports: BTreeMap<String, String>,
+pub(crate) struct Inventory {
+    pub(crate) schema: i64,
+    pub(crate) objects: std::collections::BTreeSet<String>,
+    pub(crate) exports: BTreeMap<String, String>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,25 +39,58 @@ struct AuthoredBackup {
     manifest: String,
     managed: String,
 }
-fn snapshot(
+pub(crate) fn snapshot(
     c: &Connection,
     source: &Path,
     target: &Path,
     creative: Option<&Path>,
 ) -> Result<(), Error> {
-    let inventory = SqliteProjectRepository::portable_inventory(source)?;
+    snapshot_controlled(c, source, target, creative, &|| false)
+}
+pub(crate) fn snapshot_controlled(
+    c: &Connection,
+    source: &Path,
+    target: &Path,
+    creative: Option<&Path>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), Error> {
+    // Materialize a WAL-aware read snapshot before SQLite backup. Inventory and
+    // authored descriptors are then read from the completed backup, never a later
+    // independent source connection.
+    let transaction = if c.is_autocommit() {
+        Some(storage(c.unchecked_transaction())?)
+    } else {
+        None
+    };
+    let _: i64 = storage(c.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| r.get(0)))?;
     storage(std::fs::create_dir(target))?;
     let mut backup = storage(Connection::open(target.join("project.sqlite")))?;
-    storage(rusqlite::backup::Backup::new(c, &mut backup))?
-        .run_to_completion(32, Duration::from_millis(10), None)
-        .map_err(|_| Error::Storage)?;
+    {
+        let writer = storage(rusqlite::backup::Backup::new(c, &mut backup))?;
+        loop {
+            if cancelled() {
+                return Err(Error::Closing);
+            }
+            match storage(writer.step(32))? {
+                rusqlite::backup::StepResult::Done => break,
+                rusqlite::backup::StepResult::More => {}
+                _ => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    }
     storage(backup.execute_batch("PRAGMA journal_mode=DELETE"))?;
-    drop(backup);
-    let schema = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+    if let Some(transaction) = transaction {
+        storage(transaction.commit())?;
+    }
+    let schema = storage(backup.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+    let repository = SqliteProjectRepository::detached(source, backup);
+    let inventory = repository.portable_inventory_locked()?;
+    let backed_up = storage(repository.connection.lock())?;
+    let c = &*backed_up;
     let mut files = BTreeMap::new();
     files.insert(
         "project.sqlite".into(),
-        digest(&storage(std::fs::read(target.join("project.sqlite")))?),
+        verify_file(&target.join("project.sqlite"))?,
     );
     flush(&target.join("project.sqlite"))?;
     for folder in ["objects", "exports"] {
@@ -78,7 +111,7 @@ fn snapshot(
             }
             let relative = format!("{folder}/{name}");
             let output = target.join(&relative);
-            copy_verified(&original, &output, &expected)?;
+            copy_verified_controlled(&original, &output, &expected, cancelled)?;
             files.insert(relative, expected);
         }
         sync_dir(&target.join(folder))?;
@@ -187,9 +220,9 @@ impl SqliteProjectRepository {
         for id in storage(q.query_map([], |r| r.get::<_, String>(0)))? {
             let id = storage(id)?;
             let j = super::exports::read_job(&c, &id).map_err(|_| Error::Storage)?;
-            let bytes = storage(std::fs::read(self.directory.join("exports").join(&id)))?;
-            if j.artifact_hash.as_deref() != Some(digest(&bytes).as_str())
-                || j.size != bytes.len() as i64
+            let path = self.directory.join("exports").join(&id);
+            if j.artifact_hash.as_deref() != Some(verify_file(&path)?.as_str())
+                || j.size != storage(std::fs::metadata(&path))?.len() as i64
             {
                 return Err(Error::Storage);
             }
@@ -449,15 +482,10 @@ impl SqliteProjectRepository {
             directory.join("project.sqlite"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         ))?;
-        let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if !(1..=14).contains(&version) {
-            return Err(Error::SchemaUnsupported);
-        }
-        let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
-        if integrity != "ok" {
-            return Err(Error::Storage);
-        }
-        let repository = Self {
+        Self::detached(directory, c).portable_inventory_locked()
+    }
+    pub(crate) fn detached(directory: &Path, c: Connection) -> Self {
+        Self {
             creative_root: None,
             #[cfg(test)]
             source_fault: Mutex::new(None),
@@ -477,8 +505,20 @@ impl SqliteProjectRepository {
             quiescing: std::sync::atomic::AtomicBool::new(false),
             workers: std::sync::atomic::AtomicUsize::new(0),
             _owner: None,
-        };
-        let c = storage(repository.connection.lock())?;
+        }
+    }
+    pub(crate) fn portable_inventory_locked(&self) -> Result<Inventory, Error> {
+        let repository = self;
+        let directory = &self.directory;
+        let c = storage(self.connection.lock())?;
+        let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+        if !(1..=14).contains(&version) {
+            return Err(Error::SchemaUnsupported);
+        }
+        let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
+        if integrity != "ok" {
+            return Err(Error::Storage);
+        }
         let mut inventory = Inventory {
             schema: version,
             objects: Default::default(),
@@ -550,8 +590,8 @@ impl SqliteProjectRepository {
                 if !scenesparrow_domain::manuscript::uuid4(&id) {
                     return Err(Error::Storage);
                 }
-                let bytes = storage(std::fs::read(directory.join("exports").join(&id)))?;
-                if bytes.len() as u64 != n || digest(&bytes) != h {
+                let path = directory.join("exports").join(&id);
+                if storage(std::fs::metadata(&path))?.len() != n || verify_file(&path)? != h {
                     return Err(Error::Storage);
                 }
                 inventory.exports.insert(id, h);
@@ -568,10 +608,31 @@ fn verify_file(path: &Path) -> Result<String, Error> {
         .map_err(|_| Error::Storage)
 }
 fn copy_verified(source: &Path, target: &Path, expected: &str) -> Result<(), Error> {
+    copy_verified_controlled(source, target, expected, &|| false)
+}
+fn copy_verified_controlled(
+    source: &Path,
+    target: &Path,
+    expected: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(), Error> {
     let mut input = crate::storage::objects::open_regular(source).map_err(|_| Error::Storage)?;
     let mut output = storage(File::options().write(true).create_new(true).open(target))?;
-    let (actual, _) = crate::storage::objects::stream_copy(&mut input, &mut output, u64::MAX)
-        .map_err(|_| Error::Storage)?;
+    use std::io::Read;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        if cancelled() {
+            return Err(Error::Closing);
+        }
+        let n = storage(input.read(&mut buffer))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+        storage(output.write_all(&buffer[..n]))?;
+    }
+    let actual = format!("{:x}", hasher.finalize());
     storage(output.sync_all())?;
     drop(output);
     if actual != expected || verify_file(target)? != expected {
@@ -580,11 +641,60 @@ fn copy_verified(source: &Path, target: &Path, expected: &str) -> Result<(), Err
     Ok(())
 }
 
+/// Byte-only preparation: it deliberately does not run normal repository startup.
+pub(crate) fn copy_verified_storage(
+    source: &Path,
+    target: &Path,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<String, Error> {
+    if target.exists() {
+        return Err(Error::Conflict);
+    }
+    let bytes = storage(std::fs::read(source.join("manifest.json")))?;
+    let manifest: Manifest = storage(serde_json::from_slice(&bytes))?;
+    if manifest.version != 1 || !(1..=14).contains(&manifest.schema) {
+        return Err(Error::Storage);
+    }
+    let inventory = SqliteProjectRepository::portable_inventory(source)?;
+    let expected: std::collections::BTreeSet<String> = std::iter::once("project.sqlite".into())
+        .chain(inventory.objects.iter().map(|h| format!("objects/{h}")))
+        .chain(inventory.exports.keys().map(|h| format!("exports/{h}")))
+        .collect();
+    if inventory.schema != manifest.schema
+        || manifest
+            .files
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            != expected
+    {
+        return Err(Error::Storage);
+    }
+    for (name, hash) in &manifest.files {
+        if verify_file(&source.join(name))? != *hash {
+            return Err(Error::Storage);
+        }
+    }
+    storage(std::fs::create_dir(target))?;
+    for directory in ["objects", "exports", "staging"] {
+        storage(std::fs::create_dir(target.join(directory)))?;
+    }
+    for (name, hash) in &manifest.files {
+        copy_verified_controlled(&source.join(name), &target.join(name), hash, cancelled)?;
+    }
+    sync_dir(target)?;
+    Ok(digest(&bytes))
+}
+
+pub(crate) fn manifest_identity(directory: &Path) -> Result<String, Error> {
+    verify_file(&directory.join("manifest.json"))
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use scenesparrow_application::{ProjectRepository, manuscript::ManuscriptRepository};
-    fn downgrade(repo: &SqliteProjectRepository, version: i64) {
+    pub(crate) fn downgrade(repo: &SqliteProjectRepository, version: i64) {
         let c = repo.connection.lock().unwrap();
         c.pragma_update(None, "foreign_keys", false).unwrap();
         if (9..12).contains(&version) {

@@ -119,8 +119,10 @@ and reviewed the staged diff before delivery.
 An earlier immutable A Foundation run 44484633236 failed one continuous-typing
 clock-boundary assertion; its exact-head second attempt passed. B's unchanged
 selection passed once plus three repeats, and root's legacy 21 passed it too. No
-root-cause fix is claimed for that initial intermittent result. Current PR CI remains
-a separate checkpoint; a prior head is not final OP6 evidence.
+root-cause fix is claimed for that initial intermittent result. Immutable OP4-B Foundation run
+[44512734493](https://github.com/Geminorun/SceneSparrow/actions/runs/44512734493)
+passed all checks/build/integration and full legacy/source browsers on `77c0044`.
+Later-head CI remains separate; this checkpoint is not final OP6 evidence.
 
 ## Remaining limits
 

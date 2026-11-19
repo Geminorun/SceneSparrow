@@ -143,6 +143,24 @@ impl Parent {
     pub fn remove_discarded_container(&self, _: &Parent) -> Result<()> {
         Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
     }
+    /// In-process preparation path anchored to this continuously held directory.
+    /// The final dot allows existing no-follow root opens without treating the
+    /// proc descriptor link itself as a creative symlink. Never persist this path
+    /// or pass it to a worker: the owning Parent must remain alive in this process.
+    #[cfg(target_os = "linux")]
+    pub fn bound_directory_path(&self) -> Result<PathBuf> {
+        self.verify()?;
+        let path = PathBuf::from(format!("/proc/self/fd/{}/.", self.directory.as_raw_fd()));
+        let held = db(File::open(&path))?;
+        if identity(&held)? != identity(&self.directory)? {
+            return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+        }
+        Ok(path)
+    }
+    #[cfg(not(target_os = "linux"))]
+    pub fn bound_directory_path(&self) -> Result<PathBuf> {
+        Err(fail("SOURCE_PLATFORM_UNSUPPORTED"))
+    }
     #[cfg(unix)]
     pub fn directory_identity(&self) -> Result<Identity> {
         identity(&self.directory)

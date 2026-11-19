@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./source": "./src/source.ts",
-    "./editor-source": "./src/editor-source.ts"
+    "./editor-source": "./src/editor-source.ts",
+    "./migration": "./src/migration.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

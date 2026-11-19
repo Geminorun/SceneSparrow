@@ -6,6 +6,7 @@ pub(crate) fn start(state: &AppState) {
     drive_ai_and_maintenance(state);
     drive_exports(state);
     drive_external_work(state);
+    drive_transfers(state);
 }
 
 fn drive_ai_and_maintenance(state: &AppState) {
@@ -84,6 +85,24 @@ fn drive_external_work(state: &AppState) {
             let _ =
                 tokio::task::spawn_blocking(move || service.repository().run_next_work_operation())
                     .await;
+        }
+    });
+}
+
+fn drive_transfers(state: &AppState) {
+    let service = Arc::downgrade(&state.service);
+    let transfers = Arc::downgrade(&state.transfers);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let (Some(service), Some(transfers)) = (service.upgrade(), transfers.upgrade()) else {
+                break;
+            };
+            let Some(Ok(store)) = transfers.get() else {
+                continue;
+            };
+            let store = store.clone();
+            let _ = tokio::task::spawn_blocking(move || store.run_next(service.repository())).await;
         }
     });
 }

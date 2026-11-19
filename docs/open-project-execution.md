@@ -6,7 +6,10 @@ Foundation checks. OP2 was pushed as `9c59723` and passed Foundation checks.
 OP3-A backend and OP3-B editor/UI are independently reviewed on the same PR.
 OP4-A native coordination and OP4-B scoped work copies, protection, streaming and
 Changes integration are independently reviewed locally; see
-[OP4-B validation](validation/open-project-op4b.md). OP5–OP6 remain pending. Each later gate must pass separately; source UI acceptance
+[OP4-B validation](validation/open-project-op4b.md). OP5-A conversion backend is
+independently reviewed; see [its validation](validation/open-project-op5a.md).
+OP5-B package backend, OP5-C visible transfer workflows and OP6 remain pending.
+Each later gate must pass separately; source UI acceptance
 does not establish native desktop or complete-package readiness.
 
 Branch: `feat/open-project-format`, based on remote `release/1.0.0` at `bf56982`.

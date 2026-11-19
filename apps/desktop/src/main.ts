@@ -1,3 +1,4 @@
+import { registerProjectTransferIpc } from "./project-transfer-ipc.js";
 import {
   app,
   BrowserWindow,
@@ -357,6 +358,7 @@ async function main() {
       throw Error("ORIGIN_DENIED");
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
+  registerProjectTransferIpc(ipcMain, { checkSender, request });
   const externalWork = registerExternalWorkIpc(ipcMain, {
     checkSender,
     session: () => ({ core, baseUrl, token }),

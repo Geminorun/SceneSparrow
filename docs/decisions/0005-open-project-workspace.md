@@ -1,7 +1,9 @@
 # Open project files and external Agent collaboration
 
 Status: accepted direction; implementation in progress, 2026-11-19.
-OP1/OP2 and OP3 source authoring/reconciliation are locally reviewed. Remaining stage and platform
+OP1/OP2, OP3 source authoring/reconciliation, OP4 recorded external work and
+OP5-A verified conversion backend are locally reviewed. Complete package, visible
+transfer, lifecycle and platform
 acceptance is pending; see the execution plan and validation reports.
 
 ## Context

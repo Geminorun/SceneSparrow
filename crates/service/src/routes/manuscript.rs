@@ -20,10 +20,19 @@ pub(crate) fn result<T: serde::Serialize>(
         Ok(value) => Json(value).into_response(),
         Err(error) => {
             let status = match error.0 {
-                "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
-                    StatusCode::NOT_FOUND
-                }
-                "WORK_ITEM_STALE"
+                "PROJECT_NOT_FOUND"
+                | "OBJECT_NOT_FOUND"
+                | "COMMAND_NOT_FOUND"
+                | "MIGRATION_NOT_FOUND" => StatusCode::NOT_FOUND,
+                "MIGRATION_REQUEST_CONFLICT"
+                | "MIGRATION_TARGET_INVALID"
+                | "MIGRATION_TARGET_EXISTS"
+                | "MIGRATION_BASE_MISMATCH"
+                | "MIGRATION_QUEUE_FULL"
+                | "MIGRATION_REVISION_CONFLICT"
+                | "MIGRATION_BUSY"
+                | "MIGRATION_LEGACY_REQUIRED"
+                | "WORK_ITEM_STALE"
                 | "WORK_CANDIDATE_STALE"
                 | "WORK_OPERATION_ACTIVE"
                 | "WORK_COPY_LIMIT"
