@@ -19,11 +19,12 @@ export type SourceCode =
   | "IDENTITY_AMBIGUOUS"
   | "IDENTITY_PLACEMENT_UNSUPPORTED";
 export class SourceFormatError extends Error {
-  constructor(
-    public readonly code: SourceCode,
-    public readonly detail: string,
-  ) {
+  readonly code: SourceCode;
+  readonly detail: string;
+  constructor(code: SourceCode, detail: string) {
     super(`${code}: ${detail}`);
+    this.code = code;
+    this.detail = detail;
   }
 }
 function fail(code: SourceCode, detail: string): never {

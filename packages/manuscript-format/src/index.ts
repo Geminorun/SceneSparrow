@@ -160,5 +160,4 @@ export function serializeMarkdown(
   });
 }
 
-// The source codec is intentionally separate from the normalized legacy writer.
-export * from "./source";
+// Source-preserving authoring is exposed separately via the ./source subpath.

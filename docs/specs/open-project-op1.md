@@ -75,6 +75,10 @@ addresses are positions within the current source, not persistent IDs. The pure
 later work. Consumers validate required protected IDs after patches and before
 persistence. UTF-8/UTF-16 units are explicit and unknown units reject.
 
+The codec entry is `@scenesparrow/manuscript-format/source`. The normalized writer
+keeps its independent `.` entry so existing supervised workers can load it under
+bare Node 24 without a tsx loader or new source-parser/schema imports.
+
 Provide insertion/read/edit proofs for paragraphs, headings, nested ordered and
 unordered lists, quotes, code blocks, mixed marks, hard/soft breaks and unsupported
 tables/HTML. Missing/duplicate/ambiguous IDs are explicit binding failures, not

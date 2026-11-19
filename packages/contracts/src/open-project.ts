@@ -1,4 +1,4 @@
-import schema from "../schema/open-project.schema.json";
+import schema from "../schema/open-project.schema.json" with { type: "json" };
 import type { OpenProjectManifest } from "./generated";
 
 export type ProjectFormatCode =
@@ -8,11 +8,12 @@ export type ProjectFormatCode =
   | "PATH_COLLISION"
   | "EXTENSIONS_INVALID";
 export class ProjectFormatError extends Error {
-  constructor(
-    public readonly code: ProjectFormatCode,
-    public readonly field: string,
-  ) {
+  readonly code: ProjectFormatCode;
+  readonly field: string;
+  constructor(code: ProjectFormatCode, field: string) {
     super(`${code}: ${field}`);
+    this.code = code;
+    this.field = field;
   }
 }
 function fail(code: ProjectFormatCode, field: string): never {

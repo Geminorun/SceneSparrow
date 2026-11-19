@@ -49,3 +49,22 @@ Every shell sourced `scripts/cloud-env.sh`. Rust-invoking checks used
 `CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_BUILD_JOBS=4`.
 OP1 is accepted locally for its scoped gate; later runtime and final CI gates
 must pass independently before this PR is ready.
+
+## Full-CI compatibility correction
+
+Foundation run `44439249970` on `e75cc5d` failed six existing Rust export tests.
+Root reproduced an eager source-codec reexport failing in bare Node 24: its
+extensionless import was resolved by the unit runner's tsx loader but not by the
+supervised export worker. Native type stripping also required erasable error
+class fields and an explicit JSON import attribute.
+
+The normalized writer now keeps an independent `.` entry; the source codec is
+available through `@scenesparrow/manuscript-format/source`. Two clean-environment
+bare-Node subprocess regressions cover the real export module and codec subpath.
+Root reran those plus contract/source/Markdown/export serializer suites:
+**122 passed**, no failures or skips. The remote full gate remains required;
+the earlier scoped checks did not establish worker-runtime compatibility.
+Root also reran `cargo test --locked -p scenesparrow-infrastructure exports::`:
+**15 passed**, including all six previously failing paths. This local run used
+the current worktree with preserved, uncommitted OP2 changes; it does not accept
+OP2 or replace the prospective merge-commit CI gate for the corrective commit.
