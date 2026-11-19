@@ -1,13 +1,12 @@
 import { useNoticeOwner } from "../feedback/NotificationPresenter";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Editor } from "@tiptap/core";
+import type { ManuscriptSurface } from "../manuscript/surface";
 import type { FinalizationState } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { ProjectSession } from "../project-session/project-session";
 import type en from "../locales/en.json";
 import { ProjectCommands } from "../project-session/project-commands";
-import { contentProtectionKey } from "../manuscript/content-protection";
 export function Locks({
   client,
   save,
@@ -19,7 +18,7 @@ export function Locks({
 }: {
   client: PlatformClient;
   save: ProjectSession;
-  editor: Editor | null;
+  editor: ManuscriptSurface | null;
   projectId: string;
   t: typeof en;
   headerTarget: Element | null;
@@ -74,37 +73,26 @@ export function Locks({
   }, [client, refresh]);
   useEffect(() => {
     if (editor && state) {
-      editor.view.dispatch(
-        editor.state.tr.setMeta(
-          contentProtectionKey,
-          new Set([
-            ...state.locks.map((l) => l.blockId),
-            ...state.reservedBlockIds,
-          ]),
-        ),
+      editor.protect(
+        new Set([
+          ...state.locks.map((l) => l.blockId),
+          ...state.reservedBlockIds,
+        ]),
       );
-      editor.setEditable(true, false);
       onReady(true);
     }
   }, [editor, state, onReady]);
   useEffect(() => {
     if (!editor) return;
     let frame = 0;
-    const nodes = new Map<string, Element>(),
-      visible = new Set<string>();
-    editor.view.dom.querySelectorAll("[data-blockid]").forEach((node) => {
-      const id = node.getAttribute("data-blockid");
-      if (id) nodes.set(id, node);
-    });
     const measure = () => {
       frame = 0;
       if (!column.current) return;
       const top = column.current.getBoundingClientRect().top,
         next: Record<string, number> = {};
-      for (const id of visible) {
-        const node = nodes.get(id);
-        if (node)
-          next[id] = Math.max(0, node.getBoundingClientRect().top - top);
+      for (const { id, rect } of editor.visibleBlockRects()) {
+        if (rect.bottom > -300 && rect.top < window.innerHeight + 300)
+          next[id] = Math.max(0, rect.top - top);
       }
       setPositions((prior) =>
         JSON.stringify(prior) === JSON.stringify(next) ? prior : next,
@@ -113,48 +101,24 @@ export function Locks({
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);
     };
-    const intersection = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = entry.target.getAttribute("data-blockid")!;
-          if (entry.isIntersecting) visible.add(id);
-          else visible.delete(id);
-        }
-        schedule();
-      },
-      { rootMargin: "300px" },
-    );
-    const reconcile = () => {
-      intersection.disconnect();
-      nodes.clear();
-      visible.clear();
-      editor.view.dom.querySelectorAll("[data-blockid]").forEach((node) => {
-        const id = node.getAttribute("data-blockid");
-        if (id) {
-          nodes.set(id, node);
-          intersection.observe(node);
-        }
-      });
-    };
-    const mutations = new MutationObserver(reconcile);
-    mutations.observe(editor.view.dom, { childList: true, subtree: true });
-    for (const node of nodes.values()) intersection.observe(node);
+    schedule();
+    const unsubscribe = editor.subscribe("content", schedule),
+      viewport = editor.subscribe("viewport", schedule);
     const observer = new ResizeObserver(schedule);
-    observer.observe(editor.view.dom);
-    editor.on("update", schedule);
+    observer.observe(editor.dom);
     window.addEventListener("resize", schedule);
     window.addEventListener("scroll", schedule, true);
     return () => {
+      unsubscribe();
+      viewport();
       observer.disconnect();
-      mutations.disconnect();
-      intersection.disconnect();
-      editor.off("update", schedule);
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
-      cancelAnimationFrame(frame);
     };
   }, [editor, save.canonicalVersion, save.state.blocks]);
   const change = async (blockId: string | null, locked: boolean) => {
+    const context = save.actions.contextVersion;
     setBusy(true);
     setError("");
     try {
@@ -174,8 +138,14 @@ export function Locks({
           },
         }),
       );
-      if (!result.ok && !locked && result.completed?.type === "SetUserLocks") {
+      if (
+        !result.ok &&
+        !locked &&
+        (result.completed?.type === "SetUserLocks" ||
+          save.businessRejection?.code === "REVISION_CONFLICT")
+      ) {
         const latest = await client.readFinalization();
+        if (context !== save.actions.contextVersion) return;
         result = await commands.run(
           `lock:${blockId ?? "all"}:${locked}`,
           () => ({

@@ -62,7 +62,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–010 are
+  open; do not claim full stage acceptance. Applied migrations 001–012 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
@@ -116,8 +116,8 @@
 
 - The next open-project effort is specified in `docs/specs/open-project-format.md`,
   `docs/open-project-execution.md` and ADR 0005. OP1 contracts/codec are locally
-  reviewed, along with Linux OP2 source storage. Source UI/reconciliation, complete
-  packages and platform support retain their later gates. OP2 currently refuses
+  reviewed, along with Linux OP2 storage and OP3 source authoring/reconciliation.
+  Complete packages and platform support retain their later gates. OP2 currently refuses
   native file promotion outside Linux; Windows source access is also unsupported.
   OP6 must implement these capabilities before claiming cross-platform delivery.
   For authorized coding,
@@ -131,6 +131,19 @@
   anchors or turn one paragraph lock into a global editing fence. Unproved
   structure/unknown effects remain conservative. Use the same Unicode portable
   key for physical reserved namespaces and logical collision checks.
+
+- Native source authoring uses CodeMirror with one exact raw buffer and the shared
+  ProjectSession; legacy authoring retains its adapter. Preserve BOM/mixed endings,
+  token/grapheme mapping, stable input DOM and composition across acknowledgments.
+  An original receipt and its possibly newer snapshot are separate facts. Keep
+  uncertain DTO identity and stage checkpoint mappings atomically. Missing-ID proof
+  must batch against captured syntax, not reparse the whole document per ID.
+  See `docs/validation/open-project-op3b.md` for tested behavior and refusal limits.
+- Future production impact and text impact have different locks. A locked text
+  baseline must remain usable to create audio/video while its source stays intact.
+  Unknown shared code/dependency effects expand production scope; they do not grant
+  text edits or implicitly turn text locks into production-file locks. Root freezes
+  OP4's concrete file-lock/reservation contract before coding that boundary.
 
 - The primary agent handles requirements clarification, planning, product/UX and
   architecture design, competitor research, solution comparison, and standalone

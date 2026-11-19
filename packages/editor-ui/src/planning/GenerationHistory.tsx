@@ -26,7 +26,7 @@ export function planningProgress(task: PlanningTask, t: typeof en) {
     : task.run.status === "cancelling"
       ? t.writingProgressCancelling
       : task.run.status === "succeeded"
-        ? t.writingProgressApplying
+        ? t.sourceWaitingToApply
         : operation;
 }
 export function GenerationHistoryButton({

@@ -878,6 +878,14 @@ test("OP3 missing external manuscript has an explicit no-clobber saved-source re
     (await f.req("/manuscript/source/resolve", body)).data.code,
     "SOURCE_REQUIRED_FILE_DELETED",
   );
+  assert.equal(
+    (await f.req(`/commands/${body.requestId}`)).data.code,
+    "SOURCE_REQUIRED_FILE_DELETED",
+  );
+  assert.equal(
+    (await f.req("/manuscript/source/resolve", body)).data.code,
+    "SOURCE_REQUIRED_FILE_DELETED",
+  );
   const restored = await f.req("/manuscript/source/resolve", {
     ...body,
     requestId: randomUUID(),

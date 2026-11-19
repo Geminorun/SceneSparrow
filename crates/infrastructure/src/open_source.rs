@@ -580,8 +580,12 @@ impl SqliteProjectRepository {
             source::known_leaf_change_scope(&previous_document, &document, &before_ids)
                 .map_err(format_error)?
         } else {
-            None
+            source::known_root_leaf_structural_scope(&previous_document, &document)
+                .map_err(format_error)?
         };
+        if before_ids != after_ids && scoped.is_some() {
+            self.guard_root_source_structure(c, &before_ids, None)?;
+        }
         if let Some(raw_affected) = scoped {
             t.affected.extend(raw_affected);
         } else {
@@ -602,6 +606,24 @@ impl SqliteProjectRepository {
         }
         self.policy.validate(before, &t.state, &t.affected)?;
         Ok(t)
+    }
+    fn guard_root_source_structure(
+        &self,
+        c: &Connection,
+        before_ids: &BTreeSet<String>,
+        allowed_task: Option<&str>,
+    ) -> Result<()> {
+        if before_ids.is_empty() {
+            return self.guard_source_tasks(c, allowed_task);
+        }
+        let mut query=db(c.prepare("SELECT block_id FROM review_reservations UNION SELECT d.block_id FROM downstream_dependencies d JOIN downstream_inputs i ON i.id=d.consumer_id WHERE i.status='using'"))?;
+        let reserved = db(query.query_map([], |row| row.get::<_, String>(0)))?
+            .map(db)
+            .collect::<Result<BTreeSet<_>>>()?;
+        if before_ids.is_subset(&reserved) {
+            return self.guard_source_tasks(c, allowed_task);
+        }
+        Ok(())
     }
     fn guard_source_tasks(&self, c: &Connection, allowed_task: Option<&str>) -> Result<()> {
         let active:bool=db(c.query_row("SELECT EXISTS(SELECT 1 FROM review_reservations) OR EXISTS(SELECT 1 FROM downstream_inputs WHERE status='using') OR EXISTS(SELECT 1 FROM script_ai_tasks WHERE application='pending' AND (?1 IS NULL OR id!=?1))",[allowed_task],|r|r.get(0)))?;
@@ -683,10 +705,28 @@ impl SqliteProjectRepository {
                 .iter()
                 .map(|block| block.id.clone())
                 .collect::<BTreeSet<_>>();
-            let proved = before_ids == after_ids
-                && source::known_leaf_change_scope(&previous, &after, &before_ids)
+            let proved = if before_ids == after_ids {
+                source::known_leaf_change_scope(&previous, &after, &before_ids)
+                    .map_err(format_error)?
+                    .is_some()
+            } else {
+                let proved = source::known_root_leaf_structural_scope(&previous, &after)
                     .map_err(format_error)?
                     .is_some();
+                if proved {
+                    self.guard_root_source_structure(
+                        c,
+                        &before_ids,
+                        match command {
+                            ManuscriptCommand::UsePlanningResult { payload, .. } => {
+                                Some(payload.task_id.as_str())
+                            }
+                            _ => None,
+                        },
+                    )?;
+                }
+                proved
+            };
             if !proved {
                 self.guard_source_tasks(
                     c,

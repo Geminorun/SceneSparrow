@@ -109,13 +109,20 @@ function parse(source: string): Ast {
 const start = (node: Ast) => node.position!.start.offset!;
 const end = (node: Ast) => node.position!.end.offset!;
 
+const capturedTrees = new WeakMap<SourceDocument, Ast>();
 /** CommonMark nodes decide comment context. Code, escapes and text never bind IDs. */
 export function readSourceDocument(
   input: string | Uint8Array,
   requiredIds: readonly string[] = [],
 ): SourceDocument {
   const source = text(input);
-  const ast = parse(source);
+  return readParsedSource(source, parse(source), requiredIds);
+}
+function readParsedSource(
+  source: string,
+  ast: Ast,
+  requiredIds: readonly string[],
+): SourceDocument {
   const offsets = scalarOffsets(source);
   const blocks: SourceBlock[] = [];
   const ids = new Set<string>();
@@ -243,7 +250,9 @@ export function readSourceDocument(
     if (!stableId(id)) fail("IDENTITY_INVALID", id);
     if (!ids.has(id)) fail("IDENTITY_MISSING", id);
   }
-  return Object.freeze({ source, blocks: Object.freeze(blocks) });
+  const document = Object.freeze({ source, blocks: Object.freeze(blocks) });
+  capturedTrees.set(document, ast);
+  return document;
 }
 export function sourceBytes(document: SourceDocument): Uint8Array {
   return encoder.encode(document.source);
@@ -323,6 +332,9 @@ export function applySourcePatches(
 
 /** Semantic proof value, retaining list tightness, code payloads and raw HTML. */
 export function sourceMeaning(input: string | Uint8Array): unknown {
+  return meaningAst(parse(text(input)));
+}
+function meaningAst(ast: Ast): unknown {
   const clean = (node: Ast): unknown => {
     if (markerId(node)) return undefined;
     return Object.fromEntries(
@@ -336,24 +348,108 @@ export function sourceMeaning(input: string | Uint8Array): unknown {
         ]),
     );
   };
-  return clean(parse(text(input)));
+  return clean(ast);
 }
-/** Insert exactly one ID without serializing Markdown. Reject unproved placements. */
+export type SourceIdentityAssignment = { address: string; id: string };
+export type SourceIdentityInsertion = {
+  at: number;
+  text: string;
+  assoc: number;
+};
+/** Plan all insertions against one captured AST, then prove bindings/meaning once. */
+export function planSourceIdentities(
+  document: SourceDocument,
+  assignments: readonly SourceIdentityAssignment[],
+): {
+  document: SourceDocument;
+  insertions: readonly SourceIdentityInsertion[];
+} {
+  if (!assignments.length) return { document, insertions: [] };
+  const ast = capturedTrees.get(document) ?? parse(document.source);
+  const blocks = new Map(
+    document.blocks.map((block) => [block.address, block]),
+  );
+  const ids = new Set(
+    document.blocks.flatMap((block) => (block.id ? [block.id] : [])),
+  );
+  const assigned = new Map<string, string>();
+  const eol = document.source.includes("\r\n") ? "\r\n" : "\n";
+  const planned: SourceIdentityInsertion[] = [];
+  for (const { address, id } of assignments) {
+    if (!stableId(id)) fail("IDENTITY_INVALID", id);
+    if (ids.has(id)) fail("IDENTITY_DUPLICATE", id);
+    const block = blocks.get(address);
+    if (!block || block.id || assigned.has(address))
+      fail("IDENTITY_AMBIGUOUS", address);
+    ids.add(id);
+    assigned.set(address, id);
+    planned.push(identityInsertion(document, ast, block, id, eol));
+  }
+  const insertions: SourceIdentityInsertion[] = [];
+  for (const insertion of planned.sort((a, b) => a.at - b.at)) {
+    const previous = insertions.at(-1);
+    if (previous?.at === insertion.at) {
+      if (previous.assoc !== insertion.assoc)
+        fail("IDENTITY_PLACEMENT_UNSUPPORTED", "shared offset");
+      previous.text += insertion.text;
+    } else insertions.push({ ...insertion });
+  }
+  const candidate = applySourcePatches(
+    document,
+    sourceBytes(document),
+    insertions.map(({ at, text }) => ({
+      start: at,
+      end: at,
+      replacement: text,
+    })),
+    "utf16",
+  );
+  let result: SourceDocument;
+  try {
+    const source = text(candidate);
+    const candidateAst = parse(source);
+    result = readParsedSource(source, candidateAst, [...ids]);
+    if (
+      result.blocks.length !== document.blocks.length ||
+      result.blocks.some(
+        (block, index) =>
+          block.kind !== document.blocks[index]!.kind ||
+          block.id !==
+            (assigned.get(document.blocks[index]!.address) ??
+              document.blocks[index]!.id),
+      ) ||
+      JSON.stringify(meaningAst(ast)) !==
+        JSON.stringify(meaningAst(candidateAst))
+    )
+      fail("IDENTITY_PLACEMENT_UNSUPPORTED", "batch");
+  } catch {
+    return fail(
+      "IDENTITY_PLACEMENT_UNSUPPORTED",
+      assignments.map(({ address }) => address).join(","),
+    );
+  }
+  return { document: result, insertions };
+}
+/** Insert exactly one ID using the frozen batch placement/proof. */
 export function insertSourceIdentity(
   document: SourceDocument,
   address: string,
   id: string,
 ): SourceDocument {
-  if (!stableId(id)) fail("IDENTITY_INVALID", id);
-  if (document.blocks.some((b) => b.id === id)) fail("IDENTITY_DUPLICATE", id);
-  const block = document.blocks.find((b) => b.address === address);
-  if (!block || block.id) fail("IDENTITY_AMBIGUOUS", address);
+  return planSourceIdentities(document, [{ address, id }]).document;
+}
+function identityInsertion(
+  document: SourceDocument,
+  ast: Ast,
+  block: SourceBlock,
+  id: string,
+  eol: string,
+): SourceIdentityInsertion {
+  const address = block.address;
   const source = document.source;
-  const eol = source.includes("\r\n") ? "\r\n" : "\n";
   let offset = block.startUtf16;
   let insertion: string;
   if (block.kind === "empty") {
-    const ast = parse(source);
     const parentAddress = address === "/empty" ? "" : address.slice(0, -6);
     let parent = ast;
     for (const part of parentAddress.split("/").filter(Boolean))
@@ -390,7 +486,7 @@ export function insertSourceIdentity(
           (/[ \t]*$/.exec(source.slice(offset, block.endUtf16))?.[0].length ??
             0);
       if (block.kind === "heading") {
-        let heading = parse(source);
+        let heading = ast;
         for (const part of address.split("/").filter(Boolean))
           heading = heading.children![Number(part)]!;
         const last = heading.children?.at(-1);
@@ -417,25 +513,13 @@ export function insertSourceIdentity(
     );
     insertion = `${marker(id)}${eol}${continuation}`;
   }
-  const candidate = applySourcePatches(
-    document,
-    sourceBytes(document),
-    [{ start: offset, end: offset, replacement: insertion }],
-    "utf16",
-  );
-  let result: SourceDocument;
-  try {
-    result = readSourceDocument(candidate, [
-      ...document.blocks.flatMap((b) => (b.id ? [b.id] : [])),
-      id,
-    ]);
-  } catch {
-    return fail("IDENTITY_PLACEMENT_UNSUPPORTED", address);
-  }
-  if (
-    JSON.stringify(sourceMeaning(source)) !==
-    JSON.stringify(sourceMeaning(candidate))
-  )
-    fail("IDENTITY_PLACEMENT_UNSUPPORTED", address);
-  return result;
+  return {
+    at: offset,
+    text: insertion,
+    assoc:
+      (block.kind === "paragraph" || block.kind === "heading") &&
+      address.split("/").length > 2
+        ? 1
+        : -1,
+  };
 }

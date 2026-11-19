@@ -7,6 +7,7 @@ import {
   sourceBytes,
   applySourcePatches,
   insertSourceIdentity,
+  planSourceIdentities,
   sourceMeaning,
 } from "../../packages/manuscript-format/src/source.ts";
 const bytes = (s) => new TextEncoder().encode(s);
@@ -69,6 +70,122 @@ for (const [index, fixture] of corpus.entries())
         `- ${marker(1)}\n  \`\`\`js\n  code\n  \`\`\`\n- next${marker(2)}\n`,
       );
   });
+test("batch identities preserve every frozen single-insert corpus byte and stable assignment order", () => {
+  for (const fixture of corpus) {
+    const original = readSourceDocument(fixture.source);
+    const assignments = original.blocks.map((block, index) => ({
+      address: block.address,
+      id: id(index + 1),
+    }));
+    for (const order of [assignments, [...assignments].reverse()]) {
+      const planned = planSourceIdentities(original, order);
+      assert.equal(planned.document.source, fixture.boundSource, fixture.name);
+      assert.deepEqual(
+        planned.document.blocks.map((block) => block.id),
+        fixture.expectedIds,
+      );
+      assert.deepEqual(
+        sourceMeaning(original.source),
+        sourceMeaning(planned.document.source),
+      );
+    }
+    assert.equal(planSourceIdentities(original, []).document, original);
+  }
+});
+test("batch identities reject duplicate assignments, invalid UUIDs and unsafe placements", () => {
+  const document = readSourceDocument("One\n\nTwo\n");
+  const [first, second] = document.blocks;
+  for (const [assignments, code] of [
+    [
+      [
+        { address: first.address, id: id(1) },
+        { address: second.address, id: id(1) },
+      ],
+      "IDENTITY_DUPLICATE",
+    ],
+    [
+      [
+        { address: first.address, id: id(1) },
+        { address: first.address, id: id(2) },
+      ],
+      "IDENTITY_AMBIGUOUS",
+    ],
+    [[{ address: "/missing", id: id(1) }], "IDENTITY_AMBIGUOUS"],
+    [
+      [{ address: first.address, id: "11111111-1111-5111-8111-000000000001" }],
+      "IDENTITY_INVALID",
+    ],
+  ])
+    assert.throws(() => planSourceIdentities(document, assignments), { code });
+  const bound = insertSourceIdentity(document, first.address, id(1));
+  assert.throws(
+    () =>
+      planSourceIdentities(bound, [
+        { address: bound.blocks[1].address, id: id(1) },
+      ]),
+    { code: "IDENTITY_DUPLICATE" },
+  );
+  // A forged shared placement cannot bypass the final native-shaped binding proof.
+  const unsafe = {
+    source: document.source,
+    blocks: document.blocks.map((block) => ({ ...block, startUtf16: 0 })),
+  };
+  assert.throws(
+    () =>
+      planSourceIdentities(
+        unsafe,
+        unsafe.blocks.map((block, index) => ({
+          address: block.address,
+          id: id(index + 1),
+        })),
+      ),
+    { code: "IDENTITY_PLACEMENT_UNSUPPORTED" },
+  );
+  const literalCode = readSourceDocument("-\t    code\n\nsafe\n");
+  assert.throws(
+    () =>
+      planSourceIdentities(
+        literalCode,
+        literalCode.blocks.map((block, index) => ({
+          address: block.address,
+          id: id(index + 1),
+        })),
+      ),
+    { code: "IDENTITY_PLACEMENT_UNSUPPORTED" },
+  );
+  assert.equal(document.source, "One\n\nTwo\n");
+});
+test("bulk identity plan and ACK have bounded whole-document work", async () => {
+  const { sourceAcknowledgmentInsertions, rebaseSourceAcknowledgment } =
+    await import("../../packages/manuscript-format/src/editor-source.ts");
+  for (const count of [100, 300, 2000]) {
+    const source = Array.from(
+      { length: count },
+      (_, index) => `Paragraph ${index}.\n\n`,
+    ).join("");
+    const document = readSourceDocument(source);
+    const assignments = document.blocks.map((block, index) => ({
+      address: block.address,
+      id: id(index + 1),
+    }));
+    const started = performance.now();
+    const plan = planSourceIdentities(document, assignments);
+    const ackStarted = performance.now();
+    assert.equal(
+      sourceAcknowledgmentInsertions(source, plan.document.source).length,
+      count,
+    );
+    assert.equal(
+      rebaseSourceAcknowledgment(source, plan.document.source, [], source),
+      plan.document.source,
+    );
+    console.log(
+      `bulk identity count=${count} sourceBytes=${bytes(source).length} planMs=${(ackStarted - started).toFixed(1)} ackAndRebaseMs=${(performance.now() - ackStarted).toFixed(1)}`,
+    );
+    assert.equal(plan.document.blocks.length, count);
+    assert.ok(plan.document.blocks.every((block) => block.id));
+  }
+});
 test("no-op preserves UTF-8 BOM, CRLF, unusual spaces and unsupported syntax byte-for-byte", () => {
   const raw = bytes(
     "\ufeff# Title\r\n\r\n  text\t  \r\nline\r\n\r\n| x | y |\r\n|---|---|\r\n<div data-z='a'>raw</div>\r\n",

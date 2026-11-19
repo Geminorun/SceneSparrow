@@ -1,8 +1,9 @@
 # Open project format and file-authoring specification
 
 Status: implementation in progress, 2026-11-19. OP1 contracts/codec and the Linux
-OP2 source store are locally reviewed. Source UI, reconciliation, packaging and
-full platform support remain later gates.
+OP2 source store and OP3-A reconciliation/delivery backend are locally reviewed.
+OP3-B source UI is locally reviewed. Packaging and full platform support remain
+later gates.
 Baseline: `release/1.0.0` at `bf56982`.
 Decision: [ADR 0005](../decisions/0005-open-project-workspace.md). Delivery gates
 and OP1–OP6 assignments: [execution plan](../open-project-execution.md).
@@ -211,6 +212,13 @@ They must not import private SceneSparrow workspace packages or contact private
 application APIs to render. The application is not required to understand every
 arbitrary TSX element; unknown dependency impact conservatively expands review
 scope and cannot cross a lock on an assumption of no effect.
+
+Text and production-file locks have separate impact sets. Locked manuscript text
+can be used to create audio/video while its actual bytes/identities remain intact.
+Unknown shared code/dependency effects expand production scope and honor explicit
+production locks/reservations; text finalization does not automatically lock every
+future media file. Source-reference divergence/staleness is visible provenance,
+not permission to rewrite approved text or a claim of verified synthesis.
 
 OP1 defines versioned declaration envelopes; production narration generation,
 mixing, alignment and video orchestration receive their own later specs. Do not

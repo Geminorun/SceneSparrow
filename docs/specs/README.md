@@ -14,8 +14,9 @@ tasks to the approved implementation sequence and review/commit/push gates.
 
 The [open project format](open-project-format.md) is a new cross-stage file and
 interoperability contract. Its [OP1–OP6 execution plan](../open-project-execution.md)
-defines the next migration effort. OP1 contracts/codec and Linux OP2 storage are locally reviewed; source UI and
-later delivery gates remain pending. The delivered S1–S4 behavior below remains
+defines the next migration effort. OP1 contracts/codec, Linux OP2 storage and
+OP3 reconciliation/source authoring are locally reviewed; later delivery gates
+remain pending. The delivered S1–S4 behavior below remains
 the regression baseline. Root supplies the owning
 stage brief and resolves its explicit format/recovery gates before delegation.
 The [OP1 stage brief](open-project-op1.md) starts the authorized implementation
@@ -44,7 +45,7 @@ step 3 adds [sources/import and recovery](../validation/step-03.md). Step 4 adds
 performance acceptance remains open. Step 8 adds
 [delivery and verified recovery](../validation/step-08.md), with all 130 cases
 tracked in the [acceptance matrix](../validation/acceptance-matrix.md).
-The shared migration ledger records the applied sequence through OP2 (schema 011).
+The shared migration ledger records the applied sequence through OP3-A (schema 012).
 
 Each stage spec includes scope, user behavior, domain/data rules, commands/events,
 errors and recovery, ordered development tasks, and testable acceptance criteria.
@@ -59,3 +60,11 @@ specs aligned with the final behavior and record material deviations.
 - [OP2 file storage and recovery](open-project-op2.md): native source, coordinated promotion and recovery.
 
 - [OP3 source authoring and reconciliation](open-project-op3.md): lossless editor, external changes and explicit recovery.
+
+- [OP3-B editor integration](open-project-op3b.md): accepted backend API consumers, shared input ownership, review surfaces and browser evidence.
+
+- [OP4 preparation](open-project-op4.md): protected file graphs, external work copies and multi-file acceptance; dispatch awaits OP3-B.
+
+- [OP5 preparation](open-project-op5.md): explicit migration, fixed-snapshot ZIPs and verified restore; dispatch awaits OP4.
+
+- [OP6 preparation](open-project-op6.md): native capabilities, recovery startup and final readiness; dispatch awaits OP5.

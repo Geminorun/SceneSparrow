@@ -5,14 +5,16 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./source": "./src/source.ts"
+    "./source": "./src/source.ts",
+    "./editor-source": "./src/editor-source.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@scenesparrow/contracts": "workspace:*",
+    "mdast-util-from-markdown": "2.0.2",
     "mdast-util-to-markdown": "2.1.2",
-    "mdast-util-from-markdown": "2.0.2"
+    "micromark-util-decode-string": "2.0.1"
   }
 }

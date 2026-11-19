@@ -89,13 +89,17 @@ export function Exports({
       .join("");
   useEffect(() => {
     let live = true;
-    void hashToken(currentToken).then((hash) => {
+    void (
+      save.source && client.readManuscriptIdentity
+        ? client.readManuscriptIdentity().then((identity) => identity.bodyHash)
+        : hashToken(currentToken)
+    ).then((hash) => {
       if (live) setCurrentBodyHash(hash);
     });
     return () => {
       live = false;
     };
-  }, [currentToken]);
+  }, [currentToken, save.source?.acceptedHash, client]);
   const delivery = useRef<{ id: string; job: string } | null>(null);
   const localMessage = (code: string) =>
     code === "NO_MANUSCRIPT_CONTENT"
@@ -255,7 +259,10 @@ export function Exports({
           throw new Error("exportFailed");
         const identity = save.exportInputIdentity;
         const token = `canonical-1|${save.state.manuscriptId}|${save.state.schemaVersion}|${save.state.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
-        const expectedBodyHash = await hashToken(token);
+        const expectedBodyHash =
+          save.source && client.readManuscriptIdentity
+            ? (await client.readManuscriptIdentity()).bodyHash
+            : await hashToken(token);
         const base = {
           requestId: crypto.randomUUID(),
           expectedRevision: save.state.workingRevision,
@@ -269,7 +276,13 @@ export function Exports({
         )
           throw new Error("REVISION_CONFLICT");
         pending.current = copy
-          ? { request: base, copy: true }
+          ? {
+              request: {
+                ...base,
+                ...(save.source ? { format: "md" as const } : {}),
+              },
+              copy: true,
+            }
           : recapture
             ? {
                 request: {

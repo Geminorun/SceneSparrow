@@ -2431,3 +2431,202 @@ body > .notifications {
   scrollbar-width: thin;
   padding-inline-end: 4px;
 }
+
+.source-manuscript {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.source-mode-toggle {
+  float: right;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.source-editor .cm-editor {
+  background: transparent;
+  font: inherit;
+  min-height: 65vh;
+}
+.source-editor .cm-content {
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1.8;
+  padding: 28px 42px 120px;
+  max-width: 860px;
+  margin-inline: auto;
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+.source-editor .cm-line {
+  padding: 0;
+}
+.source-editor .cm-focused {
+  outline: none;
+}
+.source-editor .cm-scroller {
+  overflow: visible;
+  font-family: inherit;
+}
+.source-editor .cm-selectionBackground {
+  background: var(--selection-bg, #dce6f0) !important;
+}
+.source-changes-button {
+  white-space: nowrap;
+}
+.writing-dialog:has(.source-changes-dialog) {
+  width: min(1100px, 94vw);
+  max-width: 94vw;
+}
+.source-version-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.source-changes-dialog label {
+  display: grid;
+  gap: 6px;
+  margin-block: 12px;
+  min-width: 0;
+}
+.source-changes-dialog textarea {
+  width: 100%;
+  min-height: 180px;
+  font: 13px/1.6 monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.source-changes-dialog .dialog-actions,
+.source-recovery-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-block: 12px;
+}
+.source-recovery-actions p {
+  flex-basis: 100%;
+}
+@media (max-width: 700px) {
+  .source-version-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .source-editor .cm-content {
+    padding-inline: 20px;
+  }
+}
+.source-authoring .manuscript-context h3 {
+  flex: 0 1 100px;
+}
+.source-authoring .save-feedback {
+  flex: 0 0 auto;
+  max-width: 110px;
+}
+.source-authoring .source-changes-button {
+  flex: 0 0 auto;
+}
+.source-changes-button[data-pending="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink);
+  margin-inline-end: 5px;
+}
+.source-authoring .lock-all-label {
+  display: none;
+}
+.source-editor .cm-content {
+  padding: 0 0 120px;
+}
+@media (max-width: 1300px) {
+  .source-authoring .approval-status,
+  .source-authoring .lock-column-heading > span {
+    display: none;
+  }
+}
+.source-live-strong {
+  font-weight: 650;
+}
+.source-live-emphasis {
+  font-style: italic;
+}
+.source-live-heading {
+  font-size: 1.35em;
+  font-weight: 650;
+  line-height: 1.5;
+}
+.source-live-link,
+.source-live-linkReference {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.source-live-code,
+.source-live-code-block {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--hover, #37352f08);
+  border-radius: 3px;
+}
+.source-diff-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-block: 18px;
+}
+.source-diff {
+  min-width: 0;
+}
+.source-diff h3 {
+  font-size: 14px;
+}
+.source-diff-hunk {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.source-diff-hunk li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 3px 8px;
+  font:
+    13px/1.6 ui-monospace,
+    monospace;
+}
+.source-diff-hunk code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.source-diff-line-number {
+  flex: 0 0 3ch;
+  color: var(--muted);
+  font-size: 11px;
+}
+.source-diff-hunk [data-diff-kind="added"] {
+  background: #2e7d3214;
+}
+.source-diff-hunk [data-diff-kind="removed"] {
+  background: #b3261e10;
+}
+.source-diff-identity code {
+  color: var(--muted);
+  font-size: 11px;
+}
+.source-full-versions {
+  margin-block: 16px;
+}
+@media (max-width: 700px) {
+  .source-diff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.source-changes-dialog h3 {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+}

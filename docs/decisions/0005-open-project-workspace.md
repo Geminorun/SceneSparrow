@@ -1,7 +1,8 @@
 # Open project files and external Agent collaboration
 
-Status: accepted direction; specification/preparation only, 2026-11-19.
-Implementation and platform acceptance are pending.
+Status: accepted direction; implementation in progress, 2026-11-19.
+OP1/OP2 and OP3 source authoring/reconciliation are locally reviewed. Remaining stage and platform
+acceptance is pending; see the execution plan and validation reports.
 
 ## Context
 

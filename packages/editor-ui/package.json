@@ -11,6 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "6.8.1",
+    "@codemirror/lang-markdown": "6.5.0",
+    "@codemirror/language": "6.11.3",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.6",
     "@scenesparrow/contracts": "workspace:*",
     "@scenesparrow/manuscript-format": "workspace:*",
     "@scenesparrow/platform-client": "workspace:*",

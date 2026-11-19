@@ -525,12 +525,35 @@ pub fn insert_identity(
 /// Simple list-item paragraphs retain the existing list kind/depth semantics.
 pub fn project(document: &SourceDocument) -> Result<Vec<crate::contracts::NewBlock>> {
     use crate::contracts::*;
-    fn inline(node: &Value, marks: &[Mark], runs: &mut Vec<TextRun>) -> Result<bool> {
+    fn inline(node: &Value, marks: &[Mark], runs: &mut Vec<TextRun>, source: &str) -> Result<bool> {
         if marker(node)?.is_some() {
             return Ok(true);
         }
         let text = match kind(node) {
-            "text" | "inlineCode" => node["value"].as_str().unwrap_or("").to_owned(),
+            "text" => node["value"]
+                .as_str()
+                .unwrap_or("")
+                .replace("\r\n", "\n")
+                .replace('\r', "\n"),
+            "inlineCode" => {
+                // Derive CommonMark code text from the parser-owned token. The
+                // AST value has already trimmed spaces before normalizing EOLs.
+                let raw = &source[start(node)..end(node)];
+                let ticks = raw.bytes().take_while(|byte| *byte == b'`').count();
+                if ticks == 0 || raw.len() < ticks * 2 {
+                    return Err(error("SOURCE_PARSE_FAILED", "inline code token"));
+                }
+                let mut value = raw[ticks..raw.len() - ticks]
+                    .replace("\r\n", " ")
+                    .replace(['\r', '\n'], " ");
+                if value.starts_with(' ')
+                    && value.ends_with(' ')
+                    && value.bytes().any(|byte| byte != b' ')
+                {
+                    value = value[1..value.len() - 1].to_owned();
+                }
+                value
+            }
             "break" => "\n".into(),
             "strong" | "emphasis" | "link" => {
                 let mut marks = marks.to_vec();
@@ -547,7 +570,7 @@ pub fn project(document: &SourceDocument) -> Result<Vec<crate::contracts::NewBlo
                     },
                 });
                 for child in children(node) {
-                    if !inline(child, &marks, runs)? {
+                    if !inline(child, &marks, runs, source)? {
                         return Ok(false);
                     }
                 }
@@ -621,7 +644,7 @@ pub fn project(document: &SourceDocument) -> Result<Vec<crate::contracts::NewBlo
         let node = at_address(&ast, node_address);
         let mut supported = true;
         for child in children(node) {
-            supported &= inline(child, &[], &mut runs)?;
+            supported &= inline(child, &[], &mut runs, &document.source)?;
         }
         if supported {
             if let Some(address) = &block.list_item_address {
@@ -733,6 +756,154 @@ pub fn root_leaf_range(document: &SourceDocument, id: &str) -> Result<Option<(us
         start(node)
     };
     Ok(Some((owned_start, end(node))))
+}
+
+/// Narrow structural proof for a complete, supported root-leaf manuscript.
+/// Surviving leaf order and every still-adjacent whitespace boundary stay exact.
+pub fn known_root_leaf_structural_scope(
+    before: &SourceDocument,
+    after: &SourceDocument,
+) -> Result<Option<BTreeSet<String>>> {
+    struct RootLeaf {
+        id: String,
+        start: usize,
+        end: usize,
+    }
+    fn capture(document: &SourceDocument) -> Result<Option<Vec<RootLeaf>>> {
+        if document
+            .source
+            .trim_start_matches('\u{feff}')
+            .trim()
+            .is_empty()
+        {
+            return Ok(Some(vec![]));
+        }
+        let projected = project(document)?;
+        if projected.len() != document.blocks.len() {
+            return Ok(None);
+        }
+        let ast = parse(&document.source)?;
+        let nodes = children(&ast);
+        let supported = projected
+            .iter()
+            .map(|block| block.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut leaves = vec![];
+        for block in &document.blocks {
+            let Some(id) = &block.id else {
+                return Ok(None);
+            };
+            if block.address.split('/').count() != 2
+                || !matches!(block.kind.as_str(), "paragraph" | "heading" | "empty")
+                || !supported.contains(id.as_str())
+            {
+                return Ok(None);
+            }
+            let index = block.address[1..]
+                .parse::<usize>()
+                .map_err(|_| error("IDENTITY_AMBIGUOUS", id))?;
+            let Some(node) = nodes.get(index) else {
+                return Ok(None);
+            };
+            let prefix = index
+                .checked_sub(1)
+                .and_then(|at| nodes.get(at))
+                .filter(|node| matches!(marker(node),Ok(Some(value)) if value==id));
+            leaves.push(RootLeaf {
+                id: id.clone(),
+                start: prefix.map_or(start(node), start),
+                end: end(node),
+            });
+        }
+        let mut cursor = 0;
+        for leaf in &leaves {
+            if leaf.start < cursor
+                || !(if cursor == 0 {
+                    document.source[cursor..leaf.start].trim_start_matches('\u{feff}')
+                } else {
+                    &document.source[cursor..leaf.start]
+                })
+                .trim()
+                .is_empty()
+            {
+                return Ok(None);
+            }
+            cursor = leaf.end;
+        }
+        if !document.source[cursor..].trim().is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(leaves))
+    }
+    if before.source.starts_with('\u{feff}') != after.source.starts_with('\u{feff}') {
+        return Ok(None);
+    }
+    let (Some(old), Some(new)) = (capture(before)?, capture(after)?) else {
+        return Ok(None);
+    };
+    let old_ids = old
+        .iter()
+        .map(|leaf| leaf.id.clone())
+        .collect::<BTreeSet<_>>();
+    let new_ids = new
+        .iter()
+        .map(|leaf| leaf.id.clone())
+        .collect::<BTreeSet<_>>();
+    if old
+        .iter()
+        .filter(|leaf| new_ids.contains(&leaf.id))
+        .map(|leaf| &leaf.id)
+        .collect::<Vec<_>>()
+        != new
+            .iter()
+            .filter(|leaf| old_ids.contains(&leaf.id))
+            .map(|leaf| &leaf.id)
+            .collect::<Vec<_>>()
+    {
+        return Ok(None);
+    }
+    fn gaps<'a>(
+        document: &'a SourceDocument,
+        leaves: &[RootLeaf],
+    ) -> std::collections::BTreeMap<(Option<String>, Option<String>), &'a str> {
+        let mut gaps = std::collections::BTreeMap::new();
+        let mut cursor = 0;
+        let mut previous = None;
+        for leaf in leaves {
+            gaps.insert(
+                (previous.clone(), Some(leaf.id.clone())),
+                &document.source[cursor..leaf.start],
+            );
+            cursor = leaf.end;
+            previous = Some(leaf.id.clone());
+        }
+        gaps.insert((previous, None), &document.source[cursor..]);
+        gaps
+    }
+    let old_gaps = gaps(before, &old);
+    let new_gaps = gaps(after, &new);
+    if old_gaps
+        .iter()
+        .any(|(boundary, gap)| new_gaps.get(boundary).is_some_and(|next| gap != next))
+    {
+        return Ok(None);
+    }
+    let mut affected = old_ids
+        .symmetric_difference(&new_ids)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let by_id = new
+        .iter()
+        .map(|leaf| (leaf.id.as_str(), leaf))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for leaf in &old {
+        if let Some(next) = by_id.get(leaf.id.as_str())
+            && before.source[leaf.start..leaf.end] != after.source[next.start..next.end]
+        {
+            affected.insert(leaf.id.clone());
+        }
+    }
+    Ok(Some(affected))
 }
 
 /// Prefix syntax for a simple list leaf on its item's first line. Changing a
@@ -1067,5 +1238,94 @@ mod clean_delivery_tests {
         );
         let expected = raw.replacen(marker, "", 1);
         assert_eq!(super::clean_markdown(raw.as_bytes()).unwrap(), expected);
+    }
+    #[test]
+    fn source_projection_normalizes_text_endings_and_raw_commonmark_code_tokens() {
+        use super::{project, read_source};
+        let id = "11111111-1111-4111-8111-111111111111";
+        for (token, expected) in [
+            ("`one\ntwo`", "one two"),
+            ("`one\r\ntwo`", "one two"),
+            ("`one\rtwo`", "one two"),
+            ("` one `", "one"),
+            ("`  one  `", " one "),
+            ("`   `", "   "),
+            ("` \r\none\r\n `", " one "),
+            ("`a\\* &amp; 中😀`", "a\\* &amp; 中😀"),
+        ] {
+            let raw = format!("<!-- scenesparrow:block={id} -->\r\n\r\n{token}\r\n");
+            let document = read_source(raw.as_bytes(), &[]).unwrap();
+            let blocks = project(&document).unwrap();
+            assert_eq!(blocks.len(), 1, "{token:?}");
+            assert_eq!(
+                blocks[0]
+                    .runs
+                    .iter()
+                    .map(|run| run.text.as_str())
+                    .collect::<String>(),
+                expected,
+                "{token:?}"
+            );
+            assert_eq!(document.source, raw);
+        }
+        let raw = format!("<!-- scenesparrow:block={id} -->\r\n\r\nOne\r\nsoft  \r\nhard\rnext\n");
+        let document = read_source(raw.as_bytes(), &[]).unwrap();
+        let blocks = project(&document).unwrap();
+        assert_eq!(
+            blocks[0]
+                .runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<String>(),
+            "One\nsoft\nhard\nnext"
+        );
+        assert_eq!(document.source, raw);
+    }
+}
+
+#[cfg(test)]
+mod root_structure_tests {
+    use super::*;
+    fn leaf(id: &str, text: &str) -> String {
+        format!("<!-- scenesparrow:block={id} -->\r\n\r\n{text}")
+    }
+    fn document(source: &str) -> SourceDocument {
+        read_source(source.as_bytes(), &[]).unwrap()
+    }
+    #[test]
+    fn supported_root_insert_delete_proof_checks_surviving_order_gaps_bom_and_unknowns() {
+        let a = "11111111-1111-4111-8111-111111111111";
+        let b = "22222222-2222-4222-8222-222222222222";
+        let c = "33333333-3333-4333-8333-333333333333";
+        let before = format!("\u{feff}{}\r\n\r\n{}\n", leaf(a, "A"), leaf(b, "B"));
+        let after = format!("{before}\n{}\r\n", leaf(c, "C"));
+        assert_eq!(
+            known_root_leaf_structural_scope(&document(&before), &document(&after)).unwrap(),
+            Some(BTreeSet::from([c.into()]))
+        );
+        assert_eq!(
+            known_root_leaf_structural_scope(&document(&after), &document(&before)).unwrap(),
+            Some(BTreeSet::from([c.into()]))
+        );
+        for invalid in [
+            after.replacen("A\r\n\r\n", "A\n\n", 1),
+            after.trim_start_matches('\u{feff}').to_owned(),
+            format!(
+                "\u{feff}{}\n\n{}\n\n{}",
+                leaf(b, "B"),
+                leaf(a, "A"),
+                leaf(c, "C")
+            ),
+            format!("{after}\n<table>unknown</table>\n"),
+            format!("{after}\n![image](https://example.invalid/a.png)\n"),
+            format!("{after}\n```text\ncode\n```\n"),
+        ] {
+            assert!(
+                known_root_leaf_structural_scope(&document(&before), &document(&invalid))
+                    .unwrap()
+                    .is_none(),
+                "{invalid}"
+            );
+        }
     }
 }

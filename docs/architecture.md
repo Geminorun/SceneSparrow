@@ -19,10 +19,12 @@ The open-project ownership change is specified in the
 sources while retaining core-owned approval/management records. OP1 contracts
 and the Linux OP2 native source store are locally reviewed. OP3-A adds explicit
 external-file reconciliation, reachable same-process recovery and clean Markdown
-delivery; the shared UI still uses legacy authoring until OP3-B. Packaging and
-full platform support retain their later gates. See
+delivery. OP3-B connects a lossless CodeMirror source surface and the existing
+legacy Tiptap surface through one session and manuscript port. Packaging and full
+platform support retain their later gates. See
 [OP2 validation](validation/open-project-op2.md) and
-[OP3-A validation](validation/open-project-op3a.md).
+[OP3-A validation](validation/open-project-op3a.md) and
+[OP3-B validation](validation/open-project-op3b.md).
 
 ## Runtime and dependency boundaries
 
@@ -74,7 +76,7 @@ packages/
     app/                         # Bootstrap, project entry and global settings UI
     workbench/                   # Mounted workspace, panes and view coordination
     project-session/             # Command queue, revisions, receipts and history
-    manuscript/                  # Tiptap setup, canonical projection and import UI
+    manuscript/                  # Legacy/source surfaces, raw editing, recovery and import UI
     planning/                    # Outline/input buffer, generation and task views
     review/                      # Selection, conversation, candidates and lock UI
     library/                     # References and evidence selection
@@ -145,6 +147,12 @@ history. `PlanningAutosave` keeps its own planning buffer and participates in th
 same queue through the existing planning adapter. `ProjectCommands` retains each
 caller's pending command identity; changing UI context cannot replace an uncertain
 request with a new paid or mutating action.
+
+Native-format manuscripts use an exact raw buffer and CodeMirror normalized-view
+patches; legacy manuscripts retain canonical Tiptap editing. The manuscript surface
+port supplies review/lock capture, annotations and viewport geometry for both.
+Source status is a cheap probe; full bindings load when accepted content changes.
+Explicit Changes/recovery keeps local and accepted/external versions separate.
 
 The session keeps each pending control command with its original visible-input
 snapshot and owns the pure local/canonical body comparison. Content equality

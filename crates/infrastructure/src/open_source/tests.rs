@@ -969,6 +969,14 @@ fn discard_advances_fence_without_prose_history_and_stale_live_never_overwrites(
         std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
         "Newer outside\n"
     );
+    assert_eq!(
+        repo.command_receipt(&stale.request_id).unwrap_err().0,
+        "SOURCE_CANDIDATE_STALE"
+    );
+    assert_eq!(
+        repo.resolve_source(&stale).unwrap_err().0,
+        "SOURCE_CANDIDATE_STALE"
+    );
     let r = candidate_request(&repo, "discard", None);
     let history = repo.read_history().unwrap();
     let result = repo.resolve_source(&r).unwrap();
@@ -1779,5 +1787,119 @@ fn scoped_recovery_evidence_exposes_unknown_staged_bytes_after_cleanup_and_reope
             .source
             .unwrap()
             .contains("Local A")
+    );
+}
+
+#[test]
+fn source_rejection_receipts_decode_the_original_codes() {
+    for code in [
+        "SOURCE_CANDIDATE_STALE",
+        "SOURCE_CANDIDATE_INVALID",
+        "SOURCE_RECOVERY_STALE",
+        "SOURCE_REQUIRED_FILE_DELETED",
+    ] {
+        assert_eq!(
+            SqliteProjectRepository::decode(&serde_json::json!({"error":code}).to_string())
+                .unwrap_err()
+                .0,
+            code
+        );
+    }
+}
+
+#[test]
+fn multiline_source_projection_is_selectable_and_preserves_raw_locked_neighbors() {
+    let (_dir, root, repo) = fixture();
+    let a = "11111111-1111-4111-8111-111111111111";
+    let b = "22222222-2222-4222-8222-222222222222";
+    let raw = format!(
+        "\u{feff}<!-- scenesparrow:block={a} -->\r\n\r\nLocked A\r\n\r\n<!-- scenesparrow:block={b} -->\n\nOne\r\nsoft  \r\nhard ` \r\n中😀\r\n ` and `   ` and `literal &amp; \\*`\n"
+    );
+    let saved = repo.save_source(&request(&repo, &raw)).unwrap();
+    assert_eq!(saved.snapshot.source, raw);
+    assert_eq!(saved.snapshot.semantic_block_ids.len(), 2);
+    let before = repo.read_manuscript().unwrap();
+    let text = before.blocks[1]
+        .runs
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect::<String>();
+    assert_eq!(text, "One\nsoft\nhard  中😀  and     and literal &amp; \\*");
+    command(
+        &repo,
+        "SetUserLocks",
+        serde_json::json!({"blockIds":[a],"locked":true,"all":false}),
+    );
+    let edited = raw.replace("soft", "edited");
+    repo.save_source(&request(&repo, &edited)).unwrap();
+    assert_eq!(
+        repo.read_manuscript().unwrap().blocks[0].revision,
+        before.blocks[0].revision
+    );
+    assert_eq!(
+        std::fs::read(root.join("manuscript.md")).unwrap(),
+        edited.as_bytes()
+    );
+}
+
+#[test]
+fn proved_root_structural_history_keeps_locked_a_and_its_review_anchor() {
+    let (_dir, root, repo) = fixture();
+    let a = "11111111-1111-4111-8111-111111111111";
+    let b = "22222222-2222-4222-8222-222222222222";
+    let raw = format!(
+        "\u{feff}<!-- scenesparrow:block={a} -->\r\n\r\nLocked A\r\n\r\n<!-- scenesparrow:block={b} -->\n\nB\n"
+    );
+    repo.save_source(&request(&repo, &raw)).unwrap();
+    let before = repo.read_manuscript().unwrap();
+    let revision = before.blocks[0].revision;
+    command(
+        &repo,
+        "SaveReview",
+        serde_json::json!({"thread":{"id":id(),"kind":"question","requestVersion":0,"text":"Keep A anchored","anchor":{"ranges":[{"blockId":a,"revision":revision,"start":0,"end":8,"quote":"Locked A","wholeBlock":true}],"state":"mapped","slot":null},"handled":false,"deleted":false,"language":"en","evidence":[],"decision":null,"userMessageIds":[]},"expectedRequestVersion":0}),
+    );
+    command(
+        &repo,
+        "SetUserLocks",
+        serde_json::json!({"blockIds":[a],"locked":true,"all":false}),
+    );
+    let anchor = repo.read_reviews(None).unwrap().cards[0]
+        .thread
+        .anchor
+        .clone();
+    let inserted = format!("{raw}\nCopied new leaf 中文\n");
+    let saved = repo.save_source(&request(&repo, &inserted)).unwrap();
+    assert_eq!(saved.snapshot.semantic_block_ids.len(), 3);
+    assert_eq!(repo.read_manuscript().unwrap().blocks[0].revision, revision);
+    assert_eq!(
+        repo.read_reviews(None).unwrap().cards[0].thread.anchor,
+        anchor
+    );
+    command(&repo, "UndoProject", serde_json::json!({}));
+    assert_eq!(repo.read_source_snapshot().unwrap().source, raw);
+    command(&repo, "RedoProject", serde_json::json!({}));
+    assert_eq!(
+        repo.read_source_snapshot().unwrap().source,
+        saved.snapshot.source
+    );
+    repo.save_source(&request(&repo, &raw)).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap().blocks[0].revision, revision);
+    for unsafe_source in [
+        format!(
+            "{}\nAnother new leaf",
+            raw.replacen("Locked A\r\n\r\n", "Locked A\n\n", 1)
+        ),
+        format!("{raw}\n```text\nunknown\n```\n"),
+        format!("{}\nNew leaf", raw.replacen("Locked A", "Changed A", 1)),
+    ] {
+        assert!(repo.save_source(&request(&repo, &unsafe_source)).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+            raw
+        );
+    }
+    assert_eq!(
+        repo.read_reviews(None).unwrap().cards[0].thread.anchor,
+        anchor
     );
 }

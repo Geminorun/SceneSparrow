@@ -1,6 +1,11 @@
-import { useManuscriptEditor } from "../manuscript/use-manuscript-editor";
-import { useEffect, useRef, useState } from "react";
-import { EditorContent } from "@tiptap/react";
+import { LegacyEditor } from "../manuscript/LegacyEditor";
+import { SourceEditor } from "../manuscript/SourceEditor";
+import { SourceChanges } from "../manuscript/SourceChanges";
+import { legacySurface, type ManuscriptSurface } from "../manuscript/surface";
+import type { Editor } from "@tiptap/core";
+import { ApiError } from "@scenesparrow/platform-client";
+import type { AuthoredSourceSnapshot } from "@scenesparrow/contracts";
+import { useEffect, useRef, useState, useMemo } from "react";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { HistoryState, ManuscriptState } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
@@ -50,6 +55,7 @@ export function Workbench({
   const [initial, setInitial] = useState<{
     document: ManuscriptState;
     history: HistoryState;
+    source: AuthoredSourceSnapshot | null;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,7 +69,19 @@ export function Workbench({
       const history = await client.readHistory();
       if (document.workingRevision !== history.workingRevision)
         throw Error("REVISION_CONFLICT");
-      return { document, history };
+      let source: AuthoredSourceSnapshot | null = null;
+      if (client.readAuthoredSource) {
+        try {
+          source = await client.readAuthoredSource();
+        } catch (error) {
+          if (!(
+            error instanceof ApiError &&
+            error.code === "SOURCE_CAPABILITY_UNSUPPORTED"
+          ))
+            throw error;
+        }
+      }
+      return { document, history, source };
     };
     void load()
       .then(
@@ -100,6 +118,7 @@ export function Workbench({
       key={projectId}
       initial={initial.document}
       history={initial.history}
+      initialSource={initial.source}
       client={client}
       projectId={projectId}
       t={t}
@@ -111,6 +130,7 @@ export function Workbench({
 }
 function WorkbenchContent({
   initial,
+  initialSource,
   history,
   client,
   projectId,
@@ -120,6 +140,7 @@ function WorkbenchContent({
   approvedBaseline,
 }: {
   initial: ManuscriptState;
+  initialSource: AuthoredSourceSnapshot | null;
   history: HistoryState;
   client: PlatformClient;
   projectId: string;
@@ -150,16 +171,17 @@ function WorkbenchContent({
   const protectionReadyRef = useRef(false);
   protectionReadyRef.current = protectionReady;
   const [lockHeader, setLockHeader] = useState<HTMLDivElement | null>(null);
-  const [save] = useState(
-    () =>
-      new ProjectSession(
-        initial,
-        projectId,
-        client,
-        () => render((n) => n + 1),
-        history,
-      ),
-  );
+  const [save] = useState(() => {
+    const session = new ProjectSession(
+      initial,
+      projectId,
+      client,
+      () => render((n) => n + 1),
+      history,
+    );
+    if (initialSource) session.initializeSource(initialSource);
+    return session;
+  });
   const [view, setView] = useState<WritingView>(() => {
     try {
       return localStorage.getItem(`scenesparrow.writing-view:${projectId}`) ===
@@ -242,13 +264,16 @@ function WorkbenchContent({
   const sourceVisible = useRef(false);
   const [source, setSource] = useState("");
   const [sourceRecovery, setSourceRecovery] = useState(false);
-  const { editor, liveEditor } = useManuscriptEditor({
-    initial,
-    save,
-    label: t.manuscript,
-    protectionReady,
-    sourceVisible,
-  });
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const liveEditor = useRef<Editor | null>(null);
+  liveEditor.current = editor;
+  const [sourceSurface, setSourceSurface] = useState<ManuscriptSurface | null>(
+    null,
+  );
+  const surface = useMemo(
+    () => sourceSurface ?? (editor ? legacySurface(editor, save) : null),
+    [editor, sourceSurface],
+  );
 
   useEffect(() => {
     if (editor && save.state.workspaceStage === "outline") {
@@ -349,7 +374,8 @@ function WorkbenchContent({
       if (
         save.status !== "saved" ||
         save.planningAdapter?.dirty() ||
-        save.reviewDirty?.()
+        save.reviewDirty?.() ||
+        save.sourceProposalDirty?.()
       ) {
         event.preventDefault();
         event.returnValue = "";
@@ -444,6 +470,12 @@ function WorkbenchContent({
       sourceDialog.current?.showModal();
       return;
     }
+    if (save.source) {
+      setSource(save.sourceLocal);
+      sourceVisible.current = true;
+      sourceDialog.current?.showModal();
+      return;
+    }
     try {
       current = serializeMarkdown(
         editor
@@ -471,7 +503,9 @@ function WorkbenchContent({
     );
   };
   return (
-    <section className="manuscript-workspace">
+    <section
+      className={`manuscript-workspace${initialSource ? " source-authoring" : ""}`}
+    >
       {frozen && <p role="status">{t.closingProject}</p>}
       <fieldset
         ref={freezeContainer}
@@ -486,7 +520,7 @@ function WorkbenchContent({
             <Review
               client={client}
               save={save}
-              editor={editor}
+              editor={surface}
               projectId={projectId}
               t={t}
               onOpen={(panel = "comments") =>
@@ -549,14 +583,7 @@ function WorkbenchContent({
                       style={{
                         paddingInlineStart: `${(b.attrs.level ?? 1) * 8}px`,
                       }}
-                      onClick={() =>
-                        editor?.view.dom
-                          .querySelector(`[data-blockid="${b.id}"]`)
-                          ?.scrollIntoView({
-                            block: "center",
-                            behavior: "smooth",
-                          })
-                      }
+                      onClick={() => surface?.scrollBlock(b.id)}
                     >
                       {b.runs.map((r) => r.text).join("") || t.heading}
                     </button>
@@ -618,6 +645,14 @@ function WorkbenchContent({
                 t={t}
                 recover={() => setRecovery(true)}
               />
+              {save.source && (
+                <SourceChanges
+                  save={save}
+                  client={client}
+                  t={t}
+                  frozen={frozen}
+                />
+              )}
               {view === "manuscript" &&
                 save.state.workspaceStage === "draft" && (
                   <span
@@ -715,12 +750,32 @@ function WorkbenchContent({
             hidden={view !== "manuscript"}
             inert={view !== "manuscript"}
           >
-            <EditorContent editor={editor} />
+            {initialSource ? (
+              <SourceEditor
+                save={save}
+                t={t}
+                editable={
+                  protectionReady &&
+                  !frozen &&
+                  !session.planning?.state.reserved
+                }
+                onSurface={setSourceSurface}
+              />
+            ) : (
+              <LegacyEditor
+                initial={initial}
+                save={save}
+                label={t.manuscript}
+                protectionReady={protectionReady}
+                sourceVisible={sourceVisible}
+                onEditor={setEditor}
+              />
+            )}
             {save.state.workspaceStage === "draft" && (
               <Locks
                 client={client}
                 save={save}
-                editor={editor}
+                editor={surface}
                 projectId={projectId}
                 t={t}
                 headerTarget={lockHeader}
@@ -790,6 +845,7 @@ function WorkbenchContent({
             aria-label={t.localCopy}
             readOnly
             value={
+              (save.source ? save.sourceLocal : null) ??
               save.recoveryText ??
               save.local
                 .map((b) => b.runs.map((r) => r.text).join(""))
