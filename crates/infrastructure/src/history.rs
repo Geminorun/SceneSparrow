@@ -161,6 +161,7 @@ impl SqliteProjectRepository {
                     return Err(ManuscriptError("INVALID_REQUEST", None));
                 }
                 return Ok(Transition {
+                    source_hash: None,
                     locks: None,
                     reviews: None,
                     state: before.clone(),
@@ -234,6 +235,7 @@ impl SqliteProjectRepository {
         self.restore_sources(c, before, &mut transition, &target, identities)?;
         self.restore_planning(c, &mut transition, &target)?;
         self.restore_reviews(c, &mut transition, &target)?;
+        transition.source_hash = target.source_hash.clone();
         transition.locks = Some(target.locks.clone());
         Ok(transition)
     }

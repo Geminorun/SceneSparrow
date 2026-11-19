@@ -86,7 +86,10 @@ bytes. Steps 2 and 3 append applied 003 and 004 with their migration/recovery te
 Migrations 005–009 are implemented with their delivery evidence in steps 4–8. Each
 delivery adds its own migration instead of rewriting an earlier step. Additional migrations append
 to the sequence; never renumber an applied migration or reuse a version for another
-layout. Global settings have their own JSON `schemaVersion`, not a second database.
+layout. OP2 appends `011_open_source.sql` for accepted authored-source hashes,
+file-operation commit identities and retained raw snapshot pins. It does not
+change AI-provider execution semantics or rewrite migrations 001–010. Global
+settings have their own JSON `schemaVersion`, not a second database.
 
 ## 3. Global settings and capability contract
 

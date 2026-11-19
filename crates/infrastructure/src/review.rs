@@ -620,6 +620,7 @@ impl SqliteProjectRepository {
             state.working_revision = manuscript::next_revision(before.working_revision)?;
         }
         Ok(Transition {
+            source_hash: None,
             locks: None,
             state,
             affected,
@@ -951,9 +952,12 @@ impl SqliteProjectRepository {
         let result = self.start_review_inner(settings, command);
         if let Err(error) = &result {
             let id = manuscript::envelope(command).0;
-            if manuscript::uuid4(id) {
+            if error.0 != "SOURCE_RECOVERY_REQUIRED" && manuscript::uuid4(id) {
                 ai(self.release_ai_preparation(id))?;
-                if error.0 != "STORAGE_UNAVAILABLE" && error.0 != "REQUEST_ID_CONFLICT" {
+                if !matches!(
+                    error.0,
+                    "STORAGE_UNAVAILABLE" | "REQUEST_ID_CONFLICT" | "SOURCE_RECOVERY_REQUIRED"
+                ) {
                     let c = db(self.connection.lock())?;
                     if let Some(receipt) = Self::receipt_for(&c, command)? {
                         return Ok(receipt);
@@ -986,6 +990,7 @@ impl SqliteProjectRepository {
             if let Some(receipt) = Self::receipt_for(&c, command)? {
                 return Ok(receipt);
             }
+            self.guard_source_recovery()?;
         }
         let ManuscriptCommand::StartReviewTask { payload, .. } = command else {
             return Err(ManuscriptError("INVALID_REQUEST", None));
@@ -1138,6 +1143,7 @@ impl SqliteProjectRepository {
         };
         ai(self.accept_ai_module(settings,&start,&mut |c,uow,run|{(||->Result<()>{
             if Self::receipt_for(c,command)?.is_some(){return Ok(());}
+            self.guard_source_recovery()?;
             ensure(crate::read_project(c).map_err(|_|ManuscriptError("STORAGE_UNAVAILABLE",None))?.is_some_and(|p|p.id==project),"PROJECT_NOT_FOUND")?;
             let (revision,stage):(i64,String)=db(c.query_row("SELECT working_revision,workspace_stage FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get(0)?,r.get(1)?))))?;
             ensure(revision==expected,"REVISION_CONFLICT")?;ensure(stage=="draft","STAGE_CONFLICT")?;
@@ -1151,6 +1157,7 @@ impl SqliteProjectRepository {
                 }
             }
             ai(uow.stage_consumer_record("script-review",&run.binding_id,&run.run_id,"{}"))?;
+            Self::pin_current_source(c,request)?;
             db(c.execute("INSERT INTO review_tasks(run_id,thread_id,request_version,context_hash,slot_heading,slot_after,operation) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![run.run_id,ctx.thread.id,ctx.thread.request_version,context_hash,ctx.thread.anchor.slot.as_ref().map(|s|&s.heading_id),ctx.thread.anchor.slot.as_ref().and_then(|s|s.after_id.as_ref()),operation]))?;
             if ctx.thread.kind==ReviewThreadKind::Revisionnote {
                 for id in Self::scope(&ctx.thread).into_iter().chain(ctx.thread.evidence.iter().map(|e|e.source_id.clone())){db(c.execute("INSERT OR IGNORE INTO review_reservations VALUES(?1,?2)",params![id,run.run_id]))?;}
@@ -1997,6 +2004,7 @@ impl SqliteProjectRepository {
             ))?;
         }
         for run in retire {
+            db(tx.execute("DELETE FROM source_pins WHERE owner_id=?1", [&run]))?;
             db(tx.execute("UPDATE review_tasks SET context_hash='',answer=NULL,application=CASE WHEN application='applied' THEN application ELSE 'pruned' END WHERE run_id=?1",[&run]))?;
             db(tx.execute(
                 "DELETE FROM external_object_pins WHERE owner_id IN (?1,?2)",

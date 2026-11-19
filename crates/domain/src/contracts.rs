@@ -2648,3 +2648,103 @@ pub struct VideoProjectDeclaration {
     )]
     pub extensions: Option<FileExtensions>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceSaveRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGeneration")]
+    pub expected_generation: i64,
+    #[serde(rename = "expectedHash")]
+    pub expected_hash: String,
+    #[serde(rename = "source")]
+    pub source: String,
+    #[serde(rename = "group")]
+    pub group: EditGroup,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceBinding {
+    #[serde(rename = "address")]
+    pub address: String,
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[serde(rename = "startUtf8")]
+    pub start_utf8: i64,
+    #[serde(rename = "endUtf8")]
+    pub end_utf8: i64,
+    #[serde(rename = "listItemAddress", deserialize_with = "required_nullable")]
+    pub list_item_address: Option<String>,
+    #[serde(rename = "id", deserialize_with = "required_nullable")]
+    pub id: Option<String>,
+    #[serde(rename = "semanticEditable")]
+    pub semantic_editable: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceSnapshotExternalStatus {
+    #[serde(rename = "unchanged")]
+    Unchanged,
+    #[serde(rename = "changed")]
+    Changed,
+    #[serde(rename = "missing")]
+    Missing,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceSnapshot {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "workingRevision")]
+    pub working_revision: i64,
+    #[serde(rename = "generation")]
+    pub generation: i64,
+    #[serde(rename = "acceptedHash")]
+    pub accepted_hash: String,
+    #[serde(rename = "source")]
+    pub source: String,
+    #[serde(rename = "bindings")]
+    pub bindings: Vec<AuthoredSourceBinding>,
+    #[serde(rename = "semanticBlockIds")]
+    pub semantic_block_ids: Vec<String>,
+    #[serde(rename = "externalStatus")]
+    pub external_status: AuthoredSourceSnapshotExternalStatus,
+    #[serde(rename = "externalHash", deserialize_with = "required_nullable")]
+    pub external_hash: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceSaveResponse {
+    #[serde(rename = "receipt")]
+    pub receipt: CommandReceipt,
+    #[serde(rename = "snapshot")]
+    pub snapshot: AuthoredSourceSnapshot,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProjectFormatInspectionStatus {
+    #[serde(rename = "legacy")]
+    Legacy,
+    #[serde(rename = "unmanaged")]
+    Unmanaged,
+    #[serde(rename = "managed")]
+    Managed,
+    #[serde(rename = "futureReadOnly")]
+    FutureReadOnly,
+    #[serde(rename = "recoveryRequired")]
+    RecoveryRequired,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectFormatInspection {
+    #[serde(rename = "status")]
+    pub status: ProjectFormatInspectionStatus,
+    #[serde(rename = "formatVersion", deserialize_with = "required_nullable")]
+    pub format_version: Option<i64>,
+    #[serde(rename = "projectId", deserialize_with = "required_nullable")]
+    pub project_id: Option<String>,
+}

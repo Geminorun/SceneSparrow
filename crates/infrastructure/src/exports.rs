@@ -224,8 +224,14 @@ impl SqliteProjectRepository {
         if queued >= 4 {
             return Err(err("QUEUE_FULL"));
         }
+        if self.source_has_unknown(&c, None)? {
+            return Err(err("SOURCE_SEMANTIC_UNSUPPORTED"));
+        }
         let state = self.load(&c)?;
-        let body_hash = hash(scenesparrow_domain::exports::body_token(&state).as_bytes());
+        let body_hash = Self::source_body_identity(
+            &c,
+            hash(scenesparrow_domain::exports::body_token(&state).as_bytes()),
+        )?;
         if r.expected_body_hash
             .as_ref()
             .map_or(state.working_revision != r.expected_revision, |expected| {
@@ -1133,8 +1139,14 @@ impl SqliteProjectRepository {
         if namespace_conflict(&c, &r.request_id, "copy")? {
             return Err(err("INVALID_REQUEST"));
         }
+        if self.source_has_unknown(&c, None)? {
+            return Err(err("SOURCE_SEMANTIC_UNSUPPORTED"));
+        }
         let state = self.load(&c)?;
-        let body_hash = hash(scenesparrow_domain::exports::body_token(&state).as_bytes());
+        let body_hash = Self::source_body_identity(
+            &c,
+            hash(scenesparrow_domain::exports::body_token(&state).as_bytes()),
+        )?;
         if body_hash != r.expected_body_hash {
             return Err(err("REVISION_CONFLICT"));
         }
@@ -1512,9 +1524,10 @@ impl SqliteProjectRepository {
             .collect::<Result<Vec<_>>>()?;
         Ok(ManuscriptIdentity {
             working_revision: revision,
-            body_hash: hash(
-                std::format!("canonical-1|{id}|{schema}|{}", tokens.join("|")).as_bytes(),
-            ),
+            body_hash: Self::source_body_identity(
+                &c,
+                hash(std::format!("canonical-1|{id}|{schema}|{}", tokens.join("|")).as_bytes()),
+            )?,
             workspace_stage: value(&stage)?,
         })
     }

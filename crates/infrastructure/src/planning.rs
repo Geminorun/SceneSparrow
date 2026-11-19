@@ -196,6 +196,7 @@ impl SqliteProjectRepository {
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                 }
                 Ok(Transition {
+                    source_hash: None,
                     locks: None,
                     reviews: None,
                     state,
@@ -224,6 +225,7 @@ impl SqliteProjectRepository {
                     "ALREADY_APPLIED",
                 )?;
                 Ok(Transition {
+                    source_hash: None,
                     locks: None,
                     reviews: None,
                     state: before.clone(),
@@ -341,6 +343,7 @@ impl SqliteProjectRepository {
                     let mut state = before.clone();
                     state.working_revision = manuscript::next_revision(before.working_revision)?;
                     Ok(Transition {
+                        source_hash: None,
                         locks: None,
                         reviews: None,
                         state,
@@ -969,10 +972,15 @@ impl SqliteProjectRepository {
                 }
             });
         if let Err(error) = &result {
-            if manuscript::uuid4(manuscript::envelope(command).0) {
+            if error.0 != "SOURCE_RECOVERY_REQUIRED"
+                && manuscript::uuid4(manuscript::envelope(command).0)
+            {
                 ai(self.release_ai_preparation(manuscript::envelope(command).0))?;
             }
-            if error.0 != "STORAGE_UNAVAILABLE" && error.0 != "REQUEST_ID_CONFLICT" {
+            if !matches!(
+                error.0,
+                "STORAGE_UNAVAILABLE" | "REQUEST_ID_CONFLICT" | "SOURCE_RECOVERY_REQUIRED"
+            ) {
                 let mut c = db(self.connection.lock())?;
                 if let Some(receipt) = Self::receipt_for(&c, command)? {
                     return Ok(receipt);
@@ -1006,6 +1014,7 @@ impl SqliteProjectRepository {
             if let Some(receipt) = Self::receipt_for(&c, command)? {
                 return Ok(receipt);
             }
+            self.guard_source_recovery()?;
         }
         let ManuscriptCommand::StartPlanningTask { payload, .. } = command else {
             return Err(ManuscriptError("INVALID_REQUEST", None));
@@ -1057,6 +1066,7 @@ impl SqliteProjectRepository {
         };
         ai(self.accept_ai_module(settings,&start,&mut |c,uow,run|{(||->Result<()> {
             if Self::receipt_for(c,command)?.is_some(){return Ok(());}
+            self.guard_source_recovery()?;
             ensure(crate::read_project(c).map_err(|_|ManuscriptError("STORAGE_UNAVAILABLE",None))?.is_some_and(|p|p.id==project),"PROJECT_NOT_FOUND")?;
             let (current_revision,stage):(i64,String)=db(c.query_row("SELECT working_revision,workspace_stage FROM manuscripts WHERE singleton=1",[],|r|Ok((r.get(0)?,r.get(1)?))))?;
             ensure(current_revision==expected,"REVISION_CONFLICT")?;
@@ -1065,6 +1075,7 @@ impl SqliteProjectRepository {
             ensure(!db(c.query_row("SELECT EXISTS(SELECT 1 FROM script_ai_tasks t JOIN ai_runs r ON t.run_id=r.run_id WHERE t.application='pending' AND r.status IN ('queued','running','succeeded'))",[],|r|r.get::<_,bool>(0)))?,"PLANNING_TASK_ACTIVE")?;
             if let Some(old)=&payload.retry_of_task_id{let old_operation:String=db(c.query_row("SELECT operation FROM script_ai_tasks WHERE id=?1",[old],|r|r.get(0)).optional())?.ok_or(ManuscriptError("INVALID_RETRY",None))?;ensure(old_operation==operation,"INVALID_RETRY")?;}
             ai(uow.stage_consumer_record("script-planning",request,&run.run_id,"script-planning/1"))?;
+            Self::pin_current_source(c,request)?;
             db(c.execute("INSERT INTO script_ai_tasks(id,run_id,operation,planning_revision,dependencies_hash,history_revision,content_hash,manifest_json,application_command_id,prompt_version,interpreter_version) VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![request,operation,revision,dep,epoch,content_hash,manifest,uuid::Uuid::new_v4().to_string(),scenesparrow_application::planning::PROMPT_VERSION,scenesparrow_application::planning::INTERPRETER_VERSION]))?;
             if operation=="generate_initial_draft"{db(c.execute("INSERT INTO outline_confirmations VALUES(?1,?2,?1)",params![request,content_hash]))?;}
             db(c.execute("INSERT OR IGNORE INTO external_object_pins SELECT ?1,object_hash FROM external_object_pins WHERE owner_id=?2",params![format!("script:{request}"),payload.preparation_id]))?;
@@ -1102,7 +1113,7 @@ impl SqliteProjectRepository {
                     serde_json::json!({"type":"UsePlanningResult","requestId":application_id,"projectId":project.id,"expectedWorkingRevision":state.working_revision,"payload":{"taskId":id,"expectedHistoryRevision":history.history_revision,"explicit":false}}),
                 ))?;
                 if let Err(error) = self.execute_manuscript_locked(&mut c, &command) {
-                    if error.0 == "STORAGE_UNAVAILABLE" {
+                    if matches!(error.0, "STORAGE_UNAVAILABLE" | "SOURCE_RECOVERY_REQUIRED") {
                         return Err(error);
                     }
                     let tx = db(c.transaction())?;
@@ -1533,6 +1544,7 @@ impl SqliteProjectRepository {
         }
         for id in retire {
             db(tx.execute("UPDATE application_execution_bindings SET applicability='cancelled' WHERE run_id=?1 AND applicability='pending'",[&id]))?;
+            db(tx.execute("DELETE FROM source_pins WHERE owner_id=?1", [&id]))?;
             db(tx.execute("UPDATE script_ai_tasks SET application=CASE WHEN application='applied' THEN application ELSE 'pruned' END,manifest_json='[]' WHERE id=?1",[&id]))?;
             db(tx.execute(
                 "DELETE FROM external_object_pins WHERE owner_id IN (?1,?2)",

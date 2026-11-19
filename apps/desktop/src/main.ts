@@ -271,6 +271,9 @@ async function main() {
     ["project:ensure", "/project/ensure"],
     ["project:rename", "/project/rename"],
     ["manuscript:history", "/history"],
+    ["project:format", "/project/format"],
+    ["manuscript:source-read", "/manuscript/source"],
+    ["manuscript:source-save", "/manuscript/source"],
     ["manuscript:identity", "/manuscript/identity"],
     ["manuscript:read", "/manuscript"],
     ["manuscript:command", "/manuscript/commands"],
@@ -288,7 +291,8 @@ async function main() {
         channel === "project:create" ||
           channel === "project:ensure" ||
           channel === "project:rename" ||
-          channel === "manuscript:command"
+          channel === "manuscript:command" ||
+          channel === "manuscript:source-save"
           ? command
           : undefined,
       );

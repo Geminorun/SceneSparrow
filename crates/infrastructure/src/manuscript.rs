@@ -159,6 +159,21 @@ impl SqliteProjectRepository {
                 "INVALID_URL",
                 "IMPORT_STALE",
                 "SOURCE_TEXT_UNAVAILABLE",
+                "SOURCE_BASE_MISMATCH",
+                "SOURCE_RECOVERY_REQUIRED",
+                "SOURCE_EXTERNAL_CHANGE",
+                "SOURCE_SEMANTIC_UNSUPPORTED",
+                "SOURCE_CAPABILITY_UNSUPPORTED",
+                "SOURCE_PATH_UNSAFE",
+                "IDENTITY_MISSING",
+                "IDENTITY_DUPLICATE",
+                "IDENTITY_AMBIGUOUS",
+                "IDENTITY_INVALID",
+                "IDENTITY_PLACEMENT_UNSUPPORTED",
+                "SOURCE_PARSE_FAILED",
+                "SOURCE_UTF8_INVALID",
+                "SOURCE_RANGE_INVALID",
+                "SOURCE_PATCH_OVERLAP",
             ];
             return Err(ManuscriptError(
                 CODES
@@ -212,18 +227,31 @@ impl SqliteProjectRepository {
         c: &mut Connection,
         command: &ManuscriptCommand,
     ) -> Result<CommandReceipt> {
-        Self::expire_downstream_now(c)?;
+        self.execute_manuscript_source_locked(c, command, None)
+    }
+    pub(crate) fn execute_manuscript_source_locked(
+        &self,
+        c: &mut Connection,
+        command: &ManuscriptCommand,
+        source_request: Option<&crate::open_source::SourceSaveRequest>,
+    ) -> Result<CommandReceipt> {
         let (request, project_id, _) = manuscript::envelope(command);
         if !manuscript::uuid4(request) {
             return Err(ManuscriptError("INVALID_REQUEST", None));
         }
-        let digest = hash(&db(serde_json::to_vec(command))?);
+        let digest = hash(&if let Some(source) = source_request {
+            db(serde_json::to_vec(source))?
+        } else {
+            db(serde_json::to_vec(command))?
+        });
         if let Some((previous, outcome)) = Self::outcome(c, request)? {
             if previous != digest {
                 return Err(ManuscriptError("REQUEST_ID_CONFLICT", None));
             }
             return Self::decode(&outcome);
         }
+        self.guard_source_recovery()?;
+        Self::expire_downstream_now(c)?;
         let project = read_project(c).map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         let Some(_project) = project.filter(|p| p.id == project_id) else {
             let transaction = db(c.transaction())?;
@@ -272,10 +300,15 @@ impl SqliteProjectRepository {
                     return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
                 profile.phase("identities");
-                let mut transition = self.history_transition(c, command, &before, &identities)?;
+                let mut transition = if let Some(source) = source_request {
+                    self.source_edit_transition(c, source, &before, &identities)?
+                } else {
+                    self.history_transition(c, command, &before, &identities)?
+                };
                 profile.phase("domain-transition");
                 self.coordinate_planning(c, command, &before, &mut transition)?;
                 self.coordinate_reviews(c, command, &before, &mut transition)?;
+                self.prepare_transition_source(c, &before, &mut transition, command)?;
                 if let Err(mut error) = Self::guard_finalization(c, &before, &transition) {
                     if matches!(
                         command,
@@ -417,6 +450,7 @@ impl SqliteProjectRepository {
             } else {
                 None
             };
+        let source_intent = self.prepare_source_intent(c, request, &digest, &transition)?;
         let transaction = db(c.transaction())?;
         let current_revision: i64 = db(transaction.query_row(
             "SELECT working_revision FROM manuscripts WHERE singleton=1",
@@ -654,8 +688,14 @@ impl SqliteProjectRepository {
             self.ai_commit_watermark(&transaction, watermark)
                 .map_err(|e| ManuscriptError(e.0, None))?;
         }
+        self.commit_source_intent(&transaction, source_intent.as_ref(), command)?;
+        if let Some(intent) = &source_intent {
+            self.promote_source_intent(intent)?;
+        }
+        self.source_cut("before-sql")?;
         profile.phase("sql-before-commit");
         db(transaction.commit())?;
+        self.finish_source_intent(source_intent.as_ref())?;
         profile.phase("commit-fsync");
         Ok(receipt)
     }

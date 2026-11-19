@@ -70,6 +70,16 @@ impl SqliteProjectRepository {
     pub(super) fn business(c: &Connection, state: &ManuscriptState) -> Result<BusinessSnapshot> {
         let mut root = BusinessSnapshot::capture(state);
         let version: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+        root.source_hash = if version >= 11 {
+            db(c.query_row(
+                "SELECT accepted_hash FROM authored_source WHERE singleton=1",
+                [],
+                |r| r.get(0),
+            )
+            .optional())?
+        } else {
+            None
+        };
         root.locks = if version >= 8 {
             Self::user_lock_ids(c)?
         } else {
@@ -99,6 +109,9 @@ impl SqliteProjectRepository {
     }
     pub(super) fn business_after(c: &Connection, t: &Transition) -> Result<BusinessSnapshot> {
         let mut root = Self::business(c, &t.state)?;
+        if let Some(source) = &t.source_hash {
+            root.source_hash = Some(source.clone());
+        }
         if let Some(locks) = &t.locks {
             root.locks = locks.clone();
         }
@@ -247,6 +260,7 @@ impl SqliteProjectRepository {
                 }
                 if source.title == payload.title {
                     return Ok(Transition {
+                        source_hash: None,
                         locks: None,
                         reviews: None,
                         state: before.clone(),
@@ -348,6 +362,7 @@ impl SqliteProjectRepository {
         state.working_revision = manuscript::next_revision(before.working_revision)?;
         self.policy.validate(before, &state, &affected)?;
         Ok(Transition {
+            source_hash: None,
             locks: None,
             reviews: None,
             state,

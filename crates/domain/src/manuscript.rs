@@ -190,6 +190,7 @@ impl MutationPolicy for Unrestricted {
     }
 }
 pub struct Transition {
+    pub source_hash: Option<String>,
     pub locks: Option<Vec<String>>,
     pub reviews: Option<Vec<ReviewThread>>,
     pub state: ManuscriptState,
@@ -628,6 +629,7 @@ pub fn apply(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        source_hash: None,
         locks: None,
         reviews: None,
         state,
@@ -644,6 +646,8 @@ pub fn apply(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BusinessSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locks: Vec<String>,
     pub version: u32,
@@ -660,6 +664,7 @@ impl BusinessSnapshot {
     pub fn capture(state: &ManuscriptState) -> Self {
         Self {
             version: 4,
+            source_hash: None,
             locks: vec![],
             reviews: vec![],
             planning: None,
@@ -763,6 +768,7 @@ pub fn restore(
     }
     normalize(&mut state)?;
     Ok(Transition {
+        source_hash: None,
         locks: None,
         reviews: None,
         state,
@@ -860,6 +866,7 @@ pub fn import_candidate(
     state.working_revision = next_revision(before.working_revision)?;
     normalize(&mut state)?;
     Ok(Transition {
+        source_hash: None,
         locks: None,
         reviews: None,
         state,

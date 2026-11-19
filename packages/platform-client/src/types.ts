@@ -1,4 +1,8 @@
 import type {
+  AuthoredSourceSnapshot,
+  AuthoredSourceSaveRequest,
+  AuthoredSourceSaveResponse,
+  ProjectFormatInspection,
   ManuscriptIdentity,
   CopyRequest,
   PreparedCopy,
@@ -55,6 +59,11 @@ export interface RecentProject {
 }
 
 export interface PlatformClient {
+  inspectProjectFormat?(): Promise<ProjectFormatInspection>;
+  readAuthoredSource?(): Promise<AuthoredSourceSnapshot>;
+  saveAuthoredSource?(
+    request: AuthoredSourceSaveRequest,
+  ): Promise<AuthoredSourceSaveResponse>;
   readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
   prepareCopy(request: CopyRequest): Promise<PreparedCopy>;
 
@@ -141,6 +150,11 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge {
+  inspectProjectFormat?(): Promise<BridgeResult<ProjectFormatInspection>>;
+  readAuthoredSource?(): Promise<BridgeResult<AuthoredSourceSnapshot>>;
+  saveAuthoredSource?(
+    request: AuthoredSourceSaveRequest,
+  ): Promise<BridgeResult<AuthoredSourceSaveResponse>>;
   readManuscriptIdentity?(): Promise<BridgeResult<ManuscriptIdentity>>;
   readExports(): Promise<BridgeResult<ExportJob[]>>;
   prepareCopy(request: CopyRequest): Promise<BridgeResult<PreparedCopy>>;

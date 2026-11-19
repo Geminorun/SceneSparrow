@@ -17,3 +17,4 @@ thiserror.workspace = true
 language-tags = "=0.3.2"
 
 unicode-normalization = "=0.1.24"
+markdown = { version = "=1.0.0", features = ["serde"] }

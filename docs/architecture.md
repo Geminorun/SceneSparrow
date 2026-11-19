@@ -12,12 +12,14 @@ choices remain in the [design index](design/README.md),
 [architecture cleanup evidence](validation/architecture-cleanup.md) records the
 ownership refactor; it does not establish new product or platform acceptance.
 
-The next planned ownership change is specified in the
+The open-project ownership change is specified in the
 [open project contract](specs/open-project-format.md) and
 [ADR 0005](decisions/0005-open-project-workspace.md), with an
 [OP1–OP6 delivery plan](open-project-execution.md). It introduces file-authoring
-sources while retaining core-owned approval/management records. It is not yet
-implemented; the source map and SQLite behavior below describe the current code.
+sources while retaining core-owned approval/management records. OP1 contracts
+and the Linux OP2 native source store are locally reviewed; the shared UI still
+uses legacy authoring until OP3. Packaging and full platform support retain their
+later gates. See [OP2 validation](validation/open-project-op2.md).
 
 ## Runtime and dependency boundaries
 
@@ -90,7 +92,7 @@ packages/
     transport.ts                 # HTTP response validation/classification
     links.ts                     # External-link validation used by both adapters
   contracts/                     # Schemas and generated TypeScript types
-  manuscript-format/             # Legacy writer and source-preserving codec
+  manuscript-format/             # Independent legacy writer and ./source codec
   ai-runtime/                    # Generic provider runtime and output guards
   video-runtime/                 # Separate Remotion sample
 
@@ -104,6 +106,7 @@ crates/
   infrastructure/src/
     lib.rs                       # Repository lifecycle and shared writer ownership
     storage/                     # DB errors, hashing, immutable objects and retention
+    open_source.rs               # Native source writer and journal; open_source/ owns I/O/tests
     worker_process.rs            # Common document-process mechanisms
     manuscript.rs                # Canonical command transaction coordination
     history.rs                   # Bounded project history

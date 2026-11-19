@@ -35,6 +35,21 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     }
   }
   return {
+    ...(bridge.inspectProjectFormat
+      ? { inspectProjectFormat: () => unwrap(bridge.inspectProjectFormat!()) }
+      : {}),
+    ...(bridge.readAuthoredSource
+      ? { readAuthoredSource: () => unwrap(bridge.readAuthoredSource!()) }
+      : {}),
+    ...(bridge.saveAuthoredSource
+      ? {
+          saveAuthoredSource: (
+            body: Parameters<
+              NonNullable<DesktopBridge["saveAuthoredSource"]>
+            >[0],
+          ) => unwrap(bridge.saveAuthoredSource!(body)),
+        }
+      : {}),
     ...(bridge.readReferenceDirectory
       ? {
           readReferenceDirectory: () =>

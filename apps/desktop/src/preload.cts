@@ -13,6 +13,10 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  inspectProjectFormat: () => ipcRenderer.invoke("project:format"),
+  readAuthoredSource: () => ipcRenderer.invoke("manuscript:source-read"),
+  saveAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-save", body),
   readManuscriptIdentity: () => ipcRenderer.invoke("manuscript:identity"),
   readExports: () => ipcRenderer.invoke("export:list"),
   prepareCopy: (body: unknown) => ipcRenderer.invoke("copy:prepare", body),

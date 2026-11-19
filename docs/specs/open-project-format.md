@@ -1,7 +1,8 @@
 # Open project format and file-authoring specification
 
-Status: implementation in progress, 2026-11-19. OP1 contracts/codec are reviewed;
-file persistence and platform integration remain later gates.
+Status: implementation in progress, 2026-11-19. OP1 contracts/codec and the Linux
+OP2 source store are locally reviewed. Source UI, reconciliation, packaging and
+full platform support remain later gates.
 Baseline: `release/1.0.0` at `bf56982`.
 Decision: [ADR 0005](../decisions/0005-open-project-workspace.md). Delivery gates
 and OP1–OP6 assignments: [execution plan](../open-project-execution.md).

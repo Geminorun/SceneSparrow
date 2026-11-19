@@ -29,6 +29,10 @@ impl Drop for ProjectOwner {
 
 pub struct SqliteProjectRepository {
     #[cfg(test)]
+    source_fault: Mutex<Option<String>>,
+    #[cfg(test)]
+    source_action: Mutex<Option<(String, open_source::TestAction)>>,
+    #[cfg(test)]
     business_read_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     fail_export_directory_sync: std::sync::atomic::AtomicBool,
@@ -36,6 +40,7 @@ pub struct SqliteProjectRepository {
     quiescing: std::sync::atomic::AtomicBool,
     workers: std::sync::atomic::AtomicUsize,
     directory: std::path::PathBuf,
+    creative_root: Option<std::path::PathBuf>,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     ai_consumers: Mutex<
         std::collections::BTreeMap<
@@ -78,15 +83,31 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        if directory.join("project.json").exists() || directory.join(".scenesparrow").exists() {
+            return Self::open_format(directory).map_err(|_| Error::Storage);
+        }
         Self::open_with_mode(directory, false)
     }
 
     /// Reopening must never replace a database removed after desktop preflight.
     pub fn open_existing(directory: &Path) -> Result<Self, Error> {
+        if directory.join("project.json").exists() || directory.join(".scenesparrow").exists() {
+            return Self::open_format(directory).map_err(|_| Error::Storage);
+        }
         Self::open_with_mode(directory, true)
     }
 
     fn open_with_mode(directory: &Path, require_existing: bool) -> Result<Self, Error> {
+        Self::open_storage(directory, require_existing, None)
+    }
+    fn open_managed_existing(root: &Path) -> Result<Self, Error> {
+        Self::open_storage(&root.join(".scenesparrow"), true, Some(root))
+    }
+    fn open_storage(
+        directory: &Path,
+        require_existing: bool,
+        creative_root: Option<&Path>,
+    ) -> Result<Self, Error> {
         if require_existing && !storage(std::fs::metadata(directory))?.is_dir() {
             return Err(Error::Storage);
         }
@@ -132,7 +153,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 10 || (require_existing && version < 1) {
+        if version > 11 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -218,10 +239,20 @@ impl SqliteProjectRepository {
             storage(tx.execute_batch(include_str!("../migrations/010_project_metadata.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 11 {
+            backup::migration_backup(&connection, directory, 11)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/011_open_source.sql")))?;
+            storage(tx.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
+            #[cfg(test)]
+            source_fault: Mutex::new(None),
+            #[cfg(test)]
+            source_action: Mutex::new(None),
             #[cfg(test)]
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -230,6 +261,7 @@ impl SqliteProjectRepository {
             quiescing: std::sync::atomic::AtomicBool::new(false),
             workers: std::sync::atomic::AtomicUsize::new(0),
             directory: directory.to_path_buf(),
+            creative_root: creative_root.map(std::path::Path::to_path_buf),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
             _owner: Some(owner),
@@ -237,6 +269,15 @@ impl SqliteProjectRepository {
         if version < 5 {
             repository
                 .initialize_ai_origin()
+                .map_err(|_| Error::Storage)?;
+        }
+        // Recover creative generations before projections, jobs or collection.
+        repository
+            .recover_source_intents()
+            .map_err(|_| Error::Storage)?;
+        if repository.creative_root.is_some() {
+            repository
+                .verify_source_state()
                 .map_err(|_| Error::Storage)?;
         }
         // Validate acknowledged data before startup recovery mutates task state.
@@ -657,7 +698,7 @@ mod tests {
         let history = repo.read_history().unwrap();
         drop(repo);
         let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
-        c.execute_batch("DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
+        c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
         assert_eq!(
             c.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
@@ -740,7 +781,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            10
+            11
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -807,6 +848,10 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch(
+        "DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;",
+    )
+    .unwrap();
     c.execute_batch("DROP TABLE project_rename_receipts;")
         .unwrap();
     c.execute_batch("DROP TABLE copy_preparations;DROP TABLE export_deliveries;DROP TABLE export_controls;DROP TABLE export_jobs;").unwrap();
@@ -870,3 +915,5 @@ impl SqliteProjectRepository {
 
 mod storage;
 mod worker_process;
+
+pub mod open_source;

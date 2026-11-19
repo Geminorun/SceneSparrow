@@ -23,7 +23,12 @@ pub(crate) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "CAPABILITY_EXPIRED"
+                "SOURCE_BASE_MISMATCH"
+                | "SOURCE_EXTERNAL_CHANGE"
+                | "SOURCE_RECOVERY_REQUIRED"
+                | "SOURCE_ADOPTION_REQUIRED"
+                | "SOURCE_PROJECT_MISMATCH"
+                | "CAPABILITY_EXPIRED"
                 | "DELIVERY_STATUS_UNKNOWN"
                 | "DESTINATION_CHANGED"
                 | "EXPORT_INTERRUPTED"
@@ -52,7 +57,10 @@ pub(crate) fn result<T: serde::Serialize>(
                 | "PLANNING_TASK_ACTIVE"
                 | "PLANNING_RESULT_STALE"
                 | "HISTORY_DIVERGED" => StatusCode::CONFLICT,
-                "NO_MANUSCRIPT_CONTENT"
+                "SOURCE_SEMANTIC_UNSUPPORTED"
+                | "SOURCE_CAPABILITY_UNSUPPORTED"
+                | "SOURCE_FUTURE_READ_ONLY"
+                | "NO_MANUSCRIPT_CONTENT"
                 | "EXPORT_INVALID"
                 | "EXPORT_FORMAT_UNSUPPORTED"
                 | "BRIEF_INVALID"

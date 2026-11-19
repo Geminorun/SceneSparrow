@@ -30,6 +30,15 @@ const fileSchema = JSON.parse(
   ),
 );
 Object.assign(schema.definitions, fileSchema.definitions);
+Object.assign(
+  schema.definitions,
+  JSON.parse(
+    await readFile(
+      new URL("packages/contracts/schema/authored-source.schema.json", root),
+      "utf8",
+    ),
+  ).definitions,
+);
 // This generator deliberately supports the protocol subset used here. Constraint
 // validation remains in the core; unsupported type constructs fail generation.
 function validateShape(s) {

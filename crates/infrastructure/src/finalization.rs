@@ -15,6 +15,8 @@ use std::collections::BTreeSet;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ApprovedManifest {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
     pub manuscript_id: String,
     pub blocks: Vec<UserLock>,
 }
@@ -90,6 +92,7 @@ impl SqliteProjectRepository {
             state.working_revision = manuscript::next_revision(state.working_revision)?;
         }
         Ok(Transition {
+            source_hash: None,
             locks: Some(locks),
             reviews: None,
             state,
@@ -173,7 +176,8 @@ impl SqliteProjectRepository {
                 });
             }
         }
-        let ready = t.state.workspace_stage == ManuscriptStateWorkspaceStage::Draft
+        let ready = !self.source_has_unknown(c, t.source_hash.as_deref())?
+            && t.state.workspace_stage == ManuscriptStateWorkspaceStage::Draft
             && !t.state.blocks.is_empty()
             && locks.len() == t.state.blocks.len()
             && t.state.blocks.iter().any(|b| {
@@ -194,6 +198,7 @@ impl SqliteProjectRepository {
                 .collect::<Result<Vec<_>>>()?;
             Some(self.object(&db(serde_json::to_vec(&ApprovedManifest {
                 version: 1,
+                source_hash: Self::business_after(c, t)?.source_hash,
                 manuscript_id: t.state.manuscript_id.clone(),
                 blocks: ordered,
             }))?)?)
@@ -386,7 +391,8 @@ impl SqliteProjectRepository {
                 "STORAGE_UNAVAILABLE",
             )?;
         }
-        let expected_ready = state.workspace_stage == ManuscriptStateWorkspaceStage::Draft
+        let expected_ready = !self.source_has_unknown(c, None)?
+            && state.workspace_stage == ManuscriptStateWorkspaceStage::Draft
             && locks.len() == state.blocks.len()
             && state.blocks.iter().any(|b| {
                 b.kind != BlockKind::Heading && b.runs.iter().any(|r| !r.text.trim().is_empty())
@@ -421,6 +427,9 @@ impl SqliteProjectRepository {
                         == manifest.blocks.len(),
                 "STORAGE_UNAVAILABLE",
             )?;
+            if let Some(source) = &manifest.source_hash {
+                self.read_object(source)?;
+            }
             for lock in &manifest.blocks {
                 let block: Block = db(serde_json::from_slice(
                     &self.read_object(&lock.content_hash)?,
@@ -437,7 +446,11 @@ impl SqliteProjectRepository {
                     .map(|b| locks.iter().find(|l| l.block_id == b.id).cloned())
                     .collect::<Option<Vec<_>>>()
                     .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
-                ensure(manifest.blocks == ordered, "STORAGE_UNAVAILABLE")?;
+                ensure(
+                    manifest.blocks == ordered
+                        && manifest.source_hash == Self::business(c, state)?.source_hash,
+                    "STORAGE_UNAVAILABLE",
+                )?;
             }
         }
         Ok(())

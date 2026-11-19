@@ -1,4 +1,5 @@
 import type {
+  AuthoredSourceSaveRequest,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -33,6 +34,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | AuthoredSourceSaveRequest
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -110,6 +112,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     };
   };
   return {
+    inspectProjectFormat: () => request("/v1/project/format"),
+    readAuthoredSource: () => request("/v1/manuscript/source"),
+    saveAuthoredSource: (body) => request("/v1/manuscript/source", body),
     readManuscriptIdentity: () => request("/v1/manuscript/identity"),
     prepareCopy: (body) => request("/v1/manuscript/copies", body),
     readExports: () => request("/v1/manuscript/exports"),

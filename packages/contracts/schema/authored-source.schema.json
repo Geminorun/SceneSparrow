@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Named authored source capabilities",
+  "definitions": {
+    "AuthoredSourceSaveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGeneration",
+        "expectedHash",
+        "source",
+        "group"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedHash": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        }
+      }
+    },
+    "AuthoredSourceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "kind",
+        "startUtf8",
+        "endUtf8",
+        "listItemAddress",
+        "id",
+        "semanticEditable"
+      ],
+      "properties": {
+        "address": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "startUtf8": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "endUtf8": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listItemAddress": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "semanticEditable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthoredSourceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "workingRevision",
+        "generation",
+        "acceptedHash",
+        "source",
+        "bindings",
+        "semanticBlockIds",
+        "externalStatus",
+        "externalHash"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "acceptedHash": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuthoredSourceBinding"
+          }
+        },
+        "semanticBlockIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "externalStatus": {
+          "type": "string",
+          "enum": ["unchanged", "changed", "missing", "unavailable"]
+        },
+        "externalHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AuthoredSourceSaveResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt", "snapshot"],
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/CommandReceipt"
+        },
+        "snapshot": {
+          "$ref": "#/definitions/AuthoredSourceSnapshot"
+        }
+      }
+    },
+    "ProjectFormatInspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "formatVersion", "projectId"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "unmanaged",
+            "managed",
+            "futureReadOnly",
+            "recoveryRequired"
+          ]
+        },
+        "formatVersion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projectId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

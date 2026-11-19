@@ -21,6 +21,9 @@ impl SqliteProjectRepository {
         if version < 2 {
             return Ok(roots);
         }
+        if version >= 11 {
+            roots.extend(self.source_retention_roots(c)?);
+        }
         let current_roots = if version >= 3 {
             "SELECT snapshot_hash FROM manuscripts WHERE snapshot_hash IS NOT NULL UNION SELECT payload_hash FROM blocks UNION SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries"
         } else {
@@ -51,6 +54,7 @@ impl SqliteProjectRepository {
             for row in db(manifests.query_map([], |r| r.get::<_, String>(0)))? {
                 let manifest: crate::finalization::ApprovedManifest =
                     db(serde_json::from_slice(&self.read_object(&db(row)?)?))?;
+                roots.extend(manifest.source_hash);
                 roots.extend(manifest.blocks.into_iter().map(|l| l.content_hash));
             }
         }
@@ -77,6 +81,7 @@ impl SqliteProjectRepository {
         ))?;
             for row in db(histories.query_map([], |r| r.get::<_, String>(0)))? {
                 let root = self.read_business(&db(row)?)?;
+                roots.extend(root.source_hash);
                 for thread in &root.reviews {
                     for range in &thread.anchor.ranges {
                         if let Some(h) = &range.quote_hash {

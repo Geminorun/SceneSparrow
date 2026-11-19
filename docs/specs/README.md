@@ -14,8 +14,9 @@ tasks to the approved implementation sequence and review/commit/push gates.
 
 The [open project format](open-project-format.md) is a new cross-stage file and
 interoperability contract. Its [OP1–OP6 execution plan](../open-project-execution.md)
-defines the next migration effort. It is specified, not implemented; the delivered
-S1–S4 behavior below remains the regression baseline. Root supplies the owning
+defines the next migration effort. OP1 contracts/codec and Linux OP2 storage are locally reviewed; source UI and
+later delivery gates remain pending. The delivered S1–S4 behavior below remains
+the regression baseline. Root supplies the owning
 stage brief and resolves its explicit format/recovery gates before delegation.
 The [OP1 stage brief](open-project-op1.md) starts the authorized implementation
 with contracts, source-fidelity/identity proofs and a portable skeleton.
@@ -43,7 +44,7 @@ step 3 adds [sources/import and recovery](../validation/step-03.md). Step 4 adds
 performance acceptance remains open. Step 8 adds
 [delivery and verified recovery](../validation/step-08.md), with all 130 cases
 tracked in the [acceptance matrix](../validation/acceptance-matrix.md).
-The shared migration ledger records the applied sequence through S4.
+The shared migration ledger records the applied sequence through OP2 (schema 011).
 
 Each stage spec includes scope, user behavior, domain/data rules, commands/events,
 errors and recovery, ordered development tasks, and testable acceptance criteria.
@@ -54,3 +55,5 @@ distinction between a plan, implemented behavior, and actual validation evidence
 Specification prose does not replace executable JSON Schema contracts or migration
 files. Those are introduced and checked with the implementation. Keep completed
 specs aligned with the final behavior and record material deviations.
+
+- [OP2 file storage and recovery](open-project-op2.md): native source, coordinated promotion and recovery.

@@ -31,6 +31,15 @@ fn portable_key(path: &str) -> String {
         .nfc()
         .collect()
 }
+/// Physical root entries must not alias an app-owned or Git namespace under
+/// the same Unicode caseless key used by portable path validation. Canonical
+/// spellings stay valid; callers pass one complete directory-entry name.
+pub fn is_protected_root_alias(segment: &str) -> bool {
+    let key = portable_key(segment);
+    [".scenesparrow", "project.json", ".git"]
+        .iter()
+        .any(|reserved| key == *reserved && segment != *reserved)
+}
 pub fn validate_portable_paths(paths: &[&str]) -> Result<()> {
     let mut entries = BTreeMap::new();
     let mut files = BTreeSet::new();
@@ -308,6 +317,33 @@ pub fn validate_media_declaration(value: &Value, audio: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn protected_root_aliases_reuse_unicode_portable_keys() {
+        for alias in [
+            ".ſcenesparrow",
+            ".gıt",
+            "project.jſon",
+            ".SCENESPARROW",
+            ".GIT",
+            "PROJECT.JSON",
+        ] {
+            assert!(is_protected_root_alias(alias), "{alias}");
+        }
+        for ordinary in [
+            ".scenesparrow",
+            "project.json",
+            ".git",
+            ".scenesparrow-old",
+            ".gitignore",
+            "project.json.bak",
+            ".ſcenesparrow-more",
+            ".gıtx",
+            "project.jſon.bak",
+            "folder/.ſcenesparrow",
+        ] {
+            assert!(!is_protected_root_alias(ordinary), "{ordinary}");
+        }
+    }
     #[test]
     fn shared_node_rust_agreement_fixtures() {
         let fixtures: Vec<Value> = serde_json::from_str(include_str!(
