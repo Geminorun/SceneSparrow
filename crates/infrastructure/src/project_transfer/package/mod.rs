@@ -12,6 +12,7 @@ mod capture;
 pub(crate) use capture::copy_member;
 mod expiry;
 mod intake;
+mod native_save;
 mod pins;
 mod restore;
 use archive::{Descriptor, Inspected, Limits, Member};

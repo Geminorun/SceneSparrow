@@ -2699,3 +2699,36 @@ body > .notifications {
   overflow: auto;
   font-size: 0.82rem;
 }
+
+.transfer-compact {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 13px;
+}
+.transfer-status {
+  border-left: 2px solid var(--border, #d9d7d0);
+  padding-left: 0.75rem;
+  margin-block: 0.75rem;
+}
+.transfer-status p {
+  margin-block: 0.35rem;
+  overflow-wrap: anywhere;
+}
+.transfer-file {
+  display: grid;
+  gap: 0.5rem;
+}
+.transfer-file input {
+  max-width: 100%;
+}
+.transfer-filename {
+  overflow-wrap: anywhere;
+}
+.writing-dialog progress {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  accent-color: #4070a0;
+}

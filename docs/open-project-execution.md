@@ -10,7 +10,8 @@ Changes integration are independently reviewed locally; see
 independently reviewed; see [its validation](validation/open-project-op5a.md).
 OP5-B package backend is independently reviewed; its
 [validation](validation/open-project-op5b.md) tracks the final checks. OP5-C
-visible transfer workflows and OP6 remain pending.
+visible transfer/streamed delivery is independently reviewed; see
+[its validation](validation/open-project-op5c.md). OP6 remains pending.
 Each later gate must pass separately; source UI acceptance
 does not establish native desktop or complete-package readiness.
 

@@ -67,6 +67,9 @@ impl PackageArchiveReader {
         &self.view
     }
     pub fn stream(mut self, out: &mut impl Write) -> Result<u64> {
+        self.stream_held(out)
+    }
+    pub(super) fn stream_held(&mut self, out: &mut impl Write) -> Result<u64> {
         struct Checked<'a> {
             file: &'a mut File,
             closing: &'a std::sync::atomic::AtomicBool,
@@ -87,7 +90,7 @@ impl PackageArchiveReader {
             out,
             self.view.size as u64,
         )?;
-        if actual != (self.view.hash, self.view.size as u64) {
+        if actual != (self.view.hash.clone(), self.view.size as u64) {
             return Err(fail("PACKAGE_ARCHIVE_INVALID"));
         }
         Ok(actual.1)

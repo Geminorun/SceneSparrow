@@ -1,3 +1,4 @@
+import { registerNativePackageIpc } from "./native-package-ipc.js";
 import { registerProjectPackageIpc } from "./project-package-ipc.js";
 import { registerProjectTransferIpc } from "./project-transfer-ipc.js";
 import {
@@ -359,6 +360,61 @@ async function main() {
       throw Error("ORIGIN_DENIED");
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
+  const nativePackages = registerNativePackageIpc(ipcMain, {
+    checkSender,
+    session: () => {
+      const capturedCore = core,
+        capturedToken = token,
+        capturedNative = nativeToken;
+      return {
+        core: capturedCore,
+        request: async (path, body, bytes, headers, signal) => {
+          if (core !== capturedCore) throw Error("CAPABILITY_EXPIRED");
+          const response = await fetch(`${baseUrl}${path}`, {
+            method: bytes ? "PUT" : body === undefined ? "GET" : "POST",
+            headers: {
+              Authorization: `Bearer ${capturedToken}`,
+              "x-scenesparrow-native": capturedNative,
+              "content-type": bytes
+                ? "application/octet-stream"
+                : "application/json",
+              ...headers,
+            },
+            ...(bytes
+              ? { body: bytes as BodyInit }
+              : body === undefined
+                ? {}
+                : { body: JSON.stringify(body) }),
+            signal: AbortSignal.any([
+              AbortSignal.timeout(
+                path.endsWith("/save-new") ? 120_000 : 10_000,
+              ),
+              ...(signal ? [signal] : []),
+            ]),
+          });
+          if (core !== capturedCore) throw Error("CAPABILITY_EXPIRED");
+          const data = (await response.json()) as { code?: string };
+          if (!response.ok) throw Error(data.code ?? "CORE_UNAVAILABLE");
+          return data;
+        },
+      };
+    },
+    current: (captured) => captured.core === core && coreIsRunning(core),
+    chooseIntake: async () => {
+      const result = await dialog.showOpenDialog({
+        properties: ["openFile"],
+        filters: [{ name: "Project ZIP", extensions: ["zip"] }],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+    chooseSave: async (filename) => {
+      const result = await dialog.showSaveDialog({
+        defaultPath: filename,
+        filters: [{ name: "Project ZIP", extensions: ["zip"] }],
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+  });
   registerProjectTransferIpc(ipcMain, { checkSender, request });
   registerProjectPackageIpc(ipcMain, {
     checkSender,
@@ -771,6 +827,7 @@ async function main() {
         try {
           for (const selection of fileSelections.values())
             selection.abort.abort();
+          await nativePackages.settle();
           await referenceDirectories.abortAndSettle();
           externalWork.cancel();
           await exports.settled();
@@ -788,6 +845,7 @@ async function main() {
               candidate = nextProject;
             nextProject = null;
             exports.clear();
+            nativePackages.clear();
             try {
               const result = await activateProject(previous, candidate, {
                 stop: stopCore,

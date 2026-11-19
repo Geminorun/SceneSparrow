@@ -47,6 +47,7 @@ export class PlanningAutosave {
   private disposed = false;
   private generation = 0;
   private readEpoch = 0;
+  private discardEpoch = 0;
   private discarding = false;
   private version = 0;
   private knownRejection = false;
@@ -65,6 +66,19 @@ export class PlanningAutosave {
     kind: "typing" | "discrete";
   }[] = [];
   private tail: Promise<unknown> = Promise.resolve();
+  private captureFences = new Map<
+    object,
+    {
+      segments: readonly {
+        content: PlanningContent;
+        groupId: string;
+        kind: "typing" | "discrete";
+      }[];
+    }
+  >();
+  private get captureFence() {
+    return this.captureFences.values().next().value;
+  }
   private adapter;
   constructor(
     state: PlanningState,
@@ -80,6 +94,26 @@ export class PlanningAutosave {
     );
     this.adapter = {
       flush: (retry = false) => this.flush(true, retry),
+      captureCheckpoint: () => {
+        const generation = this.generation;
+        const discardEpoch = this.discardEpoch;
+        const available = !this.discarding;
+        this.capture();
+        const segments = [...this.segments];
+        const fence = { segments };
+        this.captureFences.set(fence, fence);
+        this.groupId = crypto.randomUUID();
+        return {
+          run: () =>
+            available && discardEpoch === this.discardEpoch
+              ? this.flush(true, true, { generation, segments, discardEpoch })
+              : Promise.resolve(false),
+          release: () => {
+            this.captureFences.delete(fence);
+            this.boundSegments();
+          },
+        };
+      },
       identity: () => this.identity(),
       inputVersion: () => this.generation,
       refresh: async () => {
@@ -229,13 +263,19 @@ export class PlanningAutosave {
     }
   }
   private boundSegments(limit = 6) {
-    const protectedCount = this.pendingSave ? 1 : 0;
-    if (this.segments.length > limit + protectedCount)
-      this.segments.splice(
-        protectedCount,
-        this.segments.length - limit - protectedCount,
-      );
+    const protectedSegments = new Set(
+      [...this.captureFences.values()].flatMap((fence) => [...fence.segments]),
+    );
+    if (this.pendingSave && this.segments[0])
+      protectedSegments.add(this.segments[0]);
+    let ordinary = this.segments.filter(
+      (segment) => !protectedSegments.has(segment),
+    ).length;
+    this.segments = this.segments.filter(
+      (segment) => protectedSegments.has(segment) || ordinary-- <= limit,
+    );
   }
+
   private schedule() {
     this.save.inputActivity();
   }
@@ -244,17 +284,41 @@ export class PlanningAutosave {
     this.tail = p.catch(() => {});
     return p;
   }
-  flush(close = true, retry = false): Promise<boolean> {
-    const backgroundGeneration = close ? undefined : this.generation;
-    if (this.discarding) return this.tail.then(() => this.flush(close, retry));
-    if (this.conversionError && !this.composing && !this.disposed) {
+  flush(
+    close = true,
+    retry = false,
+    captured?: {
+      generation: number;
+      discardEpoch: number;
+      segments: readonly {
+        content: PlanningContent;
+        groupId: string;
+        kind: "typing" | "discrete";
+      }[];
+    },
+  ): Promise<boolean> {
+    const backgroundGeneration =
+      captured?.generation ?? (close ? undefined : this.generation);
+    // A captured participant already runs inside the shared queue. Waiting for
+    // discard then re-entering an ordinary flush would await that same queue.
+    if (captured && captured.discardEpoch !== this.discardEpoch)
+      return Promise.resolve(false);
+    if (this.discarding)
+      return captured
+        ? Promise.resolve(false)
+        : this.tail.then(() => this.flush(close, retry));
+    if (
+      this.conversionError &&
+      !(!captured && this.composing) &&
+      !this.disposed
+    ) {
       this.status = "error";
       this.error = "OUTLINE_INVALID";
       this.notify();
       return Promise.resolve(false);
     }
     if (
-      this.composing ||
+      (!captured && this.composing) ||
       this.disposed ||
       this.conversionError ||
       this.status === "conflict" ||
@@ -266,15 +330,31 @@ export class PlanningAutosave {
         return Promise.resolve(false);
       this.knownRejection = false;
     }
-    this.capture();
-    return this.enqueue(async () => {
-      if (this.disposed || this.composing || this.conversionError) return false;
+    if (!captured && !this.captureFence) this.capture();
+    const execute = async () => {
+      if (
+        this.disposed ||
+        (captured && captured.discardEpoch !== this.discardEpoch) ||
+        (!captured && this.composing) ||
+        this.conversionError
+      )
+        return false;
       this.busy = true;
       this.notify();
       try {
         for (;;) {
-          while (this.segments.length) {
-            if (this.composing || this.disposed || this.conversionError)
+          while (
+            this.segments.length &&
+            (!(captured ?? this.captureFence) ||
+              (captured ?? this.captureFence)!.segments.includes(
+                this.segments[0]!,
+              ))
+          ) {
+            if (
+              (!captured && this.composing) ||
+              this.disposed ||
+              this.conversionError
+            )
               return false;
             const segment = this.segments[0]!;
             const groupSequence =
@@ -310,6 +390,8 @@ export class PlanningAutosave {
                   replayCommand: () => this.pendingSave,
                   bodyPreserving: true,
                   background: !close,
+                  insideQueue: true,
+                  capturedInput: !!captured || !!this.captureFence,
                 },
               ));
             if (!ok) {
@@ -340,7 +422,11 @@ export class PlanningAutosave {
               this.status = "conflict";
               return false;
             }
-            if (this.disposed) return false;
+            if (
+              this.disposed ||
+              (captured && captured.discardEpoch !== this.discardEpoch)
+            )
+              return false;
             this.pendingSave = null;
             this.pendingReceiptAcknowledged = false;
             this.version++;
@@ -353,15 +439,16 @@ export class PlanningAutosave {
                 canonical.content.nodes.find((old) => old.id === n.id)
                   ?.revision ?? n.revision;
             if (
+              !captured &&
               backgroundGeneration !== undefined &&
               backgroundGeneration !== this.generation
             ) {
               this.status = "pending";
               return true;
             }
-            this.capture();
+            if (!captured && !this.captureFence) this.capture();
           }
-          if (this.composing) {
+          if (!captured && this.composing) {
             this.status = "pending";
             return false;
           }
@@ -383,7 +470,12 @@ export class PlanningAutosave {
                   groupSequence: group.groupSequence,
                 },
               }),
-              { bodyPreserving: true, background: !close },
+              {
+                bodyPreserving: true,
+                background: !close,
+                insideQueue: true,
+                capturedInput: !!captured || !!this.captureFence,
+              },
             );
             if (!ok) {
               this.error =
@@ -394,7 +486,11 @@ export class PlanningAutosave {
             }
             this.open = null;
           }
-          if (this.composing || this.disposed || this.conversionError)
+          if (
+            (!captured && this.composing) ||
+            this.disposed ||
+            this.conversionError
+          )
             return false;
           if (
             backgroundGeneration !== undefined &&
@@ -403,9 +499,13 @@ export class PlanningAutosave {
             this.status = "pending";
             return true;
           }
-          this.capture();
-          if (this.segments.length) continue;
-          this.status = "saved";
+          if (!captured && !this.captureFence) this.capture();
+          if (this.segments.length && !captured && !this.captureFence) continue;
+          this.status =
+            !this.segments.length &&
+            this.identity() === contentKey(this.state.content)
+              ? "saved"
+              : "pending";
           return true;
         }
       } catch (e) {
@@ -420,7 +520,10 @@ export class PlanningAutosave {
         this.busy = false;
         this.notify();
       }
-    });
+    };
+    return captured
+      ? execute()
+      : this.enqueue(() => this.save.planningFlush(execute));
   }
   async control(build: (revision: number) => ManuscriptCommand) {
     const intent = this.identity();
@@ -512,6 +615,7 @@ export class PlanningAutosave {
       const generation = this.generation;
       const sharedEpoch = `${this.save.state.workingRevision}:${this.save.history.historyRevision}:${this.save.history.cursor}`;
       this.discarding = true;
+      this.discardEpoch++;
       this.readEpoch++;
       let current: PlanningState;
       try {

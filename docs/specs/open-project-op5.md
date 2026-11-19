@@ -2,8 +2,9 @@
 
 Status: root-owned contract, 2026-11-19. OP5-A is independently reviewed/pushed
 as `b516736`; see its validation. OP5-B is independently reviewed against that
-checkpoint; its validation tracks final checks. OP5-C remains preparation until
-B is committed. Parent: open-project-format.md,
+checkpoint and pushed as `9c8a24c`; its validation records final checks. OP5-C is
+independently reviewed locally against B; see
+[its validation](../validation/open-project-op5c.md). Parent: open-project-format.md,
 OPF-AC13–AC15/17/19. Root owns design/specs, one writer per checkpoint and Git.
 
 ## Delivery tasks and sequential checkpoints

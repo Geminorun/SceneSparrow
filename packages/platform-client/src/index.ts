@@ -15,3 +15,6 @@ export type {
   ProjectPackageClient,
   ProjectPackageBridge,
 } from "./project-package";
+
+export { PackageFileUpload, PACKAGE_CHUNK_BYTES } from "./package-file";
+export { safePackageFilename } from "./package-name.mjs";

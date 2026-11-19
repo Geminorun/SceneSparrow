@@ -1,3 +1,8 @@
+import type { ReturnedWorkSelection } from "../manuscript/ExternalWork";
+import {
+  ProjectTransfers,
+  type TransferIntent,
+} from "../project-transfer/ProjectTransfers";
 import { LegacyEditor } from "../manuscript/LegacyEditor";
 import { SourceEditor } from "../manuscript/SourceEditor";
 import { SourceChanges } from "../manuscript/SourceChanges";
@@ -46,6 +51,7 @@ export function Workbench({
   approvedBaseline,
   onSession,
   externalWorkRequested = 0,
+  transferIntent = null,
 }: {
   client: PlatformClient;
   projectId: string;
@@ -55,6 +61,7 @@ export function Workbench({
   approvedBaseline: number | null;
   onSession?: (session: ProjectSession | null) => void;
   externalWorkRequested?: number;
+  transferIntent?: TransferIntent | null;
 }) {
   const [initial, setInitial] = useState<{
     document: ManuscriptState;
@@ -131,6 +138,7 @@ export function Workbench({
       approvedBaseline={approvedBaseline}
       {...(onSession ? { onSession } : {})}
       externalWorkRequested={externalWorkRequested}
+      transferIntent={transferIntent}
     />
   );
 }
@@ -146,6 +154,7 @@ function WorkbenchContent({
   approvedBaseline,
   onSession,
   externalWorkRequested = 0,
+  transferIntent = null,
 }: {
   initial: ManuscriptState;
   initialSource: AuthoredSourceSnapshot | null;
@@ -158,11 +167,15 @@ function WorkbenchContent({
   approvedBaseline: number | null;
   onSession?: (session: ProjectSession | null) => void;
   externalWorkRequested?: number;
+  transferIntent?: TransferIntent | null;
 }) {
   const beforeClose = useRef(onBeforeClose);
   beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
   const [recovery, setRecoveryVisible] = useState(false);
+  const [returnedWorkRequested, setReturnedWorkRequested] = useState(0);
+  const [returnedSelection, setReturnedSelection] =
+    useState<ReturnedWorkSelection | null>(null);
   const [sourceChangesRequested, setSourceChangesRequested] = useState(0);
   const recoveryEpoch = useRef(0),
     recoveryMounted = useRef(true);
@@ -527,6 +540,20 @@ function WorkbenchContent({
     <section
       className={`manuscript-workspace${initialSource ? " source-authoring" : ""}`}
     >
+      <ProjectTransfers
+        client={client}
+        save={save}
+        intent={transferIntent}
+        t={t}
+        onReturned={(target) => {
+          if (target)
+            setReturnedSelection((previous) => ({
+              ...target,
+              serial: (previous?.serial ?? 0) + 1,
+            }));
+          else setReturnedWorkRequested((value) => value + 1);
+        }}
+      />
       {frozen && <p role="status">{t.closingProject}</p>}
       <fieldset
         ref={freezeContainer}
@@ -676,7 +703,10 @@ function WorkbenchContent({
                   client={client}
                   t={t}
                   frozen={frozen}
-                  externalWorkRequested={externalWorkRequested}
+                  externalWorkRequested={
+                    externalWorkRequested + returnedWorkRequested
+                  }
+                  returnedSelection={returnedSelection}
                   sourceRequested={sourceChangesRequested}
                 />
               )}

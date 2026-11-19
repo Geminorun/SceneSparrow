@@ -105,6 +105,10 @@
   through the existing queue. Preserve native IME keys, actual business fences and
   original ambiguous request identities. Audit related entry points and exercise
   focused interaction regressions when changing this boundary.
+- Controlled native disclosure widgets capture click/keyboard intent synchronously.
+  Do not derive a user's decision only from a delayed native toggle event: a
+  background render can restore the old open value before that event is delivered.
+  Exercise the existing editor/recovery disclosure under polling when changing it.
 - Capture the owning input/context before an asynchronous action and revalidate
   it after each prerequisite await. Late acknowledgments must not clear newer
   input, dispatch a newer unsent draft, dismiss a later recovery decision or
@@ -128,7 +132,9 @@
   original outcome/current status separation and one-shot cleanup. Status reads
   must not overwrite newer whole-record updates; large transfer records use their
   own bounded writer rather than the small journal/index writer. Visible transfer
-  flows and platform support retain their later gates. OP2 currently refuses
+  flows are connected by OP5-C; see `docs/validation/open-project-op5c.md`.
+  Actual activation/default startup and platform support retain the OP6 gate.
+  OP2 currently refuses
   native file promotion outside Linux; Windows source access is also unsupported.
   OP6 must implement these capabilities before claiming cross-platform delivery.
   For authorized coding,
@@ -150,6 +156,21 @@
   uncertain DTO identity and stage checkpoint mappings atomically. Missing-ID proof
   must batch against captured syntax, not reparse the whole document per ID.
   See `docs/validation/open-project-op3b.md` for tested behavior and refusal limits.
+- Snapshot/copy/export final-input actions keep one ProjectSession queue lease
+  through captured manuscript/hidden-planning settlement, base proof and original
+  capture acknowledgment. Do not release after prepareInput and then capture.
+  Captured memberships have bounded owned custody and release on every early
+  failure/cancellation; later typing remains pending. Deduplication keys include
+  the actual item/operation owner, never a shared collection-wide key.
+- An uncertain request retains its original DTO/identity until resolved. A new
+  explicit action after a known completion/rejection uses a fresh request and
+  target issuance; never replay a settled Retry as the next retry attempt. Keep
+  prerequisite ownership per operation rather than in a reused feature-wide ref.
+- Native project package delivery is new-file-only: preserve the continuously
+  held created output identity, no-clobber publication and reader/worker lifetime
+  through final verification. Original delivery lookup never chooses, rewrites or
+  falls back to saving on a cache miss. Browser downloads stay bounded attachment
+  streams. Reload hints grant lookup only; they are not root/receipt authority.
 - Every new durable business rejection must round-trip through original command
   receipt lookup and exact replay with the same code. Testing only the first HTTP
   error misses persisted outcome decoders and can strand an uncertain request.

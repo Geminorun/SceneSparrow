@@ -120,6 +120,7 @@ export class ProjectSession {
         await this.client.readManuscriptIdentity()
       ).bodyHash;
   }
+  private capturingInput = false;
   private sourceInspection = 0;
   async inspectSource(rescan = false) {
     const inspection = ++this.sourceInspection;
@@ -405,6 +406,13 @@ export class ProjectSession {
       let snapshot = sent.snapshot ?? (await this.client.readAuthoredSource!());
       const canonical = await this.client.readManuscript();
       const history = await this.client.readHistory();
+      if (
+        (this.capturingInput || this.capturedInputFences.size > 0) &&
+        (canonical.workingRevision !== sent.receipt!.workingRevision ||
+          snapshot.workingRevision !== sent.receipt!.workingRevision ||
+          history.historyRevision !== sent.receipt!.historyRevision)
+      )
+        throw new ApiError("REVISION_CONFLICT");
       if (this.disposed) return false;
       if (
         canonical.workingRevision > snapshot.workingRevision &&
@@ -826,6 +834,10 @@ export class ProjectSession {
   }
   planningAdapter?: {
     flush: (retry?: boolean) => Promise<boolean>;
+    captureCheckpoint?: () => {
+      run: () => Promise<boolean>;
+      release: () => void;
+    };
     identity: () => string;
     inputVersion?: () => number;
     refresh?: () => Promise<void>;
@@ -905,12 +917,14 @@ export class ProjectSession {
   private compositionGeneration = 0;
   private metadataPending: ManuscriptCommand | null = null;
   private capturedGeneration = -1;
+  private capturedInputFences = new Map<object, number>();
   private capture() {
     if (this.capturedGeneration === this.generation) return;
     this.capturedGeneration = this.generation;
     if (this.same()) return;
     const segment = {
       blocks: structuredClone(this.local),
+      generation: this.generation,
       ...(this.source
         ? { source: this.sourceLocal, generation: this.generation }
         : {}),
@@ -923,10 +937,17 @@ export class ProjectSession {
     this.boundSegments();
   }
   private boundSegments(limit = 6) {
-    // The unresolved payload is owned separately and is never evicted.
-    if (this.segments.length > limit)
-      this.segments.splice(0, this.segments.length - limit);
+    // Captured checkpoints remain protected independently of newer local history.
+    const through = Math.max(-1, ...this.capturedInputFences.values());
+    let ordinary = this.segments.filter(
+      (segment) => (segment.generation ?? Infinity) > through,
+    ).length;
+    this.segments = this.segments.filter(
+      (segment) =>
+        (segment.generation ?? Infinity) <= through || ordinary-- <= limit,
+    );
   }
+
   get canUndo() {
     return this.hasPendingEdits || this.history.undoCount > 0;
   }
@@ -1003,6 +1024,10 @@ export class ProjectSession {
     this.capture();
     this.freshGroup();
     return Promise.resolve(true);
+  }
+  private async closeCapturedGroup(): Promise<boolean> {
+    if (!this.acknowledgedGroup && !this.pendingControl) return true;
+    return this.control("CloseEditGroup", undefined, true);
   }
   private async closeGroup(): Promise<boolean> {
     if (!this.acknowledgedGroup && !this.pendingControl) return true;
@@ -1151,6 +1176,81 @@ export class ProjectSession {
   get exportInputIdentity() {
     return `${this.generation}:${this.compositionGeneration}:${this.canonicalVersion}`;
   }
+  /** One queue lease spans captured input settlement and immutable capture ACK.
+   * The callback owns its transport DTO; this read-only action has no mutation receipt. */
+  capturedAction<T>(
+    key: string,
+    capture: () => Promise<T>,
+    settleInput = true,
+  ): Promise<T | null> {
+    return this.actions
+      .runCaptured(
+        `capture-${key}`,
+        () => {
+          const context = this.actions.contextVersion;
+          const generation = this.generation;
+          if (settleInput) {
+            this.capture();
+            this.freshGroup();
+          }
+          const fence = {};
+          const planning = settleInput
+            ? this.planningAdapter?.captureCheckpoint?.()
+            : undefined;
+          // A failed participant capture has not admitted a manuscript owner.
+          if (settleInput) this.capturedInputFences.set(fence, generation);
+          let released = false;
+          const release = () => {
+            if (released) return;
+            released = true;
+            try {
+              planning?.release();
+            } finally {
+              this.capturedInputFences.delete(fence);
+              this.boundSegments();
+            }
+          };
+          return { context, generation, planning, release };
+        },
+        ({ context, generation, planning, release }) => {
+          return this.enqueue(async () => {
+            try {
+              if (
+                this.disposed ||
+                context !== this.actions.contextVersion ||
+                this.externalPending ||
+                (settleInput && this.planningAdapter && !planning)
+              )
+                return null;
+              this.capturingInput = true;
+              // drain stops at this generation if a newer edit arrives during its ACK.
+              if (
+                settleInput &&
+                !(await this.drain(true, undefined, generation))
+              )
+                return null;
+              if (settleInput && !(await this.closeCapturedGroup()))
+                return null;
+              if (planning && !(await planning.run())) return null;
+              if (this.disposed || context !== this.actions.contextVersion)
+                return null;
+              return await capture();
+            } finally {
+              this.capturingInput = false;
+              // Custody ends after the callback's capture ACK/error, but before
+              // the shared queue can hand off to another captured checkpoint.
+              release();
+              this.schedule();
+            }
+          });
+        },
+        () => !this.disposed,
+        // Cancellation or invalid intent may prevent queue entry altogether.
+        // Admission remains owned by CompositionActions until its promise ends.
+        ({ release }) => release(),
+      )
+      .then((value) => (value === false ? null : value));
+  }
   prepareInput(): Promise<boolean> {
     if (this.externalPending) return Promise.resolve(false);
     if (this.source && !this.composing) {
@@ -1294,6 +1394,9 @@ export class ProjectSession {
       }
     });
   }
+  planningFlush<T>(execute: () => Promise<T>): Promise<T> {
+    return this.enqueue(execute);
+  }
   businessCore(
     build: (revision: number) => ManuscriptCommand,
     options?: {
@@ -1304,12 +1407,14 @@ export class ProjectSession {
       requestedVisible?: string;
       bodyPreserving?: boolean;
       background?: boolean;
+      insideQueue?: boolean;
+      capturedInput?: boolean;
     },
   ) {
     const requestedVisible =
       options?.requestedVisible ?? JSON.stringify(this.local);
     const requestedGeneration = this.generation;
-    return this.enqueue(async () => {
+    const execute = async () => {
       if (
         options?.signal?.aborted ||
         this.disposed ||
@@ -1329,10 +1434,12 @@ export class ProjectSession {
         return false;
       }
       if (
-        this.composing ||
-        !(await (options?.background
-          ? this.drain(false, this.backgroundBodyGeneration)
-          : this.settle()))
+        (!options?.insideQueue && this.composing) ||
+        !(await (options?.capturedInput
+          ? Promise.resolve(true)
+          : options?.background
+            ? this.drain(false, this.backgroundBodyGeneration)
+            : this.settle()))
       )
         return false;
       if (
@@ -1354,8 +1461,9 @@ export class ProjectSession {
         return false;
       const command = build(this.state.workingRevision);
       options?.dispatched?.();
-      return this.control("CloseEditGroup", command);
-    });
+      return this.control("CloseEditGroup", command, options?.insideQueue);
+    };
+    return options?.insideQueue ? execute() : this.enqueue(execute);
   }
   resync() {
     return this.enqueue(async () => {
@@ -1513,20 +1621,27 @@ export class ProjectSession {
   }
   private async settle(retry = false): Promise<boolean> {
     for (;;) {
-      if (!(await this.drain(retry)) || !(await this.closeGroup()))
-        return false;
+      if (!(await this.drain(retry))) return false;
+      // A captured action may have bounded this predecessor's progress while
+      // its ACK was pending. Yield the queue truthfully; a business action must
+      // not treat a partial drain as fully settled or spin trying to flush C.
+      if (this.capturedInputFences.size && !this.same()) return false;
+      if (!(await this.closeGroup())) return false;
       if (this.disposed || this.composing || this.conversionError) return false;
       if (this.same() && !this.acknowledgedGroup && !this.pendingControl)
         return true;
-      if (this.source && !this.same()) return false;
+      if ((this.source || this.capturedInputFences.size) && !this.same())
+        return false;
       retry = false;
     }
   }
   private async control(
     type: "UndoProject" | "RedoProject" | "CloseEditGroup",
     override?: ManuscriptCommand,
+    captured = false,
   ): Promise<boolean> {
-    if (this.disposed || this.composing || this.conversionError) return false;
+    if (this.disposed || (!captured && this.composing) || this.conversionError)
+      return false;
     const command =
       this.pendingControl?.command ??
       override ??
@@ -1724,7 +1839,7 @@ export class ProjectSession {
   }
   constructor(
     public state: ManuscriptState,
-    private projectId: string,
+    readonly projectId: string,
     private client: PlatformClient,
     private changed: () => void,
     history?: HistoryState,
@@ -2031,7 +2146,18 @@ export class ProjectSession {
   private async drain(
     retry = false,
     backgroundGeneration?: number,
+    capturedGeneration?: number,
   ): Promise<boolean> {
+    // A predecessor already holding the queue must honor a click captured while
+    // its ACK was pending. Re-evaluate on every recursive drain, not only when
+    // the queued captured action eventually starts.
+    if (this.capturedInputFences.size) {
+      const firstCaptured = Math.min(...this.capturedInputFences.values());
+      capturedGeneration = Math.min(
+        capturedGeneration ?? Infinity,
+        firstCaptured,
+      );
+    }
     if (
       this.sourceRecoveryPending ||
       this.externalPending ||
@@ -2039,10 +2165,11 @@ export class ProjectSession {
     )
       return false;
     if (this.source) {
-      const targetGeneration = backgroundGeneration ?? this.generation;
+      const targetGeneration =
+        capturedGeneration ?? backgroundGeneration ?? this.generation;
       if (
         this.disposed ||
-        this.composing ||
+        (this.composing && capturedGeneration === undefined) ||
         this.metadataPending ||
         this.conversionError
       )
@@ -2057,6 +2184,13 @@ export class ProjectSession {
         this.segments.shift();
       const resolvingOriginal = !!this.sourcePending;
       while (this.sourcePending || !this.same()) {
+        if (
+          !this.sourcePending &&
+          capturedGeneration !== undefined &&
+          (!this.segments.length ||
+            (this.segments[0]!.generation ?? Infinity) > capturedGeneration)
+        )
+          return true;
         const previousGeneration = this.sourcePending?.generation;
         if (!this.sourcePending) {
           const segment = this.segments.shift();
@@ -2064,7 +2198,9 @@ export class ProjectSession {
           if (
             this.acknowledgedGroup &&
             this.acknowledgedGroup.groupId !== group &&
-            !(await this.closeGroup())
+            !(await (capturedGeneration === undefined
+              ? this.closeGroup()
+              : this.closeCapturedGroup()))
           )
             return false;
           const request: AuthoredSourceSaveRequest = {
@@ -2091,8 +2227,16 @@ export class ProjectSession {
         }
         if (!(await this.sendSource())) return false;
         if (
-          targetGeneration !== this.generation ||
-          (resolvingOriginal && previousGeneration !== this.generation)
+          (targetGeneration !== this.generation &&
+            (capturedGeneration === undefined ||
+              !this.segments.length ||
+              (this.segments[0]!.generation ?? Infinity) >
+                capturedGeneration)) ||
+          (resolvingOriginal &&
+            previousGeneration !== this.generation &&
+            (capturedGeneration === undefined ||
+              !this.segments.length ||
+              (this.segments[0]!.generation ?? Infinity) > capturedGeneration))
         )
           return true;
       }
@@ -2105,7 +2249,11 @@ export class ProjectSession {
     if (this.metadataPending || this.externalPending) return false;
     if (this.disposed) return false;
     clearTimeout(this.timer);
-    if (this.composing || this.conversionError) return false;
+    if (
+      (this.composing && capturedGeneration === undefined) ||
+      this.conversionError
+    )
+      return false;
     if (this.pendingControl && !this.inFlight) {
       if (
         !retry ||
@@ -2118,7 +2266,9 @@ export class ProjectSession {
     }
     if (this.inFlight) {
       const ok = await this.inFlight;
-      return ok ? this.drain(false, backgroundGeneration) : false;
+      return ok
+        ? this.drain(false, backgroundGeneration, capturedGeneration)
+        : false;
     }
     if (!retry && ["error", "conflict"].includes(this.status)) return false;
     if (this.status === "conflict") return false;
@@ -2146,8 +2296,17 @@ export class ProjectSession {
         this.notify();
         return true;
       }
+      // Canonical-equal checkpoint segments above may have consumed the last
+      // captured member. Recheck admission before falling back to current input.
+      if (
+        capturedGeneration !== undefined &&
+        (!this.segments.length ||
+          (this.segments[0]!.generation ?? Infinity) > capturedGeneration)
+      )
+        return true;
       const segment = this.segments.shift() ?? {
         blocks: structuredClone(this.local),
+        generation: this.generation,
         group: this.group,
         kind: this.groupKind,
       };
@@ -2155,11 +2314,19 @@ export class ProjectSession {
         this.acknowledgedGroup &&
         this.acknowledgedGroup.groupId !== segment.group
       ) {
-        if (!(await this.closeGroup())) {
+        if (
+          !(await (capturedGeneration === undefined
+            ? this.closeGroup()
+            : this.closeCapturedGroup()))
+        ) {
           this.segments.unshift(segment);
           return false;
         }
-        if (this.disposed || this.conversionError || this.composing) {
+        if (
+          this.disposed ||
+          this.conversionError ||
+          (this.composing && capturedGeneration === undefined)
+        ) {
           this.segments.unshift(segment);
           return false;
         }
@@ -2294,8 +2461,11 @@ export class ProjectSession {
     })();
     const ok = await this.inFlight;
     if (this.conversionError) return false;
-    return ok && !this.disposed && !this.composing && !this.same()
-      ? this.drain(false, backgroundGeneration)
+    return ok &&
+      !this.disposed &&
+      (!this.composing || capturedGeneration !== undefined) &&
+      !this.same()
+      ? this.drain(false, backgroundGeneration, capturedGeneration)
       : ok;
   }
   reload() {

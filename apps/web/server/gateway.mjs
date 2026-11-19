@@ -412,6 +412,7 @@ export async function createGateway({
         const target = path.slice(4);
         if (
           !target.startsWith("/v1/") ||
+          /^\/v1\/native(?:\/|$)/.test(target) ||
           /^\/v1\/(?:manuscript\/deliveries|project\/(?:quiesce|resume|backup))(?:\/|$)/.test(
             target,
           )

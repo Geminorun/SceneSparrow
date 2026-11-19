@@ -40,24 +40,35 @@ Verify volume/file IDs and regular-file/link-count constraints. String-prefix or
 prior canonicalization checks alone are not containment. Handle reserved names,
 Unicode/case collisions, locked destinations and long portable paths deliberately.
 
-Use `ReplaceFileW` with a recorded distinct displaced backup path for replacement;
-the journal must represent target, staged replacement and displaced backup as
-separate members/states. Do not pretend this is Linux's two-name exchange.
-No-clobber addition/removal uses native preserving renames with checked known
-targets. Flush actual file handles; do not depend on `REPLACEFILE_WRITE_THROUGH`,
-which the API documents as unsupported. Errors 1176/1177 can leave different name
-layouts, so inspect/recover actual identities and bytes after failure. Unknown
-members remain preserved and fenced. A failure return never implies no mutation.
+Windows replacement uses a platform-aware three-name intent: target, staged
+replacement and distinct displaced backup. Prefer handle-relative preserving
+no-replace steps: move the held known target to the recorded absent displacement,
+then move the held stage to the now-absent target. Record the intent before either
+move and recover every partial layout by actual identities/content, including the
+temporary absent target. Unknown destination members prevent promotion and remain
+intact. Keep v1/v2/v3 readers; use a versioned native representation rather than
+pretend the Windows protocol is Linux's two-name exchange.
 
-This choice requires platform-aware intent recovery, including interruption inside
-the replacement primitive, before any wrapper has restored its preferred stage
-name. Keep all displacement paths derivable/recorded before first promotion. Never
-delete an unknown third file as cleanup or leave it outside the evidence closure.
-Retain v1/v2 and subsequently delivered intent readers. Root reviews concrete
-native states and fault tests before accepting platform support.
+`ReplaceFileW` is not a default safe substitute: its backup name has no documented
+no-clobber flag, and errors 1176/1177 can leave distinct partial layouts. Root's
+initial preparation proposed that API, but reviewed its preservation boundary before
+dispatch and selected the explicit handle-relative no-replace protocol. It may be
+used only if a concrete implementation proves the backup cannot overwrite unknown
+bytes and retains every partial state; a preflight existence check is insufficient.
+Do not depend on REPLACEFILE_WRITE_THROUGH, which is documented as unsupported.
+Flush actual handles and record the tested directory flush behavior. No fallback
+copy/delete or check-then-overwrite is accepted.
 
-Official reference for Windows behavior:
+Retain root/ancestor handles while operating. Disposable owned directories need a
+role-specific DELETE-capable held handle for their own handle-relative move; do not
+close every proof handle and reopen a pathname to work around sharing conflicts.
+Read-only inspection must not unnecessarily require DELETE permission. Validate
+actual Windows sharing/own-rename behavior instead of assuming Unix semantics.
+
+Official references consulted by root:
 https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew
+https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info
+https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setfileinformationbyhandle
 
 Add focused PR CI matrix jobs on Windows and macOS if the Linux-only Foundation
 job cannot run these cases. Pin toolchain/dependencies; use no providers/private

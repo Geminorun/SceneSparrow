@@ -462,20 +462,46 @@ test("redirect never forwards bearer and timeout never retries including SDK-onl
     await ep.close();
     await target.close();
   }
-  const slow = await endpoint(() => {});
+  let firstDispatch, secondDispatch;
+  const firstStarted = new Promise((resolve) => (firstDispatch = resolve));
+  const secondStarted = new Promise((resolve) => (secondDispatch = resolve));
+  const slow = await endpoint(() => {
+    if (slow.calls === 1) firstDispatch();
+    if (slow.calls === 2) secondDispatch();
+  });
   try {
     const r = fixture(slow.root);
-    r.configuration.policy.overallMs = 100;
-    await fails(r, "REQUEST_TIMEOUT");
+    // Fifty milliseconds can expire in SDK setup under the full suite before
+    // HTTP reaches localhost. Use a realistic bound and prove each dispatch
+    // before asserting its timeout and exact no-retry count.
+    r.configuration.policy.overallMs = 2000;
+    r.configuration.policy.idleMs = 5000;
+    const overallTimeout = fails(r, "REQUEST_TIMEOUT");
+    await Promise.race([
+      firstStarted,
+      overallTimeout.then(() => {
+        throw Error("overall timeout before local HTTP dispatch");
+      }),
+    ]);
     assert.equal(slow.calls, 1);
-    const client = transport(r.configuration, null, r.signal, 50);
-    await assert.rejects(
+    await overallTimeout;
+    assert.equal(slow.calls, 1);
+    const client = transport(r.configuration, null, r.signal, 2000);
+    const sdkTimeout = assert.rejects(
       client.chat.completions.create({
         model: "manual",
         messages: [],
       }),
       (e) => normalizeError(e).code === "REQUEST_TIMEOUT",
     );
+    await Promise.race([
+      secondStarted,
+      sdkTimeout.then(() => {
+        throw Error("SDK timeout before local HTTP dispatch");
+      }),
+    ]);
+    assert.equal(slow.calls, 2);
+    await sdkTimeout;
     assert.equal(slow.calls, 2);
   } finally {
     await slow.close();

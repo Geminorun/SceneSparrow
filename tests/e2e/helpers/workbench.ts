@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 
 export async function openWorkbench(
   page: Page,
-  options: { defaultSavePolicy?: boolean } = {},
+  options: { defaultSavePolicy?: boolean; url?: string } = {},
 ) {
   // Browser workflow tests select the shortest supported user preference. Dedicated
   // preference tests leave the production ten-second default intact.
@@ -18,7 +18,7 @@ export async function openWorkbench(
           }),
         );
     });
-  await page.goto("/");
+  await page.goto(options.url ?? "/");
   await page
     .getByRole("combobox", { name: /^(Language|语言)$/ })
     .selectOption("en");

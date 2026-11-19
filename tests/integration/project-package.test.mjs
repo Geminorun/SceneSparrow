@@ -19,7 +19,8 @@ async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-package-")),
     root = join(directory, "source"),
     app = join(directory, "app"),
-    token = randomBytes(32).toString("hex");
+    token = randomBytes(32).toString("hex"),
+    nativeToken = randomBytes(32).toString("hex");
   let child, base;
   const headers = {
     Authorization: `Bearer ${token}`,
@@ -49,6 +50,7 @@ async function fixture(t) {
         SCENESPARROW_PROJECT_DIR: selected,
         SCENESPARROW_APP_DATA_DIR: app,
         SCENESPARROW_SESSION_TOKEN: token,
+        SCENESPARROW_NATIVE_TOKEN: nativeToken,
         SCENESPARROW_CORE_PORT: String(port),
         SCENESPARROW_PROJECT_OPEN_MODE: mode,
       },
@@ -160,6 +162,7 @@ async function fixture(t) {
     return { request, view: v, bytes, start };
   }
   return {
+    nativeToken,
     root,
     app,
     boot,
@@ -642,5 +645,39 @@ test("OP5-B HTTP failed publication preserves original outcome and expired retry
   assert.equal(
     (await readFile(archive)).toString(),
     "unknown archive must survive",
+  );
+});
+
+test("native package save-new requires both private credentials and closed main-only path body", async (t) => {
+  const f = await fixture(t);
+  const exported = await f.exported();
+  const destinationPath = join(f.root, "new-package.zip");
+  const request = { requestId: randomUUID(), destinationPath };
+  const path = `/native/project/packages/${exported.request.requestId}/save-new`;
+  assert.equal((await f.raw(path, request)).status, 403);
+  assert.equal(
+    (
+      await f.raw(
+        path,
+        { ...request, hash: "override" },
+        { "x-scenesparrow-native": f.nativeToken },
+      )
+    ).status,
+    400,
+  );
+  const result = await f.raw(path, request, {
+    "x-scenesparrow-native": f.nativeToken,
+  });
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).outcome, "saved");
+  assert.deepEqual(await readFile(destinationPath), exported.bytes);
+  await writeFile(destinationPath, "unknown later content");
+  const replay = await f.raw(path, request, {
+    "x-scenesparrow-native": f.nativeToken,
+  });
+  assert.equal((await replay.json()).outcome, "saved");
+  assert.equal(
+    (await readFile(destinationPath)).toString(),
+    "unknown later content",
   );
 });

@@ -26,6 +26,14 @@ provide required semantics is truthful, never an ordinary overwrite fallback.
 Document/test actual file/directory flush behavior and error mapping. Do not
 claim a runtime success implies durability on every filesystem.
 
+After a streamed proof, revalidate the named member against its continuously held
+file identity through the directory capability. Do not infer named membership from
+file size/mtime or assume every filesystem changes file ctime on rename. The
+original created output FD and both staged/published name proofs must agree for
+native package delivery. Test a name replacement during the proof on the actual
+target; an OS-prevented replacement or explicit refusal is acceptable, a false
+Saved result is not. Keep the existing closing/worker guard through all proof I/O.
+
 ## Descriptor enumeration and tree preparation
 
 Current Parent.entries/check_alias and one-shot cleanup assume Linux procfs.
@@ -59,6 +67,34 @@ The resulting abstraction must permit the following Windows checkpoint to supply
 real handles; it must not assume every platform is a Unix procfs tree. Avoid
 premature Windows fake implementations. Keep public renderer/HTTP contracts
 unchanged unless a concrete generated capability addition is necessary.
+
+## Frozen direction for the private I/O bridge
+
+Use a private held-directory capability for tree operations, with a pinned
+established dependency such as `cap-std` 4.0.3 where it satisfies the native
+no-follow/identity rules. Do not make a capability masquerade as an ordinary
+`Path` whose later joins escape the handle. Refactor all conversion/package/
+backup callers of bound_directory_path; the Linux implementation remains tested.
+A common helper can preserve the Linux proc-backed implementation internally,
+but portable callers must use explicit operations rather than assume procfs.
+
+For private prepared SQL snapshots, prefer pinned `sqlite-vfs` 0.2.0 over a new
+handwritten C VFS if its concrete implementation meets the requirements. Its
+SQLite symbols bind to the existing bundled SQLite; review that linking and the
+lockfile. Register a nondefault private VFS with opaque process-local capability
+names and bounded handle ownership. SQLite file, auxiliary journal and any disk
+temporary I/O must use that capability. No path from an imported database may
+select another directory. A private connection is exclusively owned, closed and
+flushed before external verification/publication; auxiliary cleanup preserves
+unknown files. Do not apply this private-only locking assumption to a live project
+or to unopened WAL-bearing legacy databases. Never serialize a multi-GiB database
+into memory or silently ignore an existing WAL. Keep extension loading disabled.
+
+A simpler concrete file-leaf bridge is acceptable only if actual target evidence
+proves SQLite does not canonicalize/reopen a mutable pathname or create uncontrolled
+sidecars. The default implementation direction is the explicit capability/VFS
+bridge, not a speculative /dev/fd or /.vol pathname fallback. Report any concrete
+library mismatch to root before replacing this boundary with a weaker design.
 
 ## Target-platform evidence
 

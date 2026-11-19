@@ -36,6 +36,14 @@ pub(crate) struct Parent {
 }
 impl Parent {
     #[cfg(unix)]
+    pub fn file_identity(file: &File) -> Result<Identity> {
+        identity(file)
+    }
+    #[cfg(not(unix))]
+    pub fn file_identity(_: &File) -> Result<Identity> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
+    #[cfg(unix)]
     pub fn open(root: &Path, relative: &str) -> Result<Self> {
         scenesparrow_domain::open_project::validate_portable_paths(&[relative])
             .map_err(format_error)?;

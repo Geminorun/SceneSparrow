@@ -712,6 +712,91 @@
           "enum": ["cancel", "retry"]
         }
       }
+    },
+    "NativePackageIntakeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "ownerProjectId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
+    },
+    "NativePackageIntakeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "outcome"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["selected", "cancelled"]
+        },
+        "intake": {
+          "$ref": "#/definitions/PackageIntakeView"
+        }
+      }
+    },
+    "NativePackageSaveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "archiveId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "archiveId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
+    },
+    "NativePackageSaveResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "outcome", "filename"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["saved", "cancelled", "exists", "unknown"]
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 120
+        }
+      }
+    },
+    "NativePackageCancelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
     }
   }
 }

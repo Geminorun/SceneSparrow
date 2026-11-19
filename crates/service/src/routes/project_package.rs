@@ -10,6 +10,15 @@ use axum::{
 use scenesparrow_domain::contracts::*;
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
+        .route("/v1/native/project/packages/{id}/save-new", post(save_new))
+        .route(
+            "/v1/native/project/packages/{id}/saves/{request}",
+            get(save_status),
+        )
+        .route(
+            "/v1/native/project/packages/{id}/availability",
+            get(availability),
+        )
         .route("/v1/project/packages/base", get(base))
         .route("/v1/project/packages/exports", post(export))
         .route("/v1/project/work-items/{id}/package", post(work))
@@ -269,4 +278,55 @@ async fn archive(State(s): State<AppState>, Path(id): Path<String>) -> Response 
     headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     headers.insert("x-content-type-options", "nosniff".parse().unwrap());
     response
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NativeSaveNew {
+    request_id: String,
+    destination_path: std::path::PathBuf,
+}
+async fn save_new(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    body: Result<Json<NativeSaveNew>, JsonRejection>,
+) -> Response {
+    let Ok(Json(request)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    let store = match store(&s) {
+        Ok(store) => store,
+        Err(e) => return manuscript::result::<()>(Err(e), None),
+    };
+    database(s, Some(request.request_id.clone()), move |r| {
+        store.save_package_new(r, &id, &request.request_id, &request.destination_path)
+    })
+    .await
+}
+
+async fn availability(State(s): State<AppState>, Path(id): Path<String>) -> Response {
+    let store = match store(&s) {
+        Ok(store) => store,
+        Err(e) => return manuscript::result::<()>(Err(e), None),
+    };
+    database(s, None, move |r| {
+        store
+            .read_package_archive(r, &id)
+            .map(|reader| reader.view().clone())
+    })
+    .await
+}
+
+async fn save_status(
+    State(s): State<AppState>,
+    Path((id, request)): Path<(String, String)>,
+) -> Response {
+    let store = match store(&s) {
+        Ok(store) => store,
+        Err(e) => return manuscript::result::<()>(Err(e), None),
+    };
+    database(s, None, move |r| {
+        store.package_native_save_status(r, &id, &request)
+    })
+    .await
 }

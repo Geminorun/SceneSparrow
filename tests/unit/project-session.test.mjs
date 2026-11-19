@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ApplicationPreferencesStore } from "../../packages/editor-ui/src/app-preferences.ts";
@@ -1559,3 +1561,69 @@ test("window-change save waits for composition completion", async () => {
     save.dispose();
   }
 });
+
+test("ordinary legacy predecessor honors a queued captured checkpoint and never drains later input", async () => {
+  const prefs = new ApplicationPreferencesStore(null);
+  prefs.update({ saveMode: "off" });
+  const { save, client, calls } = setup(prefs);
+  let release, entered;
+  const observed = new Promise((resolve) => (entered = resolve));
+  const hold = new Promise((resolve) => (release = resolve));
+  const submit = client.executeManuscript;
+  client.executeManuscript = async (command) => {
+    const result = await submit(command);
+    if (
+      command.type === "ApplyDocumentEdit" &&
+      calls.filter((c) => c.type === "ApplyDocumentEdit").length === 1
+    ) {
+      entered();
+      await hold;
+    }
+    return result;
+  };
+  try {
+    save.update(local(save, "A predecessor"));
+    const predecessor = save.flush();
+    await observed;
+    save.update(local(save, "B captured"));
+    let copied;
+    const copy = save.capturedAction("copy-predecessor", async () => {
+      copied = save.state.blocks[0].runs[0].text;
+      return true;
+    });
+    save.update(local(save, "C later"));
+    release();
+    assert.equal(await predecessor, true);
+    assert.equal(await copy, true);
+    assert.equal(copied, "B captured");
+    assert.equal(save.state.blocks[0].runs[0].text, "B captured");
+    assert.equal(save.local[0].runs[0].text, "C later");
+    assert.equal(save.status, "pending");
+    assert.equal(calls.filter((c) => c.type === "ApplyDocumentEdit").length, 2);
+  } finally {
+    release();
+    save.dispose();
+  }
+});
+
+for (const mode of [
+  "prepare",
+  "manual",
+  "business",
+  "preserving-business",
+  "noop",
+  "multiple-noops",
+]) {
+  test(`captured predecessor ${mode} yields bounded progress without hanging or dispatching later input`, async () => {
+    // A child timeout bounds a microtask-only retry loop too; a timer raced
+    // inside that loop could itself be starved and leave the whole suite hung.
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      ["--import", "tsx", "tests/fixtures/captured-predecessor.mjs", mode],
+      { timeout: 5000, maxBuffer: 1024 * 1024 },
+    );
+    const result = JSON.parse(stdout.trim());
+    assert.equal(result.mode, mode);
+    assert.equal(result.status, "pending");
+  });
+}

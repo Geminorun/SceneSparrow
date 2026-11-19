@@ -2,9 +2,9 @@
 
 Status: accepted direction; implementation in progress, 2026-11-19.
 OP1/OP2, OP3 source authoring/reconciliation, OP4 recorded external work and
-OP5-A verified conversion and OP5-B package backends are locally reviewed. Visible
-transfer, lifecycle and platform
-acceptance is pending; see the execution plan and validation reports.
+OP5-A verified conversion, OP5-B package backends and OP5-C visible transfer/
+streamed delivery are locally reviewed. Lifecycle and platform acceptance remain
+pending; see the execution plan and validation reports.
 
 ## Context
 

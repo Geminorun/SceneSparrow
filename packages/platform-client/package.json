@@ -4,12 +4,14 @@
   "type": "module",
   "name": "@scenesparrow/platform-client",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./package-name": "./src/package-name.mjs"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@noble/hashes": "2.0.1",
     "@scenesparrow/contracts": "workspace:*"
   }
 }

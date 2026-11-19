@@ -29,6 +29,9 @@ importers:
       '@scenesparrow/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@scenesparrow/platform-client':
+        specifier: workspace:*
+        version: link:../../packages/platform-client
     devDependencies:
       electron:
         specifier: 45.3.2
@@ -157,6 +160,9 @@ importers:
 
   packages/platform-client:
     dependencies:
+      '@noble/hashes':
+        specifier: 2.0.1
+        version: 2.0.1
       '@scenesparrow/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -770,6 +776,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2
+
+  '@noble/hashes@2.0.1':
+    resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
+    engines: {node: '>= 20.19.0'}
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
@@ -2852,6 +2862,8 @@ snapshots:
       '@emnapi/runtime': 2.0.0-beta.2
       '@tybys/wasm-util': 0.10.4
     optional: true
+
+  '@noble/hashes@2.0.1': {}
 
   '@oxc-project/types@0.156.0': {}
 

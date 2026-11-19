@@ -1,3 +1,4 @@
+import type { TransferIntent } from "../project-transfer/ProjectTransfers";
 import type { ProjectSession } from "../project-session/project-session";
 import {
   useCallback,
@@ -93,6 +94,9 @@ export function App({ client }: { client: PlatformClient }) {
       };
     setSourceProject(!!session?.source);
   }, []);
+  const [transferIntent, setTransferIntent] = useState<TransferIntent | null>(
+    null,
+  );
   const [externalWorkRequested, setExternalWorkRequested] = useState(0);
   const settings = useRef<HTMLDialogElement>(null);
   const renameDialog = useRef<HTMLDialogElement>(null);
@@ -405,6 +409,32 @@ export function App({ client }: { client: PlatformClient }) {
               >
                 <summary>{t.applicationMenu}</summary>
                 <nav aria-label={t.applicationMenu}>
+                  {(["convert", "export", "import"] as const).map((kind) => (
+                    <button
+                      key={kind}
+                      onClick={() => {
+                        if (projectMenu.current)
+                          projectMenu.current.open = false;
+                        setTransferIntent({
+                          serial: Date.now(),
+                          kind,
+                          returnFocus:
+                            projectMenu.current?.querySelector("summary") ??
+                            null,
+                        });
+                      }}
+                    >
+                      {
+                        t[
+                          kind === "convert"
+                            ? "transferConvert"
+                            : kind === "export"
+                              ? "transferExport"
+                              : "transferImport"
+                        ]
+                      }
+                    </button>
+                  ))}
                   <p
                     className="application-project-title"
                     title={project.title}
@@ -580,6 +610,7 @@ export function App({ client }: { client: PlatformClient }) {
                 onRevision={onRevision}
                 onSession={captureSession}
                 externalWorkRequested={externalWorkRequested}
+                transferIntent={transferIntent}
                 approvedBaseline={project.approvedBaseline}
                 onBeforeClose={dismissDialogs}
               />

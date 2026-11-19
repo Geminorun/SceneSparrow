@@ -1,3 +1,4 @@
+import { WorkPackageExport } from "../project-transfer/ProjectTransfers";
 import { useEffect, useRef, useState } from "react";
 import type {
   FileGraphView,
@@ -15,15 +16,25 @@ import type en from "../locales/en.json";
 import { useNoticeOwner } from "../feedback/NotificationPresenter";
 import { useScopedRead } from "./use-scoped-read";
 
+export type ReturnedWorkSelection = {
+  serial: number;
+  workItemId: string;
+  candidateId: string;
+};
+
 /** Presentation stays inside the existing Changes dialog and project session. */
 export function ExternalWork({
   client,
   save,
   t,
+  returnedSelection,
+  onManualSelection,
 }: {
   client: PlatformClient;
   save: ProjectSession;
   t: typeof en;
+  returnedSelection?: ReturnedWorkSelection | null;
+  onManualSelection?: () => void;
 }) {
   const [operation, setOperation] = useState<WorkOperationView | null>(null);
   const operationEpoch = useRef(0);
@@ -55,7 +66,17 @@ export function ExternalWork({
   const notice = useNoticeOwner();
   const explicitOperationRead = useRef(true);
   const item = items.find((i) => i.workItemId === selected) ?? null;
-  const candidate = item?.latestCandidate;
+  const [expectedReturn, setExpectedReturn] =
+    useState<ReturnedWorkSelection | null>(null);
+  const returnOwner = useRef<ReturnedWorkSelection | null>(null);
+  const selectedOwner = useRef(selected);
+  selectedOwner.current = selected;
+  const staleReturn =
+    !!expectedReturn &&
+    !!item &&
+    item.latestCandidate?.candidateId !== expectedReturn.candidateId;
+  const candidate = staleReturn ? null : item?.latestCandidate;
+  const listReads = useScopedRead(client, save.projectId);
   const pathOwner = useRef(selectedPath);
   pathOwner.current = selectedPath;
   const reads = useScopedRead(
@@ -65,20 +86,36 @@ export function ExternalWork({
   const message = (code: string) =>
     (t as Record<string, string>)[code] ?? t.externalWorkFailed;
   function refresh(passive = false) {
-    return reads.run(
+    return listReads.run(
       "work-refresh",
-      async () => ({
-        graph: await client.readFileGraph!(),
-        page: await client.readWorkItems!(),
-      }),
-      ({ graph, page }) => {
+      async () => {
+        const selectedId = selectedOwner.current;
+        const graph = await client.readFileGraph!();
+        const page = await client.readWorkItems!();
+        const retained =
+          selectedId &&
+          !page.records.some((row) => row.workItemId === selectedId)
+            ? await client.readWorkItem!(selectedId)
+            : null;
+        return { graph, page, retained };
+      },
+      ({ graph, page, retained }) => {
         setGraph(graph);
-        setItems(page.records);
+        setItems((previous) => {
+          const current =
+            retained?.workItemId === selectedOwner.current
+              ? retained
+              : previous.find(
+                  (row) => row.workItemId === selectedOwner.current,
+                );
+          return current &&
+            !page.records.some((row) => row.workItemId === current.workItemId)
+            ? [current, ...page.records]
+            : page.records;
+        });
         setItemCursor(page.continuation);
-        setSelected((current) =>
-          current && page.records.some((i) => i.workItemId === current)
-            ? current
-            : (page.records[0]?.workItemId ?? null),
+        setSelected(
+          (current) => current ?? page.records[0]?.workItemId ?? null,
         );
       },
       passive,
@@ -94,6 +131,33 @@ export function ExternalWork({
       operationEpoch.current++;
     };
   }, [client]);
+  useEffect(() => {
+    if (!returnedSelection) return;
+    const target = returnedSelection;
+    returnOwner.current = target;
+    setExpectedReturn(target);
+    reads.invalidate();
+    readEpoch.current++;
+    changeEpoch.current++;
+    operationEpoch.current++;
+    setSelected(target.workItemId);
+    setError("");
+    void listReads.run(
+      "returned-work-item",
+      () => client.readWorkItem!(target.workItemId),
+      (value) => {
+        setItems((rows) => [
+          value,
+          ...rows.filter((row) => row.workItemId !== value.workItemId),
+        ]);
+      },
+      false,
+      () => returnOwner.current === target,
+    );
+    return () => {
+      if (returnOwner.current === target) returnOwner.current = null;
+    };
+  }, [client, returnedSelection]);
   useEffect(() => {
     if (!items.some((i) => ["preparing", "inspecting"].includes(i.state)))
       return;
@@ -305,10 +369,12 @@ export function ExternalWork({
     >
       <p className="muted">{t.externalWorkHelp}</p>
       {error && <p role="alert">{message(error)}</p>}
-      {reads.recovery && (
+      {(reads.recovery ?? listReads.recovery) && (
         <div className="compact-read-recovery" role="status">
-          <p>{message(reads.recovery.code)}</p>
-          <button onClick={reads.recovery.retry}>{t.retry}</button>
+          <p>{message((reads.recovery ?? listReads.recovery)!.code)}</p>
+          <button onClick={(reads.recovery ?? listReads.recovery)!.retry}>
+            {t.retry}
+          </button>
         </div>
       )}
       {save.hasExternalRecovery && (
@@ -526,8 +592,12 @@ export function ExternalWork({
             {items.map((row) => (
               <li key={row.workItemId}>
                 <button
+                  data-work-item-id={row.workItemId}
                   aria-pressed={selected === row.workItemId}
                   onClick={() => {
+                    returnOwner.current = null;
+                    setExpectedReturn(null);
+                    onManualSelection?.();
                     if (selected === row.workItemId) return;
                     reads.invalidate();
                     readEpoch.current++;
@@ -564,6 +634,17 @@ export function ExternalWork({
           )}
           {item && (
             <div className="external-work-detail">
+              {item.origin === "copy" &&
+                item.state === "ready" &&
+                client.startWorkCopyPackageExport && (
+                  <WorkPackageExport
+                    key={item.workItemId}
+                    client={client}
+                    save={save}
+                    item={item}
+                    t={t}
+                  />
+                )}
               {operation?.failureCode && (
                 <p role="status">{message(operation.failureCode)}</p>
               )}
@@ -628,6 +709,7 @@ export function ExternalWork({
                   </button>
                 )}
               </div>
+              {staleReturn && <p role="status">{t.transferReturnedStale}</p>}
               {candidate && (
                 <>
                   {candidate.blockers.map((code) => (

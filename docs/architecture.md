@@ -33,15 +33,19 @@ AI; copied runtime capabilities are fenced before target readiness. OP5-B adds
 fixed portable Project/Work ZIP packages, bounded binary intake/verification,
 independent restore and returned edits through the same OP4 owner. Original
 control hashes, precise capture pins and finite custody preserve snapshot/retry
-identity; copied authority is revoked before readiness. Visible transfer flows
-and full platform/lifecycle support retain their later gates. See
+identity; copied authority is revoked before readiness. OP5-C connects visible
+conversion/package flows, exact returned-candidate review and bounded browser/
+native delivery. A compound session queue protects clicked manuscript/planning
+checkpoints through capture ACK; bounded lookup-only hints preserve original
+operations. Full platform/lifecycle support retains the OP6 gate. See
 [OP2 validation](validation/open-project-op2.md) and
 [OP3-A validation](validation/open-project-op3a.md) and
 [OP3-B validation](validation/open-project-op3b.md) and
 [OP4-A validation](validation/open-project-op4a.md) and
 [OP4-B validation](validation/open-project-op4b.md) and
 [OP5-A validation](validation/open-project-op5a.md) and
-[OP5-B validation](validation/open-project-op5b.md).
+[OP5-B validation](validation/open-project-op5b.md) and
+[OP5-C validation](validation/open-project-op5c.md).
 
 ## Runtime and dependency boundaries
 

@@ -139,10 +139,11 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
     {
         return api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED");
     }
-    let native = request
-        .uri()
-        .path()
-        .starts_with("/v1/manuscript/deliveries")
+    let native = request.uri().path().starts_with("/v1/native/")
+        || request
+            .uri()
+            .path()
+            .starts_with("/v1/manuscript/deliveries")
         || request.uri().path().starts_with("/v1/project/quiesce")
         || request.uri().path().starts_with("/v1/project/resume")
         || request.uri().path().starts_with("/v1/project/backup");

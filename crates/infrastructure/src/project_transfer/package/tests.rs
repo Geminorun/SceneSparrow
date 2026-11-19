@@ -2752,3 +2752,197 @@ fn package_actual_large_work_capture_expiry_uses_its_large_atomic_record_bound()
         );
     }
 }
+
+#[test]
+fn package_native_new_save_verifies_archive_and_replays_without_overwrite() {
+    let (d, _root, r, s) = setup();
+    let request = ProjectPackageExportRequest {
+        request_id: id(),
+        base: r.read_package_base().unwrap(),
+    };
+    s.start_package_export(&r, &request).unwrap();
+    s.run_next(&r).unwrap();
+    let destination = d.path().join("saved.zip");
+    let delivery = id();
+    let saved = s
+        .save_package_new(&r, &request.request_id, &delivery, &destination)
+        .unwrap();
+    assert_eq!(saved.outcome, NativePackageSaveResultOutcome::Saved);
+    assert_eq!(
+        std::fs::read(&destination).unwrap(),
+        std::fs::read(
+            s.directory
+                .join(format!("archive-{}.zip", request.request_id))
+        )
+        .unwrap()
+    );
+    std::fs::write(&destination, b"later stranger").unwrap();
+    assert_eq!(
+        s.save_package_new(&r, &request.request_id, &delivery, &destination)
+            .unwrap(),
+        saved
+    );
+    assert_eq!(std::fs::read(&destination).unwrap(), b"later stranger");
+    assert_eq!(
+        s.save_package_new(&r, &request.request_id, &id(), &destination)
+            .unwrap()
+            .outcome,
+        NativePackageSaveResultOutcome::Exists
+    );
+    assert_eq!(
+        s.package_native_save_status(&r, &request.request_id, &delivery)
+            .unwrap(),
+        saved
+    );
+    assert_eq!(
+        s.package_native_save_status(&r, &id(), &delivery)
+            .unwrap_err()
+            .0,
+        "PACKAGE_NOT_FOUND"
+    );
+    assert_eq!(
+        s.package_native_save_status(&r, &request.request_id, &id())
+            .unwrap_err()
+            .0,
+        "PACKAGE_NOT_FOUND"
+    );
+    let ready_path = s.package_path("archive-ready", &request.request_id);
+    let mut ready: ArchiveReady = journal::read(&ready_path).unwrap();
+    ready.view.expires_at = now() - 1;
+    journal::save(&ready_path, &ready).unwrap();
+    // A delivery receipt remains readable after archive cache expiration/removal.
+    let archive_path = s
+        .directory
+        .join(format!("archive-{}.zip", request.request_id));
+    std::fs::remove_file(archive_path).unwrap();
+    assert_eq!(
+        s.package_native_save_status(&r, &request.request_id, &delivery)
+            .unwrap(),
+        saved
+    );
+}
+#[test]
+fn package_native_stage_replacement_identical_bytes_preserves_both_and_refuses_publish() {
+    let (d, _root, r, s) = setup();
+    let request = ProjectPackageExportRequest {
+        request_id: id(),
+        base: r.read_package_base().unwrap(),
+    };
+    s.start_package_export(&r, &request).unwrap();
+    s.run_next(&r).unwrap();
+    let delivery = id();
+    let stage = d
+        .path()
+        .join(format!(".scenesparrow-package-{delivery}.tmp"));
+    let preserved = d.path().join("held-original.tmp");
+    let archived = stage.clone();
+    *r.source_action.lock().unwrap() = Some((
+        "package-native-staged".into(),
+        Box::new(move || {
+            std::fs::rename(&archived, &preserved).unwrap();
+            std::fs::copy(&preserved, &archived).unwrap();
+        }),
+    ));
+    let destination = d.path().join("saved.zip");
+    let result = s
+        .save_package_new(&r, &request.request_id, &delivery, &destination)
+        .unwrap();
+    assert_eq!(result.outcome, NativePackageSaveResultOutcome::Unknown);
+    assert!(!destination.exists());
+    assert!(stage.exists());
+    assert!(d.path().join("held-original.tmp").exists());
+    assert_eq!(
+        s.save_package_new(&r, &request.request_id, &delivery, &destination)
+            .unwrap(),
+        result
+    );
+}
+#[test]
+fn package_native_destination_race_preserves_existing_bytes_and_original_unknown() {
+    let (d, _root, r, s) = setup();
+    let request = ProjectPackageExportRequest {
+        request_id: id(),
+        base: r.read_package_base().unwrap(),
+    };
+    s.start_package_export(&r, &request).unwrap();
+    s.run_next(&r).unwrap();
+    let destination = d.path().join("saved.zip");
+    let replaced = destination.clone();
+    *r.source_action.lock().unwrap() = Some((
+        "package-native-publish".into(),
+        Box::new(move || {
+            std::fs::write(&replaced, b"racing target").unwrap();
+        }),
+    ));
+    let result = s
+        .save_package_new(&r, &request.request_id, &id(), &destination)
+        .unwrap();
+    assert_eq!(result.outcome, NativePackageSaveResultOutcome::Unknown);
+    assert_eq!(std::fs::read(&destination).unwrap(), b"racing target");
+}
+#[test]
+fn package_native_proof_holds_reader_and_observes_quiesce_before_publish() {
+    let (d, _root, r, s) = setup();
+    let request = ProjectPackageExportRequest {
+        request_id: id(),
+        base: r.read_package_base().unwrap(),
+    };
+    s.start_package_export(&r, &request).unwrap();
+    s.run_next(&r).unwrap();
+    let entered = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let release = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let a = entered.clone();
+    let b = release.clone();
+    *r.source_action.lock().unwrap() = Some((
+        "package-native-proof".into(),
+        Box::new(move || {
+            a.wait();
+            b.wait();
+        }),
+    ));
+    let destination = d.path().join("saved.zip");
+    std::thread::scope(|scope| {
+        let task = scope.spawn(|| s.save_package_new(&r, &request.request_id, &id(), &destination));
+        entered.wait();
+        r.quiescing
+            .store(true, std::sync::atomic::Ordering::Release);
+        release.wait();
+        assert_eq!(
+            task.join().unwrap().unwrap().outcome,
+            NativePackageSaveResultOutcome::Unknown
+        );
+    });
+    assert!(!destination.exists());
+}
+
+#[test]
+fn package_native_tiny_limit_refuses_before_destination_io() {
+    let (d, _root, r, s) = setup();
+    let request = ProjectPackageExportRequest {
+        request_id: id(),
+        base: r.read_package_base().unwrap(),
+    };
+    s.start_package_export(&r, &request).unwrap();
+    s.run_next(&r).unwrap();
+    let view = s
+        .package_status(&r, &request.request_id)
+        .unwrap()
+        .archive
+        .unwrap();
+    let destination = d.path().join("never-created.zip");
+    assert_eq!(
+        s.save_package_new_limited(
+            &r,
+            &request.request_id,
+            &id(),
+            &destination,
+            view.size as u64 - 1
+        )
+        .unwrap_err()
+        .0,
+        "PACKAGE_SIZE_LIMIT"
+    );
+    assert!(!destination.exists());
+    assert_eq!(Limits::default().file, 4 << 30);
+    assert_eq!(Limits::default().compressed, 8 << 30);
+}

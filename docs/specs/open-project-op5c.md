@@ -1,7 +1,7 @@
 # OP5-C: visible transfer workflows and streamed platform delivery
 
-Status: root preparation, 2026-11-19. Not dispatched. Freeze accepted OP5-B
-contracts and the [exact brief](open-project-op5c-handoff.md) before assigning a fresh coding agent. Completes
+Status: root-frozen for coding after accepted/pushed OP5-B `9c8a24c`, 2026-11-19.
+Read its validation and the [exact brief](open-project-op5c-handoff.md). Completes
 OP5-T07 and visible A/B workflows; host activation is still OP6. Root owns
 specification, product decisions, acceptance docs and Git.
 

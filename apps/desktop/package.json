@@ -12,6 +12,7 @@
     "electron": "45.3.2"
   },
   "dependencies": {
-    "@scenesparrow/contracts": "workspace:*"
+    "@scenesparrow/contracts": "workspace:*",
+    "@scenesparrow/platform-client": "workspace:*"
   }
 }

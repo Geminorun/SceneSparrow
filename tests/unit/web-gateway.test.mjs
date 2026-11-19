@@ -150,6 +150,8 @@ test("production gateway authenticates all content, enforces origin, strips secr
     ])
       assert.equal((await send(path)).status, 400);
     for (const path of [
+      "/api/v1/native/project/packages/11111111-1111-4111-8111-111111111111/save-new",
+      "/api/v1/native/anything",
       "/api/v1/project/quiesce",
       "/api/v1/project/backup",
       "/api/v1/manuscript/deliveries/test",

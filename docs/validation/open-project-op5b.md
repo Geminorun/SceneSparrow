@@ -131,3 +131,6 @@ Tiny policies/crafted archives prove boundaries; there is no GiB-scale throughpu
 RSS or physical power-loss claim. No Electron GUI packaging, live provider,
 deployment, release or cloud-environment publication occurred. Current prospective
 PR merge-head CI remains a separate final gate. No automatic merge/tag/deploy.
+
+Remote Foundation run `44553634824`, attempt 1, completed successfully on
+accepted commit `9c8a24c`. This is backend CI evidence, not OP5-C/OP6 acceptance.

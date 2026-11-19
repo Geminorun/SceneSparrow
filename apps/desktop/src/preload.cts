@@ -13,6 +13,14 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readNativePackageSave: (body: unknown) =>
+    ipcRenderer.invoke("native-package:save-status", body),
+  choosePackageIntake: (body: unknown) =>
+    ipcRenderer.invoke("native-package:intake", body),
+  cancelNativePackageIntake: (body: unknown) =>
+    ipcRenderer.invoke("native-package:cancel-intake", body),
+  savePackageArchive: (body: unknown) =>
+    ipcRenderer.invoke("native-package:save", body),
   readPackageBase: (...args: unknown[]) =>
     ipcRenderer.invoke("project-package:readPackageBase", ...args),
   startProjectPackageExport: (...args: unknown[]) =>

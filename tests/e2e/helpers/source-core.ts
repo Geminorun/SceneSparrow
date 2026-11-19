@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import {
   mkdtemp,
@@ -19,6 +19,7 @@ import { DatabaseSync } from "node:sqlite";
 import { waitFor } from "../../../scripts/processes.mjs";
 
 type Core = {
+  browserUrl: string;
   receiptFailure: (id: string | null) => void;
   creative: (path: string, bytes: string | Uint8Array) => Promise<void>;
   workFile: (
@@ -69,6 +70,42 @@ export const test = base.extend<{ core: Core }>({
         },
         stdio: "ignore",
       });
+      const browserProxy = createServer((request, response) => {
+        const api = request.url?.startsWith("/api/");
+        const upstream = httpRequest(
+          {
+            hostname: "127.0.0.1",
+            port: api ? port : 5173,
+            path: api ? request.url!.slice(4) : request.url,
+            method: request.method,
+            headers: {
+              ...request.headers,
+              host: api ? `127.0.0.1:${port}` : "127.0.0.1:5173",
+              ...(api
+                ? {
+                    Authorization: `Bearer ${token}`,
+                    origin: "http://127.0.0.1:5173",
+                  }
+                : {}),
+            },
+          },
+          (incoming) => {
+            response.writeHead(incoming.statusCode ?? 502, incoming.headers);
+            incoming.pipe(response);
+            incoming.on("error", () => response.destroy());
+          },
+        );
+        upstream.on("error", () => {
+          response.writeHead(502);
+          response.end();
+        });
+        response.on("close", () => upstream.destroy());
+        request.pipe(upstream);
+      });
+      await new Promise<void>((resolve) =>
+        browserProxy.listen(0, "127.0.0.1", resolve),
+      );
+      const browserUrl = `http://127.0.0.1:${(browserProxy.address() as { port: number }).port}`;
       let intercept: (
         path: string,
         body: any,
@@ -104,6 +141,7 @@ export const test = base.extend<{ core: Core }>({
             headers: {
               ...route.request().headers(),
               Authorization: `Bearer ${token}`,
+              origin: "http://127.0.0.1:5173",
             },
           });
           if ((await intercept(target.pathname, body, "after")) === "abort")
@@ -130,6 +168,7 @@ export const test = base.extend<{ core: Core }>({
         const root = join(directory, "project"),
           management = join(root, ".scenesparrow");
         await use({
+          browserUrl,
           receiptFailure: (id) => {
             const db = new DatabaseSync(join(management, "project.sqlite"));
             try {
@@ -304,6 +343,10 @@ export const test = base.extend<{ core: Core }>({
           },
         });
       } finally {
+        browserProxy.closeAllConnections();
+        await new Promise<void>((resolve) =>
+          browserProxy.close(() => resolve()),
+        );
         await context.unrouteAll({ behavior: "ignoreErrors" });
         const stopped = once(child, "exit");
         child.kill();

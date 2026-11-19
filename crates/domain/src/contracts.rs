@@ -4121,3 +4121,68 @@ pub struct PackageControlRequest {
     #[serde(rename = "action")]
     pub action: PackageControlRequestAction,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePackageIntakeRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "ownerProjectId")]
+    pub owner_project_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativePackageIntakeResultOutcome {
+    #[serde(rename = "selected")]
+    Selected,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePackageIntakeResult {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "outcome")]
+    pub outcome: NativePackageIntakeResultOutcome,
+    #[serde(
+        rename = "intake",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub intake: Option<PackageIntakeView>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePackageSaveRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "archiveId")]
+    pub archive_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativePackageSaveResultOutcome {
+    #[serde(rename = "saved")]
+    Saved,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "exists")]
+    Exists,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePackageSaveResult {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "outcome")]
+    pub outcome: NativePackageSaveResultOutcome,
+    #[serde(rename = "filename")]
+    pub filename: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativePackageCancelRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+}

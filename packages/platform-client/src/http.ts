@@ -178,6 +178,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
             "x-scenesparrow-chunk-sha256": body.hash,
           },
           body: bytes as BodyInit,
+          signal: AbortSignal.timeout(10_000),
         },
       );
       return decodeJson<Work.PackageChunkAck>(response, "PUT");
@@ -194,6 +195,33 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       request("/v1/project/packages/restore-targets", body),
     restorePackage: (body) => request("/v1/project/packages/restores", body),
     returnPackage: (body) => request("/v1/project/packages/returns", body),
+    downloadPackageArchive: async (archive) => {
+      const url = new URL(
+        `${baseUrl}/v1/project/packages/archives/${encodeURIComponent(archive.archiveId)}`,
+        window.location.href,
+      );
+      if (url.origin !== window.location.origin)
+        throw new ApiError("ORIGIN_DENIED");
+      // Preflight the actual authorized stream and cancel without aggregation.
+      const response = await fetchResponse(url.href, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) await decodeJson(response, "GET");
+      const valid =
+        response.headers.get("content-type") === "application/zip" &&
+        response.headers.get("content-length") === String(archive.size) &&
+        response.headers.get("x-scenesparrow-content-sha256") ===
+          archive.hash &&
+        response.headers.get("content-disposition")?.startsWith("attachment;");
+      await response.body?.cancel();
+      if (!valid) throw new ApiError("PACKAGE_ARCHIVE_INVALID");
+      const anchor = document.createElement("a");
+      anchor.href = url.href;
+      anchor.download = archive.filename;
+      anchor.rel = "noopener";
+      anchor.click();
+      return true;
+    },
     openPackageArchive: async (id) => {
       const response = await fetchResponse(
         `${baseUrl}/v1/project/packages/archives/${encodeURIComponent(id)}`,

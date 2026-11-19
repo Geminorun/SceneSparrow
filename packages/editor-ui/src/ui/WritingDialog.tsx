@@ -7,20 +7,23 @@ export function WritingDialog({
   closeLabel,
   closeDisabled = false,
   children,
+  returnFocus,
 }: {
   title: string;
   close: () => void;
   closeLabel: string;
   closeDisabled?: boolean;
   children: ReactNode;
+  returnFocus?: HTMLElement | null;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const node = dialog.current;
     const previous =
-      document.activeElement instanceof HTMLElement
+      returnFocus ??
+      (document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
     node?.showModal();
     return () => {
       node?.close();

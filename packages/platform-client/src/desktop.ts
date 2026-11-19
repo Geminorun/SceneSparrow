@@ -35,6 +35,34 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     }
   }
   return {
+    ...(bridge.readNativePackageSave
+      ? {
+          readNativePackageSave: (
+            request: import("@scenesparrow/contracts").NativePackageSaveRequest,
+          ) => unwrap(bridge.readNativePackageSave!(request)),
+        }
+      : {}),
+    ...(bridge.choosePackageIntake
+      ? {
+          choosePackageIntake: (
+            request: import("@scenesparrow/contracts").NativePackageIntakeRequest,
+          ) => unwrap(bridge.choosePackageIntake!(request)),
+        }
+      : {}),
+    ...(bridge.cancelNativePackageIntake
+      ? {
+          cancelNativePackageIntake: (
+            request: import("@scenesparrow/contracts").NativePackageCancelRequest,
+          ) => unwrap(bridge.cancelNativePackageIntake!(request)),
+        }
+      : {}),
+    ...(bridge.savePackageArchive
+      ? {
+          savePackageArchive: (
+            request: import("@scenesparrow/contracts").NativePackageSaveRequest,
+          ) => unwrap(bridge.savePackageArchive!(request)),
+        }
+      : {}),
     ...(bridge.readPackageBase
       ? {
           readPackageBase: (

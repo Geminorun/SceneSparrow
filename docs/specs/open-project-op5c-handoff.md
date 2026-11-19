@@ -1,10 +1,12 @@
 # OP5-C implementation handoff: visible transfers and bounded delivery
 
-Status: root preparation; dispatch only after OP5-B is accepted and committed.
+Status: root-frozen for coding after accepted/pushed OP5-B
+`9c8a24c5a4d66e733ce9138add92daa42a23b310`, 2026-11-19.
 Read `AGENTS.md`, architecture/workflow, `open-project-format.md`, OP5 parent,
 `open-project-op5c.md`, accepted OP5-A/B handoffs and validation first. This brief
 narrows the existing OP5 scope; OP6 owns actual project activation/default startup.
-Root freezes the accepted B commit and this brief in the coding assignment.
+Root independently passed Rust 392, Node 455, HTTP 34 and the complete build on B;
+its current-head Foundation check `44553634824` passed on that commit.
 
 ## C1: one visible owner per operation
 
@@ -41,6 +43,10 @@ unmanaged creative package. Offer independently verified restoration only where
 B permits it; offer return as edits only with an original local trusted base.
 A complete-package integrity failure never becomes automatic unlocked adoption.
 Return uses the existing actual candidate diff/grant/lock/accept/discard flow.
+Review opens the exact returned work item and candidate, including older items
+outside the first list page. A newer or manually selected item cannot substitute
+for that result. Pass an owned target through the existing Changes surface; stale
+candidate/late target reads are explicit and cannot change a later selection.
 
 ## C2: captured saved generation
 
@@ -77,6 +83,18 @@ from current status. Unknown response offers lookup/reconcile of the SAME ID;
 never automatic resubmission with a new ID. Passive polling is quiet; each explicit
 failure reports one localized three-second notice plus compact durable status.
 Closing a dialog is distinct from backend cancellation.
+
+Compact recovery also survives reload through bounded hints: versioned kind,
+original IDs and safe DTO/hash/prerequisite metadata only; at most 20 records,
+256 KiB total and seven days. Never persist File bytes, manuscript prose, keys,
+private native paths or closures. Storage failure does not abort an accepted core
+operation. Reload performs lookup only; it never starts/retries an operation,
+opens a chooser or resumes a selected file automatically. Backend source-scoped
+status remains authority. An unproved/foreign root context permits only read-only
+lookup or discarding the hint; original mutation continuation requires proved
+context and its exact original DTO. OP6 supplies immutable activation context.
+Test refresh -> original export lookup/download without a second start, malformed
+or foreign hints, and later selection ownership.
 
 ## C3: Web intake and download
 
@@ -124,15 +142,29 @@ relative no-clobber publish and verify the resulting member. Preserve existing o
 unknown destination/stage bytes. Report delivery-status-unknown after publication
 uncertainty; do not silently repeat a chooser/write or delete by old pathname.
 
-Suggested private seam: a native-token-only named route accepting archive ID and
-main's private chooser destination, delegating to a trusted library helper. Its
+Use POST `/v1/native/project/packages/{archiveId}/save-new`, protected by both
+existing core bearer and x-scenesparrow-native credentials, accepting a closed
+private `{ requestId, destinationPath }` body from main's chooser and delegating
+to a trusted library helper. Its
 destination DTO is NOT a public PlatformClient/preload business capability. The
 Web gateway must deny this entire private namespace before proxying; add a test
 that an authenticated browser cannot reach it. Main validates/captures the core,
 looks up core-owned Ready artifact facts, chooses a safe ZIP filename, then calls
 only the captured core. The renderer receives saved/cancelled/exists/unknown facts
-and a safe basename, never the destination path. A concrete alternative must meet
-the same held-parent and capability boundaries before root acceptance.
+and a safe basename, never the destination path. Generate the safe public native
+request/result shapes; keep main-only path input outside the renderer contract.
+Retain the original main operation through an ambiguous response; do not reopen
+the chooser or repeat publication automatically. Supply a separate named read-only
+original-delivery lookup, privately routed to the core, binding archive ID, request
+ID and original source. It returns the original safe outcome even after archive
+expiry, without a destination path, chooser, destination re-open or file write.
+A cache miss after main/core/renderer restart can never fall back to save-new.
+Late lookup cannot update a later selection/dialog. A known cancelled/exists/saved
+result may lead to a NEW explicit user save ID; an ambiguous save retains its
+original identity and offers lookup instead of another chooser.
+Native intake must provide a
+named bounded cancel/abort ownership mechanism while hashing/uploading, as well
+as ordinary OS chooser cancel and project-close settlement.
 
 Keep ordinary member 4 GiB and package 8 GiB policies separate. Only the core owns
 expected length/hash. Reuse its stream_copy/Parent primitives and tiny injected

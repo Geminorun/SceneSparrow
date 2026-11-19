@@ -104,7 +104,7 @@ function fixture(preferences) {
           if (op.op === "insertBlock")
             document.blocks.push({ ...clone(op.block), revision: 1 });
           else if (op.op === "setBlockContent") {
-            const block = document.blocks.find((b) => b.id === op.blockId);
+            const block = document.blocks.find((b) => b.id === op.id);
             block.runs = clone(op.runs);
             block.revision++;
           }
@@ -126,7 +126,10 @@ function fixture(preferences) {
       const receipt = {
         requestId: command.requestId,
         workingRevision: document.workingRevision,
-        blockRevisions: [],
+        blockRevisions: document.blocks.map((block) => ({
+          id: block.id,
+          revision: block.revision,
+        })),
         historyRevision: history.historyRevision,
         cursor: history.cursor,
         undoCount: history.undoCount,
@@ -973,6 +976,495 @@ test("clean review input clears only its local unsent-history guard without comm
     f.save.reviewInputChanged();
     assert.equal(f.save.operationError.code, "REVISION_CONFLICT");
     assert.equal(f.commands.length, 0);
+  } finally {
+    f.dispose();
+  }
+});
+
+test("compound capture settles only the captured hidden planning segments through actual PlanningAutosave", async () => {
+  for (const initiallyDirty of [false, true]) {
+    const f = fixture(new ApplicationPreferencesStore());
+    try {
+      if (initiallyDirty)
+        f.planning.edit(
+          { ...f.planning.local, instruction: "Captured planning" },
+          "instruction",
+        );
+      const held = deferred(),
+        started = deferred(),
+        ack = deferred();
+      const execute = f.client.executeManuscript;
+      f.client.executeManuscript = async (command) => {
+        const receipt = await execute(command);
+        if (command.type === "ApplyDocumentEdit") {
+          started.resolve();
+          await held.promise;
+        }
+        return receipt;
+      };
+      f.save.update([
+        {
+          id: crypto.randomUUID(),
+          kind: "paragraph",
+          attrs: {},
+          runs: [{ text: "Captured body", marks: [] }],
+        },
+      ]);
+      let exported;
+      const capturing = f.save.capturedAction("test-package", async () => {
+        exported = structuredClone(f.state.content);
+        await ack.promise;
+        return "capture-ack";
+      });
+      await started.promise;
+      f.planning.edit(
+        { ...f.planning.local, instruction: "Later hidden planning" },
+        "instruction",
+      );
+      f.planning.boundary();
+      f.save.composition(true);
+      f.save.update(
+        f.save.local.map((block) => ({
+          ...block,
+          runs: [{ text: "Later 中文 body", marks: [] }],
+        })),
+      );
+      held.resolve();
+      for (let n = 0; n < 30; n++)
+        await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        exported?.instruction,
+        initiallyDirty ? "Captured planning" : "",
+      );
+      assert.equal(f.planning.local.instruction, "Later hidden planning");
+      assert.equal(f.planning.status, "pending");
+      await f.planning.refresh();
+      assert.equal(f.planning.local.instruction, "Later hidden planning");
+      assert.equal(f.planning.status, "pending");
+      assert.equal(
+        f.commands.filter((command) => command.type === "SavePlanning").length,
+        initiallyDirty ? 1 : 0,
+      );
+      assert.equal(
+        f.commands.filter((command) => command.type === "ApplyDocumentEdit")
+          .length,
+        1,
+      );
+      assert.equal(f.save.status, "pending");
+      ack.resolve();
+      assert.equal(await capturing, "capture-ack");
+      assert.equal(f.save.local[0].runs[0].text, "Later 中文 body");
+      f.save.composition(false);
+      assert.equal(
+        await f.planning.flush(false),
+        true,
+        `${f.save.error} / ${f.planning.error}`,
+      );
+      assert.equal(f.state.content.instruction, "Later hidden planning");
+    } finally {
+      f.dispose();
+    }
+  }
+});
+
+test("capture queued during a background planning ACK settles pre-click remainder and keeps later plan pending", async () => {
+  const f = fixture();
+  try {
+    const held = deferred();
+    f.setSaveGate(held);
+    f.planning.edit(
+      { ...f.planning.local, instruction: "A saving" },
+      "instruction",
+    );
+    const background = f.planning.flush(false);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    f.planning.edit(
+      { ...f.planning.local, instruction: "B clicked" },
+      "instruction",
+    );
+    f.planning.boundary();
+    let captured;
+    const exporting = f.save.capturedAction("held-plan", async () => {
+      captured = f.state.content.instruction;
+      return true;
+    });
+    f.planning.edit(
+      { ...f.planning.local, instruction: "C later" },
+      "instruction",
+    );
+    f.planning.boundary();
+    held.resolve();
+    await background;
+    assert.equal(await exporting, true);
+    assert.equal(captured, "B clicked");
+    assert.deepEqual(
+      f.commands
+        .filter((command) => command.type === "SavePlanning")
+        .map((command) => command.payload.content.instruction),
+      ["A saving", "B clicked"],
+    );
+    assert.equal(f.planning.local.instruction, "C later");
+    assert.equal(f.planning.status, "pending");
+    await f.planning.refresh();
+    assert.equal(f.planning.local.instruction, "C later");
+    assert.equal(await f.planning.flush(false), true);
+    assert.equal(f.state.content.instruction, "C later");
+  } finally {
+    f.dispose();
+  }
+});
+
+test("distinct captured actions retain bounded pre-click planning segments through many later boundaries", async () => {
+  const f = fixture();
+  try {
+    const held = deferred(),
+      started = deferred(),
+      execute = f.client.executeManuscript;
+    f.client.executeManuscript = async (command) => {
+      const result = await execute(command);
+      if (command.type === "ApplyDocumentEdit") {
+        started.resolve();
+        await held.promise;
+      }
+      return result;
+    };
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Body", marks: [] }],
+      },
+    ]);
+    f.planning.edit(
+      { ...f.planning.local, instruction: "First capture" },
+      "instruction",
+    );
+    const captured = [];
+    const first = f.save.capturedAction("one", async () => {
+      captured.push(f.state.content.instruction);
+      return true;
+    });
+    await started.promise;
+    f.planning.edit(
+      { ...f.planning.local, instruction: "Second capture" },
+      "instruction",
+    );
+    f.planning.boundary();
+    const second = f.save.capturedAction("two", async () => {
+      captured.push(f.state.content.instruction);
+      return true;
+    });
+    for (let n = 0; n < 12; n++) {
+      f.planning.edit(
+        { ...f.planning.local, instruction: `Later ${n}` },
+        "instruction",
+        true,
+      );
+      f.planning.boundary();
+    }
+    held.resolve();
+    assert.equal(await first, true);
+    assert.equal(await second, true);
+    assert.deepEqual(captured, ["First capture", "Second capture"]);
+    assert.equal(f.planning.local.instruction, "Later 11");
+    assert.equal(f.planning.status, "pending");
+    assert.equal(f.planning.captureFences.size, 0);
+    assert.ok(f.planning.segments.length <= 6);
+    assert.equal(await f.planning.flush(), true);
+    assert.equal(f.state.content.instruction, "Later 11");
+  } finally {
+    f.dispose();
+  }
+});
+test("captured planning participant releases its fence after preceding body failure and action cancellation", async () => {
+  const f = fixture();
+  try {
+    const execute = f.client.executeManuscript;
+    f.client.executeManuscript = async (command) => {
+      if (command.type === "ApplyDocumentEdit")
+        throw new ApiError("BRIEF_INVALID");
+      return execute(command);
+    };
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Body", marks: [] }],
+      },
+    ]);
+    f.planning.edit(
+      { ...f.planning.local, instruction: "Captured" },
+      "instruction",
+    );
+    assert.equal(
+      await f.save.capturedAction("failed-body", async () =>
+        assert.fail("must not export"),
+      ),
+      null,
+    );
+    assert.equal(f.planning.captureFences.size, 0);
+    const cancelled = f.save.capturedAction("cancelled-before-run", async () =>
+      assert.fail("cancelled"),
+    );
+    f.save.actions.cancel("capture-cancelled-before-run");
+    assert.equal(await cancelled, null);
+    assert.equal(f.planning.captureFences.size, 0);
+    f.client.executeManuscript = execute;
+    f.save.acknowledgeBusinessRejection(true);
+    f.planning.edit(
+      { ...f.planning.local, instruction: "Later after failure" },
+      "instruction",
+    );
+    assert.equal(await f.planning.flush(true, true), true);
+    assert.equal(f.state.content.instruction, "Later after failure");
+  } finally {
+    f.dispose();
+  }
+});
+
+test("captured planning refuses an overlapping discard without re-entering its shared queue", async () => {
+  const prefs = new ApplicationPreferencesStore(null);
+  prefs.update({ saveMode: "off" });
+  const f = fixture(prefs),
+    body = deferred(),
+    reading = deferred(),
+    heldRead = deferred();
+  const submit = f.client.executeManuscript,
+    read = f.client.readPlanning;
+  const entered = deferred();
+  f.client.executeManuscript = async (command) => {
+    const result = await submit(command);
+    if (command.type === "ApplyDocumentEdit") {
+      entered.resolve();
+      await body.promise;
+    }
+    return result;
+  };
+  try {
+    topic(f, "Captured plan");
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Captured body", marks: [] }],
+      },
+    ]);
+    let exports = 0;
+    const capturing = f.save.capturedAction("discard-overlap", async () => {
+      exports++;
+      return true;
+    });
+    await entered.promise;
+    f.client.readPlanning = async () => {
+      reading.resolve();
+      await heldRead.promise;
+      return read();
+    };
+    const discard = f.planning.discard();
+    await reading.promise;
+    body.resolve();
+    // Refusal must settle even while discard's independent read is still held.
+    assert.equal(
+      await Promise.race([
+        capturing,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(Error("capture queue deadlocked")), 1000),
+        ),
+      ]),
+      null,
+    );
+    assert.equal(exports, 0);
+    heldRead.resolve();
+    await discard;
+    assert.equal(
+      await f.save.capturedAction("after-discard", async () => true),
+      true,
+    );
+  } finally {
+    body.resolve();
+    heldRead.resolve();
+    f.dispose();
+  }
+});
+
+test("a completed planning discard revokes an earlier captured checkpoint before its participant starts", async () => {
+  const prefs = new ApplicationPreferencesStore(null);
+  prefs.update({ saveMode: "off" });
+  const f = fixture(prefs),
+    body = deferred(),
+    entered = deferred();
+  const submit = f.client.executeManuscript;
+  f.client.executeManuscript = async (command) => {
+    const result = await submit(command);
+    if (command.type === "ApplyDocumentEdit") {
+      entered.resolve();
+      await body.promise;
+    }
+    return result;
+  };
+  try {
+    topic(f, "Discarded captured plan");
+    f.save.update([
+      {
+        id: crypto.randomUUID(),
+        kind: "paragraph",
+        attrs: {},
+        runs: [{ text: "Captured body", marks: [] }],
+      },
+    ]);
+    let exports = 0;
+    const capturing = f.save.capturedAction("completed-discard", async () => {
+      exports++;
+      return true;
+    });
+    await entered.promise;
+    assert.equal(await f.planning.discard(), true);
+    body.resolve();
+    assert.equal(await capturing, null);
+    assert.equal(exports, 0);
+    assert.equal(f.commands.filter((c) => c.type === "SavePlanning").length, 0);
+    assert.equal(
+      await f.save.capturedAction("after-completed-discard", async () => true),
+      true,
+    );
+  } finally {
+    body.resolve();
+    f.dispose();
+  }
+});
+
+for (const failure of [false, true]) {
+  test(`legacy body and hidden planning hand off distinct captures after ${failure ? "failed" : "successful"} ACK with later E pending`, async () => {
+    const prefs = new ApplicationPreferencesStore(null);
+    prefs.update({ saveMode: "off" });
+    const f = fixture(prefs),
+      entered = deferred(),
+      held = deferred(),
+      snapshots = [];
+    const input = (text) =>
+      f.save.update(
+        f.save.local.length
+          ? f.save.local.map((b) => ({ ...b, runs: [{ text, marks: [] }] }))
+          : [
+              {
+                id: crypto.randomUUID(),
+                kind: "paragraph",
+                attrs: {},
+                runs: [{ text, marks: [] }],
+              },
+            ],
+      );
+    const snapshot = () => [
+      f.save.state.blocks[0].runs[0].text,
+      f.state.content.brief.topic,
+    ];
+    try {
+      input("B body");
+      topic(f, "B plan");
+      const first = f.save
+        .capturedAction("planning-first", async () => {
+          snapshots.push(snapshot());
+          entered.resolve();
+          await held.promise;
+          if (failure) throw Error("capture ACK unavailable");
+          return true;
+        })
+        .catch((error) => {
+          assert.equal(error.message, "capture ACK unavailable");
+          return "failed";
+        });
+      await entered.promise;
+      input("D body");
+      topic(f, "D plan");
+      const second = f.save.capturedAction("planning-second", async () => {
+        assert.equal(f.save.capturedInputFences.size, 1);
+        assert.equal(f.planning.captureFences.size, 1);
+        snapshots.push(snapshot());
+        return true;
+      });
+      input("E body");
+      topic(f, "E plan");
+      assert.equal(f.save.capturedInputFences.size, 2);
+      assert.equal(f.planning.captureFences.size, 2);
+      assert.equal(f.save.actions.captured.size, 2);
+      assert.deepEqual(snapshot(), ["B body", "B plan"]);
+      held.resolve();
+      assert.deepEqual(await Promise.all([first, second]), [
+        failure ? "failed" : true,
+        true,
+      ]);
+      assert.deepEqual(snapshots, [
+        ["B body", "B plan"],
+        ["D body", "D plan"],
+      ]);
+      assert.equal(f.save.local[0].runs[0].text, "E body");
+      assert.equal(f.planning.local.brief.topic, "E plan");
+      assert.equal(f.save.status, "pending");
+      assert.equal(f.planning.status, "pending");
+      assert.equal(f.save.capturedInputFences.size, 0);
+      assert.equal(f.planning.captureFences.size, 0);
+      assert.equal(f.save.actions.captured.size, 0);
+    } finally {
+      held.resolve();
+      f.dispose();
+    }
+  });
+}
+
+test("never-entered cancellation releases body and planning custody synchronously but admission stays bounded", async () => {
+  const prefs = new ApplicationPreferencesStore(null);
+  prefs.update({ saveMode: "off" });
+  const f = fixture(prefs);
+  const input = (text) =>
+    f.save.update(
+      f.save.local.length
+        ? f.save.local.map((b) => ({ ...b, runs: [{ text, marks: [] }] }))
+        : [
+            {
+              id: crypto.randomUUID(),
+              kind: "paragraph",
+              attrs: {},
+              runs: [{ text, marks: [] }],
+            },
+          ],
+    );
+  try {
+    input("B cancelled");
+    topic(f, "B cancelled plan");
+    const cancelled = f.save.capturedAction("cancel-body-and-plan", async () =>
+      assert.fail("cancelled callback"),
+    );
+    f.save.actions.cancel("capture-cancel-body-and-plan");
+    assert.equal(f.save.capturedInputFences.size, 0);
+    assert.equal(f.planning.captureFences.size, 0);
+    assert.equal(f.save.actions.captured.size, 1);
+    input("D second");
+    topic(f, "D second plan");
+    let captured;
+    const second = f.save.capturedAction(
+      "after-cancel-body-and-plan",
+      async () => {
+        captured = [
+          f.save.state.blocks[0].runs[0].text,
+          f.state.content.brief.topic,
+        ];
+        return true;
+      },
+    );
+    input("E later");
+    topic(f, "E later plan");
+    assert.deepEqual(await Promise.all([cancelled, second]), [null, true]);
+    assert.deepEqual(captured, ["D second", "D second plan"]);
+    assert.equal(f.save.local[0].runs[0].text, "E later");
+    assert.equal(f.planning.local.brief.topic, "E later plan");
+    assert.equal(f.save.status, "pending");
+    assert.equal(f.planning.status, "pending");
+    assert.equal(f.save.actions.captured.size, 0);
+    assert.equal(f.save.capturedInputFences.size, 0);
+    assert.equal(f.planning.captureFences.size, 0);
   } finally {
     f.dispose();
   }

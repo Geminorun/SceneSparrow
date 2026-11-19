@@ -1,5 +1,5 @@
 import { GraphRecovery } from "./GraphRecovery";
-import { ExternalWork } from "./ExternalWork";
+import { ExternalWork, type ReturnedWorkSelection } from "./ExternalWork";
 import { createPortal } from "react-dom";
 import {
   sourceDiff,
@@ -92,6 +92,7 @@ export function SourceChanges({
   t,
   frozen = false,
   externalWorkRequested = 0,
+  returnedSelection,
   sourceRequested = 0,
 }: {
   save: ProjectSession;
@@ -99,10 +100,13 @@ export function SourceChanges({
   t: typeof en;
   frozen?: boolean;
   externalWorkRequested?: number;
+  returnedSelection?: ReturnedWorkSelection | null;
   sourceRequested?: number;
 }) {
   const [graphEvidence, setGraphEvidence] = useState<string | undefined>();
   const [external, setExternal] = useState(false);
+  const [returnedTarget, setReturnedTarget] =
+    useState<ReturnedWorkSelection | null>(null);
   const [open, setOpen] = useState(false),
     [candidate, setCandidate] = useState<AuthoredSourceCandidate | null>(null),
     [proposal, setProposal] = useState(""),
@@ -234,10 +238,17 @@ export function SourceChanges({
   };
   useEffect(() => {
     if (externalWorkRequested) {
+      setReturnedTarget(null);
       setExternal(true);
       show();
     }
   }, [externalWorkRequested]);
+  useEffect(() => {
+    if (!returnedSelection) return;
+    setReturnedTarget(returnedSelection);
+    setExternal(true);
+    show();
+  }, [returnedSelection]);
   useEffect(() => {
     if (sourceRequested) {
       show();
@@ -374,7 +385,15 @@ export function SourceChanges({
                   </button>
                 </div>
               )}
-              {external && <ExternalWork client={client} save={save} t={t} />}
+              {external && (
+                <ExternalWork
+                  client={client}
+                  save={save}
+                  t={t}
+                  returnedSelection={returnedTarget}
+                  onManualSelection={() => setReturnedTarget(null)}
+                />
+              )}
               <div hidden={external} inert={external}>
                 <p
                   role="status"
@@ -523,14 +542,15 @@ export function SourceChanges({
                   ["error", "conflict"].includes(save.status) ||
                   proposalOpen ||
                   proposal !== proposalBase.current) && (
-                  <details
-                    key="source-proposal"
-                    open={proposalOpen}
-                    onToggle={(event) =>
-                      setProposalOpen(event.currentTarget.open)
-                    }
-                  >
-                    <summary>{t.sourceProposal}</summary>
+                  <details key="source-proposal" open={proposalOpen}>
+                    <summary
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setProposalOpen((value) => !value);
+                      }}
+                    >
+                      {t.sourceProposal}
+                    </summary>
                     <label>
                       {t.sourceProposal}
                       <textarea

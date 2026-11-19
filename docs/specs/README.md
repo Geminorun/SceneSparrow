@@ -75,6 +75,7 @@ specs aligned with the final behavior and record material deviations.
 
 - [OP5-B package backend](open-project-op5b.md): fixed snapshots, bounded ZIP inspection/restore and returned edits; see the [frozen handoff](open-project-op5b-handoff.md) after accepted A `b516736` and [validation](../validation/open-project-op5b.md).
 
-- [OP5-C transfer UI preparation](open-project-op5c.md): visible conversion/package flows and streamed browser/native adapters; the [implementation brief](open-project-op5c-handoff.md) remains preparation until B acceptance.
+- [OP5-C transfer UI](open-project-op5c.md): visible conversion/package flows and streamed browser/native adapters; the [implementation brief](open-project-op5c-handoff.md) was frozen after accepted B `9c8a24c`; see the independently reviewed
+  [validation](../validation/open-project-op5c.md).
 
-- [OP6 preparation](open-project-op6.md): native capabilities, recovery startup and final readiness; dispatch awaits OP5. The [macOS checkpoint brief](open-project-op6a1.md) is preparation only.
+- [OP6 preparation](open-project-op6.md): native capabilities, recovery startup and final readiness; dispatch awaits OP5. The [macOS checkpoint brief](open-project-op6a1.md), [Windows checkpoint brief](open-project-op6a2.md), [core lifecycle checkpoint](open-project-op6b1.md) and [host activation checkpoint](open-project-op6b2.md) are preparation only.
