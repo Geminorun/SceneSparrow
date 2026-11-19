@@ -1,0 +1,1052 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Recorded external creative work",
+  "definitions": {
+    "CreativeGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wholeTree": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "manuscriptScope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["all", "blocks", "none"]
+            },
+            "blockIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["kind", "blockIds"]
+        }
+      },
+      "required": ["wholeTree", "files", "directories", "manuscriptScope"]
+    },
+    "GraphActionBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration"
+      ]
+    },
+    "GraphRegisterRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedSourceHash": {
+          "type": "string"
+        },
+        "expectedSourceGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedSourceHash",
+        "expectedSourceGeneration"
+      ]
+    },
+    "WorkItemCreateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "origin": {
+          "type": "string",
+          "enum": ["copy", "live"]
+        },
+        "grant": {
+          "$ref": "#/definitions/CreativeGrant"
+        },
+        "referenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration",
+        "origin",
+        "grant",
+        "referenceIds"
+      ]
+    },
+    "WorkItemInspectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "expectedItemRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration",
+        "workItemId",
+        "expectedItemRevision"
+      ]
+    },
+    "WorkCandidateAcceptRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "candidateId": {
+          "type": "string"
+        },
+        "candidateDigest": {
+          "type": "string"
+        },
+        "expectedItemRevision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration",
+        "workItemId",
+        "candidateId",
+        "candidateDigest",
+        "expectedItemRevision"
+      ]
+    },
+    "WorkItemDiscardRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "candidateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedItemRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["discardCopy", "discardCandidate", "restoreAcceptedLive"]
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration",
+        "workItemId",
+        "candidateId",
+        "expectedItemRevision",
+        "disposition"
+      ]
+    },
+    "WorkItemControlRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "expectedItemRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "type": "string",
+          "enum": ["cancel", "retry"]
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "workItemId",
+        "expectedItemRevision",
+        "action"
+      ]
+    },
+    "ProductionFileLockTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": ["path", "hash"]
+    },
+    "ProductionFileLockRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGraphHash": {
+          "type": "string"
+        },
+        "expectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "locked": {
+          "type": "boolean"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProductionFileLockTarget"
+          }
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGraphHash",
+        "expectedGraphGeneration",
+        "locked",
+        "targets"
+      ]
+    },
+    "GraphFileView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "locked": {
+          "type": "boolean"
+        }
+      },
+      "required": ["path", "hash", "size", "locked"]
+    },
+    "FileGraphView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "registered": {
+          "type": "boolean"
+        },
+        "graphHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "codeExecution": {
+          "type": "boolean"
+        },
+        "fileDirectoryTransitions": {
+          "type": "boolean"
+        },
+        "manuscriptPath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "manifestName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "projectId",
+        "registered",
+        "graphHash",
+        "generation",
+        "fileCount",
+        "codeExecution",
+        "fileDirectoryTransitions",
+        "manuscriptPath",
+        "manifestName"
+      ]
+    },
+    "WorkCandidateView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "candidateId": {
+          "type": "string"
+        },
+        "candidateDigest": {
+          "type": "string"
+        },
+        "originalGraphHash": {
+          "type": "string"
+        },
+        "preparedGraphHash": {
+          "type": "string"
+        },
+        "inspectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inspectedGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "impact": {
+          "type": "string",
+          "enum": ["source", "production", "none"]
+        },
+        "assignedIds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkNarrationProvenance"
+          }
+        }
+      },
+      "required": [
+        "projectId",
+        "workItemId",
+        "candidateId",
+        "candidateDigest",
+        "originalGraphHash",
+        "preparedGraphHash",
+        "inspectedWorkingRevision",
+        "inspectedGraphGeneration",
+        "changeCount",
+        "blockers",
+        "impact",
+        "assignedIds",
+        "provenance"
+      ]
+    },
+    "WorkItemView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string",
+          "enum": ["copy", "live"]
+        },
+        "baseGraphHash": {
+          "type": "string"
+        },
+        "baseGraphGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "creationRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "grant": {
+          "$ref": "#/definitions/CreativeGrant"
+        },
+        "referenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "itemRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "preparing",
+            "ready",
+            "inspecting",
+            "accepted",
+            "discarded",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "operationRequestId": {
+          "type": "string"
+        },
+        "latestCandidate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkCandidateView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "copyAvailable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projectId",
+        "workItemId",
+        "origin",
+        "baseGraphHash",
+        "baseGraphGeneration",
+        "creationRevision",
+        "grant",
+        "referenceIds",
+        "itemRevision",
+        "state",
+        "operationRequestId",
+        "latestCandidate",
+        "copyAvailable"
+      ]
+    },
+    "WorkOperationView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "workItemId": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "create",
+            "inspect",
+            "accept",
+            "discard",
+            "control",
+            "register",
+            "lock"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "failureCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "progress": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CommandReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "candidate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkCandidateView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "requestId",
+        "projectId",
+        "workItemId",
+        "kind",
+        "status",
+        "failureCode",
+        "progress",
+        "receipt",
+        "candidate"
+      ]
+    },
+    "WorkMutationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/definitions/WorkOperationView"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkItemView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AuthoredSourceSaveResponse"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["operation", "item", "result"]
+    },
+    "WorkChangeView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memberId": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["add", "delete", "replace"]
+        },
+        "beforeHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "afterHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "beforeSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "afterSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "renameHint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "memberId",
+        "path",
+        "kind",
+        "beforeHash",
+        "afterHash",
+        "beforeSize",
+        "afterSize",
+        "renameHint",
+        "text",
+        "truncated"
+      ]
+    },
+    "ProductionFileLockView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        }
+      },
+      "required": ["path", "hash"]
+    },
+    "GraphRecoveryView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "intentHash": {
+          "type": "string"
+        },
+        "memberCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["intentHash", "memberCount"]
+    },
+    "GraphRecoveryMemberView": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "memberId": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": ["memberId", "path", "role", "hash", "size"]
+    },
+    "GraphFilePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphFileView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "WorkItemPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkItemView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "WorkChangePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkChangeView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "ProductionFileLockPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ProductionFileLockView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "GraphRecoveryPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphRecoveryView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "GraphRecoveryMemberPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphRecoveryMemberView"
+          }
+        },
+        "continuation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["records", "continuation"]
+    },
+    "WorkNarrationProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "segmentId",
+        "sourceBlockId",
+        "sourceRevision",
+        "currentRevision",
+        "status",
+        "adapted"
+      ],
+      "properties": {
+        "segmentId": {
+          "type": "string"
+        },
+        "sourceBlockId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "currentRevision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["available", "diverged", "missing"]
+        },
+        "adapted": {
+          "type": "boolean"
+        }
+      }
+    },
+    "GraphRecoveryInspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intentHash", "observationFingerprint"],
+      "properties": {
+        "intentHash": {
+          "type": "string"
+        },
+        "observationFingerprint": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,789 @@
+[
+  {
+    "name": "mixed-marks-breaks-unicode",
+    "source": "# 中文 👩‍💻 é\n\nMixed **strong *emphasis*** and `code` [link](https://example.com).  \nHard\nsoft\n",
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "heading",
+        "startUtf8": 0,
+        "endUtf8": 24
+      },
+      {
+        "address": "/1",
+        "kind": "paragraph",
+        "startUtf8": 26,
+        "endUtf8": 105
+      }
+    ]
+  },
+  {
+    "name": "mixed-marks-breaks-unicode-bound",
+    "source": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n# 中文 👩‍💻 é\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\nMixed **strong *emphasis*** and `code` [link](https://example.com).  \nHard\nsoft\n",
+    "blocks": [
+      {
+        "address": "/1",
+        "kind": "heading",
+        "startUtf8": 66,
+        "endUtf8": 90,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/3",
+        "kind": "paragraph",
+        "startUtf8": 158,
+        "endUtf8": 237,
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "nested-ordered-unordered",
+    "source": "- Parent\n  1. Ordered child\n     - Grandchild\n- Sibling\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 8,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 14,
+        "endUtf8": 27,
+        "listItemAddress": "/0/0/1/0"
+      },
+      {
+        "address": "/0/0/1/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 35,
+        "endUtf8": 45,
+        "listItemAddress": "/0/0/1/0/1/0"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 48,
+        "endUtf8": 55,
+        "listItemAddress": "/0/1"
+      }
+    ]
+  },
+  {
+    "name": "nested-ordered-unordered-bound",
+    "source": "- Parent<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n  1. Ordered child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n     - Grandchild<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n- Sibling<!-- scenesparrow:block=11111111-1111-4111-8111-000000000004 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 72,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 78,
+        "endUtf8": 155,
+        "listItemAddress": "/0/0/1/0",
+        "id": "11111111-1111-4111-8111-000000000002"
+      },
+      {
+        "address": "/0/0/1/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 163,
+        "endUtf8": 237,
+        "listItemAddress": "/0/0/1/0/1/0",
+        "id": "11111111-1111-4111-8111-000000000003"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 240,
+        "endUtf8": 311,
+        "listItemAddress": "/0/1",
+        "id": "11111111-1111-4111-8111-000000000004"
+      }
+    ]
+  },
+  {
+    "name": "nested-quotes",
+    "source": "> Quote\n>\n> - item\n>   > Nested quote\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 7
+      },
+      {
+        "address": "/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 14,
+        "endUtf8": 18,
+        "listItemAddress": "/0/1/0"
+      },
+      {
+        "address": "/0/1/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 25,
+        "endUtf8": 37,
+        "listItemAddress": "/0/1/0"
+      }
+    ]
+  },
+  {
+    "name": "nested-quotes-bound",
+    "source": "> Quote<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n>\n> - item<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n>   > Nested quote<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 71,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 78,
+        "endUtf8": 146,
+        "listItemAddress": "/0/1/0",
+        "id": "11111111-1111-4111-8111-000000000002"
+      },
+      {
+        "address": "/0/1/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 153,
+        "endUtf8": 229,
+        "listItemAddress": "/0/1/0",
+        "id": "11111111-1111-4111-8111-000000000003"
+      }
+    ]
+  },
+  {
+    "name": "atx-setext-in-list",
+    "source": "- # Heading\n- Setext\n  ======\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "heading",
+        "startUtf8": 2,
+        "endUtf8": 11,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "heading",
+        "startUtf8": 14,
+        "endUtf8": 29,
+        "listItemAddress": "/0/1"
+      }
+    ]
+  },
+  {
+    "name": "atx-setext-in-list-bound",
+    "source": "- # Heading<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n- Setext<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n  ======\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "heading",
+        "startUtf8": 2,
+        "endUtf8": 75,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "heading",
+        "startUtf8": 78,
+        "endUtf8": 157,
+        "listItemAddress": "/0/1",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "literal-code-markers",
+    "source": "```js\nconst literal = '<!-- scenesparrow:block=bad -->';\n```\n\n    indented code\n",
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "code",
+        "startUtf8": 0,
+        "endUtf8": 60
+      },
+      {
+        "address": "/1",
+        "kind": "code",
+        "startUtf8": 62,
+        "endUtf8": 79
+      }
+    ]
+  },
+  {
+    "name": "literal-code-markers-bound",
+    "source": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n```js\nconst literal = '<!-- scenesparrow:block=bad -->';\n```\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n    indented code\n",
+    "blocks": [
+      {
+        "address": "/1",
+        "kind": "code",
+        "startUtf8": 65,
+        "endUtf8": 125,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/3",
+        "kind": "code",
+        "startUtf8": 192,
+        "endUtf8": 209,
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "tight-code-only-item",
+    "source": "- ```js\n  code\n  ```\n- next\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "code",
+        "startUtf8": 2,
+        "endUtf8": 20,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 23,
+        "endUtf8": 27,
+        "listItemAddress": "/0/1"
+      }
+    ]
+  },
+  {
+    "name": "tight-code-only-item-bound",
+    "source": "- <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n  ```js\n  code\n  ```\n- next<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/1",
+        "kind": "code",
+        "startUtf8": 69,
+        "endUtf8": 87,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 90,
+        "endUtf8": 158,
+        "listItemAddress": "/0/1",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "quoted-code",
+    "source": "> ```\n> payload\n> ```\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "code",
+        "startUtf8": 2,
+        "endUtf8": 21
+      }
+    ]
+  },
+  {
+    "name": "quoted-code-bound",
+    "source": "> <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n> ```\n> payload\n> ```\n",
+    "blocks": [
+      {
+        "address": "/0/1",
+        "kind": "code",
+        "startUtf8": 69,
+        "endUtf8": 88,
+        "id": "11111111-1111-4111-8111-000000000001"
+      }
+    ]
+  },
+  {
+    "name": "unsupported-table-raw-html",
+    "source": "| a | b |\n| - | - |\n| c | d |\n\n<div>Raw HTML &amp; untouched</div>\n",
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "paragraph",
+        "startUtf8": 0,
+        "endUtf8": 29
+      },
+      {
+        "address": "/1",
+        "kind": "html",
+        "startUtf8": 31,
+        "endUtf8": 66
+      }
+    ]
+  },
+  {
+    "name": "unsupported-table-raw-html-bound",
+    "source": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n| a | b |\n| - | - |\n| c | d |\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n<div>Raw HTML &amp; untouched</div>\n",
+    "blocks": [
+      {
+        "address": "/1",
+        "kind": "paragraph",
+        "startUtf8": 66,
+        "endUtf8": 95,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/3",
+        "kind": "html",
+        "startUtf8": 162,
+        "endUtf8": 197,
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "multi-paragraph-item",
+    "source": "- first paragraph\n\n  second paragraph\n\n  - child\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 17,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/0/1",
+        "kind": "paragraph",
+        "startUtf8": 21,
+        "endUtf8": 37,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/0/2/0/0",
+        "kind": "paragraph",
+        "startUtf8": 43,
+        "endUtf8": 48,
+        "listItemAddress": "/0/0/2/0"
+      }
+    ]
+  },
+  {
+    "name": "multi-paragraph-item-bound",
+    "source": "- first paragraph<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n  second paragraph<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\n  - child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "paragraph",
+        "startUtf8": 2,
+        "endUtf8": 81,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/0/1",
+        "kind": "paragraph",
+        "startUtf8": 85,
+        "endUtf8": 165,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000002"
+      },
+      {
+        "address": "/0/0/2/0/0",
+        "kind": "paragraph",
+        "startUtf8": 171,
+        "endUtf8": 240,
+        "listItemAddress": "/0/0/2/0",
+        "id": "11111111-1111-4111-8111-000000000003"
+      }
+    ]
+  },
+  {
+    "name": "empty-item",
+    "source": "- \n- text\n",
+    "blocks": [
+      {
+        "address": "/0/0/empty",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 0,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 5,
+        "endUtf8": 9,
+        "listItemAddress": "/0/1"
+      }
+    ]
+  },
+  {
+    "name": "empty-item-bound",
+    "source": "-  <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n- text<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "empty",
+        "startUtf8": 3,
+        "endUtf8": 67,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 70,
+        "endUtf8": 138,
+        "listItemAddress": "/0/1",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "empty-parent-nested-list",
+    "source": "-\n  - child\n",
+    "blocks": [
+      {
+        "address": "/0/0/empty",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 0,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/0/0/0/0",
+        "kind": "paragraph",
+        "startUtf8": 6,
+        "endUtf8": 11,
+        "listItemAddress": "/0/0/0/0"
+      }
+    ]
+  },
+  {
+    "name": "empty-parent-nested-list-bound",
+    "source": "-\n  <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n  - child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "empty",
+        "startUtf8": 4,
+        "endUtf8": 68,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/0/1/0/0",
+        "kind": "paragraph",
+        "startUtf8": 73,
+        "endUtf8": 142,
+        "listItemAddress": "/0/0/1/0",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "empty-quote",
+    "source": ">\n",
+    "blocks": [
+      {
+        "address": "/0/empty",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 0
+      }
+    ]
+  },
+  {
+    "name": "empty-quote-bound",
+    "source": "> <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "empty",
+        "startUtf8": 2,
+        "endUtf8": 66,
+        "id": "11111111-1111-4111-8111-000000000001"
+      }
+    ]
+  },
+  {
+    "name": "empty-root",
+    "source": "",
+    "blocks": [
+      {
+        "address": "/empty",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 0
+      }
+    ]
+  },
+  {
+    "name": "empty-root-bound",
+    "source": "<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n",
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 64,
+        "id": "11111111-1111-4111-8111-000000000001"
+      }
+    ]
+  },
+  {
+    "name": "bom-crlf-whitespace",
+    "source": "﻿# Title\r\n\r\n  text\t  \r\nline\r\n\r\n| x | y |\r\n|---|---|\r\n<div data-z='a'>raw</div>\r\n",
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "heading",
+        "startUtf8": 3,
+        "endUtf8": 10
+      },
+      {
+        "address": "/1",
+        "kind": "paragraph",
+        "startUtf8": 16,
+        "endUtf8": 29
+      },
+      {
+        "address": "/2",
+        "kind": "paragraph",
+        "startUtf8": 33,
+        "endUtf8": 53
+      },
+      {
+        "address": "/3",
+        "kind": "html",
+        "startUtf8": 55,
+        "endUtf8": 80
+      }
+    ]
+  },
+  {
+    "name": "bom-crlf-whitespace-bound",
+    "source": "﻿<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\r\n\r\n# Title\r\n\r\n  <!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\r\n\r\ntext\t  \r\nline\r\n\r\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\r\n\r\n| x | y |\r\n|---|---|\r\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000004 -->\r\n<div data-z='a'>raw</div>\r\n",
+    "blocks": [
+      {
+        "address": "/1",
+        "kind": "heading",
+        "startUtf8": 71,
+        "endUtf8": 78,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/3",
+        "kind": "paragraph",
+        "startUtf8": 152,
+        "endUtf8": 165,
+        "id": "11111111-1111-4111-8111-000000000002"
+      },
+      {
+        "address": "/5",
+        "kind": "paragraph",
+        "startUtf8": 237,
+        "endUtf8": 257,
+        "id": "11111111-1111-4111-8111-000000000003"
+      },
+      {
+        "address": "/7",
+        "kind": "html",
+        "startUtf8": 325,
+        "endUtf8": 350,
+        "id": "11111111-1111-4111-8111-000000000004"
+      }
+    ]
+  },
+  {
+    "name": "empty-atx-headings-in-containers",
+    "source": "> #\n\n- # ###\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "heading",
+        "startUtf8": 2,
+        "endUtf8": 3
+      },
+      {
+        "address": "/1/0/0",
+        "kind": "heading",
+        "startUtf8": 7,
+        "endUtf8": 12,
+        "listItemAddress": "/1/0"
+      }
+    ]
+  },
+  {
+    "name": "empty-atx-headings-in-containers-bound",
+    "source": "> # <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n- # <!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 --> ###\n",
+    "blocks": [
+      {
+        "address": "/0/0",
+        "kind": "heading",
+        "startUtf8": 2,
+        "endUtf8": 68,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/1/0/0",
+        "kind": "heading",
+        "startUtf8": 72,
+        "endUtf8": 142,
+        "listItemAddress": "/1/0",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "indented-container-code",
+    "source": "-     code\n\n- next\n",
+    "blocks": [
+      {
+        "address": "/0/0/0",
+        "kind": "code",
+        "startUtf8": 2,
+        "endUtf8": 10,
+        "listItemAddress": "/0/0"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 14,
+        "endUtf8": 18,
+        "listItemAddress": "/0/1"
+      }
+    ]
+  },
+  {
+    "name": "indented-container-code-bound",
+    "source": "- <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n      code\n\n- next<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "blocks": [
+      {
+        "address": "/0/0/1",
+        "kind": "code",
+        "startUtf8": 69,
+        "endUtf8": 77,
+        "listItemAddress": "/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/0/1/0",
+        "kind": "paragraph",
+        "startUtf8": 81,
+        "endUtf8": 149,
+        "listItemAddress": "/0/1",
+        "id": "11111111-1111-4111-8111-000000000002"
+      }
+    ]
+  },
+  {
+    "name": "quote-only-container",
+    "source": "> > - ```\n> >   code\n> >   ```\n",
+    "blocks": [
+      {
+        "address": "/0/0/0/0/0",
+        "kind": "code",
+        "startUtf8": 6,
+        "endUtf8": 30,
+        "listItemAddress": "/0/0/0/0"
+      }
+    ]
+  },
+  {
+    "name": "quote-only-container-bound",
+    "source": "> > - <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n> >   ```\n> >   code\n> >   ```\n",
+    "blocks": [
+      {
+        "address": "/0/0/0/0/1",
+        "kind": "code",
+        "startUtf8": 77,
+        "endUtf8": 101,
+        "listItemAddress": "/0/0/0/0",
+        "id": "11111111-1111-4111-8111-000000000001"
+      }
+    ]
+  },
+  {
+    "name": "multiple-empty-root-paragraphs-mixed",
+    "source": "<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\nText\n\n<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000003 -->\n<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000004 -->\n",
+    "requiredIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedKinds": ["empty", "paragraph", "empty", "empty"],
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "empty",
+        "startUtf8": 0,
+        "endUtf8": 64,
+        "id": "11111111-1111-4111-8111-000000000001"
+      },
+      {
+        "address": "/2",
+        "kind": "paragraph",
+        "startUtf8": 132,
+        "endUtf8": 136,
+        "id": "11111111-1111-4111-8111-000000000002"
+      },
+      {
+        "address": "/3",
+        "kind": "empty",
+        "startUtf8": 138,
+        "endUtf8": 202,
+        "id": "11111111-1111-4111-8111-000000000003"
+      },
+      {
+        "address": "/4",
+        "kind": "empty",
+        "startUtf8": 203,
+        "endUtf8": 267,
+        "id": "11111111-1111-4111-8111-000000000004"
+      }
+    ]
+  },
+  {
+    "name": "literal-marker-in-code-and-escape",
+    "source": "`<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->`\n\n```md\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n```\n\n\\<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "expectedIds": [],
+    "expectedKinds": ["paragraph", "code", "paragraph"],
+    "blocks": [
+      {
+        "address": "/0",
+        "kind": "paragraph",
+        "startUtf8": 0,
+        "endUtf8": 66
+      },
+      {
+        "address": "/1",
+        "kind": "code",
+        "startUtf8": 68,
+        "endUtf8": 142
+      },
+      {
+        "address": "/2",
+        "kind": "paragraph",
+        "startUtf8": 144,
+        "endUtf8": 209
+      }
+    ]
+  }
+]

@@ -16,10 +16,27 @@ impl SqliteProjectRepository {
         self.retention_roots(&c)
     }
     pub(crate) fn retention_roots(&self, c: &Connection) -> Result<BTreeSet<String>> {
+        self.retention_roots_mode(c, true)
+    }
+    pub(crate) fn retention_roots_mode(
+        &self,
+        c: &Connection,
+        verify_payloads: bool,
+    ) -> Result<BTreeSet<String>> {
         let mut roots = BTreeSet::new();
         let version: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
         if version < 2 {
             return Ok(roots);
+        }
+        if version >= 11 {
+            roots.extend(if verify_payloads {
+                self.source_retention_roots(c)?
+            } else {
+                self.source_retention_roots_mode(c, false)?
+            });
+        }
+        if version >= 13 {
+            roots.extend(self.graph_retention_roots_mode(c, verify_payloads)?);
         }
         let current_roots = if version >= 3 {
             "SELECT snapshot_hash FROM manuscripts WHERE snapshot_hash IS NOT NULL UNION SELECT payload_hash FROM blocks UNION SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries"
@@ -29,28 +46,54 @@ impl SqliteProjectRepository {
         let mut stmt = db(c.prepare(current_roots))?;
         for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
+            if !verify_payloads && roots.len() > 20_000 {
+                return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                    "PACKAGE_SIZE_LIMIT",
+                    None,
+                ));
+            }
         }
         if version >= 6 {
             let mut planning_roots=db(c.prepare("SELECT content_hash FROM draft_generation_manifests UNION SELECT result_hash FROM draft_generation_manifests"))?;
             for row in db(planning_roots.query_map([], |r| r.get::<_, String>(0)))? {
                 roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
+                }
             }
         }
         if version >= 7 {
             let mut review_roots = db(c.prepare(if version>=8 {"SELECT context_hash FROM review_tasks WHERE context_hash!='' UNION SELECT b.context_hash FROM review_candidate_bindings b JOIN review_candidates c ON c.id=b.candidate_id WHERE c.payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_candidates WHERE payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_comparisons WHERE payload_hash IS NOT NULL"}else{"SELECT context_hash FROM review_tasks WHERE context_hash!='' UNION SELECT payload_hash FROM review_candidates WHERE payload_hash IS NOT NULL UNION SELECT payload_hash FROM review_comparisons WHERE payload_hash IS NOT NULL"}))?;
             for row in db(review_roots.query_map([], |r| r.get::<_, String>(0)))? {
                 roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
+                }
             }
         }
         if version >= 8 {
             let mut approval = db(c.prepare("SELECT manifest_hash FROM approved_manifests UNION SELECT manifest_hash FROM downstream_inputs UNION SELECT content_hash FROM downstream_dependencies UNION SELECT content_hash FROM user_locks"))?;
             for row in db(approval.query_map([], |r| r.get::<_, String>(0)))? {
                 roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
+                }
             }
             let mut manifests = db(c.prepare("SELECT manifest_hash FROM approved_manifests"))?;
             for row in db(manifests.query_map([], |r| r.get::<_, String>(0)))? {
-                let manifest: crate::finalization::ApprovedManifest =
-                    db(serde_json::from_slice(&self.read_object(&db(row)?)?))?;
+                let manifest: crate::finalization::ApprovedManifest = db(serde_json::from_slice(
+                    &self.read_bounded_object(&db(row)?, 16 << 20)?,
+                ))?;
+                roots.extend(manifest.source_hash);
                 roots.extend(manifest.blocks.into_iter().map(|l| l.content_hash));
             }
         }
@@ -58,6 +101,12 @@ impl SqliteProjectRepository {
             let mut ai = db(c.prepare("SELECT object_hash FROM ai_artifacts UNION SELECT object_hash FROM ai_input_snapshots WHERE payload_retained=1"))?;
             for row in db(ai.query_map([], |r| r.get::<_, String>(0)))? {
                 roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
+                }
             }
         }
         if version >= 7 {
@@ -65,6 +114,12 @@ impl SqliteProjectRepository {
                 for range in thread.anchor.ranges {
                     if let Some(h) = range.quote_hash {
                         roots.insert(h);
+                        if !verify_payloads && roots.len() > 20_000 {
+                            return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                                "PACKAGE_SIZE_LIMIT",
+                                None,
+                            ));
+                        }
                     }
                 }
             }
@@ -76,11 +131,35 @@ impl SqliteProjectRepository {
             "SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries",
         ))?;
             for row in db(histories.query_map([], |r| r.get::<_, String>(0)))? {
-                let root = self.read_business(&db(row)?)?;
+                let hash = db(row)?;
+                let root = if verify_payloads {
+                    self.read_business(&hash)?
+                } else {
+                    let root: scenesparrow_domain::manuscript::BusinessSnapshot = db(
+                        serde_json::from_slice(&self.read_bounded_object(&hash, 16 << 20)?),
+                    )?;
+                    if !(1..=4).contains(&root.version) {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "STORAGE_UNAVAILABLE",
+                            None,
+                        ));
+                    }
+                    if let Some(planning) = &root.planning {
+                        scenesparrow_domain::planning::validate(planning, false)?;
+                    }
+                    root
+                };
+                roots.extend(root.source_hash);
                 for thread in &root.reviews {
                     for range in &thread.anchor.ranges {
                         if let Some(h) = &range.quote_hash {
                             roots.insert(h.clone());
+                            if !verify_payloads && roots.len() > 20_000 {
+                                return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                                    "PACKAGE_SIZE_LIMIT",
+                                    None,
+                                ));
+                            }
                         }
                     }
                 }
@@ -91,6 +170,12 @@ impl SqliteProjectRepository {
                             .or_default()
                             .insert(h.clone());
                         roots.insert(h);
+                        if !verify_payloads && roots.len() > 20_000 {
+                            return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                                "PACKAGE_SIZE_LIMIT",
+                                None,
+                            ));
+                        }
                     }
                 }
                 for block in root.blocks {
@@ -106,6 +191,12 @@ impl SqliteProjectRepository {
                         .or_default()
                         .insert(h.clone());
                     roots.insert(h);
+                    if !verify_payloads && roots.len() > 20_000 {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "PACKAGE_SIZE_LIMIT",
+                            None,
+                        ));
+                    }
                 }
             }
         }
@@ -117,6 +208,12 @@ impl SqliteProjectRepository {
             let mut stmt=db(c.prepare(if version>=9 {"SELECT object_hash FROM intakes WHERE status='complete' UNION SELECT p.object_hash FROM external_object_pins p WHERE NOT EXISTS(SELECT 1 FROM copy_preparations x WHERE p.owner_id='copy:'||x.id AND x.expires_at<CAST(unixepoch('subsec')*1000 AS INTEGER)) AND NOT EXISTS(SELECT 1 FROM export_jobs x WHERE p.owner_id='export:'||x.id AND x.status IN ('failed','interrupted') AND x.retain_until<CAST(unixepoch('subsec')*1000 AS INTEGER))"}else{"SELECT object_hash FROM intakes WHERE status='complete' UNION SELECT object_hash FROM external_object_pins"}))?;
             for row in db(stmt.query_map([], |r| r.get::<_, String>(0)))? {
                 roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
+                }
             }
             let mut stmt = db(c.prepare(
                 "SELECT input_hash,result_hash,source_id,status,purpose FROM document_attempts",
@@ -141,8 +238,20 @@ impl SqliteProjectRepository {
                     })
                 {
                     roots.insert(input);
+                    if !verify_payloads && roots.len() > 20_000 {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "PACKAGE_SIZE_LIMIT",
+                            None,
+                        ));
+                    }
                     if let Some(h) = result {
                         roots.insert(h);
+                        if !verify_payloads && roots.len() > 20_000 {
+                            return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                                "PACKAGE_SIZE_LIMIT",
+                                None,
+                            ));
+                        }
                     }
                 }
             }
@@ -158,7 +267,53 @@ impl SqliteProjectRepository {
                 let (id, input, result) = db(row)?;
                 if block_ids.contains(&id) {
                     roots.insert(input);
+                    if !verify_payloads && roots.len() > 20_000 {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "PACKAGE_SIZE_LIMIT",
+                            None,
+                        ));
+                    }
                     roots.insert(result);
+                    if !verify_payloads && roots.len() > 20_000 {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "PACKAGE_SIZE_LIMIT",
+                            None,
+                        ));
+                    }
+                }
+            }
+        }
+        if version >= 15 {
+            if !verify_payloads {
+                let mut controls = db(c.prepare(
+                    "SELECT inventory_hash FROM package_exports WHERE inventory_hash IS NOT NULL",
+                ))?;
+                for row in db(controls.query_map([], |r| r.get::<_, String>(0)))? {
+                    let hash = db(row)?;
+                    let descriptor: crate::project_transfer::package::archive::Descriptor = db(
+                        serde_json::from_slice(&self.read_bounded_object(&hash, 4 << 20)?),
+                    )?;
+                    if descriptor.version != 1 {
+                        return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                            "PACKAGE_CAPTURE_INVALID",
+                            None,
+                        ));
+                    }
+                }
+            }
+            let query = if verify_payloads {
+                "SELECT inventory_hash FROM package_exports WHERE inventory_hash IS NOT NULL UNION SELECT roots_hash FROM package_exports WHERE roots_hash IS NOT NULL UNION SELECT object_hash FROM package_capture_pins"
+            } else {
+                "SELECT inventory_hash FROM package_exports WHERE inventory_hash IS NOT NULL"
+            };
+            let mut q = db(c.prepare(query))?;
+            for row in db(q.query_map([], |r| r.get::<_, String>(0)))? {
+                roots.insert(db(row)?);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(scenesparrow_domain::manuscript::ManuscriptError(
+                        "PACKAGE_SIZE_LIMIT",
+                        None,
+                    ));
                 }
             }
         }
@@ -167,10 +322,21 @@ impl SqliteProjectRepository {
     pub fn collect_objects(&self, grace: Duration) -> Result<usize> {
         // Capture, reconciliation, row pruning and deletion share the exact writer
         // coordinator used by promotion and command commit. Backups are not traversed.
+        self.recover_package_capture_pins()?;
         let mut c = db(self.connection.lock())?;
+        if self
+            .preparation_leases
+            .load(std::sync::atomic::Ordering::SeqCst)
+            != 0
+        {
+            return Ok(0);
+        }
+        let version: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+        if version>=15 && db(c.query_row("SELECT EXISTS(SELECT 1 FROM package_exports WHERE capture_state IN ('capturing','sql-captured'))",[],|r|r.get::<_,bool>(0)))?{return Ok(0);}
+        self.verify_file_graph_history(&c)?;
         let roots = self.retention_roots(&c)?;
         for h in &roots {
-            self.read_object(h)?;
+            self.verify_object_stream(h)?;
         }
         let mut candidates = vec![];
         for entry in db(std::fs::read_dir(self.directory.join("objects")))? {

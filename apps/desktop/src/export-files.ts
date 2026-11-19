@@ -31,6 +31,10 @@ export async function prepareDestination(path: string, format: string) {
     extname(path).toLowerCase() !== `.${format}`
   )
     throw Error("DESTINATION_UNAVAILABLE");
+  return prepareMemberDestination(path);
+}
+/** Named native member downloads share destination identity checks with exports. */
+export async function prepareMemberDestination(path: string) {
   let parent: string;
   try {
     parent = await realpath(dirname(path));
@@ -253,4 +257,150 @@ export function suggestedExportName(title: string, format: string) {
   )
     result = "manuscript";
   return `${result || "manuscript"}.${format}`;
+}
+
+/** Fixed-buffer attachment delivery keeps the held temporary file identity and
+ * verifies its disk bytes before publishing the dialog-authorized destination. */
+export async function commitMemberStream(
+  target: Awaited<ReturnType<typeof prepareMemberDestination>>,
+  input: AsyncIterable<Uint8Array>,
+  expectedHash: string,
+  guard: () => void,
+  hooks: CommitHooks = {},
+) {
+  const temp = join(
+    dirname(target.path),
+    `.scenesparrow-member-${randomUUID()}.tmp`,
+  );
+  const parentMatches = async () => {
+    try {
+      return (await parentIdentity(dirname(target.path))) === target.parent;
+    } catch {
+      return false;
+    }
+  };
+  let tempIdentity: TargetIdentity = null,
+    finalized = false;
+  try {
+    guard();
+    if (!(await parentMatches())) throw Error("DESTINATION_CHANGED");
+    guard();
+    const file = await open(temp, "wx+", 0o600);
+    let total = 0;
+    try {
+      guard();
+      await hooks.beforeWrite?.();
+      guard();
+      const digest = createHash("sha256");
+      for await (const chunk of input) {
+        guard();
+        total += chunk.length;
+        if (total > 4 * 1024 * 1024 * 1024) throw Error("ARTIFACT_MISMATCH");
+        digest.update(chunk);
+        for (let offset = 0; offset < chunk.length;) {
+          const result = await file.write(
+            chunk.subarray(offset, offset + 65536),
+          );
+          guard();
+          if (!result.bytesWritten) throw Error("DESTINATION_UNAVAILABLE");
+          offset += result.bytesWritten;
+        }
+      }
+      await file.sync();
+      guard();
+      if (digest.digest("hex") !== expectedHash)
+        throw Error("ARTIFACT_MISMATCH");
+      const before = await file.stat({ bigint: true });
+      guard();
+      const actual = createHash("sha256"),
+        buffer = Buffer.alloc(65536);
+      for (let position = 0; position < total;) {
+        const { bytesRead } = await file.read(
+          buffer,
+          0,
+          Math.min(buffer.length, total - position),
+          position,
+        );
+        guard();
+        if (!bytesRead) throw Error("DESTINATION_CHANGED");
+        actual.update(buffer.subarray(0, bytesRead));
+        position += bytesRead;
+      }
+      const after = await file.stat({ bigint: true });
+      guard();
+      if (
+        fullIdentity(before) !== fullIdentity(after) ||
+        after.size !== BigInt(total) ||
+        actual.digest("hex") !== expectedHash
+      )
+        throw Error("DESTINATION_CHANGED");
+    } finally {
+      const owned = await file.stat({ bigint: true }).catch(() => null);
+      await file.close();
+      if (owned && (await parentMatches())) {
+        const closed = await lstat(temp, { bigint: true }).catch(() => null);
+        if (
+          closed?.isFile() &&
+          !closed.isSymbolicLink() &&
+          ownedIdentity(closed) === ownedIdentity(owned)
+        )
+          tempIdentity = fullIdentity(closed);
+      }
+    }
+    await hooks.afterClose?.();
+    guard();
+    await hooks.beforeFinalize?.();
+    guard();
+    if (
+      tempIdentity === null ||
+      (await targetIdentity(temp)) !== tempIdentity ||
+      !(await parentMatches()) ||
+      (await targetIdentity(target.path)) !== target.identity
+    )
+      throw Error("DESTINATION_CHANGED");
+    guard();
+    if (target.identity === null) {
+      await link(temp, target.path);
+      finalized = true;
+      await unlink(temp);
+    } else {
+      await (hooks.finalize ?? rename)(temp, target.path);
+      finalized = true;
+    }
+    if (process.platform !== "win32") {
+      const parent = await open(dirname(target.path), "r");
+      try {
+        await parent.sync();
+      } finally {
+        await parent.close();
+      }
+    }
+    await hooks.afterFinalize?.();
+    guard();
+  } catch (error) {
+    if (finalized) throw Error("DELIVERY_STATUS_UNKNOWN");
+    if (
+      error instanceof Error &&
+      [
+        "DESTINATION_CHANGED",
+        "ARTIFACT_MISMATCH",
+        "CAPABILITY_EXPIRED",
+        "PROJECT_CLOSING",
+        "ORIGIN_DENIED",
+      ].includes(error.message)
+    )
+      throw error;
+    throw Error(
+      (error as NodeJS.ErrnoException).code === "EEXIST"
+        ? "DESTINATION_CHANGED"
+        : "DESTINATION_UNAVAILABLE",
+    );
+  } finally {
+    if (
+      (await parentMatches()) &&
+      tempIdentity !== null &&
+      (await targetIdentity(temp).catch(() => null)) === tempIdentity
+    )
+      await unlink(temp).catch(() => {});
+  }
 }

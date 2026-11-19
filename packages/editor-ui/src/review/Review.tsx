@@ -13,7 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Editor } from "@tiptap/core";
+import type { ManuscriptSurface } from "../manuscript/surface";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type {
   ManuscriptCommand,
@@ -25,9 +25,7 @@ import type en from "../locales/en.json";
 import type { ProjectSession } from "../project-session/project-session";
 import {
   bindReviewSelection,
-  canonicalPositions,
   captureReviewSelection,
-  captureWholeManuscript,
 } from "./review-selection";
 import { useReviewLayout } from "./review-layout";
 import { ProjectCommands } from "../project-session/project-commands";
@@ -36,7 +34,6 @@ import { ReviewConversation } from "./ReviewConversation";
 import type { PlanningEvidenceBridge } from "../library/evidence";
 import { useSavedAiView } from "../ai-settings/saved-view";
 import type { WritingView } from "../workbench/types";
-import { reviewDecorationKey } from "./review-decorations";
 export function Review({
   client,
   save,
@@ -57,7 +54,7 @@ export function Review({
 }: {
   client: PlatformClient;
   save: ProjectSession;
-  editor: Editor | null;
+  editor: ManuscriptSurface | null;
   projectId: string;
   t: typeof en;
   onOpen: (panel?: "assistant" | "comments") => void;
@@ -230,48 +227,9 @@ export function Review({
     const update = () => {
       if (save.composing || save.status !== "saved") return;
       try {
-        const positions = canonicalPositions(editor),
-          ranges = [] as Array<{ from: number; to: number; id: string }>;
-        for (const card of cards) {
-          if (card.thread.anchor.state === "mapped" && !card.thread.handled) {
-            for (const range of card.thread.anchor.ranges) {
-              const saved = save.state.blocks.find(
-                  (b) => b.id === range.blockId,
-                ),
-                visible = positions.find((p) => p.block.id === range.blockId);
-              if (
-                !saved ||
-                !visible ||
-                saved.revision !== range.revision ||
-                saved.runs.map((r) => r.text).join("") !==
-                  visible.block.runs.map((r) => r.text).join("")
-              )
-                return;
-            }
-          }
-        }
-        for (const card of cards) {
-          if (
-            card.thread.handled ||
-            card.thread.deleted ||
-            card.thread.anchor.state !== "mapped"
-          )
-            continue;
-          for (const r of card.thread.anchor.ranges) {
-            const p = positions.find((p) => p.block.id === r.blockId);
-            if (p)
-              ranges.push({
-                from: p.pos + r.start,
-                to: p.pos + r.end,
-                id: card.thread.id,
-              });
-          }
-        }
-        editor.view.dispatch(
-          editor.state.tr.setMeta(reviewDecorationKey, ranges),
-        );
+        editor.annotate(cards);
       } catch {
-        /* An unsaved invalid buffer retains its own recovery path. */
+        /* Keep unsupported source editable. */
       }
     };
     let active = true;
@@ -290,14 +248,14 @@ export function Review({
         centralView !== "manuscript" ||
         !bodyInteractive ||
         save.composing ||
-        editor.state.selection.empty
+        editor.empty
       ) {
         setSelectionToolbar(null);
         return;
       }
       try {
         if (!explicitWhole.current) {
-          const selected = captureReviewSelection(editor),
+          const selected = editor.capture(),
             identity = JSON.stringify(selected);
           if (autoCaptureIdentity.current !== identity) {
             autoCaptureIdentity.current = identity;
@@ -306,8 +264,9 @@ export function Review({
             setCapture(selected);
           }
         }
-        const start = editor.view.coordsAtPos(editor.state.selection.from),
-          end = editor.view.coordsAtPos(editor.state.selection.to);
+        const rects = editor.selectionRects();
+        if (!rects) return;
+        const { start, end } = rects;
         if (
           Math.max(start.bottom, end.bottom) < 0 ||
           Math.min(start.top, end.top) > window.innerHeight
@@ -324,11 +283,11 @@ export function Review({
       }
     };
     changed();
-    editor.on("selectionUpdate", changed);
+    const unsubscribe = editor.subscribe("selection", changed);
     window.addEventListener("resize", changed);
     window.addEventListener("scroll", changed, true);
     return () => {
-      editor.off("selectionUpdate", changed);
+      unsubscribe();
       window.removeEventListener("resize", changed);
       window.removeEventListener("scroll", changed, true);
     };
@@ -424,20 +383,37 @@ export function Review({
       });
     }
   }, [cards, loaded, report, onOpen]);
-  const begin = (whole: boolean, preserveThread = false) => {
-    if (!editor) return;
+  const begin = async (
+    whole: boolean,
+    preserveThread = false,
+  ): Promise<boolean> => {
+    if (!editor) return false;
     if (save.composing) {
-      void save.actions.run(
-        "review-begin",
-        () => begin(whole, preserveThread),
-        () => !disposed.current,
+      return (
+        (await save.actions.run(
+          "review-begin",
+          () => begin(whole, preserveThread),
+          () => !disposed.current,
+        )) ?? false
       );
-      return;
     }
     try {
+      if (save.source && save.hasLocalBodyChanges) {
+        const input = save.visibleInputIdentity,
+          selection = editor.selectionIdentity,
+          context = save.actions.contextVersion;
+        if (
+          !(await save.prepareInput()) ||
+          disposed.current ||
+          input !== save.visibleInputIdentity ||
+          selection !== editor.selectionIdentity ||
+          context !== save.actions.contextVersion
+        )
+          return false;
+      }
       composerIntent.current++;
       setScope("selection");
-      setCapture(captureReviewSelection(editor, whole));
+      setCapture(editor.capture(whole));
       setReanchored(preserveThread);
       if (!preserveThread) {
         setEditing(null);
@@ -445,13 +421,15 @@ export function Review({
       }
       setFill(false);
       setError("");
+      return true;
     } catch (e) {
       notifyFailure(e);
       setError(e instanceof Error ? e.message : "ANCHOR_INVALID");
+      return false;
     }
   };
-  const captureTyped = (kind: ReviewThread["kind"]) => {
-    begin(false);
+  const captureTyped = async (kind: ReviewThread["kind"]) => {
+    if (!(await begin(false))) return;
     onOpen();
     setKind(kind);
     setSelectionToolbar(null);
@@ -546,15 +524,26 @@ export function Review({
   const submitCore = async (sendToAi: boolean) => {
     if (composing.current) return;
     const intent = composerIntent.current;
+    if (save.source && save.hasLocalBodyChanges) {
+      const input = save.visibleInputIdentity,
+        context = save.actions.contextVersion;
+      if (
+        !(await save.prepareInput()) ||
+        disposed.current ||
+        intent !== composerIntent.current ||
+        input !== save.visibleInputIdentity ||
+        context !== save.actions.contextVersion
+      )
+        return false;
+    }
     const requestedVisible = JSON.stringify(save.local);
     let requestedCapture = capture;
     if (sendToAi && !requestedCapture && editor) {
       try {
         requestedCapture =
-          scope === "whole" &&
-          (explicitWhole.current || editor.state.selection.empty)
-            ? captureWholeManuscript(editor)
-            : captureReviewSelection(editor);
+          scope === "whole" && (explicitWhole.current || editor.empty)
+            ? editor.captureDocument()
+            : editor.capture();
       } catch (error) {
         report(error);
         return;
@@ -947,8 +936,8 @@ export function Review({
                   () => {
                     if (!editor) return;
                     try {
-                      const selected = captureReviewSelection(editor, true),
-                        positions = canonicalPositions(editor),
+                      const selected = editor.capture(true),
+                        positions = editor.positions(),
                         index = positions.findIndex(
                           (p) => p.block.id === selected[0]?.blockId,
                         ),
@@ -1141,10 +1130,7 @@ export function Review({
                   onClick={() => {
                     setShowAll(true);
                     const id = c.thread.anchor.ranges[0]?.blockId;
-                    if (id)
-                      editor?.view.dom
-                        .querySelector(`[data-blockid="${id}"]`)
-                        ?.scrollIntoView({ block: "center" });
+                    if (id) editor?.scrollBlock(id);
                   }}
                 >
                   {c.thread.text}

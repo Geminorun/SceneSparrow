@@ -159,3 +159,53 @@ test("different source/evidence intents remain independent and scoped owner clea
   assert.deepEqual(calls, ["first", "second"]);
   actions.dispose();
 });
+
+test("cancel and requeue of the same captured key keeps separate bounded admission until each promise ends", async () => {
+  const actions = new CompositionActions();
+  let captures = 0,
+    releases = 0;
+  const cancelled = [];
+  try {
+    for (let n = 0; n < 8; n++) {
+      cancelled.push(
+        actions.runCaptured(
+          "same-owner-key",
+          () => ++captures,
+          async () => assert.fail("cancelled"),
+          () => true,
+          () => releases++,
+        ),
+      );
+      actions.cancel("same-owner-key");
+    }
+    assert.equal(actions.captured.size, 8);
+    assert.equal(captures, 8);
+    assert.equal(releases, 8);
+    await assert.rejects(
+      actions.runCaptured(
+        "same-owner-key",
+        () => ++captures,
+        async () => true,
+      ),
+      /CAPTURE_BUSY/,
+    );
+    assert.equal(captures, 8);
+    assert.deepEqual(await Promise.all(cancelled), Array(8).fill(false));
+    assert.equal(actions.captured.size, 0);
+    assert.equal(releases, 8);
+    assert.equal(
+      await actions.runCaptured(
+        "same-owner-key",
+        () => ++captures,
+        async (input) => input,
+        () => true,
+        () => releases++,
+      ),
+      9,
+    );
+    assert.equal(actions.captured.size, 0);
+    assert.equal(releases, 9);
+  } finally {
+    actions.dispose();
+  }
+});

@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod project_transfer;
 use std::{
     fs::File,
     path::Path,
@@ -29,13 +30,21 @@ impl Drop for ProjectOwner {
 
 pub struct SqliteProjectRepository {
     #[cfg(test)]
+    source_fault: Mutex<Option<String>>,
+    #[cfg(test)]
+    source_action: Mutex<Option<(String, open_source::TestAction)>>,
+    #[cfg(test)]
     business_read_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     fail_export_directory_sync: std::sync::atomic::AtomicBool,
+    source_observation: Mutex<open_source::Observation>,
+    preparation_leases: Arc<std::sync::atomic::AtomicUsize>,
+    preparation_worker: std::sync::atomic::AtomicBool,
     connection: Mutex<Connection>,
-    quiescing: std::sync::atomic::AtomicBool,
-    workers: std::sync::atomic::AtomicUsize,
+    quiescing: Arc<std::sync::atomic::AtomicBool>,
+    workers: Arc<std::sync::atomic::AtomicUsize>,
     directory: std::path::PathBuf,
+    creative_root: Option<std::path::PathBuf>,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
     ai_consumers: Mutex<
         std::collections::BTreeMap<
@@ -78,15 +87,40 @@ fn read_project(connection: &Connection) -> Result<Option<Project>, Error> {
 
 impl SqliteProjectRepository {
     pub fn open(directory: &Path) -> Result<Self, Error> {
+        if directory.join("project.json").exists() || directory.join(".scenesparrow").exists() {
+            return Self::open_format(directory).map_err(|_| Error::Storage);
+        }
         Self::open_with_mode(directory, false)
     }
 
     /// Reopening must never replace a database removed after desktop preflight.
     pub fn open_existing(directory: &Path) -> Result<Self, Error> {
+        if directory.join("project.json").exists() || directory.join(".scenesparrow").exists() {
+            return Self::open_format(directory).map_err(|_| Error::Storage);
+        }
         Self::open_with_mode(directory, true)
     }
 
     fn open_with_mode(directory: &Path, require_existing: bool) -> Result<Self, Error> {
+        Self::open_storage(directory, require_existing, None)
+    }
+    fn open_managed_existing(root: &Path) -> Result<Self, Error> {
+        Self::open_storage(&root.join(".scenesparrow"), true, Some(root))
+    }
+    fn open_storage(
+        directory: &Path,
+        require_existing: bool,
+        creative_root: Option<&Path>,
+    ) -> Result<Self, Error> {
+        Self::open_storage_mode(directory, require_existing, creative_root, true)
+    }
+    /// Schema construction only: no origin registration, recovery, jobs or collection.
+    fn open_storage_mode(
+        directory: &Path,
+        require_existing: bool,
+        creative_root: Option<&Path>,
+        startup: bool,
+    ) -> Result<Self, Error> {
         if require_existing && !storage(std::fs::metadata(directory))?.is_dir() {
             return Err(Error::Storage);
         }
@@ -132,7 +166,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 10 || (require_existing && version < 1) {
+        if version > 15 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -144,18 +178,22 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 2 {
-            backup::migration_backup(&connection, directory, 2)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 2)?;
+            }
             // Keep the original bare SQLite compatibility restore point as well.
             // SQLite's backup API includes committed WAL pages in a consistent snapshot.
-            let mut backup_path = directory.join("pre-migration-002.sqlite");
-            if backup_path.exists() {
-                backup_path =
-                    directory.join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+            if startup {
+                let mut backup_path = directory.join("pre-migration-002.sqlite");
+                if backup_path.exists() {
+                    backup_path = directory
+                        .join(format!("pre-migration-002-{}.sqlite", uuid::Uuid::new_v4()));
+                }
+                let mut backup = storage(Connection::open(&backup_path))?;
+                storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
+                    .run_to_completion(32, Duration::from_millis(10), None)
+                    .map_err(|_| Error::Storage)?;
             }
-            let mut backup = storage(Connection::open(&backup_path))?;
-            storage(rusqlite::backup::Backup::new(&connection, &mut backup))?
-                .run_to_completion(32, Duration::from_millis(10), None)
-                .map_err(|_| Error::Storage)?;
             let transaction = storage(connection.transaction())?;
             storage(transaction.execute_batch(include_str!("../migrations/002_manuscript.sql")))?;
             if read_project(&transaction)?.is_some() {
@@ -164,13 +202,17 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 3 {
-            backup::migration_backup(&connection, directory, 3)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 3)?;
+            }
             let transaction = storage(connection.transaction())?;
             storage(transaction.execute_batch(include_str!("../migrations/003_history.sql")))?;
             storage(transaction.commit())?;
         }
         if version < 4 {
-            backup::migration_backup(&connection, directory, 4)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 4)?;
+            }
             let transaction = storage(connection.transaction())?;
             storage(
                 transaction.execute_batch(include_str!("../migrations/004_sources_import.sql")),
@@ -178,7 +220,9 @@ impl SqliteProjectRepository {
             storage(transaction.commit())?;
         }
         if version < 5 {
-            backup::migration_backup(&connection, directory, 5)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 5)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/005_shared_ai.sql")))?;
             storage(tx.execute(
@@ -188,55 +232,132 @@ impl SqliteProjectRepository {
             storage(tx.commit())?;
         }
         if version < 6 {
-            backup::migration_backup(&connection, directory, 6)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 6)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/006_planning.sql")))?;
             storage(tx.execute("INSERT OR IGNORE INTO planning_state(singleton,revision,content_json) VALUES(1,0,?1)", [serde_json::to_string(&scenesparrow_domain::planning::empty()).map_err(|_| Error::Storage)?]))?;
             storage(tx.commit())?;
         }
         if version < 7 {
-            backup::migration_backup(&connection, directory, 7)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 7)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/007_review.sql")))?;
             storage(tx.commit())?;
         }
         if version < 8 {
-            backup::migration_backup(&connection, directory, 8)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 8)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/008_finalization.sql")))?;
             storage(tx.commit())?;
         }
         if version < 9 {
-            backup::migration_backup(&connection, directory, 9)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 9)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/009_exports.sql")))?;
             storage(tx.commit())?;
         }
         if version < 10 {
-            backup::migration_backup(&connection, directory, 10)?;
+            if startup {
+                backup::migration_backup(&connection, directory, 10)?;
+            }
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/010_project_metadata.sql")))?;
             storage(tx.commit())?;
+        }
+        if version < 11 {
+            if startup {
+                backup::migration_backup(&connection, directory, 11)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/011_open_source.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 12 {
+            if startup {
+                backup::migration_backup(&connection, directory, 12)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/012_source_candidates.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 13 {
+            if startup {
+                backup::migration_backup(&connection, directory, 13)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/013_file_graph.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 14 {
+            if startup {
+                backup::migration_backup(&connection, directory, 14)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/014_external_work.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 15 {
+            if startup {
+                backup::migration_backup(&connection, directory, 15)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/015_project_packages.sql")))?;
+            storage(tx.commit())?;
+        }
+        if startup {
+            storage(connection.execute("UPDATE work_operations SET status='interrupted',failure_code='WORK_OPERATION_INTERRUPTED' WHERE status IN ('queued','running')", []))?;
+            storage(connection.execute(
+            "UPDATE work_items SET state='interrupted' WHERE state IN ('preparing','inspecting')",
+            [],
+        ))?;
         }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
         let repository = Self {
             #[cfg(test)]
+            source_fault: Mutex::new(None),
+            #[cfg(test)]
+            source_action: Mutex::new(None),
+            #[cfg(test)]
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
+            source_observation: Mutex::new(open_source::Observation::default()),
+            preparation_leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            preparation_worker: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(connection),
-            quiescing: std::sync::atomic::AtomicBool::new(false),
-            workers: std::sync::atomic::AtomicUsize::new(0),
+            quiescing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             directory: directory.to_path_buf(),
+            creative_root: creative_root.map(std::path::Path::to_path_buf),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             ai_consumers: Mutex::new(std::collections::BTreeMap::new()),
             _owner: Some(owner),
         };
+        if !startup {
+            return Ok(repository);
+        }
         if version < 5 {
             repository
                 .initialize_ai_origin()
+                .map_err(|_| Error::Storage)?;
+        }
+        // Recover creative generations before projections, jobs or collection.
+        repository
+            .recover_source_intents()
+            .map_err(|_| Error::Storage)?;
+        if repository.creative_root.is_some() {
+            repository
+                .verify_source_state()
                 .map_err(|_| Error::Storage)?;
         }
         // Validate acknowledged data before startup recovery mutates task state.
@@ -247,6 +368,17 @@ impl SqliteProjectRepository {
                 "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
                 [],
             ))?;
+        }
+        {
+            let c = storage(repository.connection.lock())?;
+            if !repository
+                .execution_origin_is_original(&c)
+                .map_err(|_| Error::Storage)?
+            {
+                repository
+                    .fence_copied_project_work(&c)
+                    .map_err(|_| Error::Storage)?;
+            }
         }
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
             .map_err(|_| Error::Storage)?;
@@ -342,6 +474,18 @@ impl ProjectRepository for SqliteProjectRepository {
         let mut connection = storage(self.connection.lock())?;
         if self.is_quiescing() {
             return Err(Error::Closing);
+        }
+        if open_source::graph::graph_row(&connection)
+            .map_err(|_| Error::Storage)?
+            .is_some()
+        {
+            return self.rename_file_graph_locked(
+                &mut connection,
+                request_id,
+                project_id,
+                previous_title,
+                title,
+            );
         }
         let tx = storage(connection.transaction())?;
         let Some(mut project) = read_project(&tx)? else {
@@ -657,7 +801,8 @@ mod tests {
         let history = repo.read_history().unwrap();
         drop(repo);
         let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
-        c.execute_batch("DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
+        drop_file_graph_schema_for_legacy_fixture(&c);
+        c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;ALTER TABLE export_jobs DROP COLUMN serializer_version;DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
         assert_eq!(
             c.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
@@ -740,7 +885,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            10
+            15
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -806,7 +951,18 @@ pub mod ai;
 pub mod credentials;
 
 #[cfg(test)]
+fn drop_file_graph_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TRIGGER IF EXISTS package_intake_decision_retention;DROP TABLE IF EXISTS package_intake_leases;DROP TABLE IF EXISTS work_package_returns;DROP TABLE IF EXISTS work_package_candidates;DROP TABLE IF EXISTS work_copy_availability;DROP TABLE IF EXISTS package_capture_pins;DROP TABLE IF EXISTS package_exports;").unwrap();
+    c.execute_batch("DROP TABLE work_items;DROP TABLE work_operations;DROP TABLE work_candidates;DROP TABLE work_preparations;DROP TABLE work_copy_locations;DROP TABLE production_file_locks;DROP TABLE history_production_locks;").unwrap();
+    c.execute_batch("DROP TABLE accepted_file_graph;DROP TABLE history_file_graphs;DROP TABLE file_graph_pins;DROP TABLE approved_file_graphs;DROP TABLE graph_recovery_members;DROP TABLE graph_recovery_decisions;").unwrap();
+}
+#[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    drop_file_graph_schema_for_legacy_fixture(c);
+    c.execute_batch(
+        "DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;",
+    )
+    .unwrap();
     c.execute_batch("DROP TABLE project_rename_receipts;")
         .unwrap();
     c.execute_batch("DROP TABLE copy_preparations;DROP TABLE export_deliveries;DROP TABLE export_controls;DROP TABLE export_jobs;").unwrap();
@@ -848,6 +1004,7 @@ impl SqliteProjectRepository {
     pub fn quiesce(&self) -> Result<(), Error> {
         self.quiescing
             .store(true, std::sync::atomic::Ordering::Release);
+        self.stop_source_watcher().map_err(|_| Error::Storage)?;
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(self)
             .map_err(|_| Error::Storage)?;
         self.reconcile_planning().map_err(|_| Error::Storage)?;
@@ -870,3 +1027,5 @@ impl SqliteProjectRepository {
 
 mod storage;
 mod worker_process;
+
+pub mod open_source;

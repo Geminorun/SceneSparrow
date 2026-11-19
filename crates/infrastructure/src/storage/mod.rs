@@ -1,4 +1,4 @@
-mod objects;
+pub(crate) mod objects;
 pub(crate) mod operation;
 mod retention;
 

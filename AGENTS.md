@@ -62,7 +62,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–010 are
+  open; do not claim full stage acceptance. Applied migrations 001–015 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
@@ -105,6 +105,10 @@
   through the existing queue. Preserve native IME keys, actual business fences and
   original ambiguous request identities. Audit related entry points and exercise
   focused interaction regressions when changing this boundary.
+- Controlled native disclosure widgets capture click/keyboard intent synchronously.
+  Do not derive a user's decision only from a delayed native toggle event: a
+  background render can restore the old open value before that event is delivered.
+  Exercise the existing editor/recovery disclosure under polling when changing it.
 - Capture the owning input/context before an asynchronous action and revalidate
   it after each prerequisite await. Late acknowledgments must not clear newer
   input, dispatch a newer unsent draft, dismiss a later recovery decision or
@@ -113,6 +117,71 @@
   report a new failure episode without replaying passive polling failures.
 
 ## Delegation scope
+
+- The next open-project effort is specified in `docs/specs/open-project-format.md`,
+  `docs/open-project-execution.md` and ADR 0005. OP1 contracts/codec are locally
+  reviewed, along with Linux OP2 storage, OP3 source authoring/reconciliation and
+  OP4 recorded file graphs/work copies. See `docs/validation/open-project-op4b.md`.
+  OP5-A adds read-only verified legacy conversion and named transfer receipts;
+  see `docs/validation/open-project-op5a.md`. It preserves the source and prepares
+  a new target without activation. Actual output I/O uses held native parent
+  descriptors; never replace that binding with preflight-only path checks.
+  OP5-B adds fixed Project/Work packages, bounded ZIP intake/verification, independent
+  restore and original-base returned edits; see `docs/validation/open-project-op5b.md`.
+  Preserve immutable capture control hashes, precise pins, finite cache custody,
+  original outcome/current status separation and one-shot cleanup. Status reads
+  must not overwrite newer whole-record updates; large transfer records use their
+  own bounded writer rather than the small journal/index writer. Visible transfer
+  flows are connected by OP5-C; see `docs/validation/open-project-op5c.md`.
+  Actual activation/default startup and platform support retain the OP6 gate.
+  OP2 currently refuses
+  native file promotion outside Linux; Windows source access is also unsupported.
+  OP6 must implement these capabilities before claiming cross-platform delivery.
+  For authorized coding,
+  use OP1–OP6 acceptance gates and the current source ownership map. Root writes
+  specs/stage briefs; coding agents retain the model, one-writer and Git rules
+  above. Creative file edits must never directly replace core-owned lock,
+  approval, history or receipt state. Preserve legacy behavior until verified
+  explicit migration; do not persist Markdown through the lossy projection.
+  Preserve raw source/history through the shared writer and original receipts.
+  Proved independent leaf edits must not bump unrelated block revisions, invalidate
+  anchors or turn one paragraph lock into a global editing fence. Unproved
+  structure/unknown effects remain conservative. Use the same Unicode portable
+  key for physical reserved namespaces and logical collision checks.
+
+- Native source authoring uses CodeMirror with one exact raw buffer and the shared
+  ProjectSession; legacy authoring retains its adapter. Preserve BOM/mixed endings,
+  token/grapheme mapping, stable input DOM and composition across acknowledgments.
+  An original receipt and its possibly newer snapshot are separate facts. Keep
+  uncertain DTO identity and stage checkpoint mappings atomically. Missing-ID proof
+  must batch against captured syntax, not reparse the whole document per ID.
+  See `docs/validation/open-project-op3b.md` for tested behavior and refusal limits.
+- Snapshot/copy/export final-input actions keep one ProjectSession queue lease
+  through captured manuscript/hidden-planning settlement, base proof and original
+  capture acknowledgment. Do not release after prepareInput and then capture.
+  Captured memberships have bounded owned custody and release on every early
+  failure/cancellation; later typing remains pending. Deduplication keys include
+  the actual item/operation owner, never a shared collection-wide key.
+- An uncertain request retains its original DTO/identity until resolved. A new
+  explicit action after a known completion/rejection uses a fresh request and
+  target issuance; never replay a settled Retry as the next retry attempt. Keep
+  prerequisite ownership per operation rather than in a reused feature-wide ref.
+- Native project package delivery is new-file-only: preserve the continuously
+  held created output identity, no-clobber publication and reader/worker lifetime
+  through final verification. Original delivery lookup never chooses, rewrites or
+  falls back to saving on a cache miss. Browser downloads stay bounded attachment
+  streams. Reload hints grant lookup only; they are not root/receipt authority.
+- Every new durable business rejection must round-trip through original command
+  receipt lookup and exact replay with the same code. Testing only the first HTTP
+  error misses persisted outcome decoders and can strand an uncertain request.
+- Future production impact and text impact have different locks. A locked text
+  baseline must remain usable to create audio/video while its source stays intact.
+  Unknown shared code/dependency effects expand production scope; they do not grant
+  text edits or implicitly turn text locks into production-file locks. OP4's
+  file-lock/reservation contract and reviewed ownership refinements are frozen in
+  `docs/specs/open-project-op4b-handoff.md`. Preserve original outcome/current snapshot
+  separation, proved applied local-conflict recovery, bounded preparation admission
+  and one-shot descriptor cleanup; a replay never reacquires a deletion pathname.
 
 - The primary agent handles requirements clarification, planning, product/UX and
   architecture design, competitor research, solution comparison, and standalone

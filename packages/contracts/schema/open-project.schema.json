@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SceneSparrow authored file declarations",
+  "definitions": {
+    "FileJsonValue": {},
+    "FileExtensions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/FileJsonValue"
+      }
+    },
+    "OpenProjectManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "formatVersion", "projectId", "manuscript"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["scenesparrow"]
+        },
+        "formatVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "manuscript": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "audio": {
+          "$ref": "#/definitions/ProjectAudioDeclaration"
+        },
+        "video": {
+          "$ref": "#/definitions/ProjectVideoDeclaration"
+        },
+        "extensions": {
+          "$ref": "#/definitions/FileExtensions"
+        }
+      }
+    },
+    "ProjectAudioDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plan"],
+      "properties": {
+        "plan": {
+          "type": "string"
+        }
+      }
+    },
+    "ProjectVideoDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "compositionId"],
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "compositionId": {
+          "type": "string"
+        }
+      }
+    },
+    "AudioPlanDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "formatVersion", "segments"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["scenesparrow-audio"]
+        },
+        "formatVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AudioSegmentDeclaration"
+          }
+        },
+        "extensions": {
+          "$ref": "#/definitions/FileExtensions"
+        }
+      }
+    },
+    "AudioSegmentDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceBlockId",
+        "sourceRevision",
+        "narrationText",
+        "media",
+        "trimStartSample",
+        "trimEndSample",
+        "placementSample",
+        "gainMilliDb"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "sourceBlockId": {
+          "type": "string"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "narrationText": {
+          "type": "string"
+        },
+        "media": {
+          "type": "string"
+        },
+        "trimStartSample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trimEndSample": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "placementSample": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gainMilliDb": {
+          "type": "integer"
+        },
+        "extensions": {
+          "$ref": "#/definitions/FileExtensions"
+        }
+      }
+    },
+    "VideoProjectDeclaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "formatVersion", "entry", "compositionId"],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["scenesparrow-video"]
+        },
+        "formatVersion": {
+          "type": "integer",
+          "enum": [1]
+        },
+        "entry": {
+          "type": "string"
+        },
+        "compositionId": {
+          "type": "string"
+        },
+        "extensions": {
+          "$ref": "#/definitions/FileExtensions"
+        }
+      }
+    }
+  },
+  "$ref": "#/definitions/OpenProjectManifest"
+}

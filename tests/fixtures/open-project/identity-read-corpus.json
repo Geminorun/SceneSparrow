@@ -1,0 +1,46 @@
+[
+  {
+    "name": "multiple-empty-root-paragraphs-mixed",
+    "source": "<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\nText\n\n<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000003 -->\n<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000004 -->\n",
+    "requiredIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedKinds": ["empty", "paragraph", "empty", "empty"]
+  },
+  {
+    "name": "literal-marker-in-code-and-escape",
+    "source": "`<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->`\n\n```md\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n```\n\n\\<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "expectedIds": [],
+    "expectedKinds": ["paragraph", "code", "paragraph"]
+  },
+  {
+    "name": "duplicate",
+    "source": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\nA\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\nB",
+    "error": "IDENTITY_DUPLICATE"
+  },
+  {
+    "name": "missing-protected",
+    "source": "A",
+    "requiredIds": ["11111111-1111-4111-8111-000000000001"],
+    "error": "IDENTITY_MISSING"
+  },
+  {
+    "name": "ambiguous-container",
+    "source": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n- A\n- B\n",
+    "error": "IDENTITY_AMBIGUOUS"
+  },
+  {
+    "name": "empty-inline-content",
+    "source": "Text<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->",
+    "error": "IDENTITY_AMBIGUOUS"
+  }
+]

@@ -12,6 +12,41 @@ choices remain in the [design index](design/README.md),
 [architecture cleanup evidence](validation/architecture-cleanup.md) records the
 ownership refactor; it does not establish new product or platform acceptance.
 
+The open-project ownership change is specified in the
+[open project contract](specs/open-project-format.md) and
+[ADR 0005](decisions/0005-open-project-workspace.md), with an
+[OP1–OP6 delivery plan](open-project-execution.md). It introduces file-authoring
+sources while retaining core-owned approval/management records. OP1 contracts
+and the Linux OP2 native source store are locally reviewed. OP3-A adds explicit
+external-file reconciliation, reachable same-process recovery and clean Markdown
+delivery. OP3-B connects a lossless CodeMirror source surface and the existing
+legacy Tiptap surface through one session and manuscript port. OP4-A adds immutable
+creative graphs, scoped source/name saves, multi-file recovery and graph-aware
+history/backup through the same writer. OP4-B adds recorded grants/work copies,
+production file locks, bounded preparation/readers, original DTO outcomes and
+Changes integration through that same owner. Unknown outcomes fence writes; proved
+applied text conflicts preserve the local buffer for explicit merge/reload.
+OP5-A adds read-only legacy inspection, consistent verified backup and staged
+conversion preserving identity/history/approval evidence. Global app-data transfer
+receipts track filesystem lifecycle independently of project content and shared
+AI; copied runtime capabilities are fenced before target readiness. OP5-B adds
+fixed portable Project/Work ZIP packages, bounded binary intake/verification,
+independent restore and returned edits through the same OP4 owner. Original
+control hashes, precise capture pins and finite custody preserve snapshot/retry
+identity; copied authority is revoked before readiness. OP5-C connects visible
+conversion/package flows, exact returned-candidate review and bounded browser/
+native delivery. A compound session queue protects clicked manuscript/planning
+checkpoints through capture ACK; bounded lookup-only hints preserve original
+operations. Full platform/lifecycle support retains the OP6 gate. See
+[OP2 validation](validation/open-project-op2.md) and
+[OP3-A validation](validation/open-project-op3a.md) and
+[OP3-B validation](validation/open-project-op3b.md) and
+[OP4-A validation](validation/open-project-op4a.md) and
+[OP4-B validation](validation/open-project-op4b.md) and
+[OP5-A validation](validation/open-project-op5a.md) and
+[OP5-B validation](validation/open-project-op5b.md) and
+[OP5-C validation](validation/open-project-op5c.md).
+
 ## Runtime and dependency boundaries
 
 | Owner                      | Implemented responsibility                                                                                                                                       |
@@ -62,7 +97,7 @@ packages/
     app/                         # Bootstrap, project entry and global settings UI
     workbench/                   # Mounted workspace, panes and view coordination
     project-session/             # Command queue, revisions, receipts and history
-    manuscript/                  # Tiptap setup, canonical projection and import UI
+    manuscript/                  # Legacy/source surfaces, raw editing, recovery and import UI
     planning/                    # Outline/input buffer, generation and task views
     review/                      # Selection, conversation, candidates and lock UI
     library/                     # References and evidence selection
@@ -83,7 +118,7 @@ packages/
     transport.ts                 # HTTP response validation/classification
     links.ts                     # External-link validation used by both adapters
   contracts/                     # Schemas and generated TypeScript types
-  manuscript-format/             # Pure shared Markdown writer
+  manuscript-format/             # Legacy writer, ./source codec and isolated ./migration serializer
   ai-runtime/                    # Generic provider runtime and output guards
   video-runtime/                 # Separate Remotion sample
 
@@ -97,6 +132,8 @@ crates/
   infrastructure/src/
     lib.rs                       # Repository lifecycle and shared writer ownership
     storage/                     # DB errors, hashing, immutable objects and retention
+    open_source.rs               # Native source writer and journal
+    open_source/                 # Physical I/O, observations, reconciliation, recovery and tests
     worker_process.rs            # Common document-process mechanisms
     manuscript.rs                # Canonical command transaction coordination
     history.rs                   # Bounded project history
@@ -108,6 +145,9 @@ crates/
     ai/                          # Settings, durable execution and framed AI host
     credentials/                 # Platform/session/encrypted credential adapters
     backup.rs                    # Verified backup and recovered-copy operations
+    project_transfer.rs          # Explicit conversion and global lifecycle receipts
+    project_transfer/            # Schema-only conversion, bounded journals and tests
+      package/                   # Fixed captures, ZIP/intake/restore/return and finite custody
 
 workers/
   agent/                         # Supervised AI process host
@@ -131,6 +171,12 @@ history. `PlanningAutosave` keeps its own planning buffer and participates in th
 same queue through the existing planning adapter. `ProjectCommands` retains each
 caller's pending command identity; changing UI context cannot replace an uncertain
 request with a new paid or mutating action.
+
+Native-format manuscripts use an exact raw buffer and CodeMirror normalized-view
+patches; legacy manuscripts retain canonical Tiptap editing. The manuscript surface
+port supplies review/lock capture, annotations and viewport geometry for both.
+Source status is a cheap probe; full bindings load when accepted content changes.
+Explicit Changes/recovery keeps local and accepted/external versions separate.
 
 The session keeps each pending control command with its original visible-input
 snapshot and owns the pure local/canonical body comparison. Content equality

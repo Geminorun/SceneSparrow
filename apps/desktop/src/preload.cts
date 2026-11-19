@@ -13,6 +13,114 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readNativePackageSave: (body: unknown) =>
+    ipcRenderer.invoke("native-package:save-status", body),
+  choosePackageIntake: (body: unknown) =>
+    ipcRenderer.invoke("native-package:intake", body),
+  cancelNativePackageIntake: (body: unknown) =>
+    ipcRenderer.invoke("native-package:cancel-intake", body),
+  savePackageArchive: (body: unknown) =>
+    ipcRenderer.invoke("native-package:save", body),
+  readPackageBase: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageBase", ...args),
+  startProjectPackageExport: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:startProjectPackageExport", ...args),
+  startWorkCopyPackageExport: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:startWorkCopyPackageExport", ...args),
+  readPackageOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageOperation", ...args),
+  controlPackageOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:controlPackageOperation", ...args),
+  createPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:createPackageIntake", ...args),
+  readPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageIntake", ...args),
+  uploadPackageChunk: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:uploadPackageChunk", ...args),
+  controlPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:controlPackageIntake", ...args),
+  inspectPackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:inspectPackage", ...args),
+  readPackageInspection: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageInspection", ...args),
+  issuePackageRestoreTarget: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:issuePackageRestoreTarget", ...args),
+  restorePackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:restorePackage", ...args),
+  returnPackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:returnPackage", ...args),
+  inspectLegacyMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:inspectLegacyMigration", ...args),
+  issueMigrationTarget: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:issueMigrationTarget", ...args),
+  startLegacyMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:startLegacyMigration", ...args),
+  readMigrationOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:readMigrationOperation", ...args),
+  controlMigration: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-transfer:controlMigration", ...args),
+  inspectProjectFormat: () => ipcRenderer.invoke("project:format"),
+  inspectGraphRecovery: (intent: string) =>
+    ipcRenderer.invoke("external-work:inspectGraphRecovery", intent),
+  readFileGraph: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readFileGraph", ...args),
+  readGraphFiles: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphFiles", ...args),
+  registerFileGraph: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:registerFileGraph", ...args),
+  createWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:createWorkItem", ...args),
+  readWorkItems: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkItems", ...args),
+  readWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkItem", ...args),
+  inspectWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:inspectWorkItem", ...args),
+  acceptWorkCandidate: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:acceptWorkCandidate", ...args),
+  discardWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:discardWorkItem", ...args),
+  controlWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:controlWorkItem", ...args),
+  readWorkOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkOperation", ...args),
+  readWorkCandidate: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkCandidate", ...args),
+  readWorkChanges: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkChanges", ...args),
+  readProductionFileLocks: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readProductionFileLocks", ...args),
+  setProductionFileLocks: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:setProductionFileLocks", ...args),
+  readGraphRecoveries: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphRecoveries", ...args),
+  readGraphRecoveryMembers: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphRecoveryMembers", ...args),
+  downloadWorkCandidateMember: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:downloadWorkCandidateMember", ...args),
+  downloadGraphRecoveryMember: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:downloadGraphRecoveryMember", ...args),
+  revealWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:revealWorkItem", ...args),
+  readAuthoredSourceRecoveryEvidence: (intentHash: string) =>
+    ipcRenderer.invoke("manuscript:source-evidence", intentHash),
+  readAuthoredSourceRecoveryVersion: (intentHash: string, sourceHash: string) =>
+    ipcRenderer.invoke("manuscript:source-evidence-version", {
+      intentHash,
+      sourceHash,
+    }),
+  readAuthoredSourceStatus: () =>
+    ipcRenderer.invoke("manuscript:source-status"),
+  rescanAuthoredSource: () => ipcRenderer.invoke("manuscript:source-rescan"),
+  readAuthoredSourceCandidate: (id: string) =>
+    ipcRenderer.invoke("manuscript:source-candidate", id),
+  resolveAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-resolve", body),
+  recoverAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-recover", body),
+  readAuthoredSource: () => ipcRenderer.invoke("manuscript:source-read"),
+  saveAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-save", body),
   readManuscriptIdentity: () => ipcRenderer.invoke("manuscript:identity"),
   readExports: () => ipcRenderer.invoke("export:list"),
   prepareCopy: (body: unknown) => ipcRenderer.invoke("copy:prepare", body),

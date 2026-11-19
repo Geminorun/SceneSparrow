@@ -22,6 +22,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         SqliteProjectRepository::inspect_available_project(std::path::Path::new(&args[2]))?;
         return Ok(());
     }
+    if args.get(1).map(String::as_str) == Some("--inspect-format") && args.len() == 3 {
+        let inspection = SqliteProjectRepository::format_inspection(std::path::Path::new(&args[2]))
+            .map_err(|error| error.0)?;
+        println!("{}", serde_json::to_string(&inspection)?);
+        return Ok(());
+    }
     if args.get(1).map(String::as_str) == Some("--recover-project") && args.len() == 4 {
         drop(SqliteProjectRepository::restore_verified_copy(
             std::path::Path::new(&args[2]),
@@ -45,8 +51,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let repository = match env::var("SCENESPARROW_PROJECT_OPEN_MODE") {
         Ok(mode) if mode == "existing" => SqliteProjectRepository::open_existing(&directory)?,
         Ok(mode) if mode == "create" => SqliteProjectRepository::open(&directory)?,
+        Ok(mode) if mode == "format-create" => SqliteProjectRepository::create_format(&directory).map_err(|error|error.0)?,
+        Ok(mode) if mode == "format-adopt" => SqliteProjectRepository::adopt_format(&directory).map_err(|error|error.0)?,
         Err(env::VarError::NotPresent) => SqliteProjectRepository::open(&directory)?,
-        _ => return Err("SCENESPARROW_PROJECT_OPEN_MODE must be existing or create".into()),
+        _ => return Err("SCENESPARROW_PROJECT_OPEN_MODE must be existing, create, format-create or format-adopt".into()),
     };
     let listener =
         tokio::net::TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)).await?;

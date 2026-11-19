@@ -5,6 +5,8 @@ use std::sync::Arc;
 pub(crate) fn start(state: &AppState) {
     drive_ai_and_maintenance(state);
     drive_exports(state);
+    drive_external_work(state);
+    drive_transfers(state);
 }
 
 fn drive_ai_and_maintenance(state: &AppState) {
@@ -25,6 +27,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
             };
             let _ = tokio::task::spawn_blocking(move || -> Result<(), ManuscriptError> {
                 let repository = service.repository();
+                let _ = repository.inspect_source_changes(false);
                 repository.reconcile_planning()?;
                 repository.reconcile_reviews()?;
                 if run_maintenance
@@ -32,6 +35,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
                         .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?
                         .is_some()
                 {
+                    repository.prune_source_candidates()?;
                     repository.prune_export_inputs()?;
                     repository.prune_planning_payloads()?;
                     repository.prune_review_payloads()?;
@@ -41,6 +45,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
                     repository
                         .execute_next_ai(settings)
                         .map_err(|e| ManuscriptError(e.0, None))?;
+                    let _ = repository.inspect_source_changes(false);
                     repository.reconcile_planning()?;
                     repository.reconcile_reviews()?;
                 }
@@ -63,6 +68,51 @@ fn drive_exports(state: &AppState) {
                 if let Ok(Some(id)) = service.repository().next_export() {
                     let _ = service.repository().run_export(&id);
                 }
+            })
+            .await;
+        }
+    });
+}
+
+fn drive_external_work(state: &AppState) {
+    let service = Arc::downgrade(&state.service);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let Some(service) = service.upgrade() else {
+                break;
+            };
+            let _ =
+                tokio::task::spawn_blocking(move || service.repository().run_next_work_operation())
+                    .await;
+        }
+    });
+}
+
+fn drive_transfers(state: &AppState) {
+    let service = Arc::downgrade(&state.service);
+    let transfers = Arc::downgrade(&state.transfers);
+    tokio::spawn(async move {
+        let mut maintenance = std::time::Instant::now();
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let (Some(service), Some(transfers)) = (service.upgrade(), transfers.upgrade()) else {
+                break;
+            };
+            let Some(Ok(store)) = transfers.get() else {
+                continue;
+            };
+            let store = store.clone();
+            let expire = maintenance.elapsed() >= std::time::Duration::from_secs(60);
+            if expire {
+                maintenance = std::time::Instant::now();
+            }
+            let _ = tokio::task::spawn_blocking(move || {
+                let result = store.run_next(service.repository());
+                if expire {
+                    let _ = store.expire_packages(service.repository());
+                }
+                result
             })
             .await;
         }

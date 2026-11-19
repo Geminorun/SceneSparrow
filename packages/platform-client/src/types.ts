@@ -1,4 +1,23 @@
 import type {
+  ProjectPackageClient,
+  ProjectPackageBridge,
+} from "./project-package";
+import type {
+  ProjectTransferClient,
+  ProjectTransferBridge,
+} from "./project-transfer";
+import type { ExternalWorkClient, ExternalWorkBridge } from "./external-work";
+import type {
+  AuthoredSourceSnapshot,
+  AuthoredSourceRecoveryEvidence,
+  AuthoredSourceRecoveryBytes,
+  AuthoredSourceStatus,
+  AuthoredSourceCandidate,
+  AuthoredSourceResolveRequest,
+  AuthoredSourceRecoverRequest,
+  AuthoredSourceSaveRequest,
+  AuthoredSourceSaveResponse,
+  ProjectFormatInspection,
   ManuscriptIdentity,
   CopyRequest,
   PreparedCopy,
@@ -54,7 +73,29 @@ export interface RecentProject {
   title: string;
 }
 
-export interface PlatformClient {
+export interface PlatformClient
+  extends ExternalWorkClient, ProjectTransferClient, ProjectPackageClient {
+  inspectProjectFormat?(): Promise<ProjectFormatInspection>;
+  readAuthoredSource?(): Promise<AuthoredSourceSnapshot>;
+  readAuthoredSourceRecoveryEvidence?(
+    intentHash: string,
+  ): Promise<AuthoredSourceRecoveryEvidence>;
+  readAuthoredSourceRecoveryVersion?(
+    intentHash: string,
+    sourceHash: string,
+  ): Promise<AuthoredSourceRecoveryBytes>;
+  readAuthoredSourceStatus?(): Promise<AuthoredSourceStatus>;
+  rescanAuthoredSource?(): Promise<AuthoredSourceStatus>;
+  readAuthoredSourceCandidate?(id: string): Promise<AuthoredSourceCandidate>;
+  resolveAuthoredSource?(
+    request: AuthoredSourceResolveRequest,
+  ): Promise<AuthoredSourceSaveResponse>;
+  recoverAuthoredSource?(
+    request: AuthoredSourceRecoverRequest,
+  ): Promise<AuthoredSourceStatus>;
+  saveAuthoredSource?(
+    request: AuthoredSourceSaveRequest,
+  ): Promise<AuthoredSourceSaveResponse>;
   readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
   prepareCopy(request: CopyRequest): Promise<PreparedCopy>;
 
@@ -140,7 +181,31 @@ export interface PlatformClient {
 export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
-export interface DesktopBridge {
+export interface DesktopBridge
+  extends ExternalWorkBridge, ProjectTransferBridge, ProjectPackageBridge {
+  inspectProjectFormat?(): Promise<BridgeResult<ProjectFormatInspection>>;
+  readAuthoredSource?(): Promise<BridgeResult<AuthoredSourceSnapshot>>;
+  readAuthoredSourceRecoveryEvidence?(
+    intentHash: string,
+  ): Promise<BridgeResult<AuthoredSourceRecoveryEvidence>>;
+  readAuthoredSourceRecoveryVersion?(
+    intentHash: string,
+    sourceHash: string,
+  ): Promise<BridgeResult<AuthoredSourceRecoveryBytes>>;
+  readAuthoredSourceStatus?(): Promise<BridgeResult<AuthoredSourceStatus>>;
+  rescanAuthoredSource?(): Promise<BridgeResult<AuthoredSourceStatus>>;
+  readAuthoredSourceCandidate?(
+    id: string,
+  ): Promise<BridgeResult<AuthoredSourceCandidate>>;
+  resolveAuthoredSource?(
+    request: AuthoredSourceResolveRequest,
+  ): Promise<BridgeResult<AuthoredSourceSaveResponse>>;
+  recoverAuthoredSource?(
+    request: AuthoredSourceRecoverRequest,
+  ): Promise<BridgeResult<AuthoredSourceStatus>>;
+  saveAuthoredSource?(
+    request: AuthoredSourceSaveRequest,
+  ): Promise<BridgeResult<AuthoredSourceSaveResponse>>;
   readManuscriptIdentity?(): Promise<BridgeResult<ManuscriptIdentity>>;
   readExports(): Promise<BridgeResult<ExportJob[]>>;
   prepareCopy(request: CopyRequest): Promise<BridgeResult<PreparedCopy>>;

@@ -4,13 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./source": "./src/source.ts",
+    "./editor-source": "./src/editor-source.ts",
+    "./migration": "./src/migration.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@scenesparrow/contracts": "workspace:*",
-    "mdast-util-to-markdown": "2.1.2"
+    "mdast-util-from-markdown": "2.0.2",
+    "mdast-util-to-markdown": "2.1.2",
+    "micromark-util-decode-string": "2.0.1"
   }
 }

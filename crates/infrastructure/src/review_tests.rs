@@ -2487,3 +2487,75 @@ fn rename_link_preserves_current_review_consent_and_historical_handled_facts() {
     history(&r, &p, true);
     assert_eq!(SelfThread::get(&r, &active).evidence, before.evidence);
 }
+
+#[test]
+fn migration_preserves_pending_review_acceptance_and_fences_queued_export_without_dispatch() {
+    let (d, r, settings, p) = setup();
+    let thread = note(&r, &p, false, 0);
+    let (count, server) = crate::project_transfer::tests::mock_provider(&settings, proposal());
+    let _task = start(&r, &settings, &p, &thread);
+    let run = r.execute_next_ai(&settings).unwrap().unwrap();
+    server.join().unwrap();
+    r.reconcile_reviews().unwrap();
+    let pending = candidate(&r, &thread);
+    assert_eq!(pending.status, "pending");
+    let export = r
+        .start_export(&ExportRequest {
+            request_id: id(),
+            expected_revision: r.read_manuscript().unwrap().working_revision,
+            expected_body_hash: None,
+            format: ExportRequestFormat::Txt,
+        })
+        .unwrap();
+    assert_eq!(export.status, ExportJobStatus::Queued);
+    let target = crate::project_transfer::tests::convert(d.path(), &d.path().join("project"), &r);
+    let native = SqliteProjectRepository::open(&target).unwrap();
+    assert_eq!(candidate(&native, &thread).id, pending.id);
+    let receipt = native
+        .execute_manuscript(&accept(&native, &p, &[pending]))
+        .unwrap();
+    assert!(receipt.working_revision > 0);
+    assert_eq!(
+        review::text(&native.read_manuscript().unwrap().blocks[0]),
+        "Better 中文 🐦"
+    );
+    assert!(native.next_export().unwrap().is_none());
+    assert!(native.execute_next_ai(&settings).unwrap().is_none());
+    assert_eq!(
+        SqliteProjectRepository::ai_run(&native.connection.lock().unwrap(), &run.run_id)
+            .unwrap()
+            .status,
+        AiRunStatus::Succeeded
+    );
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+#[test]
+fn package_preserves_pending_review_candidate_paid_identity_and_acceptance_without_sdk() {
+    let (d, r, settings, p) = setup();
+    let thread = note(&r, &p, false, 0);
+    let (count, server) = crate::project_transfer::tests::mock_provider(&settings, proposal());
+    start(&r, &settings, &p, &thread);
+    let paid = r.execute_next_ai(&settings).unwrap().unwrap();
+    server.join().unwrap();
+    r.reconcile_reviews().unwrap();
+    let pending = candidate(&r, &thread);
+    let target = crate::project_transfer::tests::convert(d.path(), &d.path().join("project"), &r);
+    let native = SqliteProjectRepository::open(&target).unwrap();
+    let (_copy, restored) = crate::project_transfer::package::tests::roundtrip(&native);
+    assert_eq!(candidate(&restored, &thread).id, pending.id);
+    restored
+        .execute_manuscript(&accept(&restored, &p, &[pending]))
+        .unwrap();
+    assert_eq!(
+        review::text(&restored.read_manuscript().unwrap().blocks[0]),
+        "Better 中文 🐦"
+    );
+    assert!(restored.execute_next_ai(&settings).unwrap().is_none());
+    assert_eq!(
+        SqliteProjectRepository::ai_run(&restored.connection.lock().unwrap(), &paid.run_id)
+            .unwrap()
+            .status,
+        AiRunStatus::Succeeded
+    );
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

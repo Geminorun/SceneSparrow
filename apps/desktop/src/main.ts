@@ -1,3 +1,6 @@
+import { registerNativePackageIpc } from "./native-package-ipc.js";
+import { registerProjectPackageIpc } from "./project-package-ipc.js";
+import { registerProjectTransferIpc } from "./project-transfer-ipc.js";
 import {
   app,
   BrowserWindow,
@@ -8,6 +11,7 @@ import {
   clipboard,
 } from "electron";
 import { registerAiIpc } from "./ai-ipc.js";
+import { registerExternalWorkIpc } from "./external-work-ipc.js";
 import { registerExportIpc } from "./export-ipc.js";
 import { suggestedExportName } from "./export-files.js";
 import type { ProjectResponse } from "@scenesparrow/contracts";
@@ -271,6 +275,16 @@ async function main() {
     ["project:ensure", "/project/ensure"],
     ["project:rename", "/project/rename"],
     ["manuscript:history", "/history"],
+    ["project:format", "/project/format"],
+    ["manuscript:source-read", "/manuscript/source"],
+    ["manuscript:source-evidence", "/manuscript/source/recoveries"],
+    ["manuscript:source-evidence-version", "/manuscript/source/recoveries"],
+    ["manuscript:source-status", "/manuscript/source/status"],
+    ["manuscript:source-rescan", "/manuscript/source/rescan"],
+    ["manuscript:source-candidate", "/manuscript/source/candidates"],
+    ["manuscript:source-resolve", "/manuscript/source/resolve"],
+    ["manuscript:source-recover", "/manuscript/source/recover"],
+    ["manuscript:source-save", "/manuscript/source"],
     ["manuscript:identity", "/manuscript/identity"],
     ["manuscript:read", "/manuscript"],
     ["manuscript:command", "/manuscript/commands"],
@@ -278,7 +292,36 @@ async function main() {
   ] as const) {
     ipcMain.handle(channel, async (event, command: unknown) => {
       checkSender(event);
-      if (channel === "manuscript:receipt") {
+      if (channel === "manuscript:source-evidence") {
+        if (typeof command !== "string" || !/^[0-9a-f]{64}$/.test(command))
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(`${path}/${command}/evidence`);
+      }
+      if (channel === "manuscript:source-evidence-version") {
+        if (
+          !command ||
+          typeof command !== "object" ||
+          Object.keys(command).sort().join(",") !== "intentHash,sourceHash"
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        const { intentHash, sourceHash } = command as {
+          intentHash: unknown;
+          sourceHash: unknown;
+        };
+        if (
+          typeof intentHash !== "string" ||
+          typeof sourceHash !== "string" ||
+          !/^[0-9a-f]{64}$/.test(intentHash) ||
+          !/^[0-9a-f]{64}$/.test(sourceHash)
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(`${path}/${intentHash}/evidence/${sourceHash}`);
+      }
+      if (channel === "manuscript:source-rescan") return request(path, {});
+      if (
+        channel === "manuscript:receipt" ||
+        channel === "manuscript:source-candidate"
+      ) {
         if (typeof command !== "string" || !/^[0-9a-f-]{36}$/.test(command))
           return { ok: false, code: "INVALID_REQUEST" };
         return request(`${path}/${encodeURIComponent(command)}`);
@@ -288,7 +331,10 @@ async function main() {
         channel === "project:create" ||
           channel === "project:ensure" ||
           channel === "project:rename" ||
-          channel === "manuscript:command"
+          channel === "manuscript:command" ||
+          channel === "manuscript:source-save" ||
+          channel === "manuscript:source-resolve" ||
+          channel === "manuscript:source-recover"
           ? command
           : undefined,
       );
@@ -314,6 +360,115 @@ async function main() {
       throw Error("ORIGIN_DENIED");
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
+  const nativePackages = registerNativePackageIpc(ipcMain, {
+    checkSender,
+    session: () => {
+      const capturedCore = core,
+        capturedToken = token,
+        capturedNative = nativeToken;
+      return {
+        core: capturedCore,
+        request: async (path, body, bytes, headers, signal) => {
+          if (core !== capturedCore) throw Error("CAPABILITY_EXPIRED");
+          const response = await fetch(`${baseUrl}${path}`, {
+            method: bytes ? "PUT" : body === undefined ? "GET" : "POST",
+            headers: {
+              Authorization: `Bearer ${capturedToken}`,
+              "x-scenesparrow-native": capturedNative,
+              "content-type": bytes
+                ? "application/octet-stream"
+                : "application/json",
+              ...headers,
+            },
+            ...(bytes
+              ? { body: bytes as BodyInit }
+              : body === undefined
+                ? {}
+                : { body: JSON.stringify(body) }),
+            signal: AbortSignal.any([
+              AbortSignal.timeout(
+                path.endsWith("/save-new") ? 120_000 : 10_000,
+              ),
+              ...(signal ? [signal] : []),
+            ]),
+          });
+          if (core !== capturedCore) throw Error("CAPABILITY_EXPIRED");
+          const data = (await response.json()) as { code?: string };
+          if (!response.ok) throw Error(data.code ?? "CORE_UNAVAILABLE");
+          return data;
+        },
+      };
+    },
+    current: (captured) => captured.core === core && coreIsRunning(core),
+    chooseIntake: async () => {
+      const result = await dialog.showOpenDialog({
+        properties: ["openFile"],
+        filters: [{ name: "Project ZIP", extensions: ["zip"] }],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+    chooseSave: async (filename) => {
+      const result = await dialog.showSaveDialog({
+        defaultPath: filename,
+        filters: [{ name: "Project ZIP", extensions: ["zip"] }],
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+  });
+  registerProjectTransferIpc(ipcMain, { checkSender, request });
+  registerProjectPackageIpc(ipcMain, {
+    checkSender,
+    request,
+    uploadChunk: async (metadata, bytes) => {
+      const owningCore = core;
+      const response = await fetch(
+        `${baseUrl}/project/package-intakes/${metadata.intakeId}/chunks`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-scenesparrow-native": nativeToken,
+            "content-type": "application/octet-stream",
+            "x-scenesparrow-owner-project-id": metadata.ownerProjectId,
+            "x-scenesparrow-chunk-offset": String(metadata.offset),
+            "x-scenesparrow-chunk-length": String(metadata.length),
+            "x-scenesparrow-chunk-sha256": metadata.hash,
+          },
+          body: bytes as BodyInit,
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (core !== owningCore) return { ok: false, code: "CAPABILITY_EXPIRED" };
+      const data = (await response.json()) as {
+        code?: string;
+        details?: unknown;
+      };
+      return response.ok
+        ? { ok: true, data }
+        : {
+            ok: false,
+            code: data.code ?? "SERVICE_UNAVAILABLE",
+            details: data.details,
+          };
+    },
+  });
+
+  const externalWork = registerExternalWorkIpc(ipcMain, {
+    checkSender,
+    session: () => ({ core, baseUrl, token }),
+    request,
+    reveal: async (path) => {
+      const error = await shell.openPath(path);
+      if (error) throw Error("DOWNLOAD_UNAVAILABLE");
+    },
+    chooseFile: async () => {
+      const result = await dialog.showSaveDialog({
+        defaultPath: "creative-member.bin",
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+    fetch,
+  });
   const exports = registerExportIpc(ipcMain, {
     checkSender,
     request,
@@ -672,7 +827,9 @@ async function main() {
         try {
           for (const selection of fileSelections.values())
             selection.abort.abort();
+          await nativePackages.settle();
           await referenceDirectories.abortAndSettle();
+          externalWork.cancel();
           await exports.settled();
           if (coreIsRunning(core)) {
             const result = await request("/project/quiesce", {});
@@ -688,6 +845,7 @@ async function main() {
               candidate = nextProject;
             nextProject = null;
             exports.clear();
+            nativePackages.clear();
             try {
               const result = await activateProject(previous, candidate, {
                 stop: stopCore,

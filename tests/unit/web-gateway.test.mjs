@@ -21,6 +21,15 @@ test("production gateway authenticates all content, enforces origin, strips secr
   const core = createServer((req, res) => {
     received = req.headers;
     receivedPath = req.url;
+    if (req.url.startsWith("/v1/project/packages/archives/")) {
+      res.writeHead(200, {
+        "content-type": "application/zip",
+        "content-length": 33 * 1024 * 1024,
+        "x-scenesparrow-content-sha256": "a".repeat(64),
+      });
+      res.end("fixture");
+      return;
+    }
     if (req.url === "/v1/oversized") {
       res.writeHead(200, { "content-length": 33 * 1024 * 1024 });
       res.end("oversized");
@@ -62,7 +71,10 @@ test("production gateway authenticates all content, enforces origin, strips secr
     });
     gateway.server.listen(0, "127.0.0.1");
     await once(gateway.server, "listening");
-    const send = (path, { method = "GET", headers = {}, body } = {}) =>
+    const send = (
+      path,
+      { method = "GET", headers = {}, body, headersOnly = false } = {},
+    ) =>
       new Promise((resolve, reject) => {
         const req = request(
           {
@@ -77,6 +89,12 @@ test("production gateway authenticates all content, enforces origin, strips secr
             },
           },
           (res) => {
+            if (headersOnly) {
+              resolve({ status: res.statusCode, headers: res.headers });
+              res.on("error", () => {});
+              res.destroy();
+              return;
+            }
             const chunks = [];
             res.on("data", (chunk) => chunks.push(chunk));
             res.on("end", () =>
@@ -132,6 +150,8 @@ test("production gateway authenticates all content, enforces origin, strips secr
     ])
       assert.equal((await send(path)).status, 400);
     for (const path of [
+      "/api/v1/native/project/packages/11111111-1111-4111-8111-111111111111/save-new",
+      "/api/v1/native/anything",
       "/api/v1/project/quiesce",
       "/api/v1/project/backup",
       "/api/v1/manuscript/deliveries/test",
@@ -191,6 +211,53 @@ test("production gateway authenticates all content, enforces origin, strips secr
     }
 
     assert.equal((await send("/api/v1/oversized")).status, 502);
+    const packageId = "11111111-1111-4111-8111-111111111111";
+    const archive = await send(
+      `/api/v1/project/packages/archives/${packageId}`,
+      { headersOnly: true },
+    );
+    assert.equal(archive.status, 200);
+    assert.equal(archive.headers["content-length"], String(33 * 1024 * 1024));
+    assert.equal(
+      archive.headers["x-scenesparrow-content-sha256"],
+      "a".repeat(64),
+    );
+    const chunkHeaders = {
+      origin,
+      "content-type": "application/octet-stream",
+      "content-length": "3",
+      "x-scenesparrow-owner-project-id": packageId,
+      "x-scenesparrow-chunk-offset": "0",
+      "x-scenesparrow-chunk-length": "3",
+      "x-scenesparrow-chunk-sha256": "b".repeat(64),
+      "x-scenesparrow-native": "secret",
+    };
+    assert.equal(
+      (
+        await send(`/api/v1/project/package-intakes/${packageId}/chunks`, {
+          method: "PUT",
+          headers: chunkHeaders,
+          body: "abc",
+        })
+      ).status,
+      200,
+    );
+    assert.equal(received["content-length"], "3");
+    assert.equal(received["x-scenesparrow-chunk-sha256"], "b".repeat(64));
+    assert.equal(received["x-scenesparrow-native"], undefined);
+    assert.equal(
+      (
+        await send(`/api/v1/project/package-intakes/${packageId}/chunks`, {
+          method: "PUT",
+          headers: {
+            ...chunkHeaders,
+            "content-length": String(1024 * 1024 + 1),
+          },
+        })
+      ).status,
+      413,
+    );
+
     assert.equal(
       (
         await send("/api/v1/project", {

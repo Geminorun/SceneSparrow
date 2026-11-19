@@ -27,6 +27,14 @@ struct AppState {
     document_slots: Arc<Semaphore>,
     ai: Arc<ai::AiState>,
     native_authorization: Option<String>,
+    transfers: Arc<
+        std::sync::OnceLock<
+            Result<
+                Arc<scenesparrow_infrastructure::project_transfer::ProjectTransferStore>,
+                &'static str,
+            >,
+        >,
+    >,
 }
 
 async fn database<T: serde::Serialize + Send + 'static>(
@@ -58,6 +66,7 @@ pub fn router(repository: SqliteProjectRepository, token: &str, allowed_origin: 
         document_slots: Arc::new(Semaphore::new(1)),
         ai: Arc::new(ai::AiState::default()),
         native_authorization: std::env::var("SCENESPARROW_NATIVE_TOKEN").ok(),
+        transfers: Arc::new(std::sync::OnceLock::new()),
     };
     jobs::start(&state);
     state_router(state)
@@ -130,10 +139,11 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
     {
         return api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED");
     }
-    let native = request
-        .uri()
-        .path()
-        .starts_with("/v1/manuscript/deliveries")
+    let native = request.uri().path().starts_with("/v1/native/")
+        || request
+            .uri()
+            .path()
+            .starts_with("/v1/manuscript/deliveries")
         || request.uri().path().starts_with("/v1/project/quiesce")
         || request.uri().path().starts_with("/v1/project/resume")
         || request.uri().path().starts_with("/v1/project/backup");
@@ -294,6 +304,7 @@ mod tests {
             document_slots: Arc::new(Semaphore::new(1)),
             ai: Arc::new(ai::AiState::default()),
             native_authorization: None,
+            transfers: Arc::new(std::sync::OnceLock::new()),
         };
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();

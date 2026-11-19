@@ -89,13 +89,17 @@ export function Exports({
       .join("");
   useEffect(() => {
     let live = true;
-    void hashToken(currentToken).then((hash) => {
+    void (
+      save.source && client.readManuscriptIdentity
+        ? client.readManuscriptIdentity().then((identity) => identity.bodyHash)
+        : hashToken(currentToken)
+    ).then((hash) => {
       if (live) setCurrentBodyHash(hash);
     });
     return () => {
       live = false;
     };
-  }, [currentToken]);
+  }, [currentToken, save.source?.acceptedHash, client]);
   const delivery = useRef<{ id: string; job: string } | null>(null);
   const localMessage = (code: string) =>
     code === "NO_MANUSCRIPT_CONTENT"
@@ -244,74 +248,82 @@ export function Exports({
     setBusy(true);
     setMessage("");
     try {
-      if (!pending.current) {
-        if (
-          !(await save.prepareInput()) ||
-          !active.current ||
-          save.composing ||
-          save.status !== "saved" ||
-          save.hasUnresolvedBusiness
-        )
-          throw new Error("exportFailed");
-        const identity = save.exportInputIdentity;
-        const token = `canonical-1|${save.state.manuscriptId}|${save.state.schemaVersion}|${save.state.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
-        const expectedBodyHash = await hashToken(token);
-        const base = {
-          requestId: crypto.randomUUID(),
-          expectedRevision: save.state.workingRevision,
-          expectedBodyHash,
-        };
-        // No await between the visible-input fence and capture dispatch.
-        if (
-          identity !== save.exportInputIdentity ||
-          save.composing ||
-          save.status !== "saved"
-        )
-          throw new Error("REVISION_CONFLICT");
-        pending.current = copy
-          ? { request: base, copy: true }
-          : recapture
-            ? {
-                request: {
-                  ...base,
-                  attempt: recapture.attempt,
-                  mode: "recapture",
-                },
-                copy: false,
-                source: { id: recapture.id, attempt: recapture.attempt },
+      const settled = await save.capturedAction(
+        "manuscript-export",
+        async () => {
+          if (!pending.current) {
+            if (!active.current || save.hasUnresolvedBusiness)
+              throw new Error("exportFailed");
+            const intendedRevision = save.state.workingRevision;
+            const token = `canonical-1|${save.state.manuscriptId}|${save.state.schemaVersion}|${save.state.blocks.map((b) => `${b.id}:${b.revision}`).join("|")}`;
+            const identity =
+              save.source && client.readManuscriptIdentity
+                ? await client.readManuscriptIdentity()
+                : null;
+            if (identity && identity.workingRevision !== intendedRevision)
+              throw new Error("REVISION_CONFLICT");
+            const expectedBodyHash =
+              identity?.bodyHash ?? (await hashToken(token));
+            const base = {
+              requestId: crypto.randomUUID(),
+              expectedRevision: intendedRevision,
+              expectedBodyHash,
+            };
+            pending.current = copy
+              ? {
+                  request: {
+                    ...base,
+                    ...(save.source ? { format: "md" as const } : {}),
+                  },
+                  copy: true,
+                }
+              : recapture
+                ? {
+                    request: {
+                      ...base,
+                      attempt: recapture.attempt,
+                      mode: "recapture",
+                    },
+                    copy: false,
+                    source: { id: recapture.id, attempt: recapture.attempt },
+                  }
+                : { request: { ...base, format }, copy: false };
+          }
+          const intent = pending.current;
+          if (intent.copy !== copy) setMessage("exportResolvedEarlier");
+          try {
+            if (intent.copy) {
+              const result = await client.prepareCopy(intent.request);
+              if (active.current) {
+                pending.current = null;
+                setPrepared(result);
+                if (copy) await clipboard(result.text, result);
               }
-            : { request: { ...base, format }, copy: false };
-      }
-      const intent = pending.current;
-      if (intent.copy !== copy) setMessage("exportResolvedEarlier");
-      try {
-        if (intent.copy) {
-          const result = await client.prepareCopy(intent.request);
-          if (active.current) {
-            pending.current = null;
-            setPrepared(result);
-            if (copy) await clipboard(result.text, result);
+            } else {
+              const next =
+                "source" in intent
+                  ? await client.retryExport(intent.source.id, intent.request)
+                  : await client.startExport(intent.request);
+              if (active.current) {
+                pending.current = null;
+                setJob(next);
+                delivery.current = null;
+              }
+            }
+          } catch (error) {
+            if (
+              error instanceof ApiError &&
+              error.code !== "STORAGE_UNAVAILABLE" &&
+              error.code !== "COMMAND_UNRESOLVED"
+            )
+              pending.current = null;
+            throw error;
           }
-        } else {
-          const next =
-            "source" in intent
-              ? await client.retryExport(intent.source.id, intent.request)
-              : await client.startExport(intent.request);
-          if (active.current) {
-            pending.current = null;
-            setJob(next);
-            delivery.current = null;
-          }
-        }
-      } catch (error) {
-        if (
-          error instanceof ApiError &&
-          error.code !== "STORAGE_UNAVAILABLE" &&
-          error.code !== "COMMAND_UNRESOLVED"
-        )
-          pending.current = null;
-        throw error;
-      }
+          return true;
+        },
+        !pending.current,
+      );
+      if (!settled) throw new Error("exportFailed");
     } catch (e) {
       reportFailure(e);
       if (active.current)

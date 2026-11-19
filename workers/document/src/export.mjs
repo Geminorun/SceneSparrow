@@ -148,6 +148,15 @@ export async function word(snapshot) {
   );
 }
 export async function serialize(snapshot, format) {
+  if (snapshot?.version === 2) {
+    if (
+      format !== "md" ||
+      typeof snapshot.source !== "string" ||
+      typeof snapshot.cleanMarkdown !== "string"
+    )
+      fail();
+    return Buffer.from(snapshot.cleanMarkdown);
+  }
   if (format === "txt") return Buffer.from(plain(snapshot));
   if (format === "md") return Buffer.from(markdown(snapshot));
   if (format === "docx") return word(snapshot);

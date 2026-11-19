@@ -5,6 +5,7 @@ export class CompositionActions {
   private blurTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private pending = new Map<string, { run: () => void; cancel: () => void }>();
   private running = new Map<string, Promise<unknown>>();
+  private captured = new Set<object>();
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
   contextVersion = 0;
@@ -42,10 +43,55 @@ export class CompositionActions {
       }, 0),
     );
   }
+  runCaptured<I, T>(
+    key: string,
+    capture: () => I,
+    action: (input: I) => T | Promise<T>,
+    valid = () => true,
+    release: (input: I) => void = () => {},
+  ): Promise<T | false> {
+    const existing = this.running.get(key);
+    if (existing) return existing as Promise<T | false>;
+    if (this.disposed) return Promise.resolve(false);
+    if (this.pending.size >= 8 || this.captured.size >= 8)
+      return Promise.reject(new Error("CAPTURE_BUSY"));
+    // Ordinary clicks capture synchronously. An IME intent captures only after
+    // compositionend's final input commit, through the same bounded owner.
+    let input: { value: I } | undefined;
+    try {
+      input = this.composing ? undefined : { value: capture() };
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    let released = false;
+    const releaseInput = () => {
+      if (!input || released) return;
+      released = true;
+      release(input.value);
+    };
+    const admission = {};
+    this.captured.add(admission);
+    return this.run(
+      key,
+      () => {
+        input ??= { value: capture() };
+        return action(input.value);
+      },
+      valid,
+      true,
+      releaseInput,
+    ).finally(() => {
+      // Admission covers the complete action promise, including cancellation.
+      this.captured.delete(admission);
+      releaseInput();
+    });
+  }
   run<T>(
     key: string,
     action: () => T | Promise<T>,
     valid = () => true,
+    waitForComposition = true,
+    onCancel: () => void = () => {},
   ): Promise<T | false> {
     if (this.disposed) return Promise.resolve(false);
     const existing = this.running.get(key);
@@ -53,16 +99,27 @@ export class CompositionActions {
     if (this.pending.size >= 8) return Promise.resolve(false);
     let cancelled = false;
     const promise = new Promise<T | false>((resolve, reject) => {
+      let revoked = false;
+      const revoke = () => {
+        if (revoked) return;
+        revoked = true;
+        try {
+          onCancel();
+          resolve(false);
+        } catch (error) {
+          reject(error);
+        }
+      };
       const intent = {
         run: () => {
           void Promise.resolve().then(() => {
             // Other delivered actions can navigate/unmount before this microtask.
             if (cancelled || this.disposed || !valid()) {
               if (this.pending.get(key) === intent) this.pending.delete(key);
-              resolve(false);
+              revoke();
               return;
             }
-            if (this.composing) return;
+            if (waitForComposition && this.composing) return;
             this.pending.delete(key);
             try {
               Promise.resolve(action()).then(resolve, reject);
@@ -73,11 +130,11 @@ export class CompositionActions {
         },
         cancel: () => {
           cancelled = true;
-          resolve(false);
+          revoke();
         },
       };
       this.pending.set(key, intent);
-      if (!this.composing) intent.run();
+      if (!waitForComposition || !this.composing) intent.run();
     }).finally(() => {
       if (this.running.get(key) === promise) this.running.delete(key);
     });

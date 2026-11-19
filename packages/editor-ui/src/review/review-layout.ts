@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import type { Editor } from "@tiptap/core";
+import type { ManuscriptSurface } from "../manuscript/surface";
 import type { ReviewCard } from "@scenesparrow/contracts";
 /** Geometry reads are bounded by the loaded review page; no document conversion
  * or thread serialization runs for typing/scroll decoration placement. */
 export function useReviewLayout(
-  editor: Editor | null,
+  editor: ManuscriptSurface | null,
   cards: ReviewCard[],
   visible = true,
 ) {
@@ -29,11 +29,11 @@ export function useReviewLayout(
       const origin = list.current.getBoundingClientRect().top;
       for (const card of cards) {
         const blockId = card.thread.anchor.ranges[0]?.blockId,
-          target = blockId
-            ? editor.view.dom.querySelector(`[data-blockid="${blockId}"]`)
-            : null;
-        if (!target) continue;
-        const box = target.getBoundingClientRect();
+          box = blockId ? editor.blockRect(blockId) : null;
+        if (!box) {
+          if (blockId) offscreen.push(card.thread.id);
+          continue;
+        }
         if (box.bottom < 0 || box.top > window.innerHeight)
           offscreen.push(card.thread.id);
         const article = list.current.querySelector(
@@ -59,16 +59,16 @@ export function useReviewLayout(
     };
     schedule();
     const observer = new ResizeObserver(schedule);
-    observer.observe(editor.view.dom);
+    observer.observe(editor.dom);
     if (list.current) observer.observe(list.current);
-    editor.on("update", schedule);
+    const unsubscribe = editor.subscribe("content", schedule);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
     return () => {
       active = false;
       cancelAnimationFrame(frame);
       observer.disconnect();
-      editor.off("update", schedule);
+      unsubscribe();
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
     };

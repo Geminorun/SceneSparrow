@@ -1,4 +1,9 @@
+import type * as Work from "@scenesparrow/contracts";
+import { workPath, pageQuery } from "./external-work";
 import type {
+  AuthoredSourceSaveRequest,
+  AuthoredSourceResolveRequest,
+  AuthoredSourceRecoverRequest,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -33,6 +38,28 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | Work.ProjectPackageExportRequest
+      | Work.WorkCopyPackageExportRequest
+      | Work.PackageControlRequest
+      | Work.PackageIntakeRequest
+      | Work.PackageIntakeControlRequest
+      | Work.PackageInspectionRequest
+      | Work.PackageRestoreTargetRequest
+      | Work.PackageRestoreRequest
+      | Work.PackageReturnRequest
+      | Work.MigrationTargetRequest
+      | Work.LegacyMigrationRequest
+      | Work.MigrationControlRequest
+      | Work.GraphRegisterRequest
+      | Work.WorkItemCreateRequest
+      | Work.WorkItemInspectRequest
+      | Work.WorkCandidateAcceptRequest
+      | Work.WorkItemDiscardRequest
+      | Work.WorkItemControlRequest
+      | Work.ProductionFileLockRequest
+      | AuthoredSourceSaveRequest
+      | AuthoredSourceResolveRequest
+      | AuthoredSourceRecoverRequest
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -109,7 +136,176 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       }
     };
   };
+  const downloadMember = async (path: string) => {
+    const link = document.createElement("a");
+    link.href = `${baseUrl}${path}`;
+    link.download = "creative-member.bin";
+    link.rel = "noopener";
+    link.click();
+    return true;
+  };
   return {
+    readPackageBase: () => request("/v1/project/packages/base"),
+    startProjectPackageExport: (body) =>
+      request("/v1/project/packages/exports", body),
+    startWorkCopyPackageExport: (body) =>
+      request(
+        `/v1/project/work-items/${encodeURIComponent(body.workItemId)}/package`,
+        body,
+      ),
+    readPackageOperation: (id) =>
+      request(`/v1/project/packages/operations/${encodeURIComponent(id)}`),
+    controlPackageOperation: (body) =>
+      request(
+        `/v1/project/packages/operations/${encodeURIComponent(body.operationId)}/control`,
+        body,
+      ),
+    createPackageIntake: (body) => request("/v1/project/package-intakes", body),
+    readPackageIntake: (id) =>
+      request(`/v1/project/package-intakes/${encodeURIComponent(id)}`),
+    uploadPackageChunk: async (body, bytes) => {
+      if (bytes.byteLength !== body.length || bytes.byteLength > 1024 * 1024)
+        throw new ApiError("INVALID_REQUEST");
+      const response = await fetchResponse(
+        `${baseUrl}/v1/project/package-intakes/${encodeURIComponent(body.intakeId)}/chunks`,
+        {
+          method: "PUT",
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-scenesparrow-owner-project-id": body.ownerProjectId,
+            "x-scenesparrow-chunk-offset": String(body.offset),
+            "x-scenesparrow-chunk-length": String(body.length),
+            "x-scenesparrow-chunk-sha256": body.hash,
+          },
+          body: bytes as BodyInit,
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      return decodeJson<Work.PackageChunkAck>(response, "PUT");
+    },
+    controlPackageIntake: (body) =>
+      request(
+        `/v1/project/package-intakes/${encodeURIComponent(body.intakeId)}/control`,
+        body,
+      ),
+    inspectPackage: (body) => request("/v1/project/packages/inspections", body),
+    readPackageInspection: (id) =>
+      request(`/v1/project/packages/inspections/${encodeURIComponent(id)}`),
+    issuePackageRestoreTarget: (body) =>
+      request("/v1/project/packages/restore-targets", body),
+    restorePackage: (body) => request("/v1/project/packages/restores", body),
+    returnPackage: (body) => request("/v1/project/packages/returns", body),
+    downloadPackageArchive: async (archive) => {
+      const url = new URL(
+        `${baseUrl}/v1/project/packages/archives/${encodeURIComponent(archive.archiveId)}`,
+        window.location.href,
+      );
+      if (url.origin !== window.location.origin)
+        throw new ApiError("ORIGIN_DENIED");
+      // Preflight the actual authorized stream and cancel without aggregation.
+      const response = await fetchResponse(url.href, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) await decodeJson(response, "GET");
+      const valid =
+        response.headers.get("content-type") === "application/zip" &&
+        response.headers.get("content-length") === String(archive.size) &&
+        response.headers.get("x-scenesparrow-content-sha256") ===
+          archive.hash &&
+        response.headers.get("content-disposition")?.startsWith("attachment;");
+      await response.body?.cancel();
+      if (!valid) throw new ApiError("PACKAGE_ARCHIVE_INVALID");
+      const anchor = document.createElement("a");
+      anchor.href = url.href;
+      anchor.download = archive.filename;
+      anchor.rel = "noopener";
+      anchor.click();
+      return true;
+    },
+    openPackageArchive: async (id) => {
+      const response = await fetchResponse(
+        `${baseUrl}/v1/project/packages/archives/${encodeURIComponent(id)}`,
+        {},
+      );
+      if (!response.ok) await decodeJson(response, "GET");
+      return response;
+    },
+    inspectLegacyMigration: () => request("/v1/project/migration"),
+    issueMigrationTarget: (body: Work.MigrationTargetRequest) =>
+      request("/v1/project/migration-targets", body),
+    startLegacyMigration: (body: Work.LegacyMigrationRequest) =>
+      request("/v1/project/migrations", body),
+    readMigrationOperation: (id: string) =>
+      request(`/v1/project/migrations/${encodeURIComponent(id)}`),
+    controlMigration: (body: Work.MigrationControlRequest) =>
+      request(
+        `/v1/project/migrations/${encodeURIComponent(body.operationId)}/control`,
+        body,
+      ),
+    readFileGraph: () => request("/v1/project/file-graph"),
+    readGraphFiles: (cursor) =>
+      request(`/v1/project/file-graph/files${pageQuery(cursor)}`),
+    registerFileGraph: (body) =>
+      request("/v1/project/file-graph/register", body),
+    createWorkItem: (body) => request("/v1/project/work-items", body),
+    readWorkItems: (cursor) =>
+      request(`/v1/project/work-items${pageQuery(cursor)}`),
+    readWorkItem: (item) => request(workPath(item)),
+    inspectWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/inspect`, body),
+    acceptWorkCandidate: (body) =>
+      request(`${workPath(body.workItemId)}/accept`, body),
+    discardWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/discard`, body),
+    controlWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/control`, body),
+    readWorkOperation: (id) =>
+      request(`/v1/project/work-operations/${encodeURIComponent(id)}`),
+    readWorkCandidate: (item, candidate) =>
+      request(`${workPath(item)}/candidates/${encodeURIComponent(candidate)}`),
+    readWorkChanges: (item, candidate, cursor) =>
+      request(
+        `${workPath(item)}/candidates/${encodeURIComponent(candidate)}/changes${pageQuery(cursor)}`,
+      ),
+    readProductionFileLocks: (cursor) =>
+      request(`/v1/project/file-locks${pageQuery(cursor)}`),
+    setProductionFileLocks: (body) => request("/v1/project/file-locks", body),
+    inspectGraphRecovery: (intent) =>
+      request(`/v1/project/file-recoveries/${encodeURIComponent(intent)}`),
+    readGraphRecoveries: (cursor) =>
+      request(`/v1/project/file-recoveries${pageQuery(cursor)}`),
+    readGraphRecoveryMembers: (intent, cursor) =>
+      request(
+        `/v1/project/file-recoveries/${encodeURIComponent(intent)}/members${pageQuery(cursor)}`,
+      ),
+    downloadWorkCandidateMember: (item, candidate, member, role) =>
+      downloadMember(
+        `${workPath(item)}/candidates/${encodeURIComponent(candidate)}/members/${encodeURIComponent(member)}/${role}/bytes`,
+      ),
+    downloadGraphRecoveryMember: (intent, member) =>
+      downloadMember(
+        `/v1/project/file-recoveries/${encodeURIComponent(intent)}/members/${encodeURIComponent(member)}/bytes`,
+      ),
+    inspectProjectFormat: () => request("/v1/project/format"),
+    readAuthoredSource: () => request("/v1/manuscript/source"),
+    readAuthoredSourceRecoveryEvidence: (intent) =>
+      request(
+        `/v1/manuscript/source/recoveries/${encodeURIComponent(intent)}/evidence`,
+      ),
+    readAuthoredSourceRecoveryVersion: (intent, source) =>
+      request(
+        `/v1/manuscript/source/recoveries/${encodeURIComponent(intent)}/evidence/${encodeURIComponent(source)}`,
+      ),
+    readAuthoredSourceStatus: () => request("/v1/manuscript/source/status"),
+    rescanAuthoredSource: () =>
+      request("/v1/manuscript/source/rescan", undefined, "POST"),
+    readAuthoredSourceCandidate: (id) =>
+      request(`/v1/manuscript/source/candidates/${encodeURIComponent(id)}`),
+    resolveAuthoredSource: (body) =>
+      request("/v1/manuscript/source/resolve", body),
+    recoverAuthoredSource: (body) =>
+      request("/v1/manuscript/source/recover", body),
+    saveAuthoredSource: (body) => request("/v1/manuscript/source", body),
     readManuscriptIdentity: () => request("/v1/manuscript/identity"),
     prepareCopy: (body) => request("/v1/manuscript/copies", body),
     readExports: () => request("/v1/manuscript/exports"),

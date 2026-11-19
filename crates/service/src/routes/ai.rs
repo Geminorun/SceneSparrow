@@ -303,6 +303,7 @@ mod tests {
             document_slots: Arc::new(Semaphore::new(1)),
             ai: Arc::new(ai),
             native_authorization: None,
+            transfers: Arc::new(std::sync::OnceLock::new()),
         };
         let app = crate::state_router(state);
         let file = std::fs::File::options()
