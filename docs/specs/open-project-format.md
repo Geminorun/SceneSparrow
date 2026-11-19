@@ -193,6 +193,14 @@ External management-file changes are rejected as updates to the source project's
 state. Candidate workspaces receive only the required inputs and reference
 context. A working copy, lock instruction or separate process is not OS isolation.
 
+Ordinary app source/name operations validate their exact affected physical members
+while keeping unchanged accepted graph objects; they must not hash the entire
+media tree on each text autosave. Unrelated live media remains a pending external
+change, without becoming accepted or being overwritten. Full external graph
+inspection/acceptance explicitly verifies its complete inventory. Journal recovery
+uses the recorded physical scope. A document-save acknowledgment describes that
+document, and fixed saved packages/backups use accepted immutable graph members.
+
 ## 6. Media interoperability boundary
 
 Audio plans use stable segment IDs, source block/version references, project-relative

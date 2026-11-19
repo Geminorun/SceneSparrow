@@ -62,7 +62,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–012 are
+  open; do not claim full stage acceptance. Applied migrations 001–013 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
@@ -139,6 +139,9 @@
   uncertain DTO identity and stage checkpoint mappings atomically. Missing-ID proof
   must batch against captured syntax, not reparse the whole document per ID.
   See `docs/validation/open-project-op3b.md` for tested behavior and refusal limits.
+- Every new durable business rejection must round-trip through original command
+  receipt lookup and exact replay with the same code. Testing only the first HTTP
+  error misses persisted outcome decoders and can strand an uncertain request.
 - Future production impact and text impact have different locks. A locked text
   baseline must remain usable to create audio/video while its source stays intact.
   Unknown shared code/dependency effects expand production scope; they do not grant

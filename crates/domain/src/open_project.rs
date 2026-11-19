@@ -23,7 +23,7 @@ pub enum ManifestInspection {
     Supported(OpenProjectManifest),
     FutureReadOnly { format_version: i64, raw: Value },
 }
-fn portable_key(path: &str) -> String {
+pub fn portable_key(path: &str) -> String {
     path.nfc()
         .collect::<String>()
         .to_uppercase()

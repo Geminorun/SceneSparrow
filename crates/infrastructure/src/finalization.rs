@@ -339,6 +339,7 @@ impl SqliteProjectRepository {
         let fence = uuid::Uuid::new_v4().to_string();
         let tx = db(c.transaction())?;
         db(tx.execute("INSERT INTO downstream_inputs(id,baseline_id,manifest_hash,status,fence,expires_ms,scope_json) VALUES(?1,?2,?3,'using',?4,?5,?6)",params![id,baseline,h,fence,clock_ms()+60_000,db(serde_json::to_string(block_ids))?]))?;
+        db(tx.execute("INSERT OR IGNORE INTO file_graph_pins SELECT ?1,graph_hash,'downstream' FROM accepted_file_graph WHERE singleton=1",[format!("downstream:{id}")]))?;
         for (block, position, revision, hash) in deps {
             db(tx.execute(
                 "INSERT INTO downstream_dependencies VALUES(?1,?2,?3,?4,?5)",

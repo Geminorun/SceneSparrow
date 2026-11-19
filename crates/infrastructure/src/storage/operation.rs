@@ -9,7 +9,9 @@ use std::{
 struct Stamp {
     length: u64,
     modified: Option<SystemTime>,
-    identity: file_id::FileId,
+    identity: String,
+    #[cfg(unix)]
+    change_time: (i64, i64),
 }
 struct Entry {
     stamp: Stamp,
@@ -61,15 +63,28 @@ impl Drop for Operation {
 }
 /// Reuse verified bytes only while their file identity/size/time still match in this
 /// operation. Missing/replaced/corrupt bytes are never reconstructed from a cache.
-pub(crate) fn read(path: &Path, digest: &str) -> std::io::Result<Vec<u8>> {
-    let metadata = std::fs::symlink_metadata(path)?;
+pub(crate) fn read(path: &Path, digest: &str, mut file: std::fs::File) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let metadata = file.metadata()?;
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        format!("{}:{}", metadata.dev(), metadata.ino())
+    };
+    #[cfg(not(unix))]
+    let identity = format!("{:?}", file_id::get_file_id(path)?);
     if !metadata.is_file() {
         return Err(std::io::Error::other("immutable object unavailable"));
     }
     let stamp = Stamp {
         length: metadata.len(),
         modified: metadata.modified().ok(),
-        identity: file_id::get_file_id(path)?,
+        identity,
+        #[cfg(unix)]
+        change_time: {
+            use std::os::unix::fs::MetadataExt;
+            (metadata.ctime(), metadata.ctime_nsec())
+        },
     };
     VERIFIED.with(|v| {
         let mut state = v.borrow_mut();
@@ -80,7 +95,19 @@ pub(crate) fn read(path: &Path, digest: &str) -> std::io::Result<Vec<u8>> {
             metrics.cache_hits += 1;
             return Ok(previous.bytes.clone());
         }
-        let bytes = std::fs::read(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let after = file.metadata()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if after.ctime() != metadata.ctime() || after.ctime_nsec() != metadata.ctime_nsec() {
+                return Err(std::io::Error::other("immutable object changed"));
+            }
+        }
+        if after.len() != metadata.len() || after.modified().ok() != metadata.modified().ok() {
+            return Err(std::io::Error::other("immutable object changed"));
+        }
         if let Some(metrics) = state.as_mut() {
             metrics.read_bytes += bytes.len() as u64;
             metrics.hash_bytes += bytes.len() as u64;

@@ -17,6 +17,18 @@ impl SqliteProjectRepository {
             return Err(fail("SOURCE_PROJECT_MISMATCH"));
         }
         let recovery_digest = hash(&db(serde_json::to_vec(r))?);
+        let graph_previous:Option<String>=db(c.query_row("SELECT recovery_digest FROM graph_recovery_decisions WHERE intent_hash=?1 AND request_id=?2",params![r.intent_hash,r.request_id],|row|row.get(0)).optional())?;
+        if let Some(previous) = graph_previous {
+            if previous != recovery_digest {
+                return Err(fail("SOURCE_RECOVERY_STALE"));
+            }
+            if let Some(bytes) = self.read_intent_bytes()?
+                && hash(&bytes) == r.intent_hash
+            {
+                self.recover_source_intents_locked(&c)?;
+            }
+            return self.source_status_locked(&c);
+        }
         let previous:Option<String>=db(c.query_row("SELECT recovery_digest FROM source_recovery_decisions WHERE intent_hash=?1 AND request_id=?2",params![r.intent_hash,r.request_id],|row|row.get(0)).optional())?;
         if let Some(previous) = previous {
             if previous != recovery_digest {
@@ -25,7 +37,7 @@ impl SqliteProjectRepository {
             // A replay of an older recovery must never settle a newer pending
             // operation merely because it currently owns the same journal path.
             let pending = Parent::open(&self.directory, "source-intent.json")?;
-            if let Some((bytes, _)) = pending.read(&pending.name, false)?
+            if let Some((bytes, _)) = pending.read_limit(&pending.name, false, 16 * 1024 * 1024)?
                 && hash(&bytes) == r.intent_hash
             {
                 self.recover_source_intents_locked(&c)?;
@@ -34,12 +46,18 @@ impl SqliteProjectRepository {
         }
         let parent = Parent::open(&self.directory, "source-intent.json")?;
         let bytes = parent
-            .read(&parent.name, false)?
+            .read_limit(&parent.name, false, 16 * 1024 * 1024)?
             .ok_or(fail("SOURCE_RECOVERY_STALE"))?
             .0;
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
         if hash(&bytes) != r.intent_hash || intent.request_id != r.request_id {
             return Err(fail("SOURCE_RECOVERY_STALE"));
+        }
+        if intent.version == 3
+            && r.disposition == Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal)
+        {
+            self.preserve_graph_recovery(&mut c, r, &intent, &bytes, &recovery_digest)?;
+            return self.source_status_locked(&c);
         }
         if r.disposition == Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal) {
             self.preserve_external_recovery(&mut c, r, &intent, &bytes, &recovery_digest)?;
@@ -292,7 +310,7 @@ impl SqliteProjectRepository {
         }
         let parent = Parent::open(&self.directory, "source-intent.json")?;
         let bytes = parent
-            .read(&parent.name, false)?
+            .read_limit(&parent.name, false, 16 * 1024 * 1024)?
             .ok_or(fail("OBJECT_NOT_FOUND"))?
             .0;
         if hash(&bytes) != intent_hash {
@@ -301,6 +319,9 @@ impl SqliteProjectRepository {
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
         if intent.project_id != project_id {
             return Err(fail("OBJECT_NOT_FOUND"));
+        }
+        if intent.version == 3 {
+            return Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"));
         }
         Ok((project_id, known_recovery_versions(&intent)))
     }

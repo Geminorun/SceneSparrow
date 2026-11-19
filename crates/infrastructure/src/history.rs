@@ -14,6 +14,7 @@ struct Entry {
     affected: BTreeSet<String>,
     label: String,
     group: Option<String>,
+    graph: Option<(String, String)>,
 }
 pub(super) struct Plan {
     pub metadata: HistoryState,
@@ -56,7 +57,7 @@ impl SqliteProjectRepository {
             if previous.as_ref().is_some_and(|p| p != &before) {
                 return Err(ManuscriptError("STORAGE_UNAVAILABLE", None));
             }
-            for digest in [&before, &after] {
+            for (side, digest) in [&before, &after].into_iter().enumerate() {
                 let snapshot = self.read_business(digest)?;
                 let mut check = state.clone();
                 check.workspace_stage = snapshot.workspace_stage.clone();
@@ -73,7 +74,7 @@ impl SqliteProjectRepository {
                     .collect();
                 manuscript::normalize(&mut check)
                     .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
-                if snapshots.is_empty() || digest == &after {
+                if snapshots.is_empty() || side == 1 {
                     snapshots.push(snapshot);
                 }
             }
@@ -263,6 +264,18 @@ impl SqliteProjectRepository {
         for row in rows {
             let (before, after, affected, label, group, id) = db(row)?;
             entries.push(Entry {
+                graph: if db(c.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0)))?
+                    >= 13
+                {
+                    db(c.query_row(
+                        "SELECT before_hash,after_hash FROM history_file_graphs WHERE entry_id=?1",
+                        [&id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional())?
+                } else {
+                    None
+                },
                 id,
                 before,
                 after,
@@ -359,6 +372,7 @@ impl SqliteProjectRepository {
                 } else {
                     plan.entries.truncate(plan.metadata.cursor as usize);
                     plan.entries.push(Entry {
+                        graph: None,
                         id: uuid::Uuid::new_v4().to_string(),
                         before: before_hash,
                         after: after_hash,
@@ -386,6 +400,7 @@ impl SqliteProjectRepository {
                 _ => {
                     plan.entries.truncate(plan.metadata.cursor as usize);
                     plan.entries.push(Entry {
+                        graph: None,
                         id: uuid::Uuid::new_v4().to_string(),
                         before: retained_before
                             .clone()
@@ -505,6 +520,7 @@ impl Plan {
         if !self.changed {
             return Ok(());
         }
+        db(c.execute("DELETE FROM history_file_graphs", []))?;
         db(c.execute("DELETE FROM history_entries", []))?;
         for (i, e) in self.entries.iter().enumerate() {
             db(c.execute(
@@ -522,6 +538,12 @@ impl Plan {
                 "INSERT INTO history_entry_identities VALUES(?1,?2)",
                 params![i + 1, e.id],
             ))?;
+            if let Some((before, after)) = &e.graph {
+                db(c.execute(
+                    "INSERT INTO history_file_graphs VALUES(?1,?2,?3)",
+                    params![e.id, before, after],
+                ))?;
+            }
         }
         db(c.execute(
             "UPDATE history_cursor SET history_revision=?1,cursor=?2",
@@ -543,6 +565,140 @@ impl Plan {
                 .last()
                 .ok_or(ManuscriptError("STORAGE_UNAVAILABLE", None))?;
             db(c.execute("INSERT INTO edit_groups(group_id,client_session_id,group_sequence,kind,before_hash,after_hash,closed,scope_block_id,last_commit_ms) VALUES(?1,?2,?3,?4,?5,?6,0,?7,?8) ON CONFLICT(group_id) DO UPDATE SET group_sequence=excluded.group_sequence,before_hash=excluded.before_hash,after_hash=excluded.after_hash,closed=0,scope_block_id=excluded.scope_block_id,last_commit_ms=excluded.last_commit_ms",params![g.group_id,g.client_session_id,g.group_sequence,if g.kind==EditGroupKind::Typing{"typing"}else{"discrete"},entry.before,entry.after,scope,self.now]))?;
+        }
+        Ok(())
+    }
+}
+
+impl SqliteProjectRepository {
+    pub(crate) fn history_graph_target(
+        &self,
+        c: &Connection,
+        command: &ManuscriptCommand,
+        current: &str,
+    ) -> Result<Option<String>> {
+        let redo = match command {
+            ManuscriptCommand::UndoProject { .. } => false,
+            ManuscriptCommand::RedoProject { .. } => true,
+            _ => return Ok(None),
+        };
+        let metadata = Self::history_metadata(c)?;
+        let pair:Option<(String,String)>=db(c.query_row("SELECT g.before_hash,g.after_hash FROM history_file_graphs g JOIN history_entry_identities i ON i.entry_id=g.entry_id WHERE i.position=?1",[metadata.cursor+i64::from(redo)],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
+        if let Some((before, after)) = pair {
+            let (expected, target) = if redo {
+                (before, after)
+            } else {
+                (after, before)
+            };
+            if current != expected {
+                return Err(ManuscriptError("HISTORY_DIVERGED", None));
+            }
+            Ok(Some(target))
+        } else {
+            Ok(None)
+        }
+    }
+    pub(crate) fn verify_file_graph_history(&self, c: &Connection) -> Result<()> {
+        let Some(current) = self.file_graph_locked(c)? else {
+            return Ok(());
+        };
+        let manifest = self.validate_graph(c, &current.graph)?;
+        let project = read_project(c)
+            .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?
+            .ok_or(ManuscriptError("PROJECT_NOT_FOUND", None))?;
+        if project.title != manifest.name.as_deref().unwrap_or("Untitled project") {
+            return Err(ManuscriptError("GRAPH_NAME_MISMATCH", None));
+        }
+        self.graph_retention_roots(c)?;
+        self.verify_graph_owner_pins(c)?;
+
+        let (_, path, source, _) =
+            crate::open_source::source_row(c)?.ok_or(ManuscriptError("GRAPH_INVALID", None))?;
+        if current
+            .graph
+            .files
+            .iter()
+            .find(|f| f.path == path)
+            .is_none_or(|f| f.hash != source)
+        {
+            return Err(ManuscriptError("GRAPH_INVALID", None));
+        }
+        let mut query=db(c.prepare("SELECT h.position,g.before_hash,g.after_hash,b.before_hash,b.after_hash FROM history_entry_identities h JOIN history_entries b ON b.position=h.position LEFT JOIN history_file_graphs g ON g.entry_id=h.entry_id ORDER BY h.position"))?;
+        let mut previous: Option<String> = None;
+        let mut endpoint = None;
+        let cursor = Self::history_metadata(c)?.cursor;
+        for row in db(query.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        }))? {
+            let (position, before, after, business_before, business_after) = db(row)?;
+            if let (Some(before), Some(after)) = (before, after) {
+                if previous.as_ref().is_some_and(|p| p != &before) {
+                    return Err(ManuscriptError("GRAPH_INVALID", None));
+                }
+                for (graph, business) in [(&before, &business_before), (&after, &business_after)] {
+                    let graph = self.read_file_graph(graph)?;
+                    self.validate_graph(c, &graph)?;
+                    let raw = graph
+                        .files
+                        .iter()
+                        .find(|f| f.path == path)
+                        .ok_or(ManuscriptError("GRAPH_INVALID", None))?;
+                    if self.read_business(business)?.source_hash.as_deref()
+                        != Some(raw.hash.as_str())
+                    {
+                        return Err(ManuscriptError("GRAPH_INVALID", None));
+                    }
+                }
+                if cursor == position - 1 {
+                    endpoint = Some(before.clone());
+                }
+                if cursor == position {
+                    endpoint = Some(after.clone());
+                }
+                previous = Some(after);
+            } else {
+                previous = None;
+            }
+        }
+        if endpoint.is_some_and(|h| h != current.hash) {
+            return Err(ManuscriptError("GRAPH_INVALID", None));
+        }
+        Ok(())
+    }
+}
+impl Plan {
+    pub(crate) fn bind_file_graphs(
+        &mut self,
+        command: &ManuscriptCommand,
+        update: Option<&crate::open_source::graph::GraphUpdate>,
+    ) -> Result<()> {
+        let Some(update) = update else {
+            return Ok(());
+        };
+        if !self.changed
+            || matches!(
+                command,
+                ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
+            )
+        {
+            return Ok(());
+        }
+        if let Some(entry) = self
+            .entries
+            .get_mut(self.metadata.cursor.checked_sub(1).unwrap_or(-1) as usize)
+        {
+            let before = entry
+                .graph
+                .as_ref()
+                .map(|p| p.0.clone())
+                .unwrap_or_else(|| update.before.hash.clone());
+            entry.graph = Some((before, update.after_hash.clone()));
         }
         Ok(())
     }

@@ -133,6 +133,24 @@ new root with the same project UUID still has an activation identity: do not kee
 the old mounted session/uncertain commands attached to a different filesystem.
 Registry writes occur only after successful activation.
 
+The trusted native registry/configured Web locator records the expected managed
+root/project identity. If a previously registered root loses its entire
+`.scenesparrow` directory, existing-open must require recovery instead of offering
+fresh unlocked adoption. A standalone creative-only copy can be explicitly
+adopted with its unavailable management history explained; this is a different
+choice from verified restoration. Do not claim to recover knowledge after a
+filesystem owner deletes every independent record. Test the concrete remembered
+root and explicit-copy flows.
+
+Retain session identities/handles for creative and management roots, not only
+per-operation parents. Replacing a whole plain directory with a cloned tree
+between saves while SQLite retains an old database descriptor must fence/reopen
+the session. Never write creative/object paths into the clone while committing
+SQL to the old root. Exercise an ordinary rename-and-clone replacement of each
+root, in addition to symlink/ancestor swaps during a single promotion. Native
+platform handling must preserve this rule without claiming universal protection
+against an unrestricted filesystem owner.
+
 HTTP and preload share generated named contracts for source, work copies,
 migration, package inspection/download and recovery; renderer gets no generic
 path/shell/object capability. Downloads/large media stay streaming. Browser file

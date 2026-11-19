@@ -20,11 +20,14 @@ sources while retaining core-owned approval/management records. OP1 contracts
 and the Linux OP2 native source store are locally reviewed. OP3-A adds explicit
 external-file reconciliation, reachable same-process recovery and clean Markdown
 delivery. OP3-B connects a lossless CodeMirror source surface and the existing
-legacy Tiptap surface through one session and manuscript port. Packaging and full
+legacy Tiptap surface through one session and manuscript port. OP4-A adds immutable
+creative graphs, scoped source/name saves, multi-file recovery and graph-aware
+history/backup through the same writer. Recorded work-copy UI, packaging and full
 platform support retain their later gates. See
 [OP2 validation](validation/open-project-op2.md) and
 [OP3-A validation](validation/open-project-op3a.md) and
-[OP3-B validation](validation/open-project-op3b.md).
+[OP3-B validation](validation/open-project-op3b.md) and
+[OP4-A validation](validation/open-project-op4a.md).
 
 ## Runtime and dependency boundaries
 

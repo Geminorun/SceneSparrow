@@ -1,19 +1,19 @@
 use super::*;
 use scenesparrow_application::manuscript::ManuscriptRepository;
-fn id() -> String {
+pub(super) fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
-fn fixture() -> (tempfile::TempDir, PathBuf, SqliteProjectRepository) {
+pub(super) fn fixture() -> (tempfile::TempDir, PathBuf, SqliteProjectRepository) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
     let repo = SqliteProjectRepository::create_format(&root).unwrap();
     (dir, root, repo)
 }
-fn request(repo: &SqliteProjectRepository, text: &str) -> SourceSaveRequest {
+pub(super) fn request(repo: &SqliteProjectRepository, text: &str) -> SourceSaveRequest {
     let snapshot = repo.read_source_snapshot().unwrap();
     SourceSaveRequest{request_id:id(),project_id:snapshot.project_id,expected_working_revision:snapshot.working_revision,expected_generation:snapshot.generation,expected_hash:snapshot.accepted_hash,source:text.into(),group:serde_json::from_value(serde_json::json!({"groupId":id(),"clientSessionId":id(),"groupSequence":1,"kind":"discrete"})).unwrap()}
 }
-fn command(
+pub(super) fn command(
     repo: &SqliteProjectRepository,
     kind: &str,
     payload: serde_json::Value,
@@ -570,6 +570,7 @@ fn append_only_migration_eleven_failure_preserves_legacy_then_retries() {
     let state = repo.read_manuscript().unwrap();
     drop(repo);
     let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
+    crate::drop_file_graph_schema_for_legacy_fixture(&c);
     c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;ALTER TABLE export_jobs DROP COLUMN serializer_version;PRAGMA user_version=10;CREATE TABLE authored_source(conflict INTEGER);").unwrap();
     assert!(SqliteProjectRepository::open(directory.path()).is_err());
     assert_eq!(
@@ -906,6 +907,7 @@ fn explicit_resolution_replay_grouped_history_reopen_and_retained_three_versions
         .save_source(&request(&repo, "Local accepted\n\n```raw\nunknown\n```\n"))
         .unwrap()
         .snapshot;
+    repo.register_file_graph().unwrap();
     let external = before.source.replace("Local accepted", "External authored");
     std::fs::write(root.join("manuscript.md"), &external).unwrap();
     let r = candidate_request(
@@ -1845,6 +1847,7 @@ fn multiline_source_projection_is_selectable_and_preserves_raw_locked_neighbors(
 #[test]
 fn proved_root_structural_history_keeps_locked_a_and_its_review_anchor() {
     let (_dir, root, repo) = fixture();
+    repo.register_file_graph().unwrap();
     let a = "11111111-1111-4111-8111-111111111111";
     let b = "22222222-2222-4222-8222-222222222222";
     let raw = format!(

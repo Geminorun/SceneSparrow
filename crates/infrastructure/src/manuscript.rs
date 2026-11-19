@@ -83,6 +83,8 @@ impl SqliteProjectRepository {
                 .map_err(|_| Error::Storage)?;
             self.verify_history(&c, &state)
                 .map_err(|_| Error::Storage)?;
+            self.verify_file_graph_history(&c)
+                .map_err(|_| Error::Storage)?;
             if read_project(&c)?.is_some_and(|p| p.working_revision != state.working_revision) {
                 return Err(Error::Storage);
             }
@@ -158,6 +160,22 @@ impl SqliteProjectRepository {
                 "DOCUMENT_INVALID",
                 "INVALID_URL",
                 "IMPORT_STALE",
+                "GRAPH_TOPOLOGY_UNSUPPORTED",
+                "GRAPH_OBSERVATION_STALE",
+                "GRAPH_INVALID",
+                "GRAPH_BUDGET_EXCEEDED",
+                "GRAPH_FORBIDDEN_PATH",
+                "GRAPH_REQUIRED_FILE_MISSING",
+                "GRAPH_NAME_MISMATCH",
+                "GRAPH_REGISTRATION_REQUIRED",
+                "GRAPH_BASE_MISMATCH",
+                "PATH_INVALID",
+                "PATH_COLLISION",
+                "FORMAT_INVALID",
+                "FORMAT_UNSUPPORTED",
+                "SOURCE_PROJECT_MISMATCH",
+                "SOURCE_FUTURE_READ_ONLY",
+                "SOURCE_READ_UNAVAILABLE",
                 "SOURCE_TEXT_UNAVAILABLE",
                 "SOURCE_BASE_MISMATCH",
                 "SOURCE_RECOVERY_REQUIRED",
@@ -248,17 +266,31 @@ impl SqliteProjectRepository {
         source_request: Option<&crate::open_source::SourceSaveRequest>,
         resolution: Option<&AuthoredSourceResolveRequest>,
     ) -> Result<CommandReceipt> {
+        self.execute_manuscript_graph_locked(c, command, source_request, resolution, None)
+    }
+    pub(crate) fn execute_manuscript_graph_locked(
+        &self,
+        c: &mut Connection,
+        command: &ManuscriptCommand,
+        source_request: Option<&crate::open_source::SourceSaveRequest>,
+        resolution: Option<&AuthoredSourceResolveRequest>,
+        graph_action: Option<&crate::open_source::graph::GraphAction>,
+    ) -> Result<CommandReceipt> {
         let (request, project_id, _) = manuscript::envelope(command);
-        if !manuscript::uuid4(request) {
+        if !manuscript::uuid4(request) && !graph_action.is_some_and(|a| a.rename.is_some()) {
             return Err(ManuscriptError("INVALID_REQUEST", None));
         }
-        let digest = hash(&if let Some(resolution) = resolution {
-            db(serde_json::to_vec(resolution))?
-        } else if let Some(source) = source_request {
-            db(serde_json::to_vec(source))?
+        let digest = if let Some(action) = graph_action {
+            action.digest.clone()
         } else {
-            db(serde_json::to_vec(command))?
-        });
+            hash(&if let Some(resolution) = resolution {
+                db(serde_json::to_vec(resolution))?
+            } else if let Some(source) = source_request {
+                db(serde_json::to_vec(source))?
+            } else {
+                db(serde_json::to_vec(command))?
+            })
+        };
         if let Some((previous, outcome)) = Self::outcome(c, request)? {
             if previous != digest {
                 return Err(ManuscriptError("REQUEST_ID_CONFLICT", None));
@@ -306,107 +338,123 @@ impl SqliteProjectRepository {
                 identities.insert(id, rev);
             }
         }
-        let (transition, tombstone_revisions, history, prepared_reviews, prepared_finalization) =
-            match (|| {
-                if manuscript::envelope(command).2 != before.working_revision
-                    && !matches!(
-                        command,
-                        ManuscriptCommand::CancelPlanningTask { .. }
-                            | ManuscriptCommand::CancelReviewTask { .. }
-                    )
-                {
-                    return Err(ManuscriptError("REVISION_CONFLICT", None));
-                }
-                profile.phase("identities");
-                let resolved_request = resolution
-                    .map(|request| self.resolution_source_request(c, request))
-                    .transpose()?;
-                let mut transition =
-                    if let Some(source) = resolved_request.as_ref().or(source_request) {
-                        self.source_edit_transition(c, source, &before, &identities)?
-                    } else {
-                        self.history_transition(c, command, &before, &identities)?
-                    };
-                profile.phase("domain-transition");
-                self.coordinate_planning(c, command, &before, &mut transition)?;
-                self.coordinate_reviews(c, command, &before, &mut transition)?;
-                self.prepare_transition_source(c, &before, &mut transition, command)?;
-                if let Err(mut error) = Self::guard_finalization(c, &before, &transition) {
-                    if matches!(
-                        command,
-                        ManuscriptCommand::UndoProject { .. }
-                            | ManuscriptCommand::RedoProject { .. }
-                    ) {
-                        error = ManuscriptError::history_blocked(error.0, &transition.affected);
-                    } else if matches!(command, ManuscriptCommand::AcceptReviewCandidates { .. }) {
-                        let checks = self.review_acceptance_checks(c, command)?;
-                        let blocked = error
-                            .1
-                            .as_ref()
-                            .map(|d| d.affected_ids.clone())
-                            .unwrap_or_default();
-                        let checks = checks
-                            .into_iter()
-                            .filter(|(_, ctx)| {
-                                ctx.base.blocks.iter().any(|b| blocked.contains(&b.id))
-                            })
-                            .collect::<Vec<_>>();
-                        error.1 = Some(Self::review_acceptance_error(&checks, error.0));
-                    }
-                    return Err(error);
-                }
-                self.guard_reviews(c, command, &before, &transition)?;
-                self.guard_planning(c, command, &before, &transition)?;
-                // Allocate deleted identities through the same recorded preflight path
-                // as surviving block revisions, before any object or state writes.
-                let mut tombstone_revisions = BTreeMap::new();
-                for id in &transition.affected {
-                    if !transition.state.blocks.iter().any(|block| &block.id == id)
-                        && !transition
-                            .sources
-                            .as_ref()
-                            .unwrap_or(&sources_before)
-                            .iter()
-                            .any(|source| &source.id == id)
-                    {
-                        let previous = identities
-                            .get(id)
-                            .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
-                        tombstone_revisions
-                            .insert(id.clone(), manuscript::next_revision(*previous)?);
-                    }
-                }
-                profile.phase("guards-coordination");
-                let history = self.history_plan(c, command, &before, &transition)?;
-                profile.phase("history");
-                let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
-                profile.phase("review-projections");
-                let prepared_finalization = self.prepare_finalization(c, &transition)?;
-                profile.phase("finalization");
-                Ok((
-                    transition,
-                    tombstone_revisions,
-                    history,
-                    prepared_reviews,
-                    prepared_finalization,
-                ))
-            })() {
-                Ok(v) => v,
-                Err(error) => {
-                    if error.0 == "STORAGE_UNAVAILABLE" {
-                        return Err(error);
-                    }
-                    let outcome =
-                        serde_json::json!({"error":error.0,"details":error.1}).to_string();
-                    let transaction = db(c.transaction())?;
-                    db(transaction.execute(
-                        "INSERT INTO command_receipts VALUES(?1,?2,?3)",
-                        params![request, digest, outcome],
-                    ))?;
-                    db(transaction.commit())?;
-                    return Err(error);
-                }
+        let (
+            transition,
+            tombstone_revisions,
+            history,
+            prepared_reviews,
+            prepared_finalization,
+            graph_update,
+        ) = match (|| {
+            if manuscript::envelope(command).2 != before.working_revision
+                && !matches!(
+                    command,
+                    ManuscriptCommand::CancelPlanningTask { .. }
+                        | ManuscriptCommand::CancelReviewTask { .. }
+                )
+            {
+                return Err(ManuscriptError("REVISION_CONFLICT", None));
+            }
+            profile.phase("identities");
+            let resolved_request = resolution
+                .map(|request| self.resolution_source_request(c, request))
+                .transpose()?;
+            let graph_source = if let Some(action) = graph_action {
+                let ManuscriptCommand::ApplyDocumentEdit { payload, .. } = command else {
+                    return Err(ManuscriptError("INVALID_REQUEST", None));
+                };
+                Some(self.graph_source_request(c, action, &payload.group)?)
+            } else {
+                None
             };
+            let mut transition = if let Some(source) = graph_source
+                .as_ref()
+                .or(resolved_request.as_ref())
+                .or(source_request)
+            {
+                self.source_edit_transition(c, source, &before, &identities)?
+            } else {
+                self.history_transition(c, command, &before, &identities)?
+            };
+            profile.phase("domain-transition");
+            self.coordinate_planning(c, command, &before, &mut transition)?;
+            self.coordinate_reviews(c, command, &before, &mut transition)?;
+            self.prepare_transition_source(c, &before, &mut transition, command)?;
+            let graph_update =
+                self.prepare_graph_transition(c, command, &mut transition, graph_action)?;
+            if let Err(mut error) = Self::guard_finalization(c, &before, &transition) {
+                if matches!(
+                    command,
+                    ManuscriptCommand::UndoProject { .. } | ManuscriptCommand::RedoProject { .. }
+                ) {
+                    error = ManuscriptError::history_blocked(error.0, &transition.affected);
+                } else if matches!(command, ManuscriptCommand::AcceptReviewCandidates { .. }) {
+                    let checks = self.review_acceptance_checks(c, command)?;
+                    let blocked = error
+                        .1
+                        .as_ref()
+                        .map(|d| d.affected_ids.clone())
+                        .unwrap_or_default();
+                    let checks = checks
+                        .into_iter()
+                        .filter(|(_, ctx)| ctx.base.blocks.iter().any(|b| blocked.contains(&b.id)))
+                        .collect::<Vec<_>>();
+                    error.1 = Some(Self::review_acceptance_error(&checks, error.0));
+                }
+                return Err(error);
+            }
+            self.guard_reviews(c, command, &before, &transition)?;
+            self.guard_planning(c, command, &before, &transition)?;
+            // Allocate deleted identities through the same recorded preflight path
+            // as surviving block revisions, before any object or state writes.
+            let mut tombstone_revisions = BTreeMap::new();
+            for id in &transition.affected {
+                if !transition.state.blocks.iter().any(|block| &block.id == id)
+                    && !transition
+                        .sources
+                        .as_ref()
+                        .unwrap_or(&sources_before)
+                        .iter()
+                        .any(|source| &source.id == id)
+                {
+                    let previous = identities
+                        .get(id)
+                        .ok_or(ManuscriptError("DOCUMENT_INVALID", None))?;
+                    tombstone_revisions.insert(id.clone(), manuscript::next_revision(*previous)?);
+                }
+            }
+            profile.phase("guards-coordination");
+            let mut history = self.history_plan(c, command, &before, &transition)?;
+            history.bind_file_graphs(command, graph_update.as_ref())?;
+            profile.phase("history");
+            let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
+            profile.phase("review-projections");
+            let prepared_finalization = self.prepare_finalization(c, &transition)?;
+            profile.phase("finalization");
+            Ok((
+                transition,
+                tombstone_revisions,
+                history,
+                prepared_reviews,
+                prepared_finalization,
+                graph_update,
+            ))
+        })() {
+            Ok(v) => v,
+            Err(error) => {
+                if error.0 == "STORAGE_UNAVAILABLE" {
+                    return Err(error);
+                }
+                let outcome = serde_json::json!({"error":error.0,"details":error.1}).to_string();
+                let transaction = db(c.transaction())?;
+                db(transaction.execute(
+                    "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                    params![request, digest, outcome],
+                ))?;
+                db(transaction.commit())?;
+                return Err(error);
+            }
+        };
         profile.phase("transition-history-policy");
         let changed = transition.state.working_revision != before.working_revision;
         let mut revisions = vec![];
@@ -472,8 +520,32 @@ impl SqliteProjectRepository {
             } else {
                 None
             };
-        let source_intent =
-            self.prepare_source_intent(c, request, &digest, &transition, resolution)?;
+        let preparation = if let Some(update) = &graph_update {
+            self.prepare_graph_intent(c, request, &digest, &transition, update, resolution)
+        } else {
+            self.prepare_source_intent(c, request, &digest, &transition, resolution)
+        };
+        let source_intent = match preparation {
+            Ok(intent) => intent,
+            Err(error) => {
+                if error.0 != "STORAGE_UNAVAILABLE" && self.guard_source_recovery().is_ok() {
+                    let tx = db(c.transaction())?;
+                    db(tx.execute(
+                        "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                        params![
+                            request,
+                            digest,
+                            serde_json::json!({"error":error.0,"details":error.1}).to_string()
+                        ],
+                    ))?;
+                    db(tx.commit())?;
+                }
+                return Err(error);
+            }
+        };
+        if let Some(intent) = &source_intent {
+            self.promote_source_intent(intent)?;
+        }
         let transaction = db(c.transaction())?;
         let current_revision: i64 = db(transaction.query_row(
             "SELECT working_revision FROM manuscripts WHERE singleton=1",
@@ -712,8 +784,14 @@ impl SqliteProjectRepository {
                 .map_err(|e| ManuscriptError(e.0, None))?;
         }
         self.commit_source_intent(&transaction, source_intent.as_ref(), command)?;
-        if let Some(intent) = &source_intent {
-            self.promote_source_intent(intent)?;
+        db(transaction.execute("INSERT OR IGNORE INTO approved_file_graphs SELECT b.baseline_id,g.graph_hash,'approval'  FROM manuscript_baseline b CROSS JOIN accepted_file_graph g WHERE b.baseline_id IS NOT NULL",[]))?;
+        db(transaction.execute("DELETE FROM approved_file_graphs WHERE baseline_id NOT IN (SELECT id FROM approved_manifests)",[]))?;
+
+        if source_intent.is_none()
+            && let Some(action) = graph_action
+            && let Some((previous, title)) = &action.rename
+        {
+            db(transaction.execute("INSERT INTO project_rename_receipts(request_id,project_id,previous_title,title) VALUES(?1,?2,?3,?4)",params![request,project_id,previous,title]))?;
         }
         self.source_cut("before-sql")?;
         profile.phase("sql-before-commit");

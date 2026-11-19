@@ -63,7 +63,11 @@ specs aligned with the final behavior and record material deviations.
 
 - [OP3-B editor integration](open-project-op3b.md): accepted backend API consumers, shared input ownership, review surfaces and browser evidence.
 
-- [OP4 preparation](open-project-op4.md): protected file graphs, external work copies and multi-file acceptance; dispatch awaits OP3-B.
+- [OP4 file graphs and external acceptance](open-project-op4.md): protected multi-file history and recorded work copies.
+
+- [OP4-A native coordination](open-project-op4a.md): reviewed inventory, streaming objects, multi-file recovery and history following OP3-B `ba8e0b8`; see its [validation](../validation/open-project-op4a.md).
+
+- [OP4-B preparation](open-project-op4b.md): scoped work copies, production locks and Changes integration; exact native handoff follows the A commit.
 
 - [OP5 preparation](open-project-op5.md): explicit migration, fixed-snapshot ZIPs and verified restore; dispatch awaits OP4.
 

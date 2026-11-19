@@ -1571,6 +1571,8 @@ fn source_recovery_rejects_only_the_application_request_and_explicitly_reuses_on
     let status = r.rescan_source().unwrap();
     let restore:AuthoredSourceResolveRequest=serde_json::from_value(json!({"requestId":id(),"projectId":p,"expectedWorkingRevision":base.working_revision,"expectedGeneration":base.generation,"expectedHash":base.accepted_hash,"candidateId":status.candidate_id,"candidateHash":status.external_hash,"disposition":"discard","source":null,"group":{"groupId":id(),"clientSessionId":id(),"groupSequence":1,"kind":"discrete"}})).unwrap();
     r.resolve_source(&restore).unwrap();
+    std::fs::write(root.join("reference-media.bin"), [0, 255, 7, 128]).unwrap();
+    r.register_file_graph().unwrap();
     let apply = cmd(
         &r,
         &p,
@@ -1596,6 +1598,21 @@ fn source_recovery_rejects_only_the_application_request_and_explicitly_reuses_on
             .unwrap()
             .source
             .contains("完整初稿")
+    );
+    let graph = r.accepted_file_graph().unwrap().unwrap();
+    assert_eq!(
+        graph
+            .graph
+            .files
+            .iter()
+            .find(|f| f.path == "manuscript.md")
+            .unwrap()
+            .hash,
+        r.read_source_snapshot().unwrap().accepted_hash
+    );
+    assert_eq!(
+        std::fs::read(root.join("reference-media.bin")).unwrap(),
+        [0, 255, 7, 128]
     );
     assert!(r.execute_next_ai(&settings).unwrap().is_none());
 }

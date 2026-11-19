@@ -77,7 +77,7 @@ impl SqliteProjectRepository {
         }
         let parent = Parent::open(&self.directory, "source-intent.json")?;
         let bytes = parent
-            .read(&parent.name, false)?
+            .read_limit(&parent.name, false, 16 * 1024 * 1024)?
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?
             .0;
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
@@ -306,7 +306,7 @@ impl SqliteProjectRepository {
         let pending = if self.intent_path().exists() {
             let parent = Parent::open(&self.directory, "source-intent.json")?;
             let bytes = parent
-                .read(&parent.name, false)?
+                .read_limit(&parent.name, false, 16 * 1024 * 1024)?
                 .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?
                 .0;
             let intent: Intent = db(serde_json::from_slice(&bytes))?;

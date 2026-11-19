@@ -37,6 +37,14 @@ invalid. Keep backup and failed staging outside the source's active files and
 exclude recursive backup trees from closure. Missing retained objects fail before
 activation. A backup completion marker is written last and flushed.
 
+Capture the SQLite read snapshot before deriving its object inventory. Backup
+and inventory must describe that same committed WAL snapshot; a later independent
+read of the live source can mix generations. Copy and verify immutable closure
+against the backed-up database. If concurrent source collection removes a needed
+object, fail the new target before activation rather than filling it from a newer
+generation. Inspection must not create a source lock file merely to claim it is
+read-only. Apply schema upgrades and copied-origin fencing only to the staged copy.
+
 Migration uses an explicit operation ID, captured source project/revision/schema
 and a new distinct target. Desktop chooses a native destination capability;
 Web uses an app-selected server-side registered location, not a renderer path.
@@ -69,6 +77,13 @@ raw evidence is not a new user approval. Do not leave old history hashes pointin
 to missing objects or make Undo unable to traverse the prior five transitions.
 Preserve compact original request outcomes and definite failures. Metadata receipts
 may retain old revision numbers; migration cannot replay them as new commands.
+
+Original command payload digests and persisted receipt outcomes are immutable.
+Adding source evidence may create new retained snapshot objects and update the
+target's history references while preserving stable entry identities. Keep any
+original referenced objects required by replay/evidence. Do not rewrite an old
+receipt into a claim that raw Markdown existed before migration. The verified
+legacy backup records the original normalized representation and source generation.
 
 Treat the target as an independent recovered origin under ADR 0002. Fence copied
 nonterminal AI/document/export/downstream tasks before target service activation.

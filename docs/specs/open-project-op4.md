@@ -1,7 +1,8 @@
 # OP4: scoped external work copies and protected batch acceptance
 
-Status: root preparation following reviewed OP3-B, 2026-11-19. Not dispatched.
-Root will confirm the accepted OP3-B commit before assigning a writer. Parent:
+Status: OP4-A independently reviewed on Linux after OP3-B `ba8e0b8`,
+2026-11-19; see [validation](../validation/open-project-op4a.md). OP4-B is not
+dispatched; its exact API/UI handoff follows the A commit. Parent:
 [open project contract](open-project-format.md), OPF-AC10–AC12/19. No embedded
 Codex/Claude SDK, paid generation or execution of imported code is included.
 
@@ -50,6 +51,16 @@ key files are not work-copy/package inputs. Global AI settings/vault/authenticat
 live outside the project and are never traversed. This policy is not a claim to
 detect secrets embedded in arbitrary authored prose or code.
 
+The credential exclusion list uses the same Unicode portable segment key:
+`.ssh`, `.aws`, `.gnupg`; basenames `.env`, `.env.*`, `.npmrc`, `.netrc`,
+`.pypirc`, `credentials.json`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`;
+and suffixes `.key`, `.pem`, `.p12`, `.pfx`, `.jks`, `.keystore`. Public `.pub`
+files are not excluded by that suffix. Initial live inventory omits these
+entries; submitted work copies reject credential/management/Git injections.
+Dependency/cache/output exclusions may be omitted in both scans, so an Agent's
+local installation does not become an authored change. Do not expand this into
+an unspecified content scanner.
+
 Use streaming hashing/copying with fixed-size buffers for creative binaries.
 The manuscript parser's 4 MiB input limit is not a video/media limit. Freeze native
 inventory budgets at 20,000 files, 4 GiB per file and 16 GiB aggregate, checked with
@@ -75,6 +86,19 @@ Accepted graph identity/generation is part of every work-item base and mutation.
 Normal app source saves, AI applications and Undo/Redo update the manuscript entry
 in the accepted graph through the same writer. Existing legacy projects retain
 legacy semantics and do not require a graph.
+
+For a registered graph, the accepted manifest's optional `name` is the naming
+authority; the SQL project title is its verified display projection (missing name
+projects to `Untitled project`). External name changes and the normal rename action
+use the same graph writer. A non-noop rename is one graph/history transition with
+empty prose impact, preserving block revisions, locks and approvals. Undo/Redo
+restores the captured manifest and title together. History predating registration
+changes only its recorded manuscript, preserving the current name/other files.
+Keep the existing rename DTO and its latest-rename replay/CAS behavior; bind its
+original request/digest into the same journal/SQL commit, without a second physical
+writer or receipt coordinator. Legacy rename semantics remain unchanged. Existing
+managed projects with a physical name/title mismatch must explicitly reconcile
+that metadata before registration; never silently overwrite either value.
 
 ## Multi-file transaction and recovery protocol
 
@@ -108,12 +132,46 @@ settles the proven SQL outcome while retaining all affected live/staged versions
 using the same durable decision semantics and named evidence boundary as OP3.
 An old recovery choice cannot settle a newer graph operation.
 
+Retain path-aware evidence tuples (relative path, operation role, hash, byte size),
+including equal-content members at different paths. Native A stores/verifies these
+members using streamed objects. B exposes paginated metadata and authenticated
+member streaming by recorded operation/member identity, not multi-GiB base64 or a
+generic filesystem/object reader. Keep existing v1/v2 source evidence compatible.
+
 The single manuscript source remains registered at its original path in v1 of the
 product workflow. A candidate cannot delete/rename it or replace project identity.
 Manifest optional declarations may change only if the resulting manifest and
 referenced files validate. A declared media entry missing from the candidate
 refuses. Arbitrary undeclared creative files may be retained without executing or
 claiming semantic understanding of them.
+
+The first native batch protocol conservatively refuses file/directory prefix
+topology transitions: replacing regular `a` with `a/child`, or the inverse.
+Sibling staging cannot prepare those target parents before the durable intent.
+Do not move a live file early to make staging possible. Refuse explicitly before
+promotion/SQL/history, including already-live acceptance whose Undo would require
+that unsupported shape. Preserve bytes and replay the same typed outcome. Ordinary
+renames whose target parents can be prepared safely remain supported. This is a
+concrete capability limit, not a claim of arbitrary tree transformation support.
+
+Ordinary app source/name operations must not rehash every unchanged media member
+on each autosave. V3 binds `checked_paths`: absent means full creative-inventory
+proof; present means an exact sorted core-derived physical member scope. Scoped
+operations may cover the registered manuscript and a name-only manifest change,
+including source/name-only history and explicit source reconciliation. Prove other
+accepted graph members and parsed non-name declarations unchanged. Explicit graph
+batches and production-impact history retain full verification.
+
+The same accepted full graph/journal/receipt/SQL owner updates those entries.
+Scoped recovery validates every recorded physical difference/stage within that
+scope and leaves unrelated live media pending, without accepting or overwriting
+it. A source-save acknowledgment does not claim the whole live tree was verified.
+Keep a cheap bounded required-manifest identity/path check so tampering cannot
+redirect source persistence. Normal name changes refuse a pending modified manifest.
+Backups use accepted immutable manifest/media entries, never a mixture of unrelated
+live changes. Read-count tests must include physical reads and object verification:
+unchanged binary reads are zero for source/name paths and positive for explicit
+inventory/full acceptance. Status polling remains cheap.
 
 ## Shared history, revisions and policy
 
@@ -164,7 +222,9 @@ evidence. Root freezes the exact production-lock DTO/storage contract before B.
 Creating a work item records project identity, accepted revision/graph hash and
 generation, request identity and explicit grant. Grants consist of exact portable
 file paths, directory subtrees with segment boundaries, and optional manuscript
-block IDs. An empty grant permits no creative mutation. Main manuscript edits
+block IDs. An explicit whole-creative-tree grant may represent the root without
+inventing an invalid empty filesystem path; it never includes management state.
+An empty grant permits no creative mutation. Main manuscript edits
 revalidate both path and actual block scope. Grant guidance cannot enlarge itself.
 
 Materialize an app-selected private work-copy directory, containing an ordinary

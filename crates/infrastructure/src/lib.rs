@@ -154,7 +154,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 12 || (require_existing && version < 1) {
+        if version > 13 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -250,6 +250,12 @@ impl SqliteProjectRepository {
             backup::migration_backup(&connection, directory, 12)?;
             let tx = storage(connection.transaction())?;
             storage(tx.execute_batch(include_str!("../migrations/012_source_candidates.sql")))?;
+            storage(tx.commit())?;
+        }
+        if version < 13 {
+            backup::migration_backup(&connection, directory, 13)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/013_file_graph.sql")))?;
             storage(tx.commit())?;
         }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
@@ -391,6 +397,18 @@ impl ProjectRepository for SqliteProjectRepository {
         let mut connection = storage(self.connection.lock())?;
         if self.is_quiescing() {
             return Err(Error::Closing);
+        }
+        if open_source::graph::graph_row(&connection)
+            .map_err(|_| Error::Storage)?
+            .is_some()
+        {
+            return self.rename_file_graph_locked(
+                &mut connection,
+                request_id,
+                project_id,
+                previous_title,
+                title,
+            );
         }
         let tx = storage(connection.transaction())?;
         let Some(mut project) = read_project(&tx)? else {
@@ -706,6 +724,7 @@ mod tests {
         let history = repo.read_history().unwrap();
         drop(repo);
         let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
+        drop_file_graph_schema_for_legacy_fixture(&c);
         c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;ALTER TABLE export_jobs DROP COLUMN serializer_version;DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
         assert_eq!(
@@ -789,7 +808,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            12
+            13
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -855,7 +874,12 @@ pub mod ai;
 pub mod credentials;
 
 #[cfg(test)]
+fn drop_file_graph_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE accepted_file_graph;DROP TABLE history_file_graphs;DROP TABLE file_graph_pins;DROP TABLE approved_file_graphs;DROP TABLE graph_recovery_members;DROP TABLE graph_recovery_decisions;").unwrap();
+}
+#[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
+    drop_file_graph_schema_for_legacy_fixture(c);
     c.execute_batch(
         "DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;",
     )

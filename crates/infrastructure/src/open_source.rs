@@ -13,8 +13,9 @@ use std::{
     io::Write,
     path::PathBuf,
 };
+pub mod graph;
 mod inspection;
-mod physical;
+pub(crate) mod physical;
 mod reconciliation;
 mod recovery;
 pub(crate) use inspection::Observation;
@@ -64,6 +65,8 @@ pub(crate) struct Intent {
     accepted: Option<AcceptedChange>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolution: Option<BoundResolution>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    graph: Option<graph::journal::GraphIntent>,
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -472,20 +475,26 @@ impl SqliteProjectRepository {
     }
 }
 fn bind_new_identities(document: &SourceDocument) -> Result<SourceDocument> {
+    prepare_source_identities(document).map(|p| p.0)
+}
+fn prepare_source_identities(
+    document: &SourceDocument,
+) -> Result<(SourceDocument, Vec<(String, String)>)> {
     let bindings = document
         .blocks
         .iter()
         .filter(|block| block.id.is_none())
         .map(|block| (block.address.clone(), uuid::Uuid::new_v4().to_string()))
         .collect::<Vec<_>>();
-    source::insert_identities(document, &bindings).map_err(format_error)
+    let prepared = source::insert_identities(document, &bindings).map_err(format_error)?;
+    Ok((prepared, bindings))
 }
 fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = db(File::options().write(true).create_new(true).open(path))?;
     db(file.write_all(bytes))?;
     db(file.sync_all())
 }
-fn source_row(c: &Connection) -> Result<Option<(String, String, String, i64)>> {
+pub(crate) fn source_row(c: &Connection) -> Result<Option<(String, String, String, i64)>> {
     let version: i64 = db(c.pragma_query_value(None, "user_version", |row| row.get(0)))?;
     if version < 11 {
         return Ok(None);
@@ -1158,7 +1167,9 @@ impl SqliteProjectRepository {
             }
         }
         if self.intent_path().exists() {
-            let bytes = db(std::fs::read(self.intent_path()))?;
+            let bytes = self
+                .read_intent_bytes()?
+                .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
             let intent: Intent = db(serde_json::from_slice(&bytes))?;
             roots.insert(hash(&bytes));
             if let Some(accepted) = intent.accepted {
@@ -1171,6 +1182,12 @@ impl SqliteProjectRepository {
             }
         }
         Ok(roots)
+    }
+    fn read_intent_bytes(&self) -> Result<Option<Vec<u8>>> {
+        let parent = Parent::open(&self.directory, "source-intent.json")?;
+        parent
+            .read_limit(&parent.name, false, 16 * 1024 * 1024)
+            .map(|p| p.map(|v| v.0))
     }
     fn intent_path(&self) -> PathBuf {
         self.directory.join("source-intent.json")
@@ -1236,6 +1253,7 @@ impl SqliteProjectRepository {
         self.source_cut("after-stage")?;
         let intent = Intent {
             version: 2,
+            graph: None,
             accepted: Some(AcceptedChange {
                 before_hash: accepted.clone(),
                 after_hash: after.into(),
@@ -1263,6 +1281,9 @@ impl SqliteProjectRepository {
         Ok(Some(intent))
     }
     pub(crate) fn promote_source_intent(&self, intent: &Intent) -> Result<()> {
+        if intent.version == 3 {
+            return self.promote_graph_intent(intent);
+        }
         let root = self
             .creative_root
             .as_ref()
@@ -1313,6 +1334,9 @@ impl SqliteProjectRepository {
         command: &ManuscriptCommand,
     ) -> Result<()> {
         if let Some(intent) = intent {
+            if intent.version == 3 {
+                return self.commit_graph_intent(c, intent);
+            }
             let change = intent
                 .changes
                 .first()
@@ -1358,6 +1382,9 @@ impl SqliteProjectRepository {
         self.source_cut("after-cleanup")
     }
     fn verify_intent_live(&self, intent: &Intent, committed: bool) -> Result<()> {
+        if intent.version == 3 {
+            return self.verify_graph_intent_live(intent, committed);
+        }
         let root = self
             .creative_root
             .as_ref()
@@ -1380,6 +1407,9 @@ impl SqliteProjectRepository {
         Ok(())
     }
     fn cleanup_intent(&self, intent: &Intent) -> Result<()> {
+        if intent.version == 3 {
+            return self.cleanup_graph_intent(intent);
+        }
         let root = self
             .creative_root
             .as_ref()
@@ -1422,12 +1452,13 @@ impl SqliteProjectRepository {
         if !self.intent_path().exists() {
             return Ok(());
         }
-        let parent = Parent::open(&self.directory, "source-intent.json")?;
-        let bytes = parent
-            .read(&parent.name, false)?
-            .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?
-            .0;
+        let bytes = self
+            .read_intent_bytes()?
+            .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
+        if intent.version == 3 {
+            return self.recover_graph_intent(c, &intent, &bytes);
+        }
         if !matches!(intent.version, 1 | 2)
             || intent.changes.is_empty()
             || (intent.version == 1 && (intent.accepted.is_some() || intent.resolution.is_some()))

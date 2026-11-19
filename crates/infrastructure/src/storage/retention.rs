@@ -24,6 +24,9 @@ impl SqliteProjectRepository {
         if version >= 11 {
             roots.extend(self.source_retention_roots(c)?);
         }
+        if version >= 13 {
+            roots.extend(self.graph_retention_roots(c)?);
+        }
         let current_roots = if version >= 3 {
             "SELECT snapshot_hash FROM manuscripts WHERE snapshot_hash IS NOT NULL UNION SELECT payload_hash FROM blocks UNION SELECT before_hash FROM history_entries UNION SELECT after_hash FROM history_entries"
         } else {
@@ -173,9 +176,10 @@ impl SqliteProjectRepository {
         // Capture, reconciliation, row pruning and deletion share the exact writer
         // coordinator used by promotion and command commit. Backups are not traversed.
         let mut c = db(self.connection.lock())?;
+        self.verify_file_graph_history(&c)?;
         let roots = self.retention_roots(&c)?;
         for h in &roots {
-            self.read_object(h)?;
+            self.verify_object_stream(h)?;
         }
         let mut candidates = vec![];
         for entry in db(std::fs::read_dir(self.directory.join("objects")))? {
