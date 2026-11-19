@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub(crate) fn start(state: &AppState) {
     drive_ai_and_maintenance(state);
     drive_exports(state);
+    drive_external_work(state);
 }
 
 fn drive_ai_and_maintenance(state: &AppState) {
@@ -68,6 +69,21 @@ fn drive_exports(state: &AppState) {
                 }
             })
             .await;
+        }
+    });
+}
+
+fn drive_external_work(state: &AppState) {
+    let service = Arc::downgrade(&state.service);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let Some(service) = service.upgrade() else {
+                break;
+            };
+            let _ =
+                tokio::task::spawn_blocking(move || service.repository().run_next_work_operation())
+                    .await;
         }
     });
 }

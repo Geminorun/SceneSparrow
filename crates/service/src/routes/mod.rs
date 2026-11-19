@@ -2,6 +2,7 @@ pub(crate) mod ai;
 mod authored_source;
 mod documents;
 mod exports;
+mod external_work;
 pub(crate) mod manuscript;
 mod planning;
 mod review;
@@ -12,6 +13,7 @@ pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .merge(manuscript::routes())
         .merge(authored_source::routes())
+        .merge(external_work::routes())
         .merge(documents::routes())
         .merge(exports::routes())
         .merge(ai::routes())

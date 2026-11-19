@@ -1,3 +1,5 @@
+import type * as Work from "@scenesparrow/contracts";
+import { workPath, pageQuery } from "./external-work";
 import type {
   AuthoredSourceSaveRequest,
   AuthoredSourceResolveRequest,
@@ -36,6 +38,13 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | Work.GraphRegisterRequest
+      | Work.WorkItemCreateRequest
+      | Work.WorkItemInspectRequest
+      | Work.WorkCandidateAcceptRequest
+      | Work.WorkItemDiscardRequest
+      | Work.WorkItemControlRequest
+      | Work.ProductionFileLockRequest
       | AuthoredSourceSaveRequest
       | AuthoredSourceResolveRequest
       | AuthoredSourceRecoverRequest
@@ -115,7 +124,59 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       }
     };
   };
+  const downloadMember = async (path: string) => {
+    const link = document.createElement("a");
+    link.href = `${baseUrl}${path}`;
+    link.download = "creative-member.bin";
+    link.rel = "noopener";
+    link.click();
+    return true;
+  };
   return {
+    readFileGraph: () => request("/v1/project/file-graph"),
+    readGraphFiles: (cursor) =>
+      request(`/v1/project/file-graph/files${pageQuery(cursor)}`),
+    registerFileGraph: (body) =>
+      request("/v1/project/file-graph/register", body),
+    createWorkItem: (body) => request("/v1/project/work-items", body),
+    readWorkItems: (cursor) =>
+      request(`/v1/project/work-items${pageQuery(cursor)}`),
+    readWorkItem: (item) => request(workPath(item)),
+    inspectWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/inspect`, body),
+    acceptWorkCandidate: (body) =>
+      request(`${workPath(body.workItemId)}/accept`, body),
+    discardWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/discard`, body),
+    controlWorkItem: (body) =>
+      request(`${workPath(body.workItemId)}/control`, body),
+    readWorkOperation: (id) =>
+      request(`/v1/project/work-operations/${encodeURIComponent(id)}`),
+    readWorkCandidate: (item, candidate) =>
+      request(`${workPath(item)}/candidates/${encodeURIComponent(candidate)}`),
+    readWorkChanges: (item, candidate, cursor) =>
+      request(
+        `${workPath(item)}/candidates/${encodeURIComponent(candidate)}/changes${pageQuery(cursor)}`,
+      ),
+    readProductionFileLocks: (cursor) =>
+      request(`/v1/project/file-locks${pageQuery(cursor)}`),
+    setProductionFileLocks: (body) => request("/v1/project/file-locks", body),
+    inspectGraphRecovery: (intent) =>
+      request(`/v1/project/file-recoveries/${encodeURIComponent(intent)}`),
+    readGraphRecoveries: (cursor) =>
+      request(`/v1/project/file-recoveries${pageQuery(cursor)}`),
+    readGraphRecoveryMembers: (intent, cursor) =>
+      request(
+        `/v1/project/file-recoveries/${encodeURIComponent(intent)}/members${pageQuery(cursor)}`,
+      ),
+    downloadWorkCandidateMember: (item, candidate, member, role) =>
+      downloadMember(
+        `${workPath(item)}/candidates/${encodeURIComponent(candidate)}/members/${encodeURIComponent(member)}/${role}/bytes`,
+      ),
+    downloadGraphRecoveryMember: (intent, member) =>
+      downloadMember(
+        `/v1/project/file-recoveries/${encodeURIComponent(intent)}/members/${encodeURIComponent(member)}/bytes`,
+      ),
     inspectProjectFormat: () => request("/v1/project/format"),
     readAuthoredSource: () => request("/v1/manuscript/source"),
     readAuthoredSourceRecoveryEvidence: (intent) =>

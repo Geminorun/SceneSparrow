@@ -211,7 +211,7 @@ impl SqliteProjectRepository {
             source.join("manifest.json"),
         ))?))?;
         if manifest.version != 1
-            || manifest.schema > 13
+            || manifest.schema > 14
             || !manifest.files.contains_key("project.sqlite")
         {
             return Err(Error::Storage);
@@ -450,7 +450,7 @@ impl SqliteProjectRepository {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         ))?;
         let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if !(1..=13).contains(&version) {
+        if !(1..=14).contains(&version) {
             return Err(Error::SchemaUnsupported);
         }
         let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
@@ -468,6 +468,8 @@ impl SqliteProjectRepository {
             #[cfg(test)]
             fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
             source_observation: Mutex::new(open_source::Observation::default()),
+            preparation_leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            preparation_worker: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(c),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
@@ -591,6 +593,7 @@ mod tests {
         }
         let migrations = [
             (13, include_str!("../migrations/013_file_graph.sql")),
+            (14, include_str!("../migrations/014_external_work.sql")),
             (11, include_str!("../migrations/011_open_source.sql")),
             (12, include_str!("../migrations/012_source_candidates.sql")),
             (10, include_str!("../migrations/010_project_metadata.sql")),
@@ -660,7 +663,7 @@ mod tests {
         }
     }
     #[test]
-    fn every_supported_legacy_schema_upgrades_to_thirteen_and_backup_manifest_verifies_its_actual_graph()
+    fn every_supported_legacy_schema_upgrades_to_fourteen_and_backup_manifest_verifies_its_actual_graph()
      {
         for version in 1..=11 {
             let d = tempfile::tempdir().unwrap();
@@ -699,7 +702,7 @@ mod tests {
                     .unwrap()
                     .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
                     .unwrap(),
-                13
+                14
             );
             let backup = opened.verified_backup().unwrap();
             assert!(backup.join("manifest.json").is_file());

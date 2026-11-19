@@ -8,6 +8,7 @@ import {
   clipboard,
 } from "electron";
 import { registerAiIpc } from "./ai-ipc.js";
+import { registerExternalWorkIpc } from "./external-work-ipc.js";
 import { registerExportIpc } from "./export-ipc.js";
 import { suggestedExportName } from "./export-files.js";
 import type { ProjectResponse } from "@scenesparrow/contracts";
@@ -356,6 +357,22 @@ async function main() {
       throw Error("ORIGIN_DENIED");
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
+  const externalWork = registerExternalWorkIpc(ipcMain, {
+    checkSender,
+    session: () => ({ core, baseUrl, token }),
+    request,
+    reveal: async (path) => {
+      const error = await shell.openPath(path);
+      if (error) throw Error("DOWNLOAD_UNAVAILABLE");
+    },
+    chooseFile: async () => {
+      const result = await dialog.showSaveDialog({
+        defaultPath: "creative-member.bin",
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+    fetch,
+  });
   const exports = registerExportIpc(ipcMain, {
     checkSender,
     request,
@@ -715,6 +732,7 @@ async function main() {
           for (const selection of fileSelections.values())
             selection.abort.abort();
           await referenceDirectories.abortAndSettle();
+          externalWork.cancel();
           await exports.settled();
           if (coreIsRunning(core)) {
             const result = await request("/project/quiesce", {});

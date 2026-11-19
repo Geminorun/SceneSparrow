@@ -1,7 +1,8 @@
 # OP4-B: recorded Agent work copies and protected acceptance
 
-Status: root preparation while OP4-A is implemented, 2026-11-19. Not dispatched.
-Root must insert A's accepted commit and concrete native seams before assignment.
+Status: root-frozen assignment after accepted OP4-A `2823f6a`, 2026-11-19.
+Concrete native and generated-contract requirements are frozen in the
+[B handoff](open-project-op4b-handoff.md), which is part of this assignment.
 Parent [OP4](open-project-op4.md) owns the product contract. B implements
 OP4-T04–T07 and must not replace A's journal/receipt/history coordinator.
 

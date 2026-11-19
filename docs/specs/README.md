@@ -15,7 +15,7 @@ tasks to the approved implementation sequence and review/commit/push gates.
 The [open project format](open-project-format.md) is a new cross-stage file and
 interoperability contract. Its [OP1–OP6 execution plan](../open-project-execution.md)
 defines the next migration effort. OP1 contracts/codec, Linux OP2 storage and
-OP3 reconciliation/source authoring are locally reviewed; later delivery gates
+OP3 reconciliation/source authoring and OP4 recorded acceptance are locally reviewed; later delivery gates
 remain pending. The delivered S1–S4 behavior below remains
 the regression baseline. Root supplies the owning
 stage brief and resolves its explicit format/recovery gates before delegation.
@@ -45,7 +45,7 @@ step 3 adds [sources/import and recovery](../validation/step-03.md). Step 4 adds
 performance acceptance remains open. Step 8 adds
 [delivery and verified recovery](../validation/step-08.md), with all 130 cases
 tracked in the [acceptance matrix](../validation/acceptance-matrix.md).
-The shared migration ledger records the applied sequence through OP3-A (schema 012).
+The shared migration ledger records the applied sequence through OP4-B (schema 014).
 
 Each stage spec includes scope, user behavior, domain/data rules, commands/events,
 errors and recovery, ordered development tasks, and testable acceptance criteria.
@@ -67,8 +67,10 @@ specs aligned with the final behavior and record material deviations.
 
 - [OP4-A native coordination](open-project-op4a.md): reviewed inventory, streaming objects, multi-file recovery and history following OP3-B `ba8e0b8`; see its [validation](../validation/open-project-op4a.md).
 
-- [OP4-B preparation](open-project-op4b.md): scoped work copies, production locks and Changes integration; exact native handoff follows the A commit.
+- [OP4-B recorded acceptance](open-project-op4b.md): scoped work copies, production locks and Changes integration; see the [frozen handoff](open-project-op4b-handoff.md) and [validation](../validation/open-project-op4b.md).
 
 - [OP5 preparation](open-project-op5.md): explicit migration, fixed-snapshot ZIPs and verified restore; dispatch awaits OP4.
+
+- [OP5-A preparation](open-project-op5a.md): read-only legacy inspection and staged identity-preserving conversion; root freezes its accepted B handoff before dispatch.
 
 - [OP6 preparation](open-project-op6.md): native capabilities, recovery startup and final readiness; dispatch awaits OP5.

@@ -4,8 +4,9 @@ Status: implementation authorized on 2026-11-19. OP1 and Linux OP2 passed
 independent local review; OP1's native-worker correction `04ca8e4` also passed
 Foundation checks. OP2 was pushed as `9c59723` and passed Foundation checks.
 OP3-A backend and OP3-B editor/UI are independently reviewed on the same PR.
-OP4-A native graph/streaming/history coordination is independently reviewed;
-OP4-B and OP5–OP6 remain pending. Each later gate must pass separately; source UI acceptance
+OP4-A native coordination and OP4-B scoped work copies, protection, streaming and
+Changes integration are independently reviewed locally; see
+[OP4-B validation](validation/open-project-op4b.md). OP5–OP6 remain pending. Each later gate must pass separately; source UI acceptance
 does not establish native desktop or complete-package readiness.
 
 Branch: `feat/open-project-format`, based on remote `release/1.0.0` at `bf56982`.

@@ -173,7 +173,18 @@ impl SqliteProjectRepository {
                     verify_written_object(&parent, &temporary, &output, &hash, size)?;
                     parent.unlink(&temporary)?;
                 } else {
-                    parent.rename_into(&temporary, &objects, &hash)?;
+                    if let Err(error) = parent.rename_into(&temporary, &objects, &hash) {
+                        // A concurrent preparation/source save may publish the same
+                        // hash. Deduplicate only verified bytes and our held stage.
+                        if objects.open_file(&hash)?.is_none()
+                            || self.verify_object_stream(&hash)? != size
+                        {
+                            return Err(error);
+                        }
+                        verify_written_object(&parent, &temporary, &output, &hash, size)?;
+                        parent.unlink(&temporary)?;
+                        return Ok((hash, size));
+                    }
                     #[cfg(test)]
                     self.source_cut(&format!("object-stage-promoted:{hash}"))?;
                     verify_written_object(&objects, &hash, &output, &hash, size)?;
@@ -264,7 +275,7 @@ impl SqliteProjectRepository {
 }
 
 #[cfg(target_os = "linux")]
-fn verify_written_object(
+pub(crate) fn verify_written_object(
     parent: &crate::open_source::physical::Parent,
     name: &str,
     written: &File,

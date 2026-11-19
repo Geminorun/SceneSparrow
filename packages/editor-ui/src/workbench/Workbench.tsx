@@ -44,6 +44,8 @@ export function Workbench({
   onRevision,
   onBeforeClose,
   approvedBaseline,
+  onSession,
+  externalWorkRequested = 0,
 }: {
   client: PlatformClient;
   projectId: string;
@@ -51,6 +53,8 @@ export function Workbench({
   onRevision: (revision: number) => void;
   onBeforeClose: () => void;
   approvedBaseline: number | null;
+  onSession?: (session: ProjectSession | null) => void;
+  externalWorkRequested?: number;
 }) {
   const [initial, setInitial] = useState<{
     document: ManuscriptState;
@@ -125,6 +129,8 @@ export function Workbench({
       onRevision={onRevision}
       onBeforeClose={onBeforeClose}
       approvedBaseline={approvedBaseline}
+      {...(onSession ? { onSession } : {})}
+      externalWorkRequested={externalWorkRequested}
     />
   );
 }
@@ -138,6 +144,8 @@ function WorkbenchContent({
   onRevision,
   onBeforeClose,
   approvedBaseline,
+  onSession,
+  externalWorkRequested = 0,
 }: {
   initial: ManuscriptState;
   initialSource: AuthoredSourceSnapshot | null;
@@ -148,11 +156,14 @@ function WorkbenchContent({
   onRevision: (revision: number) => void;
   onBeforeClose: () => void;
   approvedBaseline: number | null;
+  onSession?: (session: ProjectSession | null) => void;
+  externalWorkRequested?: number;
 }) {
   const beforeClose = useRef(onBeforeClose);
   beforeClose.current = onBeforeClose;
   const [, render] = useState(0);
   const [recovery, setRecoveryVisible] = useState(false);
+  const [sourceChangesRequested, setSourceChangesRequested] = useState(0);
   const recoveryEpoch = useRef(0),
     recoveryMounted = useRef(true);
   const setRecovery = (visible: boolean) => {
@@ -182,6 +193,10 @@ function WorkbenchContent({
     if (initialSource) session.initializeSource(initialSource);
     return session;
   });
+  useEffect(() => {
+    onSession?.(save);
+    return () => onSession?.(null);
+  }, [save, onSession]);
   const [view, setView] = useState<WritingView>(() => {
     try {
       return localStorage.getItem(`scenesparrow.writing-view:${projectId}`) ===
@@ -427,21 +442,27 @@ function WorkbenchContent({
     } else freeze(false);
   }
   const operationLabel = (label: string | null) =>
-    label === "typing"
-      ? t.historyTyping
-      : label === "startDraft"
-        ? t.historyStartDraft
-        : label === "addSource"
-          ? t.historyAddSource
-          : label === "renameSource"
-            ? t.historyRenameSource
-            : label === "refreshSource"
-              ? t.historyRefreshSource
-              : label === "removeSource"
-                ? t.historyRemoveSource
-                : label === "import"
-                  ? t.historyImport
-                  : t.historyEdit;
+    label === "fileLocks"
+      ? t.externalProductionLocks
+      : label === "externalWork"
+        ? t.externalWork
+        : label === "renameProject"
+          ? t.renameProject
+          : label === "typing"
+            ? t.historyTyping
+            : label === "startDraft"
+              ? t.historyStartDraft
+              : label === "addSource"
+                ? t.historyAddSource
+                : label === "renameSource"
+                  ? t.historyRenameSource
+                  : label === "refreshSource"
+                    ? t.historyRefreshSource
+                    : label === "removeSource"
+                      ? t.historyRemoveSource
+                      : label === "import"
+                        ? t.historyImport
+                        : t.historyEdit;
   const headings = save.local.filter((b) => b.kind === "heading");
   const outlineHeadings = session.planning?.local.nodes ?? [];
   const assistantPlanning = (
@@ -643,7 +664,11 @@ function WorkbenchContent({
                 planning={planningFeedback}
                 openPlanning={() => session.setRecovery(true)}
                 t={t}
-                recover={() => setRecovery(true)}
+                recover={() =>
+                  save.appliedSourceConflict
+                    ? setSourceChangesRequested((value) => value + 1)
+                    : setRecovery(true)
+                }
               />
               {save.source && (
                 <SourceChanges
@@ -651,6 +676,8 @@ function WorkbenchContent({
                   client={client}
                   t={t}
                   frozen={frozen}
+                  externalWorkRequested={externalWorkRequested}
+                  sourceRequested={sourceChangesRequested}
                 />
               )}
               {view === "manuscript" &&
@@ -838,6 +865,9 @@ function WorkbenchContent({
           }}
         >
           <p>{t.recoveryHelp}</p>
+          {save.appliedSourceConflict && (
+            <p role="status">{t.EXTERNAL_APPLIED_SOURCE_CONFLICT}</p>
+          )}
           {save.error === "COMMAND_UNRESOLVED" && (
             <p role="status">{t.workspaceDiscardBlocked}</p>
           )}
@@ -852,7 +882,7 @@ function WorkbenchContent({
                 .join("\n")
             }
           />
-          {!closing && (
+          {!closing && !save.appliedSourceConflict && (
             <button
               disabled={frozen}
               onClick={async () => {

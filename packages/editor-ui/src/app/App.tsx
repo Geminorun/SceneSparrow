@@ -1,3 +1,4 @@
+import type { ProjectSession } from "../project-session/project-session";
 import {
   useCallback,
   useEffect,
@@ -74,6 +75,25 @@ export function App({ client }: { client: PlatformClient }) {
   const bootstrap = useRef<{ title: string; requestId: string } | null>(null);
   const loadGeneration = useRef(0);
   const metadataEpoch = useRef(0);
+  const projectSession = useRef<ProjectSession | null>(null);
+  const [sourceProject, setSourceProject] = useState(false);
+  const captureSession = useCallback((session: ProjectSession | null) => {
+    if (projectSession.current)
+      projectSession.current.onProjectMetadata = undefined;
+    projectSession.current = session;
+    if (session)
+      session.onProjectMetadata = (next) => {
+        metadataEpoch.current++;
+        setProject((current) =>
+          current?.id === next.id &&
+          next.workingRevision >= current.workingRevision
+            ? next
+            : current,
+        );
+      };
+    setSourceProject(!!session?.source);
+  }, []);
+  const [externalWorkRequested, setExternalWorkRequested] = useState(0);
   const settings = useRef<HTMLDialogElement>(null);
   const renameDialog = useRef<HTMLDialogElement>(null);
   const gear = useRef<HTMLButtonElement>(null);
@@ -90,6 +110,8 @@ export function App({ client }: { client: PlatformClient }) {
     if (!settings.current?.open) settings.current?.showModal();
   }, []);
   const [renameTitle, setRenameTitle] = useState("");
+  const renameTitleRef = useRef(renameTitle);
+  renameTitleRef.current = renameTitle;
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState(false);
   const renameNotice = useNoticeOwner();
@@ -224,7 +246,9 @@ export function App({ client }: { client: PlatformClient }) {
     event.preventDefault();
     if (!project || renameBusy) return;
     const command =
-      renameCommand.current?.title === renameTitle &&
+      (projectSession.current?.hasExternalRecovery ||
+        renameCommand.current?.title === renameTitle) &&
+      renameCommand.current &&
       renameCommand.current.projectId === project.id
         ? renameCommand.current
         : {
@@ -239,19 +263,54 @@ export function App({ client }: { client: PlatformClient }) {
     setRenameBusy(true);
     setRenameError(false);
     try {
-      const next = (await client.renameProject(command)).project;
-      // Metadata commands do not own manuscript revisions/readiness. An older
-      // response must not roll back a concurrent autosave or lock projection.
+      const session = projectSession.current;
+      const response = session?.source
+        ? await session.projectAction(
+            "rename",
+            async () => {
+              const registered =
+                (await client.readFileGraph?.())?.registered ?? false;
+              return {
+                requestId: command.requestId,
+                mutation: registered,
+                legacyMetadata: !registered,
+                send: () => client.renameProject(command),
+                readback: () => client.readProject(),
+              };
+            },
+            true,
+          )
+        : await client.renameProject(command);
+      if (!response) return;
+      const next = response.project;
+      // Registered rename owns graph/history generations through ProjectSession.
+      // Keep the current projection's monotonic revision after later source input.
       metadataEpoch.current++;
-      if (next)
+      if (next && !session?.source)
         setProject((current) =>
-          current?.id === next.id ? { ...current, title: next.title } : current,
+          current?.id === next.id
+            ? {
+                ...current,
+                title: next.title,
+                workingRevision: Math.max(
+                  current.workingRevision,
+                  next.workingRevision,
+                ),
+              }
+            : current,
         );
-      renameCommand.current = null;
-      renameDialog.current?.close();
+      if (renameCommand.current === command) renameCommand.current = null;
+      if (
+        intent === renameIntent.current &&
+        command.title === renameTitleRef.current
+      )
+        renameDialog.current?.close();
     } catch (failure) {
       const code = failure instanceof Error ? failure.message : "error";
-      if (code === "PROJECT_CONFLICT") {
+      if (
+        code === "PROJECT_CONFLICT" &&
+        !projectSession.current?.hasExternalRecovery
+      ) {
         renameCommand.current = null;
         try {
           const next = (await client.readProject()).project;
@@ -384,6 +443,17 @@ export function App({ client }: { client: PlatformClient }) {
                       </svg>
                     </button>
                   )}
+                  {sourceProject && client.createWorkItem && (
+                    <button
+                      onClick={() => {
+                        if (projectMenu.current)
+                          projectMenu.current.open = false;
+                        setExternalWorkRequested((value) => value + 1);
+                      }}
+                    >
+                      {t.externalWork}
+                    </button>
+                  )}
                   {client.pickProject && (
                     <>
                       <button
@@ -508,6 +578,8 @@ export function App({ client }: { client: PlatformClient }) {
                 projectId={project.id}
                 t={t}
                 onRevision={onRevision}
+                onSession={captureSession}
+                externalWorkRequested={externalWorkRequested}
                 approvedBaseline={project.approvedBaseline}
                 onBeforeClose={dismissDialogs}
               />

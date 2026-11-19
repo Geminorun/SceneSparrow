@@ -1,3 +1,5 @@
+import { GraphRecovery } from "./GraphRecovery";
+import { ExternalWork } from "./ExternalWork";
 import { createPortal } from "react-dom";
 import {
   sourceDiff,
@@ -89,12 +91,18 @@ export function SourceChanges({
   client,
   t,
   frozen = false,
+  externalWorkRequested = 0,
+  sourceRequested = 0,
 }: {
   save: ProjectSession;
   client: PlatformClient;
   t: typeof en;
   frozen?: boolean;
+  externalWorkRequested?: number;
+  sourceRequested?: number;
 }) {
+  const [graphEvidence, setGraphEvidence] = useState<string | undefined>();
+  const [external, setExternal] = useState(false);
   const [open, setOpen] = useState(false),
     [candidate, setCandidate] = useState<AuthoredSourceCandidate | null>(null),
     [proposal, setProposal] = useState(""),
@@ -212,6 +220,8 @@ export function SourceChanges({
     else resolve("source-change");
   }, [error, report, resolve]);
   const show = () => {
+    if (save.appliedSourceConflict) setExternal(false);
+    else if (save.hasExternalRecovery) setExternal(true);
     epoch.current++;
     setError("");
     if (proposalRef.current === proposalBase.current) {
@@ -222,8 +232,34 @@ export function SourceChanges({
     dialogOpen.current = true;
     setOpen(true);
   };
+  useEffect(() => {
+    if (externalWorkRequested) {
+      setExternal(true);
+      show();
+    }
+  }, [externalWorkRequested]);
+  useEffect(() => {
+    if (sourceRequested) {
+      show();
+      setExternal(false);
+    }
+  }, [sourceRequested]);
   const loadEvidence = async (hash: string) => {
     try {
+      if (client.readGraphRecoveryMembers) {
+        const page = await client.readGraphRecoveryMembers(hash);
+        if (
+          page.records.length ||
+          save.sourceStatus?.pendingIntent?.version === 3
+        ) {
+          if (mounted.current) {
+            setGraphEvidence(hash);
+            setRetained(hash);
+            setEvidence(null);
+          }
+          return;
+        }
+      }
       const next = await client.readAuthoredSourceRecoveryEvidence?.(hash);
       if (mounted.current && next) {
         setEvidence(next);
@@ -278,6 +314,8 @@ export function SourceChanges({
   };
   const pending = status?.pendingIntent;
   const needsAttention =
+    save.hasPendingSourceRecovery ||
+    save.hasExternalRecovery ||
     proposal !== proposalBase.current ||
     !!pending ||
     (!!status && status.externalStatus !== "unchanged") ||
@@ -316,311 +354,398 @@ export function SourceChanges({
                 )
               }
             >
-              <p role="status">
-                {status?.externalStatus === "missing"
-                  ? t.sourceMissing
-                  : status?.externalStatus === "unstable"
-                    ? t.sourceUnstable
-                    : needsAttention
-                      ? t.sourceChangesHelp
-                      : t.sourceUnchanged}
-              </p>
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void perform(async () => {
-                    await save.inspectSource(true);
-                    return true;
-                  })
-                }
-              >
-                {t.sourceRescan}
-              </button>
-              <div className="source-diff-grid">
-                <ChangedLines
-                  before={save.source?.source ?? ""}
-                  after={save.sourceLocal}
-                  title={t.sourceDiffLocal}
-                  t={t}
-                />
-                {candidate?.source !== undefined &&
-                  candidate.source !== null && (
-                    <ChangedLines
-                      before={save.source?.source ?? ""}
-                      after={candidate.source}
-                      title={t.sourceDiffExternal}
-                      t={t}
-                    />
-                  )}
-              </div>
-              <details className="source-full-versions">
-                <summary>{t.sourceFullVersions}</summary>
-                <div className="source-version-grid">
-                  <label>
-                    {t.sourceAccepted}
-                    <textarea readOnly value={save.source?.source ?? ""} />
-                  </label>
-                  <label>
-                    {t.localCopy}
-                    <textarea readOnly value={save.sourceLocal} />
-                  </label>
-                  <label>
-                    {t.sourceExternal}
-                    <textarea readOnly value={candidate?.source ?? ""} />
-                    {candidate?.source === null && (
-                      <span>{t.sourceMissing}</span>
-                    )}
-                  </label>
+              {client.createWorkItem && (
+                <div
+                  className="writing-view-switch"
+                  role="group"
+                  aria-label={t.sourceChanges}
+                >
+                  <button
+                    aria-pressed={!external}
+                    onClick={() => setExternal(false)}
+                  >
+                    {t.manuscript}
+                  </button>
+                  <button
+                    aria-pressed={external}
+                    onClick={() => setExternal(true)}
+                  >
+                    {t.externalWork}
+                  </button>
                 </div>
-              </details>
-              {candidate?.validationError && (
-                <p role="status">{t.sourceInvalidCandidate}</p>
               )}
-              <button
-                onClick={() =>
-                  downloadSource(
-                    new TextEncoder().encode(save.sourceLocal),
-                    "manuscript-local.md",
-                  )
-                }
-              >
-                {t.sourceDownloadLocal}
-              </button>
-              {proposal !== proposalBase.current && (
-                <button disabled={busy} onClick={resetProposal}>
-                  {t.sourceResetProposal}
-                </button>
-              )}
-              {candidate &&
-                candidate.id === status?.candidateId &&
-                candidate.disposition === "pending" && (
-                  <>
-                    <div className="dialog-actions">
-                      <button
-                        disabled={
-                          busy ||
-                          candidate.source === null ||
-                          !!candidate.validationError
-                        }
-                        onClick={() =>
-                          void perform(() =>
-                            save.resolveSource(candidate, "accept", null),
-                          )
-                        }
-                      >
-                        {t.sourceAccept}
-                      </button>
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void perform(() =>
-                            save.resolveSource(
-                              candidate,
-                              "proposal",
-                              save.sourceLocal,
-                            ),
-                          )
-                        }
-                      >
-                        {t.sourceKeepLocal}
-                      </button>
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void perform(() =>
-                            save.resolveSource(candidate, "discard", null),
-                          )
-                        }
-                      >
-                        {t.sourceDiscard}
-                      </button>
-                    </div>
-                  </>
-                )}
-              {!candidate &&
-                !pending &&
-                ["error", "conflict"].includes(save.status) && (
-                  <>
-                    <button
-                      disabled={busy}
-                      onClick={() => void perform(() => save.flush(true))}
-                    >
-                      {t.retry}
-                    </button>
-                  </>
-                )}
-              {((!pending && !!status?.candidateId) ||
-                ["error", "conflict"].includes(save.status) ||
-                proposalOpen ||
-                proposal !== proposalBase.current) && (
-                <details
-                  key="source-proposal"
-                  open={proposalOpen}
-                  onToggle={(event) =>
-                    setProposalOpen(event.currentTarget.open)
+              {external && <ExternalWork client={client} save={save} t={t} />}
+              <div hidden={external} inert={external}>
+                <p
+                  role="status"
+                  data-testid={
+                    save.appliedSourceConflict
+                      ? "source-applied-conflict"
+                      : undefined
                   }
                 >
-                  <summary>{t.sourceProposal}</summary>
-                  <label>
-                    {t.sourceProposal}
-                    <textarea
-                      value={rawEditorMap(proposal).text}
-                      onChange={(event) => changeProposal(event.target.value)}
-                    />
-                  </label>
-                  <button
-                    disabled={
-                      busy ||
-                      !!pending ||
-                      (!!status?.candidateId &&
-                        (candidate?.id !== status.candidateId ||
-                          candidate?.disposition !== "pending"))
-                    }
-                    onClick={() => {
-                      const capturedCandidate = status?.candidateId
-                        ? candidate
-                        : null;
-                      if (
-                        status?.candidateId &&
-                        capturedCandidate?.id !== status.candidateId
-                      )
-                        return;
-                      void save.actions.run(
-                        "source-apply-proposal",
-                        () =>
-                          perform(() =>
-                            capturedCandidate
-                              ? save.resolveSource(
-                                  capturedCandidate,
-                                  "proposal",
-                                  proposalRef.current,
-                                )
-                              : save.saveSourceProposal(proposalRef.current),
-                          ),
-                        () => mounted.current && dialogOpen.current,
-                      );
-                    }}
-                  >
-                    {t.sourceUseProposal}
-                  </button>
-                </details>
-              )}
-              {!save.hasUnresolvedSource &&
-                ["error", "conflict"].includes(save.status) && (
-                  <button
-                    disabled={busy}
-                    onClick={() => void perform(() => save.reload())}
-                  >
-                    {t.sourceReloadAccepted}
-                  </button>
-                )}
-              {save.hasUnresolvedSource && (
+                  {save.appliedSourceConflict
+                    ? t.EXTERNAL_APPLIED_SOURCE_CONFLICT
+                    : status?.externalStatus === "missing"
+                      ? t.sourceMissing
+                      : status?.externalStatus === "unstable"
+                        ? t.sourceUnstable
+                        : needsAttention
+                          ? t.sourceChangesHelp
+                          : t.sourceUnchanged}
+                </p>
                 <button
                   disabled={busy}
-                  onClick={() => void perform(() => save.flush(true))}
+                  onClick={() =>
+                    void perform(async () => {
+                      await save.inspectSource(true);
+                      return true;
+                    })
+                  }
                 >
-                  {t.sourceResolvePrevious}
+                  {t.sourceRescan}
                 </button>
-              )}
-              {pending && (
-                <div className="source-recovery-actions">
-                  <p>{t.sourceRecoveryHelp}</p>
+                <div className="source-diff-grid">
+                  <ChangedLines
+                    before={save.source?.source ?? ""}
+                    after={save.sourceLocal}
+                    title={t.sourceDiffLocal}
+                    t={t}
+                  />
+                  {candidate?.source !== undefined &&
+                    candidate.source !== null && (
+                      <ChangedLines
+                        before={save.source?.source ?? ""}
+                        after={candidate.source}
+                        title={t.sourceDiffExternal}
+                        t={t}
+                      />
+                    )}
+                </div>
+                <details className="source-full-versions">
+                  <summary>{t.sourceFullVersions}</summary>
+                  <div className="source-version-grid">
+                    <label>
+                      {t.sourceAccepted}
+                      <textarea readOnly value={save.source?.source ?? ""} />
+                    </label>
+                    <label>
+                      {t.localCopy}
+                      <textarea readOnly value={save.sourceLocal} />
+                    </label>
+                    <label>
+                      {t.sourceExternal}
+                      <textarea readOnly value={candidate?.source ?? ""} />
+                      {candidate?.source === null && (
+                        <span>{t.sourceMissing}</span>
+                      )}
+                    </label>
+                  </div>
+                </details>
+                {candidate?.validationError && (
+                  <p role="status">{t.sourceInvalidCandidate}</p>
+                )}
+                <button
+                  onClick={() =>
+                    downloadSource(
+                      new TextEncoder().encode(save.sourceLocal),
+                      "manuscript-local.md",
+                    )
+                  }
+                >
+                  {t.sourceDownloadLocal}
+                </button>
+                {proposal !== proposalBase.current && (
+                  <button disabled={busy} onClick={resetProposal}>
+                    {t.sourceResetProposal}
+                  </button>
+                )}
+                {candidate &&
+                  candidate.id === status?.candidateId &&
+                  candidate.disposition === "pending" && (
+                    <>
+                      <div className="dialog-actions">
+                        <button
+                          disabled={
+                            busy ||
+                            candidate.source === null ||
+                            !!candidate.validationError
+                          }
+                          onClick={() =>
+                            void perform(() =>
+                              save.resolveSource(candidate, "accept", null),
+                            )
+                          }
+                        >
+                          {t.sourceAccept}
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void perform(() =>
+                              save.resolveSource(
+                                candidate,
+                                "proposal",
+                                save.sourceLocal,
+                              ),
+                            )
+                          }
+                        >
+                          {t.sourceKeepLocal}
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() =>
+                            void perform(() =>
+                              save.resolveSource(candidate, "discard", null),
+                            )
+                          }
+                        >
+                          {t.sourceDiscard}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                {!candidate &&
+                  !pending &&
+                  !save.appliedSourceConflict &&
+                  ["error", "conflict"].includes(save.status) && (
+                    <>
+                      <button
+                        disabled={busy}
+                        onClick={() => void perform(() => save.flush(true))}
+                      >
+                        {t.retry}
+                      </button>
+                    </>
+                  )}
+                {((!pending && !!status?.candidateId) ||
+                  ["error", "conflict"].includes(save.status) ||
+                  proposalOpen ||
+                  proposal !== proposalBase.current) && (
+                  <details
+                    key="source-proposal"
+                    open={proposalOpen}
+                    onToggle={(event) =>
+                      setProposalOpen(event.currentTarget.open)
+                    }
+                  >
+                    <summary>{t.sourceProposal}</summary>
+                    <label>
+                      {t.sourceProposal}
+                      <textarea
+                        value={rawEditorMap(proposal).text}
+                        onChange={(event) => changeProposal(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      disabled={
+                        busy ||
+                        !!pending ||
+                        (!!status?.candidateId &&
+                          (candidate?.id !== status.candidateId ||
+                            candidate?.disposition !== "pending"))
+                      }
+                      onClick={() => {
+                        const capturedCandidate = status?.candidateId
+                          ? candidate
+                          : null;
+                        if (
+                          status?.candidateId &&
+                          capturedCandidate?.id !== status.candidateId
+                        )
+                          return;
+                        const capturedInput = save.visibleInputIdentity,
+                          capturedContext = save.actions.contextVersion;
+                        void save.actions.run(
+                          "source-apply-proposal",
+                          () =>
+                            perform(() =>
+                              capturedCandidate
+                                ? save.resolveSource(
+                                    capturedCandidate,
+                                    "proposal",
+                                    proposalRef.current,
+                                  )
+                                : save.saveSourceProposal(proposalRef.current),
+                            ),
+                          () =>
+                            mounted.current &&
+                            dialogOpen.current &&
+                            capturedInput === save.visibleInputIdentity &&
+                            capturedContext === save.actions.contextVersion,
+                        );
+                      }}
+                    >
+                      {t.sourceUseProposal}
+                    </button>
+                  </details>
+                )}
+                {!save.hasUnresolvedSource &&
+                  ["error", "conflict"].includes(save.status) && (
+                    <button
+                      disabled={busy}
+                      onClick={() => void perform(() => save.reload())}
+                    >
+                      {t.sourceReloadAccepted}
+                    </button>
+                  )}
+                {save.hasUnresolvedSource && (
+                  <button
+                    disabled={busy}
+                    onClick={() => void perform(() => save.flush(true))}
+                  >
+                    {t.sourceResolvePrevious}
+                  </button>
+                )}
+                {save.hasPendingSourceRecovery && (
                   <button
                     disabled={busy}
                     onClick={() =>
-                      void perform(() => save.recoverSource(status!))
+                      void perform(() => save.retrySourceRecovery())
                     }
                   >
-                    {t.sourceRecoverKnown}
+                    {t.sourceResolvePrevious}
                   </button>
-                  <button
-                    disabled={busy || !status?.observationFingerprint}
-                    onClick={() =>
-                      void perform(async () => {
-                        const ok = await save.recoverSource(status!, true);
-                        if (ok) await loadEvidence(pending.intentHash);
-                        return ok;
-                      })
-                    }
-                  >
-                    {t.sourcePreserveExternal}
-                  </button>
-                  <button onClick={() => void loadEvidence(pending.intentHash)}>
+                )}
+                {pending && (
+                  <div className="source-recovery-actions">
+                    <p>{t.sourceRecoveryHelp}</p>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void perform(() => save.recoverSource(status!))
+                      }
+                    >
+                      {t.sourceRecoverKnown}
+                    </button>
+                    <button
+                      disabled={
+                        busy ||
+                        (pending.version === 3
+                          ? !client.inspectGraphRecovery
+                          : !status?.observationFingerprint)
+                      }
+                      onClick={() =>
+                        void perform(async () => {
+                          let observed = status!;
+                          const captured = epoch.current;
+                          if (
+                            pending.version === 3 &&
+                            !save.hasPendingSourceRecovery
+                          ) {
+                            const inspection =
+                              await client.inspectGraphRecovery!(
+                                pending.intentHash,
+                              );
+                            if (
+                              !mounted.current ||
+                              captured !== epoch.current ||
+                              save.sourceStatus?.pendingIntent?.intentHash !==
+                                pending.intentHash
+                            )
+                              return false;
+                            observed = {
+                              ...status!,
+                              observationFingerprint:
+                                inspection.observationFingerprint,
+                            };
+                          }
+                          const ok = await save.recoverSource(observed, true);
+                          if (ok) await loadEvidence(pending.intentHash);
+                          return ok;
+                        })
+                      }
+                    >
+                      {t.sourcePreserveExternal}
+                    </button>
+                    <button
+                      onClick={() => void loadEvidence(pending.intentHash)}
+                    >
+                      {t.sourceEvidence}
+                    </button>
+                  </div>
+                )}
+                {retained && (
+                  <button onClick={() => void loadEvidence(retained)}>
                     {t.sourceEvidence}
                   </button>
-                </div>
-              )}
-              {retained && (
-                <button onClick={() => void loadEvidence(retained)}>
-                  {t.sourceEvidence}
-                </button>
-              )}
-              {evidence && (
-                <section aria-label={t.sourceEvidence}>
-                  <h3>{t.sourceEvidence}</h3>
-                  {evidence.versions.map((member) => (
-                    <div key={member.sourceHash}>
-                      <span>
-                        {member.roles
-                          .map(
-                            (role) =>
-                              t[`sourceRole_${role}` as keyof typeof t] ?? role,
-                          )
-                          .join(", ")}{" "}
-                        · {member.size} B
-                      </span>
-                      <button
-                        onClick={() =>
-                          void client
-                            .readAuthoredSourceRecoveryVersion?.(
-                              evidence.intentHash,
-                              member.sourceHash,
+                )}
+                {client.readGraphRecoveries && (
+                  <GraphRecovery
+                    client={client}
+                    t={t}
+                    {...(graphEvidence ? { intent: graphEvidence } : {})}
+                  />
+                )}
+                {evidence && (
+                  <section aria-label={t.sourceEvidence}>
+                    <h3>{t.sourceEvidence}</h3>
+                    {evidence.versions.map((member) => (
+                      <div key={member.sourceHash}>
+                        <span>
+                          {member.roles
+                            .map(
+                              (role) =>
+                                t[`sourceRole_${role}` as keyof typeof t] ??
+                                role,
                             )
-                            .then((value) => {
-                              if (mounted.current) setVersion(value);
-                            })
-                            .catch((failure) => setError(failure.message))
-                        }
-                      >
-                        {t.sourceCompare}
-                      </button>
-                    </div>
-                  ))}
-                </section>
-              )}
-              {version && (
-                <div>
-                  <p>
-                    {version.source === null
-                      ? t.sourceInvalidUtf8
-                      : t.sourceEvidencePreview}
+                            .join(", ")}{" "}
+                          · {member.size} B
+                        </span>
+                        <button
+                          onClick={() =>
+                            void client
+                              .readAuthoredSourceRecoveryVersion?.(
+                                evidence.intentHash,
+                                member.sourceHash,
+                              )
+                              .then((value) => {
+                                if (mounted.current) setVersion(value);
+                              })
+                              .catch((failure) => setError(failure.message))
+                          }
+                        >
+                          {t.sourceCompare}
+                        </button>
+                      </div>
+                    ))}
+                  </section>
+                )}
+                {version && (
+                  <div>
+                    <p>
+                      {version.source === null
+                        ? t.sourceInvalidUtf8
+                        : t.sourceEvidencePreview}
+                    </p>
+                    {version.source !== null && (
+                      <textarea
+                        aria-label={t.sourceEvidencePreview}
+                        readOnly
+                        value={version.source}
+                      />
+                    )}
+                    <button
+                      onClick={() =>
+                        downloadSource(
+                          Uint8Array.from(atob(version.bytesBase64), (c) =>
+                            c.charCodeAt(0),
+                          ),
+                          "manuscript-evidence.md",
+                        )
+                      }
+                    >
+                      {t.sourceDownloadEvidence}
+                    </button>
+                  </div>
+                )}
+                {error && (
+                  <p role="alert">
+                    {t[error as keyof typeof t] ?? t.sourceOperationFailed}
                   </p>
-                  {version.source !== null && (
-                    <textarea
-                      aria-label={t.sourceEvidencePreview}
-                      readOnly
-                      value={version.source}
-                    />
-                  )}
-                  <button
-                    onClick={() =>
-                      downloadSource(
-                        Uint8Array.from(atob(version.bytesBase64), (c) =>
-                          c.charCodeAt(0),
-                        ),
-                        "manuscript-evidence.md",
-                      )
-                    }
-                  >
-                    {t.sourceDownloadEvidence}
-                  </button>
-                </div>
-              )}
-              {error && (
-                <p role="alert">
-                  {t[error as keyof typeof t] ?? t.sourceOperationFailed}
-                </p>
-              )}
+                )}
+              </div>
             </div>
           </WritingDialog>,
           document.body,

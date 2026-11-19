@@ -285,7 +285,7 @@ impl SqliteProjectRepository {
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
         self.graph_intent_fingerprint(&intent)
     }
-    fn graph_intent_fingerprint(&self, intent: &Intent) -> Result<String> {
+    pub(super) fn graph_intent_fingerprint(&self, intent: &Intent) -> Result<String> {
         let root = self
             .creative_root
             .as_ref()

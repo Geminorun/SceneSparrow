@@ -19,6 +19,14 @@ import { DatabaseSync } from "node:sqlite";
 import { waitFor } from "../../../scripts/processes.mjs";
 
 type Core = {
+  receiptFailure: (id: string | null) => void;
+  creative: (path: string, bytes: string | Uint8Array) => Promise<void>;
+  workFile: (
+    item: string,
+    path: string,
+    bytes: string | Uint8Array,
+  ) => Promise<void>;
+  workSource: (item: string) => Promise<string>;
   external: (source: string | null) => Promise<void>;
   disk: () => Promise<Buffer>;
   seed: (source: string) => Promise<any>;
@@ -122,6 +130,41 @@ export const test = base.extend<{ core: Core }>({
         const root = join(directory, "project"),
           management = join(root, ".scenesparrow");
         await use({
+          receiptFailure: (id) => {
+            const db = new DatabaseSync(join(management, "project.sqlite"));
+            try {
+              db.exec("DROP TRIGGER IF EXISTS browser_work_receipt_failure");
+              if (id) {
+                if (!/^[0-9a-f-]{36}$/.test(id))
+                  throw Error("fixture request ID");
+                db.exec(
+                  `CREATE TRIGGER browser_work_receipt_failure BEFORE INSERT ON command_receipts WHEN NEW.request_id='${id}' BEGIN SELECT RAISE(FAIL,'browser fixture SQL cut'); END;`,
+                );
+              }
+            } finally {
+              db.close();
+            }
+          },
+          creative: async (path, bytes) => {
+            await mkdir(join(root, path, ".."), { recursive: true });
+            await writeFile(join(root, path), bytes);
+          },
+          workFile: async (item, path, bytes) => {
+            const target = join(
+              management,
+              "work-items",
+              item,
+              "project",
+              path,
+            );
+            await mkdir(join(target, ".."), { recursive: true });
+            await writeFile(target, bytes);
+          },
+          workSource: (item) =>
+            readFile(
+              join(management, "work-items", item, "project/manuscript.md"),
+              "utf8",
+            ),
           external: (source) =>
             source === null
               ? unlink(join(root, "manuscript.md"))

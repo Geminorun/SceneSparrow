@@ -46,6 +46,7 @@ export class CompositionActions {
     key: string,
     action: () => T | Promise<T>,
     valid = () => true,
+    waitForComposition = true,
   ): Promise<T | false> {
     if (this.disposed) return Promise.resolve(false);
     const existing = this.running.get(key);
@@ -62,7 +63,7 @@ export class CompositionActions {
               resolve(false);
               return;
             }
-            if (this.composing) return;
+            if (waitForComposition && this.composing) return;
             this.pending.delete(key);
             try {
               Promise.resolve(action()).then(resolve, reject);
@@ -77,7 +78,7 @@ export class CompositionActions {
         },
       };
       this.pending.set(key, intent);
-      if (!this.composing) intent.run();
+      if (!waitForComposition || !this.composing) intent.run();
     }).finally(() => {
       if (this.running.get(key) === promise) this.running.delete(key);
     });

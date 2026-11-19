@@ -499,6 +499,18 @@ fn typing_scope(before: &ManuscriptState, t: &Transition, kind: &str) -> Option<
     Some(id.clone())
 }
 impl Plan {
+    pub(crate) fn label_current(&mut self, label: &str) {
+        if !self.changed {
+            return;
+        }
+        if let Some(entry) = self
+            .entries
+            .get_mut(self.metadata.cursor.checked_sub(1).unwrap_or(-1) as usize)
+        {
+            entry.label = label.into();
+            self.metadata.undo_label = Some(label.into());
+        }
+    }
     pub(super) fn current_entry_id(&self) -> Option<&str> {
         self.entries
             .get(self.metadata.cursor.checked_sub(1)? as usize)
@@ -599,6 +611,7 @@ impl SqliteProjectRepository {
         }
     }
     pub(crate) fn verify_file_graph_history(&self, c: &Connection) -> Result<()> {
+        self.verify_production_file_locks(c)?;
         let Some(current) = self.file_graph_locked(c)? else {
             return Ok(());
         };

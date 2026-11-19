@@ -37,6 +37,8 @@ pub struct SqliteProjectRepository {
     #[cfg(test)]
     fail_export_directory_sync: std::sync::atomic::AtomicBool,
     source_observation: Mutex<open_source::Observation>,
+    preparation_leases: Arc<std::sync::atomic::AtomicUsize>,
+    preparation_worker: std::sync::atomic::AtomicBool,
     connection: Mutex<Connection>,
     quiescing: std::sync::atomic::AtomicBool,
     workers: std::sync::atomic::AtomicUsize,
@@ -154,7 +156,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 13 || (require_existing && version < 1) {
+        if version > 14 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -258,6 +260,17 @@ impl SqliteProjectRepository {
             storage(tx.execute_batch(include_str!("../migrations/013_file_graph.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 14 {
+            backup::migration_backup(&connection, directory, 14)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/014_external_work.sql")))?;
+            storage(tx.commit())?;
+        }
+        storage(connection.execute("UPDATE work_operations SET status='interrupted',failure_code='WORK_OPERATION_INTERRUPTED' WHERE status IN ('queued','running')", []))?;
+        storage(connection.execute(
+            "UPDATE work_items SET state='interrupted' WHERE state IN ('preparing','inspecting')",
+            [],
+        ))?;
         storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
@@ -271,6 +284,8 @@ impl SqliteProjectRepository {
             #[cfg(test)]
             fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
             source_observation: Mutex::new(open_source::Observation::default()),
+            preparation_leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            preparation_worker: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(connection),
             quiescing: std::sync::atomic::AtomicBool::new(false),
             workers: std::sync::atomic::AtomicUsize::new(0),
@@ -808,7 +823,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            13
+            14
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -875,6 +890,7 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_file_graph_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TABLE work_items;DROP TABLE work_operations;DROP TABLE work_candidates;DROP TABLE work_preparations;DROP TABLE work_copy_locations;DROP TABLE production_file_locks;DROP TABLE history_production_locks;").unwrap();
     c.execute_batch("DROP TABLE accepted_file_graph;DROP TABLE history_file_graphs;DROP TABLE file_graph_pins;DROP TABLE approved_file_graphs;DROP TABLE graph_recovery_members;DROP TABLE graph_recovery_decisions;").unwrap();
 }
 #[cfg(test)]

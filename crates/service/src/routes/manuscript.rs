@@ -23,7 +23,18 @@ pub(crate) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "SOURCE_CANDIDATE_STALE"
+                "WORK_ITEM_STALE"
+                | "WORK_CANDIDATE_STALE"
+                | "WORK_OPERATION_ACTIVE"
+                | "WORK_COPY_LIMIT"
+                | "PRODUCTION_FILE_LOCKED"
+                | "GRAPH_BASE_MISMATCH"
+                | "GRAPH_OBSERVATION_STALE"
+                | "GRAPH_REGISTRATION_REQUIRED"
+                | "GRAPH_NAME_MISMATCH"
+                | "WORK_OPERATION_INTERRUPTED"
+                | "WORK_CANCELLED"
+                | "SOURCE_CANDIDATE_STALE"
                 | "SOURCE_RECOVERY_STALE"
                 | "SOURCE_BASE_MISMATCH"
                 | "SOURCE_EXTERNAL_CHANGE"

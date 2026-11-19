@@ -2957,3 +2957,538 @@ pub struct AuthoredSourceRecoveryBytes {
     #[serde(rename = "source", deserialize_with = "required_nullable")]
     pub source: Option<String>,
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CreativeGrantManuscriptScopeKind {
+    #[serde(rename = "all")]
+    All,
+    #[serde(rename = "blocks")]
+    Blocks,
+    #[serde(rename = "none")]
+    None,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreativeGrantManuscriptScope {
+    #[serde(rename = "kind")]
+    pub kind: CreativeGrantManuscriptScopeKind,
+    #[serde(rename = "blockIds")]
+    pub block_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreativeGrant {
+    #[serde(rename = "wholeTree")]
+    pub whole_tree: bool,
+    #[serde(rename = "files")]
+    pub files: Vec<String>,
+    #[serde(rename = "directories")]
+    pub directories: Vec<String>,
+    #[serde(rename = "manuscriptScope")]
+    pub manuscript_scope: CreativeGrantManuscriptScope,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphActionBase {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRegisterRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedSourceHash")]
+    pub expected_source_hash: String,
+    #[serde(rename = "expectedSourceGeneration")]
+    pub expected_source_generation: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemCreateRequestOrigin {
+    #[serde(rename = "copy")]
+    Copy,
+    #[serde(rename = "live")]
+    Live,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemCreateRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+    #[serde(rename = "origin")]
+    pub origin: WorkItemCreateRequestOrigin,
+    #[serde(rename = "grant")]
+    pub grant: CreativeGrant,
+    #[serde(rename = "referenceIds")]
+    pub reference_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemInspectRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "expectedItemRevision")]
+    pub expected_item_revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkCandidateAcceptRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "candidateId")]
+    pub candidate_id: String,
+    #[serde(rename = "candidateDigest")]
+    pub candidate_digest: String,
+    #[serde(rename = "expectedItemRevision")]
+    pub expected_item_revision: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemDiscardRequestDisposition {
+    #[serde(rename = "discardCopy")]
+    DiscardCopy,
+    #[serde(rename = "discardCandidate")]
+    DiscardCandidate,
+    #[serde(rename = "restoreAcceptedLive")]
+    RestoreAcceptedLive,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemDiscardRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "candidateId", deserialize_with = "required_nullable")]
+    pub candidate_id: Option<String>,
+    #[serde(rename = "expectedItemRevision")]
+    pub expected_item_revision: i64,
+    #[serde(rename = "disposition")]
+    pub disposition: WorkItemDiscardRequestDisposition,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemControlRequestAction {
+    #[serde(rename = "cancel")]
+    Cancel,
+    #[serde(rename = "retry")]
+    Retry,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemControlRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "expectedItemRevision")]
+    pub expected_item_revision: i64,
+    #[serde(rename = "action")]
+    pub action: WorkItemControlRequestAction,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionFileLockTarget {
+    #[serde(rename = "path")]
+    pub path: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionFileLockRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGraphHash")]
+    pub expected_graph_hash: String,
+    #[serde(rename = "expectedGraphGeneration")]
+    pub expected_graph_generation: i64,
+    #[serde(rename = "locked")]
+    pub locked: bool,
+    #[serde(rename = "targets")]
+    pub targets: Vec<ProductionFileLockTarget>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphFileView {
+    #[serde(rename = "path")]
+    pub path: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+    #[serde(rename = "size")]
+    pub size: i64,
+    #[serde(rename = "locked")]
+    pub locked: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileGraphView {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "registered")]
+    pub registered: bool,
+    #[serde(rename = "graphHash", deserialize_with = "required_nullable")]
+    pub graph_hash: Option<String>,
+    #[serde(rename = "generation")]
+    pub generation: i64,
+    #[serde(rename = "fileCount")]
+    pub file_count: i64,
+    #[serde(rename = "codeExecution")]
+    pub code_execution: bool,
+    #[serde(rename = "fileDirectoryTransitions")]
+    pub file_directory_transitions: bool,
+    #[serde(rename = "manuscriptPath", deserialize_with = "required_nullable")]
+    pub manuscript_path: Option<String>,
+    #[serde(rename = "manifestName", deserialize_with = "required_nullable")]
+    pub manifest_name: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkCandidateViewImpact {
+    #[serde(rename = "source")]
+    Source,
+    #[serde(rename = "production")]
+    Production,
+    #[serde(rename = "none")]
+    None,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkCandidateView {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "candidateId")]
+    pub candidate_id: String,
+    #[serde(rename = "candidateDigest")]
+    pub candidate_digest: String,
+    #[serde(rename = "originalGraphHash")]
+    pub original_graph_hash: String,
+    #[serde(rename = "preparedGraphHash")]
+    pub prepared_graph_hash: String,
+    #[serde(rename = "inspectedWorkingRevision")]
+    pub inspected_working_revision: i64,
+    #[serde(rename = "inspectedGraphGeneration")]
+    pub inspected_graph_generation: i64,
+    #[serde(rename = "changeCount")]
+    pub change_count: i64,
+    #[serde(rename = "blockers")]
+    pub blockers: Vec<String>,
+    #[serde(rename = "impact")]
+    pub impact: WorkCandidateViewImpact,
+    #[serde(rename = "assignedIds")]
+    pub assigned_ids: i64,
+    #[serde(rename = "provenance")]
+    pub provenance: Vec<WorkNarrationProvenance>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemViewOrigin {
+    #[serde(rename = "copy")]
+    Copy,
+    #[serde(rename = "live")]
+    Live,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkItemViewState {
+    #[serde(rename = "preparing")]
+    Preparing,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "inspecting")]
+    Inspecting,
+    #[serde(rename = "accepted")]
+    Accepted,
+    #[serde(rename = "discarded")]
+    Discarded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemView {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "origin")]
+    pub origin: WorkItemViewOrigin,
+    #[serde(rename = "baseGraphHash")]
+    pub base_graph_hash: String,
+    #[serde(rename = "baseGraphGeneration")]
+    pub base_graph_generation: i64,
+    #[serde(rename = "creationRevision")]
+    pub creation_revision: i64,
+    #[serde(rename = "grant")]
+    pub grant: CreativeGrant,
+    #[serde(rename = "referenceIds")]
+    pub reference_ids: Vec<String>,
+    #[serde(rename = "itemRevision")]
+    pub item_revision: i64,
+    #[serde(rename = "state")]
+    pub state: WorkItemViewState,
+    #[serde(rename = "operationRequestId")]
+    pub operation_request_id: String,
+    #[serde(rename = "latestCandidate", deserialize_with = "required_nullable")]
+    pub latest_candidate: Option<WorkCandidateView>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkOperationViewKind {
+    #[serde(rename = "create")]
+    Create,
+    #[serde(rename = "inspect")]
+    Inspect,
+    #[serde(rename = "accept")]
+    Accept,
+    #[serde(rename = "discard")]
+    Discard,
+    #[serde(rename = "control")]
+    Control,
+    #[serde(rename = "register")]
+    Register,
+    #[serde(rename = "lock")]
+    Lock,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkOperationViewStatus {
+    #[serde(rename = "queued")]
+    Queued,
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "interrupted")]
+    Interrupted,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkOperationView {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "workItemId")]
+    pub work_item_id: String,
+    #[serde(rename = "kind")]
+    pub kind: WorkOperationViewKind,
+    #[serde(rename = "status")]
+    pub status: WorkOperationViewStatus,
+    #[serde(rename = "failureCode", deserialize_with = "required_nullable")]
+    pub failure_code: Option<String>,
+    #[serde(rename = "progress")]
+    pub progress: i64,
+    #[serde(rename = "receipt", deserialize_with = "required_nullable")]
+    pub receipt: Option<CommandReceipt>,
+    #[serde(rename = "candidate", deserialize_with = "required_nullable")]
+    pub candidate: Option<WorkCandidateView>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkMutationResponse {
+    #[serde(rename = "operation")]
+    pub operation: WorkOperationView,
+    #[serde(rename = "item", deserialize_with = "required_nullable")]
+    pub item: Option<WorkItemView>,
+    #[serde(rename = "result", deserialize_with = "required_nullable")]
+    pub result: Option<AuthoredSourceSaveResponse>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkChangeViewKind {
+    #[serde(rename = "add")]
+    Add,
+    #[serde(rename = "delete")]
+    Delete,
+    #[serde(rename = "replace")]
+    Replace,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkChangeView {
+    #[serde(rename = "memberId")]
+    pub member_id: String,
+    #[serde(rename = "path")]
+    pub path: String,
+    #[serde(rename = "kind")]
+    pub kind: WorkChangeViewKind,
+    #[serde(rename = "beforeHash", deserialize_with = "required_nullable")]
+    pub before_hash: Option<String>,
+    #[serde(rename = "afterHash", deserialize_with = "required_nullable")]
+    pub after_hash: Option<String>,
+    #[serde(rename = "beforeSize")]
+    pub before_size: i64,
+    #[serde(rename = "afterSize")]
+    pub after_size: i64,
+    #[serde(rename = "renameHint", deserialize_with = "required_nullable")]
+    pub rename_hint: Option<String>,
+    #[serde(rename = "text", deserialize_with = "required_nullable")]
+    pub text: Option<String>,
+    #[serde(rename = "truncated")]
+    pub truncated: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionFileLockView {
+    #[serde(rename = "path")]
+    pub path: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRecoveryView {
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "memberCount")]
+    pub member_count: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRecoveryMemberView {
+    #[serde(rename = "memberId")]
+    pub member_id: String,
+    #[serde(rename = "path")]
+    pub path: String,
+    #[serde(rename = "role")]
+    pub role: String,
+    #[serde(rename = "hash")]
+    pub hash: String,
+    #[serde(rename = "size")]
+    pub size: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphFilePage {
+    #[serde(rename = "records")]
+    pub records: Vec<GraphFileView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkItemPage {
+    #[serde(rename = "records")]
+    pub records: Vec<WorkItemView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkChangePage {
+    #[serde(rename = "records")]
+    pub records: Vec<WorkChangeView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionFileLockPage {
+    #[serde(rename = "records")]
+    pub records: Vec<ProductionFileLockView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRecoveryPage {
+    #[serde(rename = "records")]
+    pub records: Vec<GraphRecoveryView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRecoveryMemberPage {
+    #[serde(rename = "records")]
+    pub records: Vec<GraphRecoveryMemberView>,
+    #[serde(rename = "continuation", deserialize_with = "required_nullable")]
+    pub continuation: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkNarrationProvenanceStatus {
+    #[serde(rename = "available")]
+    Available,
+    #[serde(rename = "diverged")]
+    Diverged,
+    #[serde(rename = "missing")]
+    Missing,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkNarrationProvenance {
+    #[serde(rename = "segmentId")]
+    pub segment_id: String,
+    #[serde(rename = "sourceBlockId")]
+    pub source_block_id: String,
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: i64,
+    #[serde(rename = "currentRevision", deserialize_with = "required_nullable")]
+    pub current_revision: Option<i64>,
+    #[serde(rename = "status")]
+    pub status: WorkNarrationProvenanceStatus,
+    #[serde(rename = "adapted")]
+    pub adapted: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphRecoveryInspection {
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "observationFingerprint")]
+    pub observation_fingerprint: String,
+}

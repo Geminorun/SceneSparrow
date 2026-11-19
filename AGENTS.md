@@ -62,7 +62,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–013 are
+  open; do not claim full stage acceptance. Applied migrations 001–014 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
@@ -116,7 +116,8 @@
 
 - The next open-project effort is specified in `docs/specs/open-project-format.md`,
   `docs/open-project-execution.md` and ADR 0005. OP1 contracts/codec are locally
-  reviewed, along with Linux OP2 storage and OP3 source authoring/reconciliation.
+  reviewed, along with Linux OP2 storage, OP3 source authoring/reconciliation and
+  OP4 recorded file graphs/work copies. See `docs/validation/open-project-op4b.md`.
   Complete packages and platform support retain their later gates. OP2 currently refuses
   native file promotion outside Linux; Windows source access is also unsupported.
   OP6 must implement these capabilities before claiming cross-platform delivery.
@@ -145,8 +146,11 @@
 - Future production impact and text impact have different locks. A locked text
   baseline must remain usable to create audio/video while its source stays intact.
   Unknown shared code/dependency effects expand production scope; they do not grant
-  text edits or implicitly turn text locks into production-file locks. Root freezes
-  OP4's concrete file-lock/reservation contract before coding that boundary.
+  text edits or implicitly turn text locks into production-file locks. OP4's
+  file-lock/reservation contract and reviewed ownership refinements are frozen in
+  `docs/specs/open-project-op4b-handoff.md`. Preserve original outcome/current snapshot
+  separation, proved applied local-conflict recovery, bounded preparation admission
+  and one-shot descriptor cleanup; a replay never reacquires a deletion pathname.
 
 - The primary agent handles requirements clarification, planning, product/UX and
   architecture design, competitor research, solution comparison, and standalone

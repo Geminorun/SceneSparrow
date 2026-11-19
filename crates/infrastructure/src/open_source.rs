@@ -1639,9 +1639,15 @@ impl SqliteProjectRepository {
     pub(crate) fn source_cut(&self, point: &str) -> Result<()> {
         #[cfg(test)]
         {
-            let mut action = db(self.source_action.lock())?;
-            if action.as_ref().is_some_and(|(at, _)| at == point) {
-                let (_, action) = action.take().expect("checked action");
+            let action = {
+                let mut action = db(self.source_action.lock())?;
+                if action.as_ref().is_some_and(|(at, _)| at == point) {
+                    action.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((_, action)) = action {
                 action();
             }
             let mut fault = db(self.source_fault.lock())?;

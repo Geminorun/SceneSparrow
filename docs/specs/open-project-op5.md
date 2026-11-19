@@ -61,14 +61,32 @@ review conversations/decisions/candidates, original receipts, five-transition
 Undo/Redo cursor and stable history entry identities. Migrating does not create
 new content approval or resolve pending feedback. Metadata is not an Agent edit.
 
-Write the legacy canonical Markdown once for each retained source state using
-the pinned legacy serializer, then add OP1-proved markers. A simple legacy list
+Write legacy-derived Markdown once for each retained source state through a
+marker-aware adapter around the pinned legacy CommonMark AST writer, then prove
+the OP1 marker/leaf mapping natively. The adapter preserves explicit empty root
+paragraphs and empty/nested list items, which a plain unmarked Markdown projection
+can omit. A simple legacy list
 item maps its ID to its paragraph leaf; test nested and empty items. A complex
 one-to-many mapping must refuse with a precise unsupported result until proved;
 never silently allocate replacement unlocked IDs. This is an explicit migration,
 so unavailable original Markdown spelling cannot be reconstructed. Record that
 provenance and retain the verified legacy backup; do not claim byte fidelity to
 source that never existed.
+
+Use a trusted application document worker/pure serializer module, never project
+scripts or dependency hooks. Keep its optional migration entry separate from the
+legacy public module so bare-Node export imports remain compatible. Node is a
+conversion-worker capability; ordinary new-format text open/save remains native
+and Node-independent. The existing native semantic writer deliberately refuses
+many newline/code/link shapes and is not a universal legacy migration serializer.
+
+For every derived state, reparse with trusted original IDs and require exact
+canonical order, kinds, attributes, runs/marks and identity equality. Preserve
+revision tokens in management. Never silently drop trailing breaks/whitespace,
+empty paragraphs or marks to make proof pass. Unsupported representation or source
+size expansion fails explicitly before target promotion, keeping original/backup.
+Retained approved states derive from their actual ordered immutable block payloads,
+not current prose or a guessed historical template.
 
 Retained current/history/approved/review/downstream states receive verified raw
 source evidence and graph association compatible with source-aware replay. A
@@ -84,6 +102,17 @@ target's history references while preserving stable entry identities. Keep any
 original referenced objects required by replay/evidence. Do not rewrite an old
 receipt into a claim that raw Markdown existed before migration. The verified
 legacy backup records the original normalized representation and source generation.
+
+Augment source-bearing target history/approval representations with derived raw
+evidence while retaining original immutable objects/provenance and stable history/
+baseline IDs/sequences. Current approval verification must match the derived current
+raw source; historical approvals must still restore their original IDs/locks.
+Original downstream/export captures keep their original immutable input identity;
+do not relabel past media inputs as having used newly derived Markdown spelling.
+Planning/review task contexts use canonical IDs/revision tokens, so preserve those
+contexts, input/artifact hashes and paid-run identities without a shared-AI rewrite.
+Test retained succeeded/pending results and review applicability with mock call
+counts; metadata representation migration is not a new inference or user approval.
 
 Treat the target as an independent recovered origin under ADR 0002. Fence copied
 nonterminal AI/document/export/downstream tasks before target service activation.
@@ -190,6 +219,29 @@ Absent a trusted recorded base, do not manufacture a returned-edit base from a
 package file. Offer independent restore/adoption instead. Inconsistent/tampered
 managed closure refuses verified restore. Same-project package import is not an
 implicit force overwrite. Existing targets remain untouched.
+
+A complete project ZIP may also be edited by an external Agent. When its export
+ID matches this core's retained export/base record, explicit returned-edit intake
+can create a scoped OP4 item from that trusted saved graph and the user's chosen
+grant; a preexisting work-copy envelope is another supported route. Require the
+current accepted graph to match that base before inspection/acceptance, preserving
+the ordinary stale-base rules. The archive's claimed base/grant/DB never supplies
+authority. Without the matching core record, do not guess a base from its fields.
+
+Keep transfer metadata inside the management namespace, distinct from Remotion's
+root package.json, with a versioned export/work-item identity and fixed generation.
+Verified restore checks every declared member. Returned-edit mode instead validates
+the archive structure and original management evidence while treating changed
+creative files as candidates against the core-owned baseline; supplied DB changes
+are rejected or explicitly ignored and never replace current metadata. Preserve the
+uploaded bytes and show that mode explicitly, rather than calling an edited tree
+a verified unchanged saved package. Root freezes the exact descriptor before B.
+
+The 4 MiB public transfer/manifest/audio control limit does not reinterpret private
+immutable graph objects: their existing 16 MiB native schema bound still applies.
+Archive total entry/expanded limits count management/history objects too. A valid
+native project can exceed a portable package's combined resource budget; export
+must refuse with counts and leave it intact, never omit retained closure to fit.
 
 UI uses existing app menu/project controls and focused operation/recovery dialogs,
 with stage/progress labels, readable verification errors and English/Chinese

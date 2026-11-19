@@ -34,7 +34,7 @@ fn credential(key: &str) -> bool {
             .iter()
             .any(|suffix| key.ends_with(suffix))
 }
-fn excluded(segment: &str, submitted: bool) -> Result<bool> {
+pub(super) fn excluded(segment: &str, submitted: bool) -> Result<bool> {
     let key = scenesparrow_domain::open_project::portable_key(segment);
     if matches!(key.as_str(), ".scenesparrow" | ".git") {
         if submitted || segment != key {
@@ -135,6 +135,18 @@ impl SqliteProjectRepository {
         budgets: GraphBudgets,
         project_id: Option<&str>,
     ) -> Result<(FileGraph, BTreeMap<String, Identity>)> {
+        self.scan_graph_cancellable(root, submitted, budgets, project_id, None)
+    }
+    pub(super) fn scan_graph_cancellable(
+        &self,
+        root: &Path,
+        submitted: bool,
+        budgets: GraphBudgets,
+        project_id: Option<&str>,
+        request: Option<&str>,
+    ) -> Result<(FileGraph, BTreeMap<String, Identity>)> {
+        let mut check = || request.map_or(Ok(()), |r| self.work_cancelled(r));
+        check()?;
         plain_directory(root)?;
         let project_id = if let Some(project_id) = project_id {
             project_id.to_owned()
@@ -193,23 +205,53 @@ impl SqliteProjectRepository {
                     .per_file
                     .min(budgets.aggregate.saturating_sub(total));
                 let (hash, size, id) = parent
-                    .streamed(&name, limit)?
+                    .streamed_checked(&name, limit, &mut check)?
                     .ok_or(fail("SOURCE_EXTERNAL_CHANGE"))?;
                 if self.directory.join("objects").join(&hash).exists() {
-                    if self.verify_object_stream(&hash)? != size {
+                    struct CheckedSink<'a>(&'a mut dyn FnMut() -> Result<()>);
+                    impl std::io::Write for CheckedSink<'_> {
+                        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                            (self.0)().map_err(|_| std::io::Error::other("work cancelled"))?;
+                            Ok(bytes.len())
+                        }
+                        fn flush(&mut self) -> std::io::Result<()> {
+                            Ok(())
+                        }
+                    }
+                    let verified = self.stream_object_to(&hash, &mut CheckedSink(&mut check));
+                    check()?;
+                    if verified? != size {
                         return Err(fail("GRAPH_INVALID"));
                     }
                 } else {
                     let (mut input, opened) = parent
                         .open_file(&name)?
                         .ok_or(fail("SOURCE_EXTERNAL_CHANGE"))?;
-                    if opened != id
-                        || self.object_stream(&mut input, limit)? != (hash.clone(), size)
-                    {
+                    struct CheckedRead<'a> {
+                        file: &'a mut File,
+                        check: &'a mut dyn FnMut() -> Result<()>,
+                    }
+                    impl std::io::Read for CheckedRead<'_> {
+                        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                            (self.check)().map_err(|_| std::io::Error::other("work cancelled"))?;
+                            std::io::Read::read(self.file, bytes)
+                        }
+                    }
+                    let published = self.object_stream(
+                        &mut CheckedRead {
+                            file: &mut input,
+                            check: &mut check,
+                        },
+                        limit,
+                    );
+                    check()?;
+                    if opened != id || published? != (hash.clone(), size) {
                         return Err(fail("SOURCE_EXTERNAL_CHANGE"));
                     }
                 }
-                if parent.streamed(&name, limit)? != Some((hash.clone(), size, id.clone())) {
+                if parent.streamed_checked(&name, limit, &mut check)?
+                    != Some((hash.clone(), size, id.clone()))
+                {
                     return Err(fail("SOURCE_EXTERNAL_CHANGE"));
                 }
                 total = total

@@ -35,6 +35,166 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     }
   }
   return {
+    ...(bridge.inspectGraphRecovery
+      ? {
+          inspectGraphRecovery: (intent: string) =>
+            unwrap(bridge.inspectGraphRecovery!(intent)),
+        }
+      : {}),
+    ...(bridge.readFileGraph
+      ? {
+          readFileGraph: (
+            ...args: Parameters<NonNullable<DesktopBridge["readFileGraph"]>>
+          ) => unwrap(bridge.readFileGraph!(...args)),
+        }
+      : {}),
+    ...(bridge.readGraphFiles
+      ? {
+          readGraphFiles: (
+            ...args: Parameters<NonNullable<DesktopBridge["readGraphFiles"]>>
+          ) => unwrap(bridge.readGraphFiles!(...args)),
+        }
+      : {}),
+    ...(bridge.registerFileGraph
+      ? {
+          registerFileGraph: (
+            ...args: Parameters<NonNullable<DesktopBridge["registerFileGraph"]>>
+          ) => unwrap(bridge.registerFileGraph!(...args)),
+        }
+      : {}),
+    ...(bridge.createWorkItem
+      ? {
+          createWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["createWorkItem"]>>
+          ) => unwrap(bridge.createWorkItem!(...args)),
+        }
+      : {}),
+    ...(bridge.readWorkItems
+      ? {
+          readWorkItems: (
+            ...args: Parameters<NonNullable<DesktopBridge["readWorkItems"]>>
+          ) => unwrap(bridge.readWorkItems!(...args)),
+        }
+      : {}),
+    ...(bridge.readWorkItem
+      ? {
+          readWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["readWorkItem"]>>
+          ) => unwrap(bridge.readWorkItem!(...args)),
+        }
+      : {}),
+    ...(bridge.inspectWorkItem
+      ? {
+          inspectWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["inspectWorkItem"]>>
+          ) => unwrap(bridge.inspectWorkItem!(...args)),
+        }
+      : {}),
+    ...(bridge.acceptWorkCandidate
+      ? {
+          acceptWorkCandidate: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["acceptWorkCandidate"]>
+            >
+          ) => unwrap(bridge.acceptWorkCandidate!(...args)),
+        }
+      : {}),
+    ...(bridge.discardWorkItem
+      ? {
+          discardWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["discardWorkItem"]>>
+          ) => unwrap(bridge.discardWorkItem!(...args)),
+        }
+      : {}),
+    ...(bridge.controlWorkItem
+      ? {
+          controlWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["controlWorkItem"]>>
+          ) => unwrap(bridge.controlWorkItem!(...args)),
+        }
+      : {}),
+    ...(bridge.readWorkOperation
+      ? {
+          readWorkOperation: (
+            ...args: Parameters<NonNullable<DesktopBridge["readWorkOperation"]>>
+          ) => unwrap(bridge.readWorkOperation!(...args)),
+        }
+      : {}),
+    ...(bridge.readWorkCandidate
+      ? {
+          readWorkCandidate: (
+            ...args: Parameters<NonNullable<DesktopBridge["readWorkCandidate"]>>
+          ) => unwrap(bridge.readWorkCandidate!(...args)),
+        }
+      : {}),
+    ...(bridge.readWorkChanges
+      ? {
+          readWorkChanges: (
+            ...args: Parameters<NonNullable<DesktopBridge["readWorkChanges"]>>
+          ) => unwrap(bridge.readWorkChanges!(...args)),
+        }
+      : {}),
+    ...(bridge.readProductionFileLocks
+      ? {
+          readProductionFileLocks: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readProductionFileLocks"]>
+            >
+          ) => unwrap(bridge.readProductionFileLocks!(...args)),
+        }
+      : {}),
+    ...(bridge.setProductionFileLocks
+      ? {
+          setProductionFileLocks: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["setProductionFileLocks"]>
+            >
+          ) => unwrap(bridge.setProductionFileLocks!(...args)),
+        }
+      : {}),
+    ...(bridge.readGraphRecoveries
+      ? {
+          readGraphRecoveries: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readGraphRecoveries"]>
+            >
+          ) => unwrap(bridge.readGraphRecoveries!(...args)),
+        }
+      : {}),
+    ...(bridge.readGraphRecoveryMembers
+      ? {
+          readGraphRecoveryMembers: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readGraphRecoveryMembers"]>
+            >
+          ) => unwrap(bridge.readGraphRecoveryMembers!(...args)),
+        }
+      : {}),
+    ...(bridge.downloadWorkCandidateMember
+      ? {
+          downloadWorkCandidateMember: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["downloadWorkCandidateMember"]>
+            >
+          ) => unwrap(bridge.downloadWorkCandidateMember!(...args)),
+        }
+      : {}),
+    ...(bridge.downloadGraphRecoveryMember
+      ? {
+          downloadGraphRecoveryMember: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["downloadGraphRecoveryMember"]>
+            >
+          ) => unwrap(bridge.downloadGraphRecoveryMember!(...args)),
+        }
+      : {}),
+    ...(bridge.revealWorkItem
+      ? {
+          revealWorkItem: (
+            ...args: Parameters<NonNullable<DesktopBridge["revealWorkItem"]>>
+          ) => unwrap(bridge.revealWorkItem!(...args)),
+        }
+      : {}),
     ...(bridge.inspectProjectFormat
       ? { inspectProjectFormat: () => unwrap(bridge.inspectProjectFormat!()) }
       : {}),

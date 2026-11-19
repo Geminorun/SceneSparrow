@@ -4,6 +4,7 @@ import type {
   AuthoredSourceSaveRequest,
   AuthoredSourceResolveRequest,
   AuthoredSourceCandidate,
+  AuthoredSourceRecoverRequest,
 } from "@scenesparrow/contracts";
 import {
   patchEditorSource,
@@ -17,6 +18,7 @@ import type {
   NewBlock,
   CommandReceipt,
   HistoryState,
+  Project,
 } from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import { edits } from "../manuscript/canonical";
@@ -151,6 +153,8 @@ export class ProjectSession {
         this.enqueue(async () => {
           if (
             !this.source ||
+            this.sourceRecoveryPending ||
+            this.externalPending ||
             this.disposed ||
             this.composing ||
             context !== this.actions.contextVersion ||
@@ -208,41 +212,78 @@ export class ProjectSession {
       () => !this.disposed,
     );
   }
+  private sourceRecoveryPending: {
+    request: AuthoredSourceRecoverRequest;
+    status: AuthoredSourceStatus;
+  } | null = null;
+  get hasPendingSourceRecovery() {
+    return !!this.sourceRecoveryPending;
+  }
+  retrySourceRecovery() {
+    const pending = this.sourceRecoveryPending;
+    return pending
+      ? this.recoverSource(
+          pending.status,
+          pending.request.disposition === "preserveExternal",
+        )
+      : Promise.resolve(false);
+  }
   recoverSource(status: AuthoredSourceStatus, preserve = false) {
     return this.enqueue(async () => {
-      if (!status.pendingIntent || !this.client.recoverAuthoredSource)
+      if (this.disposed || !this.client.recoverAuthoredSource) return false;
+      if (!this.sourceRecoveryPending) {
+        if (!status.pendingIntent) return false;
+        this.sourceRecoveryPending = {
+          status: structuredClone(status),
+          request: {
+            projectId: this.projectId,
+            intentHash: status.pendingIntent.intentHash,
+            requestId: status.pendingIntent.requestId,
+            disposition: preserve ? "preserveExternal" : "known",
+            ...(preserve && status.observationFingerprint
+              ? { observationFingerprint: status.observationFingerprint }
+              : {}),
+          },
+        };
+      }
+      const owned = this.sourceRecoveryPending;
+      if (
+        status.pendingIntent?.intentHash !== owned.request.intentHash ||
+        (preserve ? "preserveExternal" : "known") !== owned.request.disposition
+      ) {
+        this.sourceFailure(new ApiError("COMMAND_UNRESOLVED"));
         return false;
+      }
+      let next: AuthoredSourceStatus;
       try {
-        const next = await this.client.recoverAuthoredSource({
-          projectId: this.projectId,
-          intentHash: status.pendingIntent.intentHash,
-          requestId: status.pendingIntent.requestId,
-          disposition: preserve ? "preserveExternal" : "known",
-          ...(preserve && status.observationFingerprint
-            ? { observationFingerprint: status.observationFingerprint }
-            : {}),
-        } as Parameters<
-          NonNullable<PlatformClient["recoverAuthoredSource"]>
-        >[0]);
-        if (
-          this.sourceStatus?.pendingIntent &&
-          this.sourceStatus.pendingIntent.intentHash !==
-            status.pendingIntent.intentHash
-        )
-          return false;
-        if (next.generation < (this.sourceStatus?.generation ?? 0))
-          return false;
-        this.sourceInspection++;
-        this.sourceStatus = next;
-        this.status =
-          this.sourceLocal === this.source?.source ? "saved" : "pending";
-        this.error = "";
-        this.notify();
-        return true;
+        next = await this.client.recoverAuthoredSource(owned.request);
       } catch (error) {
+        // Only a definite rejection of this original submit retires its DTO.
+        // Transport/storage uncertainty keeps the captured decision for replay.
+        if (
+          error instanceof ApiError &&
+          !["STORAGE_UNAVAILABLE", "COMMAND_UNRESOLVED"].includes(error.code) &&
+          this.sourceRecoveryPending === owned
+        )
+          this.sourceRecoveryPending = null;
         this.sourceFailure(error);
         return false;
       }
+      if (this.sourceRecoveryPending === owned)
+        this.sourceRecoveryPending = null;
+      if (
+        this.sourceStatus?.pendingIntent &&
+        this.sourceStatus.pendingIntent.intentHash !== owned.request.intentHash
+      )
+        return false;
+      if (next.generation < (this.sourceStatus?.generation ?? 0)) return false;
+      this.sourceInspection++;
+      this.sourceStatus = next;
+      this.status =
+        this.sourceLocal === this.source?.source ? "saved" : "pending";
+      this.error = "";
+      this.notify();
+      return true;
     });
   }
   private sourceFailure(error: unknown) {
@@ -255,19 +296,24 @@ export class ProjectSession {
     this.notify();
   }
   saveSourceProposal(proposal: string) {
+    const generation = this.generation,
+      context = this.actions.contextVersion;
     return this.actions.run(
       "source-proposal",
       () => {
-        const generation = this.generation;
         return this.enqueue(async () => {
           if (
             !this.source ||
             this.sourcePending ||
+            this.sourceRecoveryPending ||
+            this.externalPending ||
             this.disposed ||
             this.composing ||
+            context !== this.actions.contextVersion ||
             generation !== this.generation
           )
             return false;
+          this.appliedSourceConflict = null;
           this.sourceLocal = proposal;
           this.generation++;
           this.segments = [];
@@ -450,6 +496,322 @@ export class ProjectSession {
     }
   }
 
+  private externalPending: {
+    key: string;
+    requestId: string;
+    send: () => Promise<unknown>;
+    readback?: (receipt: CommandReceipt) => Promise<unknown>;
+    value?: unknown;
+    receipt?: CommandReceipt;
+    source: string;
+    generation: number;
+    mutation: boolean;
+    legacyMetadata: boolean;
+    settleInput: boolean;
+  } | null = null;
+  appliedSourceConflict: {
+    requestId: string;
+    receipt: CommandReceipt;
+    result: unknown;
+  } | null = null;
+  onProjectMetadata: ((project: Project) => void) | undefined;
+  get hasExternalRecovery() {
+    return !!this.externalPending;
+  }
+  /** Capture input before prerequisites, then retain the exact action through
+   * receipt/readback uncertainty. All project writes share this one queue. */
+  projectAction<T>(
+    key: string,
+    prepare: (revision: number) => Promise<{
+      requestId: string;
+      send: () => Promise<T>;
+      readback?: (receipt: CommandReceipt) => Promise<T>;
+      mutation?: boolean;
+      legacyMetadata?: boolean;
+    }>,
+    mutation = false,
+    settleInput = true,
+  ): Promise<T | null> {
+    return this.actions
+      .run(
+        `project-${key}`,
+        async () => {
+          const pending = this.externalPending;
+          if (pending && pending.key !== key)
+            throw new ApiError("COMMAND_UNRESOLVED");
+          const generation = this.generation,
+            context = this.actions.contextVersion;
+          if (
+            !pending &&
+            ((settleInput && !(await this.prepareInput())) ||
+              (settleInput &&
+                (generation !== this.generation ||
+                  context !== this.actions.contextVersion)) ||
+              this.disposed)
+          )
+            return null;
+          return this.enqueue(async () => {
+            if (!this.externalPending) {
+              if (
+                this.disposed ||
+                (settleInput &&
+                  (this.composing ||
+                    generation !== this.generation ||
+                    context !== this.actions.contextVersion))
+              )
+                return null;
+              const prepared = await prepare(this.state.workingRevision);
+              if (
+                this.disposed ||
+                (settleInput &&
+                  (this.composing ||
+                    generation !== this.generation ||
+                    context !== this.actions.contextVersion))
+              )
+                return null;
+              this.externalPending = {
+                key,
+                requestId: prepared.requestId,
+                send: prepared.send,
+                source: this.sourceLocal,
+                generation,
+                mutation: prepared.mutation ?? mutation,
+                legacyMetadata: prepared.legacyMetadata ?? false,
+                settleInput,
+                ...(prepared.readback ? { readback: prepared.readback } : {}),
+              };
+            }
+            const owned = this.externalPending;
+            clearTimeout(this.timer);
+            let originalSubmitRejected = false;
+            try {
+              if (owned.value === undefined) {
+                if (owned.receipt && owned.readback)
+                  owned.value = await owned.readback(owned.receipt);
+                else {
+                  try {
+                    owned.value = await owned.send();
+                  } catch (error) {
+                    originalSubmitRejected =
+                      owned.legacyMetadata &&
+                      error instanceof ApiError &&
+                      ![
+                        "STORAGE_UNAVAILABLE",
+                        "SERVICE_UNAVAILABLE",
+                        "COMMAND_UNRESOLVED",
+                      ].includes(error.code);
+                    throw error;
+                  }
+                }
+              }
+              const response = owned.value as {
+                receipt?: CommandReceipt;
+                project?: Project;
+              };
+              let currentProject: Project | undefined;
+              if (owned.mutation) {
+                const receipt =
+                  owned.receipt ??
+                  response.receipt ??
+                  (await this.client.commandReceipt(owned.requestId));
+                owned.receipt = receipt;
+                this.businessReceipt = { requestId: owned.requestId, receipt };
+                const snapshot = this.source
+                  ? await this.client.readAuthoredSource!()
+                  : null;
+                const canonical = await this.client.readManuscript();
+                const history = await this.client.readHistory();
+                if (
+                  this.disposed ||
+                  canonical.workingRevision !== history.workingRevision ||
+                  (snapshot &&
+                    (snapshot.projectId !== this.projectId ||
+                      snapshot.workingRevision !==
+                        canonical.workingRevision)) ||
+                  canonical.workingRevision < receipt.workingRevision
+                )
+                  throw new ApiError("REVISION_CONFLICT");
+                if (response.project?.id === this.projectId) {
+                  currentProject =
+                    (await this.client.readProject()).project ?? undefined;
+                  if (
+                    !currentProject ||
+                    currentProject.id !== this.projectId ||
+                    currentProject.workingRevision < canonical.workingRevision
+                  )
+                    throw new ApiError("PROJECT_CONFLICT");
+                }
+                if (snapshot) {
+                  let current: string;
+                  let segments: typeof this.segments;
+                  try {
+                    current =
+                      this.generation === owned.generation ||
+                      this.sourceLocal === snapshot.source
+                        ? snapshot.source
+                        : rebaseSourceAcknowledgment(
+                            owned.source,
+                            snapshot.source,
+                            sourceDifference(owned.source, this.sourceLocal),
+                            this.sourceLocal,
+                          );
+                    if (this.composing && current !== this.sourceLocal)
+                      throw new ApiError("SOURCE_ACK_AMBIGUOUS");
+                    // Compute every mapping before staging any checkpoint fields.
+                    segments = this.segments
+                      .filter((s) => (s.generation ?? 0) > owned.generation)
+                      .map((segment) =>
+                        segment.source === undefined
+                          ? segment
+                          : {
+                              ...segment,
+                              source: rebaseSourceAcknowledgment(
+                                owned.source,
+                                snapshot.source,
+                                sourceDifference(owned.source, segment.source),
+                                segment.source,
+                              ),
+                            },
+                      );
+                  } catch (failure) {
+                    if (
+                      !(failure instanceof Error) ||
+                      failure.message !== "SOURCE_ACK_AMBIGUOUS"
+                    )
+                      throw failure;
+                    // Application and the complete current checkpoint are proved.
+                    // Retire uncertainty while retaining exact newer raw/IME input
+                    // for an explicit human merge or saved-version choice.
+                    this.source = snapshot;
+                    this.state = canonical;
+                    this.local = canonical.blocks.map(
+                      ({ revision: _, ...block }) => block,
+                    );
+                    this.history = history;
+                    this.segments = [];
+                    this.deferredSourceAck = null;
+                    this.acknowledgedGroup = null;
+                    this.capturedGeneration = -1;
+                    this.freshGroup();
+                    this.sourceInspection++;
+                    this.canonicalVersion++;
+                    this.externalPending = null;
+                    this.appliedSourceConflict = {
+                      requestId: owned.requestId,
+                      receipt,
+                      result: owned.value,
+                    };
+                    this.errorOwner = "manuscript";
+                    this.status = "conflict";
+                    this.error = "EXTERNAL_APPLIED_SOURCE_CONFLICT";
+                    clearTimeout(this.timer);
+                    clearTimeout(this.idleTimer);
+                    if (currentProject)
+                      this.onProjectMetadata?.(currentProject);
+                    this.sourceChanged();
+                    return owned.value as T;
+                  }
+                  this.segments = segments;
+                  this.source = snapshot;
+                  this.sourceLocal = current;
+                  this.sourceInspection++;
+                } else if (this.generation !== owned.generation)
+                  throw new ApiError("REVISION_CONFLICT");
+                this.state = canonical;
+                this.local = canonical.blocks.map(
+                  ({ revision: _, ...block }) => block,
+                );
+                this.history = history;
+                this.acknowledgedGroup = null;
+                this.freshGroup();
+                this.canonicalVersion++;
+                this.status = this.same() ? "saved" : "pending";
+                this.error = "";
+                this.sourceChanged();
+              }
+              // The original outcome is immutable; display metadata is a fresh,
+              // verified current read and may be newer than that outcome.
+              if (response.project?.id === this.projectId) {
+                currentProject ??=
+                  (await this.client.readProject()).project ?? undefined;
+                if (
+                  !currentProject ||
+                  currentProject.id !== this.projectId ||
+                  currentProject.workingRevision < this.state.workingRevision
+                )
+                  throw new ApiError("PROJECT_CONFLICT");
+                this.onProjectMetadata?.(currentProject);
+              }
+              this.externalPending = null;
+              this.firstPending = this.hasAutosaveWork ? Date.now() : null;
+              this.schedule();
+              this.notify();
+              return owned.value as T;
+            } catch (error) {
+              let failure = error;
+              // A generic storage/metadata failure cannot prove nonapplication. Only
+              // the ordinary original receipt or durable rejection retires this DTO.
+              if (originalSubmitRejected) {
+                this.businessRejection = {
+                  requestId: owned.requestId,
+                  code: (error as ApiError).code,
+                };
+                this.externalPending = null;
+              } else if (!owned.receipt && !owned.legacyMetadata) {
+                try {
+                  owned.receipt = await this.client.commandReceipt(
+                    owned.requestId,
+                  );
+                } catch (outcome) {
+                  if (
+                    outcome instanceof ApiError &&
+                    ![
+                      "COMMAND_NOT_FOUND",
+                      "STORAGE_UNAVAILABLE",
+                      "SOURCE_RECOVERY_REQUIRED",
+                    ].includes(outcome.code)
+                  ) {
+                    this.businessRejection = {
+                      requestId: owned.requestId,
+                      code: outcome.code,
+                    };
+                    this.externalPending = null;
+                    failure = outcome;
+                  }
+                }
+              }
+              this.error =
+                failure instanceof Error
+                  ? failure.message
+                  : "STORAGE_UNAVAILABLE";
+              if (!this.externalPending) {
+                this.firstPending = this.hasAutosaveWork ? Date.now() : null;
+                this.schedule();
+              }
+              this.notify();
+              throw failure;
+            }
+          });
+        },
+        () => !this.disposed,
+        settleInput,
+      )
+      .then((value) => (value === false ? null : value));
+  }
+  retryProjectAction() {
+    const owned = this.externalPending;
+    return owned
+      ? this.projectAction(
+          owned.key,
+          async () => {
+            throw new ApiError("COMMAND_UNRESOLVED");
+          },
+          owned.mutation,
+          owned.settleInput,
+        )
+      : Promise.resolve(null);
+  }
+
   sourceProposalDirty: (() => boolean) | undefined;
   reviewDirty: (() => boolean) | undefined;
   revealReviewDraft: (() => void) | undefined;
@@ -473,6 +835,7 @@ export class ProjectSession {
     canAutosave: () => boolean;
   };
   private async settlePlanning(intent: string | undefined, retry = false) {
+    if (this.externalPending) return false;
     if (!this.planningAdapter) return true;
     return (
       (await this.planningAdapter.flush(retry)) &&
@@ -599,6 +962,8 @@ export class ProjectSession {
   }
   get hasUnresolvedBusiness() {
     return (
+      !!this.sourceRecoveryPending ||
+      !!this.externalPending ||
       !!this.metadataPending ||
       (!!this.pendingControl &&
         !["CloseEditGroup", "UndoProject", "RedoProject"].includes(
@@ -632,7 +997,8 @@ export class ProjectSession {
     return task;
   }
   boundary() {
-    if (this.disposed || this.composing) return Promise.resolve(false);
+    if (this.disposed || this.composing || this.appliedSourceConflict)
+      return Promise.resolve(false);
     clearTimeout(this.idleTimer);
     this.capture();
     this.freshGroup();
@@ -727,7 +1093,8 @@ export class ProjectSession {
   ) {
     const requestedGeneration = this.generation;
     return this.enqueue(async () => {
-      if (this.disposed || this.metadataPending) return false;
+      if (this.disposed || this.metadataPending || this.externalPending)
+        return false;
       if (this.pendingControl) {
         const type = this.pendingControl.command.type as
           "UndoProject" | "RedoProject" | "CloseEditGroup";
@@ -785,6 +1152,7 @@ export class ProjectSession {
     return `${this.generation}:${this.compositionGeneration}:${this.canonicalVersion}`;
   }
   prepareInput(): Promise<boolean> {
+    if (this.externalPending) return Promise.resolve(false);
     if (this.source && !this.composing) {
       const generation = this.generation,
         context = this.actions.contextVersion,
@@ -942,7 +1310,12 @@ export class ProjectSession {
       options?.requestedVisible ?? JSON.stringify(this.local);
     const requestedGeneration = this.generation;
     return this.enqueue(async () => {
-      if (options?.signal?.aborted || this.disposed || this.metadataPending)
+      if (
+        options?.signal?.aborted ||
+        this.disposed ||
+        this.metadataPending ||
+        this.externalPending
+      )
         return false;
       if (this.pendingControl) {
         const candidate = options?.replayCommand?.();
@@ -990,7 +1363,8 @@ export class ProjectSession {
         this.disposed ||
         this.pendingControl ||
         this.unresolved ||
-        this.metadataPending
+        this.metadataPending ||
+        this.externalPending
       )
         return false;
       const generation = this.generation;
@@ -1107,7 +1481,9 @@ export class ProjectSession {
     if (
       this.reviewDirty?.() ||
       this.sourceProposalDirty?.() ||
-      this.metadataPending
+      this.sourceRecoveryPending ||
+      this.metadataPending ||
+      this.externalPending
     )
       return false;
     clearTimeout(this.idleTimer);
@@ -1497,6 +1873,7 @@ export class ProjectSession {
     clearTimeout(this.timer);
     if (
       !this.composing &&
+      !this.externalPending &&
       (!this.source ||
         !this.sourceStatus ||
         this.sourceStatus.externalStatus === "unchanged") &&
@@ -1546,7 +1923,13 @@ export class ProjectSession {
     return Promise.resolve(true);
   }
   private async autosave() {
-    if (this.composing || this.disposed || this.backgroundSaving) return false;
+    if (
+      this.composing ||
+      this.disposed ||
+      this.externalPending ||
+      this.backgroundSaving
+    )
+      return false;
     this.backgroundSaving = true;
     this.backgroundInputSince = null;
     this.backgroundBodyGeneration = this.generation;
@@ -1622,7 +2005,13 @@ export class ProjectSession {
   }
   async start() {
     return this.enqueue(async () => {
-      if (this.inFlight || this.unresolved || this.pendingControl) return false;
+      if (
+        this.inFlight ||
+        this.unresolved ||
+        this.pendingControl ||
+        this.externalPending
+      )
+        return false;
       const command: ManuscriptCommand = {
         type: "StartManualDraft",
         requestId: crypto.randomUUID(),
@@ -1643,6 +2032,12 @@ export class ProjectSession {
     retry = false,
     backgroundGeneration?: number,
   ): Promise<boolean> {
+    if (
+      this.sourceRecoveryPending ||
+      this.externalPending ||
+      this.appliedSourceConflict
+    )
+      return false;
     if (this.source) {
       const targetGeneration = backgroundGeneration ?? this.generation;
       if (
@@ -1707,7 +2102,7 @@ export class ProjectSession {
       this.notify();
       return true;
     }
-    if (this.metadataPending) return false;
+    if (this.metadataPending || this.externalPending) return false;
     if (this.disposed) return false;
     clearTimeout(this.timer);
     if (this.composing || this.conversionError) return false;
@@ -1904,17 +2299,29 @@ export class ProjectSession {
       : ok;
   }
   reload() {
-    return this.enqueue(() => this.reloadSaved());
+    const generation = this.generation,
+      context = this.actions.contextVersion;
+    return this.enqueue(() => this.reloadSaved(generation, context));
   }
-  private async reloadSaved() {
+  private async reloadSaved(
+    requestedGeneration: number,
+    requestedContext: number,
+  ) {
+    if (
+      requestedGeneration !== this.generation ||
+      requestedContext !== this.actions.contextVersion
+    )
+      return false;
     // A read cannot prove that an ambiguous command will never commit later.
     // Keep its original identity and local buffer until Retry resolves it.
     if (
+      this.sourceRecoveryPending ||
       this.inFlight ||
       this.sourcePending ||
       this.unresolved ||
       this.pendingControl ||
-      this.metadataPending
+      this.metadataPending ||
+      this.externalPending
     ) {
       this.error = "COMMAND_UNRESOLVED";
       this.notify();
@@ -1930,10 +2337,12 @@ export class ProjectSession {
           this.disposed ||
           this.composing ||
           generation !== this.generation ||
+          requestedContext !== this.actions.contextVersion ||
           snapshot.workingRevision !== state.workingRevision ||
           history.workingRevision !== state.workingRevision
         )
           return false;
+        this.appliedSourceConflict = null;
         this.source = snapshot;
         this.sourceLocal = snapshot.source;
         this.state = state;

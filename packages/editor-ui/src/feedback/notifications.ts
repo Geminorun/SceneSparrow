@@ -13,6 +13,7 @@ const aliases: Record<string, keyof typeof en> = {
 };
 const localKeys = new Set([
   "error",
+  "externalWorkComplete",
   "renameConflict",
   "projectOpenFailed",
   "exportFailed",

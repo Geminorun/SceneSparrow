@@ -14,6 +14,48 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
   inspectProjectFormat: () => ipcRenderer.invoke("project:format"),
+  inspectGraphRecovery: (intent: string) =>
+    ipcRenderer.invoke("external-work:inspectGraphRecovery", intent),
+  readFileGraph: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readFileGraph", ...args),
+  readGraphFiles: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphFiles", ...args),
+  registerFileGraph: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:registerFileGraph", ...args),
+  createWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:createWorkItem", ...args),
+  readWorkItems: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkItems", ...args),
+  readWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkItem", ...args),
+  inspectWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:inspectWorkItem", ...args),
+  acceptWorkCandidate: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:acceptWorkCandidate", ...args),
+  discardWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:discardWorkItem", ...args),
+  controlWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:controlWorkItem", ...args),
+  readWorkOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkOperation", ...args),
+  readWorkCandidate: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkCandidate", ...args),
+  readWorkChanges: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readWorkChanges", ...args),
+  readProductionFileLocks: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readProductionFileLocks", ...args),
+  setProductionFileLocks: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:setProductionFileLocks", ...args),
+  readGraphRecoveries: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphRecoveries", ...args),
+  readGraphRecoveryMembers: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:readGraphRecoveryMembers", ...args),
+  downloadWorkCandidateMember: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:downloadWorkCandidateMember", ...args),
+  downloadGraphRecoveryMember: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:downloadGraphRecoveryMember", ...args),
+  revealWorkItem: (...args: unknown[]) =>
+    ipcRenderer.invoke("external-work:revealWorkItem", ...args),
   readAuthoredSourceRecoveryEvidence: (intentHash: string) =>
     ipcRenderer.invoke("manuscript:source-evidence", intentHash),
   readAuthoredSourceRecoveryVersion: (intentHash: string, sourceHash: string) =>

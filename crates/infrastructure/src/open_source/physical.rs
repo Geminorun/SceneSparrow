@@ -79,6 +79,78 @@ impl Parent {
         }
         Ok(unsafe { File::from_raw_fd(fd) })
     }
+    /// Rebind the path proof after a directory rename while retaining its
+    /// original live descriptor. A recycled persisted inode is not ownership.
+    #[cfg(unix)]
+    pub fn relocated_directory(mut self, relative: &str) -> Result<Self> {
+        let current = Self::open(&self.root_path, relative)?;
+        if identity(&current.root)? != identity(&self.root)?
+            || identity(&current.directory)? != identity(&self.directory)?
+        {
+            return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+        }
+        self.relative = relative.into();
+        self.name = current.name;
+        self.verify()?;
+        Ok(self)
+    }
+    #[cfg(not(unix))]
+    pub fn relocated_directory(self, _: &str) -> Result<Self> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
+    /// Remove only this continuously held discarded container. Enumeration and
+    /// recursion use descriptors; a stage pathname swap cannot redirect them.
+    #[cfg(target_os = "linux")]
+    pub fn remove_discarded_container(&self, entry: &Parent) -> Result<()> {
+        entry.verify()?;
+        let same_entry = || -> Result<()> {
+            let current = Self::openat(
+                &entry.directory,
+                &entry.name,
+                libc::O_RDONLY | libc::O_DIRECTORY,
+            )?;
+            if identity(&current)? != identity(&self.directory)? {
+                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            }
+            Ok(())
+        };
+        same_entry()?;
+        // Private cleanup limits bound stack, live descriptors and traversal.
+        // They do not change creative inventory/graph admission limits.
+        let limits = (64, 100_000);
+        #[cfg(test)]
+        let limits = DISCARD_CLEANUP_TEST_LIMITS.get().unwrap_or(limits);
+        let mut remaining_entries = limits.1;
+        remove_discarded_entries(&self.directory, limits.0, &mut remaining_entries)?;
+        same_entry()?;
+        let name = CString::new(entry.name.as_str()).map_err(|_| fail("SOURCE_PATH_UNSAFE"))?;
+        // SAFETY: parent descriptor and C name remain live; unlinkat never
+        // traverses a replacement directory and refuses a nonempty stranger.
+        if unsafe {
+            libc::unlinkat(
+                entry.directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::AT_REMOVEDIR,
+            )
+        } != 0
+        {
+            return Err(fail("STORAGE_UNAVAILABLE"));
+        }
+        entry.sync()?;
+        entry.verify()
+    }
+    #[cfg(not(target_os = "linux"))]
+    pub fn remove_discarded_container(&self, _: &Parent) -> Result<()> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
+    #[cfg(unix)]
+    pub fn directory_identity(&self) -> Result<Identity> {
+        identity(&self.directory)
+    }
+    #[cfg(not(unix))]
+    pub fn directory_identity(&self) -> Result<Identity> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
     #[cfg(unix)]
     pub fn verify(&self) -> Result<()> {
         let current = Self::open(&self.root_path, &self.relative)?;
@@ -321,12 +393,38 @@ impl Parent {
         Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
     }
     pub fn streamed(&self, name: &str, limit: u64) -> Result<Option<(String, u64, Identity)>> {
+        self.streamed_checked(name, limit, &mut || Ok(()))
+    }
+    pub fn streamed_checked(
+        &self,
+        name: &str,
+        limit: u64,
+        check: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<Option<(String, u64, Identity)>> {
         let Some((mut file, id)) = self.open_file(name)? else {
             return Ok(None);
         };
         let before = db(file.metadata())?;
-        let (hash, size) =
-            crate::storage::objects::stream_copy(&mut file, &mut std::io::sink(), limit)?;
+        struct CheckedRead<'a> {
+            file: &'a mut File,
+            check: &'a mut dyn FnMut() -> Result<()>,
+        }
+        impl std::io::Read for CheckedRead<'_> {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                (self.check)().map_err(|_| std::io::Error::other("work cancelled"))?;
+                std::io::Read::read(self.file, bytes)
+            }
+        }
+        let copied = crate::storage::objects::stream_copy(
+            &mut CheckedRead {
+                file: &mut file,
+                check,
+            },
+            &mut std::io::sink(),
+            limit,
+        );
+        check()?;
+        let (hash, size) = copied?;
         let after = db(file.metadata())?;
         if size != before.len()
             || size != after.len()
@@ -438,4 +536,125 @@ impl Parent {
     pub fn open_creating(_: &Path, _: &str) -> Result<Self> {
         Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
     }
+}
+
+// This capability is private to one-shot recorded-copy disposal. It is never
+// reconstructed from a persisted pathname or exposed to a renderer.
+#[cfg(target_os = "linux")]
+fn remove_discarded_entries(
+    directory: &File,
+    remaining_depth: usize,
+    remaining_entries: &mut usize,
+) -> Result<()> {
+    struct Entries(*mut libc::DIR);
+    impl Drop for Entries {
+        fn drop(&mut self) {
+            // SAFETY: fdopendir transferred sole ownership to this stream.
+            unsafe { libc::closedir(self.0) };
+        }
+    }
+    // SAFETY: dup creates a descriptor owned by fdopendir/Entries below.
+    let fd = unsafe { libc::dup(directory.as_raw_fd()) };
+    if fd < 0 {
+        return Err(fail("STORAGE_UNAVAILABLE"));
+    }
+    let stream = unsafe { libc::fdopendir(fd) };
+    if stream.is_null() {
+        unsafe { libc::close(fd) };
+        return Err(fail("STORAGE_UNAVAILABLE"));
+    }
+    let entries = Entries(stream);
+    loop {
+        // SAFETY: this stream is local to this call and used synchronously.
+        unsafe { *libc::__errno_location() = 0 };
+        let entry = unsafe { libc::readdir(entries.0) };
+        if entry.is_null() {
+            if unsafe { *libc::__errno_location() } != 0 {
+                return Err(fail("STORAGE_UNAVAILABLE"));
+            }
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        // Count before any child open or recursive call. One shared counter
+        // covers the whole traversal, including entries that disappear mid-read.
+        if *remaining_entries == 0 {
+            return Err(fail("STORAGE_UNAVAILABLE"));
+        }
+        *remaining_entries -= 1;
+        let flags = if remaining_depth == 0 {
+            // At the depth boundary inspect without opening another directory.
+            // Ordinary leaf files can still be unlinked; deeper trees remain.
+            let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe {
+                libc::fstatat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    metadata.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            } != 0
+            {
+                if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
+                    continue;
+                }
+                return Err(fail("STORAGE_UNAVAILABLE"));
+            }
+            let metadata = unsafe { metadata.assume_init() };
+            if metadata.st_mode & libc::S_IFMT == libc::S_IFDIR {
+                return Err(fail("STORAGE_UNAVAILABLE"));
+            }
+            0
+        } else {
+            let child = unsafe {
+                libc::openat(
+                    directory.as_raw_fd(),
+                    name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if child >= 0 {
+                let child = unsafe { File::from_raw_fd(child) };
+                remove_discarded_entries(&child, remaining_depth - 1, remaining_entries)?;
+                libc::AT_REMOVEDIR
+            } else {
+                let error = std::io::Error::last_os_error().raw_os_error();
+                if error == Some(libc::ENOENT) {
+                    continue;
+                }
+                if !matches!(error, Some(libc::ENOTDIR) | Some(libc::ELOOP)) {
+                    return Err(fail("STORAGE_UNAVAILABLE"));
+                }
+                0
+            }
+        };
+        // Names come directly from this held directory, contain no path
+        // components, and are never followed as symbolic links.
+        if unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), flags) } != 0 {
+            return Err(fail("STORAGE_UNAVAILABLE"));
+        }
+    }
+    db(directory.sync_all())
+}
+
+#[cfg(test)]
+thread_local! {
+    static DISCARD_CLEANUP_TEST_LIMITS: std::cell::Cell<Option<(usize,usize)>> = const {std::cell::Cell::new(None)};
+}
+#[cfg(test)]
+pub(crate) fn with_discard_cleanup_limits<T>(
+    depth: usize,
+    entries: usize,
+    action: impl FnOnce() -> T,
+) -> T {
+    struct Restore(Option<(usize, usize)>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DISCARD_CLEANUP_TEST_LIMITS.set(self.0);
+        }
+    }
+    let _restore = Restore(DISCARD_CLEANUP_TEST_LIMITS.replace(Some((depth, entries))));
+    action()
 }

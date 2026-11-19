@@ -22,12 +22,16 @@ external-file reconciliation, reachable same-process recovery and clean Markdown
 delivery. OP3-B connects a lossless CodeMirror source surface and the existing
 legacy Tiptap surface through one session and manuscript port. OP4-A adds immutable
 creative graphs, scoped source/name saves, multi-file recovery and graph-aware
-history/backup through the same writer. Recorded work-copy UI, packaging and full
-platform support retain their later gates. See
+history/backup through the same writer. OP4-B adds recorded grants/work copies,
+production file locks, bounded preparation/readers, original DTO outcomes and
+Changes integration through that same owner. Unknown outcomes fence writes; proved
+applied text conflicts preserve the local buffer for explicit merge/reload. Packaging
+and full platform/lifecycle support retain their later gates. See
 [OP2 validation](validation/open-project-op2.md) and
 [OP3-A validation](validation/open-project-op3a.md) and
 [OP3-B validation](validation/open-project-op3b.md) and
-[OP4-A validation](validation/open-project-op4a.md).
+[OP4-A validation](validation/open-project-op4a.md) and
+[OP4-B validation](validation/open-project-op4b.md).
 
 ## Runtime and dependency boundaries
 

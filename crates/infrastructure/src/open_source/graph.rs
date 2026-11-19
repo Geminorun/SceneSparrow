@@ -2,10 +2,14 @@
 //! not external work-item grants; the recorded-work-item owner must authorize them.
 use super::*;
 mod inventory;
+pub(crate) mod work;
+pub use work::WorkMemberReader;
 pub(super) mod journal;
 mod recovery;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod work_tests;
 pub use inventory::GraphBudgets;
 pub use recovery::GraphRecoveryMember;
 #[derive(Debug, Clone, serde::Serialize)]
@@ -68,6 +72,7 @@ pub(crate) struct GraphAction {
     pub digest: String,
     pub rename: Option<(String, String)>,
     pub observation: Option<GraphObservation>,
+    pub work: Option<work::WorkGraphAction>,
 }
 #[derive(Clone)]
 pub(crate) struct GraphUpdate {
@@ -106,8 +111,15 @@ impl SqliteProjectRepository {
     /// Explicit baseline registration. It does not approve content or add Undo.
     pub fn register_file_graph(&self) -> Result<GraphSnapshot> {
         let mut c = db(self.connection.lock())?;
-        self.guard_source_application(&c)?;
-        if let Some(snapshot) = self.file_graph_locked(&c)? {
+        self.register_file_graph_locked(&mut c, None)
+    }
+    fn register_file_graph_locked(
+        &self,
+        c: &mut Connection,
+        request: Option<&GraphRegisterRequest>,
+    ) -> Result<GraphSnapshot> {
+        self.guard_source_application(c)?;
+        if let Some(snapshot) = self.file_graph_locked(c)? {
             return Ok(snapshot);
         }
         let root = self
@@ -115,19 +127,19 @@ impl SqliteProjectRepository {
             .as_ref()
             .ok_or(fail("SOURCE_CAPABILITY_UNSUPPORTED"))?;
         let graph = self.inventory_graph_locked(root, false, GraphBudgets::default())?;
-        let manifest = self.validate_graph(&c, &graph)?;
-        let project = read_project(&c)
+        let manifest = self.validate_graph(c, &graph)?;
+        let project = read_project(c)
             .map_err(|_| fail("STORAGE_UNAVAILABLE"))?
             .ok_or(fail("PROJECT_NOT_FOUND"))?;
         if manifest.name.as_deref().unwrap_or("Untitled project") != project.title {
             return Err(fail("GRAPH_NAME_MISMATCH"));
         }
-        let (_, path, accepted, _) = source_row(&c)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+        let (_, path, accepted, _) = source_row(c)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         if graph.file(&path)?.hash != accepted {
             return Err(fail("SOURCE_EXTERNAL_CHANGE"));
         }
         let hash = self.object(&db(serde_json::to_vec(&graph))?)?;
-        self.guard_source_application(&c)?;
+        self.guard_source_application(c)?;
         let tx = db(c.transaction())?;
         db(tx.execute("INSERT INTO accepted_file_graph VALUES(1,?1,0)", [&hash]))?;
         // Historical approvals have no historical media graph. This pin records
@@ -135,6 +147,17 @@ impl SqliteProjectRepository {
         db(tx.execute("INSERT OR IGNORE INTO approved_file_graphs SELECT id,?1,'registration' FROM approved_manifests",[&hash]))?;
         db(tx.execute("INSERT OR IGNORE INTO file_graph_pins SELECT 'downstream:'||id,?1,'registration' FROM downstream_inputs",[&hash]))?;
 
+        if let Some(request) = request {
+            let receipt = self.current_graph_receipt(&tx, &request.request_id)?;
+            db(tx.execute(
+                "INSERT INTO command_receipts VALUES(?1,?2,?3)",
+                params![
+                    request.request_id,
+                    crate::storage::hash(&db(serde_json::to_vec(request))?),
+                    db(serde_json::to_string(&receipt))?
+                ],
+            ))?;
+        }
         db(tx.commit())?;
         Ok(GraphSnapshot {
             hash,
@@ -233,10 +256,11 @@ impl SqliteProjectRepository {
             digest: hash(&db(serde_json::to_vec(batch))?),
             rename: None,
             observation: None,
+            work: None,
         };
         self.execute_graph_action_locked(&mut c, &action)
     }
-    fn execute_graph_action_locked(
+    pub(crate) fn execute_graph_action_locked(
         &self,
         c: &mut Connection,
         action: &GraphAction,
@@ -265,6 +289,7 @@ impl SqliteProjectRepository {
         action: &GraphAction,
         group: &EditGroup,
     ) -> Result<SourceSaveRequest> {
+        self.guard_work_action(c, action)?;
         let current = self
             .file_graph_locked(c)?
             .ok_or(fail("GRAPH_REGISTRATION_REQUIRED"))?;
@@ -334,6 +359,11 @@ impl SqliteProjectRepository {
         {
             t.state.working_revision = manuscript::next_revision(t.state.working_revision)?;
         }
+        if self.work_action_changes_locks(c, action)?
+            || self.history_lock_target(c, command)?.is_some()
+        {
+            t.state.working_revision = manuscript::next_revision(manuscript::envelope(command).2)?;
+        }
         self.guard_graph_production(c, &before.graph, &after)?;
         let checked_paths = if action.is_some_and(|a| a.rename.is_none()) {
             None
@@ -348,7 +378,13 @@ impl SqliteProjectRepository {
             after_hash,
             after,
             rename: action.and_then(|a| a.rename.clone()),
-            validate_physical: action.is_some(),
+            validate_physical: action.is_some_and(|a| match a.work.as_ref() {
+                Some(work::WorkGraphAction::Locks(_)) => false,
+                Some(work::WorkGraphAction::Discard(r)) => {
+                    r.disposition == WorkItemDiscardRequestDisposition::RestoreAcceptedLive
+                }
+                _ => true,
+            }),
             observation: action.and_then(|a| a.observation.clone()),
             checked_paths,
         }))
@@ -363,6 +399,15 @@ impl SqliteProjectRepository {
         after: &FileGraph,
     ) -> Result<()> {
         let production = self.scoped_graph_paths(c, before, after)?.is_none();
+        if production
+            && db(c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM production_file_locks)",
+                [],
+                |r| r.get::<_, bool>(0),
+            ))?
+        {
+            return Err(fail("PRODUCTION_FILE_LOCKED"));
+        }
         if production
             && db(c.query_row(
                 "SELECT EXISTS(SELECT 1 FROM downstream_inputs WHERE status='using')",
@@ -480,6 +525,7 @@ impl SqliteProjectRepository {
             )))?),
             rename: Some((previous.into(), title.into())),
             observation: None,
+            work: None,
         };
         self.execute_graph_action_locked(c, &action).map_err(|e| {
             if matches!(
@@ -532,6 +578,7 @@ impl SqliteProjectRepository {
             digest: hash(&db(serde_json::to_vec(&(batch, observation.identity())))?),
             rename: None,
             observation: Some(observation.clone()),
+            work: None,
         };
         self.execute_graph_action_locked(&mut c, &action)
     }
@@ -701,14 +748,23 @@ impl SqliteProjectRepository {
     ) -> Result<PreparedGraphCandidate> {
         let c = db(self.connection.lock())?;
         self.guard_source_recovery()?;
-        let mut graph = self.read_file_graph(original_hash)?;
+        let graph = self.read_file_graph(original_hash)?;
         self.validate_graph(&c, &graph)?;
         let (_, path, _, _) = source_row(&c)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+        let protected = Self::user_lock_ids(&c)?;
+        self.prepare_file_graph_captured(original_hash, &path, &protected)
+    }
+    fn prepare_file_graph_captured(
+        &self,
+        original_hash: &str,
+        path: &str,
+        protected: &[String],
+    ) -> Result<PreparedGraphCandidate> {
+        let mut graph = self.read_file_graph(original_hash)?;
         let bytes = self.read_bounded_object(
-            &graph.file(&path)?.hash,
+            &graph.file(path)?.hash,
             manuscript::MAX_DOCUMENT_BYTES as u64,
         )?;
-        let protected = Self::user_lock_ids(&c)?;
         let original = source::read_source(
             &bytes,
             &protected.iter().map(String::as_str).collect::<Vec<_>>(),

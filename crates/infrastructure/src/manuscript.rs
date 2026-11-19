@@ -103,6 +103,17 @@ impl SqliteProjectRepository {
         let value: serde_json::Value = db(serde_json::from_str(outcome))?;
         if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
             const CODES: &[&str] = &[
+                "WORK_ITEM_NOT_FOUND",
+                "WORK_ITEM_STALE",
+                "WORK_CANDIDATE_STALE",
+                "WORK_SCOPE_INVALID",
+                "WORK_OUT_OF_SCOPE",
+                "WORK_COPY_LIMIT",
+                "WORK_OPERATION_ACTIVE",
+                "WORK_OPERATION_INTERRUPTED",
+                "WORK_CANCELLED",
+                "PRODUCTION_FILE_LOCKED",
+                "WORK_CURSOR_INVALID",
                 "ANCHOR_INVALID",
                 "ANCHOR_STALE",
                 "REVIEW_VERSION_CONFLICT",
@@ -297,6 +308,16 @@ impl SqliteProjectRepository {
             }
             return Self::decode(&outcome);
         }
+        let operational_digest: Option<String> = db(c
+            .query_row(
+                "SELECT digest FROM work_operations WHERE request_id=?1",
+                [request],
+                |row| row.get(0),
+            )
+            .optional())?;
+        if operational_digest.is_some_and(|previous| previous != digest) {
+            return Err(ManuscriptError("REQUEST_ID_CONFLICT", None));
+        }
         self.guard_source_recovery()?;
         if source_request.is_some() {
             self.guard_source_application(c)?;
@@ -426,6 +447,18 @@ impl SqliteProjectRepository {
             profile.phase("guards-coordination");
             let mut history = self.history_plan(c, command, &before, &transition)?;
             history.bind_file_graphs(command, graph_update.as_ref())?;
+            if let Some(action) = graph_action {
+                if self.work_action_changes_locks(c, Some(action))? {
+                    history.label_current("fileLocks");
+                } else if action.rename.is_some() {
+                    history.label_current("renameProject");
+                } else if matches!(
+                    action.work,
+                    Some(crate::open_source::graph::work::WorkGraphAction::Accept(_))
+                ) {
+                    history.label_current("externalWork");
+                }
+            }
             profile.phase("history");
             let prepared_reviews = self.prepare_reviews(c, command, &before, &transition)?;
             profile.phase("review-projections");
@@ -728,7 +761,14 @@ impl SqliteProjectRepository {
                 None
             },
         )?;
+        self.commit_work_action(
+            &transaction,
+            command,
+            graph_action,
+            history.current_entry_id(),
+        )?;
         history.commit(&transaction)?;
+        db(transaction.execute("DELETE FROM history_production_locks WHERE entry_id NOT IN (SELECT entry_id FROM history_entry_identities)",[]))?;
         Self::prune_finalization(&transaction)?;
         if history.changed {
             db(transaction.execute("INSERT INTO project_events(request_id,event_type,payload_json) VALUES(?1,'history.changed',?2)",params![request,db(serde_json::to_string(&history.metadata))?]))?;

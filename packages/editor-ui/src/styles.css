@@ -2630,3 +2630,72 @@ body > .notifications {
   white-space: normal;
   overflow: visible;
 }
+
+.external-work {
+  display: grid;
+  gap: 0.7rem;
+}
+.external-work-setup {
+  display: grid;
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.external-work-setup label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.external-work-setup textarea {
+  width: 100%;
+  resize: vertical;
+}
+.external-work-items,
+.external-work-files {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  max-height: 15rem;
+  overflow: auto;
+}
+.external-work-items li,
+.external-work-files li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.external-work-items li > button,
+.external-work-files li > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: start;
+  background: transparent;
+  border: 0;
+  padding: 0.4rem 0.5rem;
+}
+.external-work-items button[aria-pressed="true"],
+.external-work-files button[aria-pressed="true"] {
+  background: var(--surface-hover, #e8e5df);
+}
+.external-work-files span:nth-child(2),
+.external-work-items span:first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.external-work-detail {
+  display: grid;
+  gap: 0.5rem;
+}
+.external-work .source-diff pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 23rem;
+  overflow: auto;
+  font-size: 0.82rem;
+}

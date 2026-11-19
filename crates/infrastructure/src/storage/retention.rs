@@ -176,6 +176,13 @@ impl SqliteProjectRepository {
         // Capture, reconciliation, row pruning and deletion share the exact writer
         // coordinator used by promotion and command commit. Backups are not traversed.
         let mut c = db(self.connection.lock())?;
+        if self
+            .preparation_leases
+            .load(std::sync::atomic::Ordering::SeqCst)
+            != 0
+        {
+            return Ok(0);
+        }
         self.verify_file_graph_history(&c)?;
         let roots = self.retention_roots(&c)?;
         for h in &roots {

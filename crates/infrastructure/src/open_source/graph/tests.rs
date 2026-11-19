@@ -1,12 +1,12 @@
 use super::super::tests::{command, fixture, id, request};
 use super::*;
 use scenesparrow_application::{ProjectRepository, manuscript::ManuscriptRepository};
-fn put(root: &Path, path: &str, bytes: &[u8]) {
+pub(super) fn put(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
 }
-fn seed() -> (tempfile::TempDir, PathBuf, SqliteProjectRepository) {
+pub(super) fn seed() -> (tempfile::TempDir, PathBuf, SqliteProjectRepository) {
     let (dir, root, repo) = fixture();
     put(&root, "public/clip.bin", &[0, 255, 1, 128]);
     put(&root, "public/twin.bin", &[0, 255, 1, 128]);
