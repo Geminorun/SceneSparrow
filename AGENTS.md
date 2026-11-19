@@ -114,6 +114,15 @@
 
 ## Delegation scope
 
+- The next open-project effort is specified in `docs/specs/open-project-format.md`,
+  `docs/open-project-execution.md` and ADR 0005. These are preparation documents,
+  not implemented file persistence or media capabilities. For authorized coding,
+  use OP1–OP6 acceptance gates and the current source ownership map. Root writes
+  specs/stage briefs; coding agents retain the model, one-writer and Git rules
+  above. Creative file edits must never directly replace core-owned lock,
+  approval, history or receipt state. Preserve legacy behavior until verified
+  explicit migration; do not persist Markdown through the lossy projection.
+
 - The primary agent handles requirements clarification, planning, product/UX and
   architecture design, competitor research, solution comparison, and standalone
   documentation directly. Do not use subagents for these activities, including

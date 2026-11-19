@@ -12,6 +12,13 @@ choices remain in the [design index](design/README.md),
 [architecture cleanup evidence](validation/architecture-cleanup.md) records the
 ownership refactor; it does not establish new product or platform acceptance.
 
+The next planned ownership change is specified in the
+[open project contract](specs/open-project-format.md) and
+[ADR 0005](decisions/0005-open-project-workspace.md), with an
+[OP1–OP6 delivery plan](open-project-execution.md). It introduces file-authoring
+sources while retaining core-owned approval/management records. It is not yet
+implemented; the source map and SQLite behavior below describe the current code.
+
 ## Runtime and dependency boundaries
 
 | Owner                      | Implemented responsibility                                                                                                                                       |

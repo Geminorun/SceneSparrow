@@ -12,6 +12,12 @@ details but must identify changes to confirmed behavior explicitly.
 The [eight-step execution workflow](../implementation-execution.md) maps these
 tasks to the approved implementation sequence and review/commit/push gates.
 
+The [open project format](open-project-format.md) is a new cross-stage file and
+interoperability contract. Its [OP1–OP6 execution plan](../open-project-execution.md)
+defines the next migration effort. It is specified, not implemented; the delivered
+S1–S4 behavior below remains the regression baseline. Root supplies the owning
+stage brief and resolves its explicit format/recovery gates before delegation.
+
 | Document                                                         | Scope                                                                              | Status                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | [S1: manuscript editing foundation](s1-manuscript-foundation.md) | Document model, persistence, editor, autosave, bounded history, sources and import | Core/browser implemented; native/performance acceptance open                |

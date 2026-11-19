@@ -17,6 +17,13 @@ The original feature branch was `feat/script-workbench`, created directly from r
 
 ## Reading order
 
+The [open project specification](../specs/open-project-format.md) and
+[six-stage execution plan](../open-project-execution.md) define the approved next
+direction: file-authoring projects, external Agent candidates, recoverable
+migration and portable packages. [ADR 0005](../decisions/0005-open-project-workspace.md)
+records the boundary change. These are preparation documents, not delivered
+storage/media capabilities; current workbench behavior remains the baseline.
+
 The approved [writing interaction and generation follow-up](writing-interaction-and-generation.md)
 removes application output-token budgets, separates input from operation availability,
 adds compact references and auxiliary-pane generation history, and makes notices
