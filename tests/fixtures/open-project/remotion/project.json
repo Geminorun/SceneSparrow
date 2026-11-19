@@ -1,0 +1,10 @@
+{
+  "format": "scenesparrow",
+  "formatVersion": 1,
+  "projectId": "55555555-5555-4555-8555-555555555555",
+  "manuscript": "manuscript.md",
+  "video": {
+    "entry": "src/index.ts",
+    "compositionId": "OpenProjectExample"
+  }
+}

@@ -2512,3 +2512,139 @@ pub struct AiTestTarget {
     #[serde(rename = "modelId")]
     pub model_id: String,
 }
+pub type FileJsonValue = serde_json::Value;
+pub type FileExtensions = std::collections::BTreeMap<String, FileJsonValue>;
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpenProjectManifestFormat {
+    #[serde(rename = "scenesparrow")]
+    Scenesparrow,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenProjectManifest {
+    #[serde(rename = "format")]
+    pub format: OpenProjectManifestFormat,
+    #[serde(rename = "formatVersion")]
+    pub format_version: i64,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "manuscript")]
+    pub manuscript: String,
+    #[serde(
+        rename = "name",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub name: Option<String>,
+    #[serde(
+        rename = "audio",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub audio: Option<ProjectAudioDeclaration>,
+    #[serde(
+        rename = "video",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub video: Option<ProjectVideoDeclaration>,
+    #[serde(
+        rename = "extensions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub extensions: Option<FileExtensions>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectAudioDeclaration {
+    #[serde(rename = "plan")]
+    pub plan: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectVideoDeclaration {
+    #[serde(rename = "entry")]
+    pub entry: String,
+    #[serde(rename = "compositionId")]
+    pub composition_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AudioPlanDeclarationFormat {
+    #[serde(rename = "scenesparrow-audio")]
+    Scenesparrowaudio,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AudioPlanDeclaration {
+    #[serde(rename = "format")]
+    pub format: AudioPlanDeclarationFormat,
+    #[serde(rename = "formatVersion")]
+    pub format_version: i64,
+    #[serde(rename = "segments")]
+    pub segments: Vec<AudioSegmentDeclaration>,
+    #[serde(
+        rename = "extensions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub extensions: Option<FileExtensions>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AudioSegmentDeclaration {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "sourceBlockId")]
+    pub source_block_id: String,
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: i64,
+    #[serde(rename = "narrationText")]
+    pub narration_text: String,
+    #[serde(rename = "media")]
+    pub media: String,
+    #[serde(rename = "trimStartSample")]
+    pub trim_start_sample: i64,
+    #[serde(rename = "trimEndSample")]
+    pub trim_end_sample: i64,
+    #[serde(rename = "placementSample")]
+    pub placement_sample: i64,
+    #[serde(rename = "gainMilliDb")]
+    pub gain_milli_db: i64,
+    #[serde(
+        rename = "extensions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub extensions: Option<FileExtensions>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoProjectDeclarationFormat {
+    #[serde(rename = "scenesparrow-video")]
+    Scenesparrowvideo,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoProjectDeclaration {
+    #[serde(rename = "format")]
+    pub format: VideoProjectDeclarationFormat,
+    #[serde(rename = "formatVersion")]
+    pub format_version: i64,
+    #[serde(rename = "entry")]
+    pub entry: String,
+    #[serde(rename = "compositionId")]
+    pub composition_id: String,
+    #[serde(
+        rename = "extensions",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub extensions: Option<FileExtensions>,
+}

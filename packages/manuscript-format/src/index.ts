@@ -159,3 +159,6 @@ export function serializeMarkdown(
     listItemIndent: "one",
   });
 }
+
+// The source codec is intentionally separate from the normalized legacy writer.
+export * from "./source";

@@ -115,8 +115,9 @@
 ## Delegation scope
 
 - The next open-project effort is specified in `docs/specs/open-project-format.md`,
-  `docs/open-project-execution.md` and ADR 0005. These are preparation documents,
-  not implemented file persistence or media capabilities. For authorized coding,
+  `docs/open-project-execution.md` and ADR 0005. OP1 contracts/codec are locally
+  reviewed; file persistence and media capabilities retain their later gates.
+  For authorized coding,
   use OP1–OP6 acceptance gates and the current source ownership map. Root writes
   specs/stage briefs; coding agents retain the model, one-writer and Git rules
   above. Creative file edits must never directly replace core-owned lock,

@@ -1,0 +1,166 @@
+[
+  {
+    "name": "mixed-marks-breaks-unicode",
+    "source": "# 中文 👩‍💻 é\n\nMixed **strong *emphasis*** and `code` [link](https://example.com).  \nHard\nsoft\n",
+    "boundSource": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n# 中文 👩‍💻 é\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\nMixed **strong *emphasis*** and `code` [link](https://example.com).  \nHard\nsoft\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["heading", "paragraph"]
+  },
+  {
+    "name": "nested-ordered-unordered",
+    "source": "- Parent\n  1. Ordered child\n     - Grandchild\n- Sibling\n",
+    "boundSource": "- Parent<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n  1. Ordered child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n     - Grandchild<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n- Sibling<!-- scenesparrow:block=11111111-1111-4111-8111-000000000004 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedKinds": ["paragraph", "paragraph", "paragraph", "paragraph"]
+  },
+  {
+    "name": "nested-quotes",
+    "source": "> Quote\n>\n> - item\n>   > Nested quote\n",
+    "boundSource": "> Quote<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n>\n> - item<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n>   > Nested quote<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003"
+    ],
+    "expectedKinds": ["paragraph", "paragraph", "paragraph"]
+  },
+  {
+    "name": "atx-setext-in-list",
+    "source": "- # Heading\n- Setext\n  ======\n",
+    "boundSource": "- # Heading<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n- Setext<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n  ======\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["heading", "heading"]
+  },
+  {
+    "name": "literal-code-markers",
+    "source": "```js\nconst literal = '<!-- scenesparrow:block=bad -->';\n```\n\n    indented code\n",
+    "boundSource": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n```js\nconst literal = '<!-- scenesparrow:block=bad -->';\n```\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n    indented code\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["code", "code"]
+  },
+  {
+    "name": "tight-code-only-item",
+    "source": "- ```js\n  code\n  ```\n- next\n",
+    "boundSource": "- <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n  ```js\n  code\n  ```\n- next<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["code", "paragraph"]
+  },
+  {
+    "name": "quoted-code",
+    "source": "> ```\n> payload\n> ```\n",
+    "boundSource": "> <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n> ```\n> payload\n> ```\n",
+    "expectedIds": ["11111111-1111-4111-8111-000000000001"],
+    "expectedKinds": ["code"]
+  },
+  {
+    "name": "unsupported-table-raw-html",
+    "source": "| a | b |\n| - | - |\n| c | d |\n\n<div>Raw HTML &amp; untouched</div>\n",
+    "boundSource": "<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n| a | b |\n| - | - |\n| c | d |\n\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n<div>Raw HTML &amp; untouched</div>\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["paragraph", "html"]
+  },
+  {
+    "name": "multi-paragraph-item",
+    "source": "- first paragraph\n\n  second paragraph\n\n  - child\n",
+    "boundSource": "- first paragraph<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n  second paragraph<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n\n  - child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003"
+    ],
+    "expectedKinds": ["paragraph", "paragraph", "paragraph"]
+  },
+  {
+    "name": "empty-item",
+    "source": "- \n- text\n",
+    "boundSource": "-  <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n- text<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["empty", "paragraph"]
+  },
+  {
+    "name": "empty-parent-nested-list",
+    "source": "-\n  - child\n",
+    "boundSource": "-\n  <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n  - child<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["empty", "paragraph"]
+  },
+  {
+    "name": "empty-quote",
+    "source": ">\n",
+    "boundSource": "> <!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n",
+    "expectedIds": ["11111111-1111-4111-8111-000000000001"],
+    "expectedKinds": ["empty"]
+  },
+  {
+    "name": "empty-root",
+    "source": "",
+    "boundSource": "<!-- scenesparrow:empty=11111111-1111-4111-8111-000000000001 -->\n",
+    "expectedIds": ["11111111-1111-4111-8111-000000000001"],
+    "expectedKinds": ["empty"]
+  },
+  {
+    "name": "bom-crlf-whitespace",
+    "source": "﻿# Title\r\n\r\n  text\t  \r\nline\r\n\r\n| x | y |\r\n|---|---|\r\n<div data-z='a'>raw</div>\r\n",
+    "boundSource": "﻿<!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\r\n\r\n# Title\r\n\r\n  <!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\r\n\r\ntext\t  \r\nline\r\n\r\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000003 -->\r\n\r\n| x | y |\r\n|---|---|\r\n<!-- scenesparrow:block=11111111-1111-4111-8111-000000000004 -->\r\n<div data-z='a'>raw</div>\r\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002",
+      "11111111-1111-4111-8111-000000000003",
+      "11111111-1111-4111-8111-000000000004"
+    ],
+    "expectedKinds": ["heading", "paragraph", "paragraph", "html"]
+  },
+  {
+    "name": "empty-atx-headings-in-containers",
+    "source": "> #\n\n- # ###\n",
+    "boundSource": "> # <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n\n- # <!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 --> ###\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["heading", "heading"]
+  },
+  {
+    "name": "indented-container-code",
+    "source": "-     code\n\n- next\n",
+    "boundSource": "- <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n      code\n\n- next<!-- scenesparrow:block=11111111-1111-4111-8111-000000000002 -->\n",
+    "expectedIds": [
+      "11111111-1111-4111-8111-000000000001",
+      "11111111-1111-4111-8111-000000000002"
+    ],
+    "expectedKinds": ["code", "paragraph"]
+  },
+  {
+    "name": "quote-only-container",
+    "source": "> > - ```\n> >   code\n> >   ```\n",
+    "boundSource": "> > - <!-- scenesparrow:block=11111111-1111-4111-8111-000000000001 -->\n> >   ```\n> >   code\n> >   ```\n",
+    "expectedIds": ["11111111-1111-4111-8111-000000000001"],
+    "expectedKinds": ["code"]
+  }
+]

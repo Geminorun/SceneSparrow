@@ -23,9 +23,33 @@ const diagnosticSchema = JSON.parse(
   ),
 );
 Object.assign(schema.definitions, diagnosticSchema.definitions);
+const fileSchema = JSON.parse(
+  await readFile(
+    new URL("packages/contracts/schema/open-project.schema.json", root),
+    "utf8",
+  ),
+);
+Object.assign(schema.definitions, fileSchema.definitions);
 // This generator deliberately supports the protocol subset used here. Constraint
 // validation remains in the core; unsupported type constructs fail generation.
 function validateShape(s) {
+  // Only these two named file-format definitions admit opaque JSON. Live DTOs
+  // remain closed; adding an open transport object still fails generation.
+  if (s === schema.definitions.FileJsonValue) {
+    if (Object.keys(s).length)
+      throw Error("FileJsonValue must be the unconstrained JSON schema");
+    return;
+  }
+  if (s === schema.definitions.FileExtensions) {
+    if (
+      s.type !== "object" ||
+      Object.keys(s).length !== 2 ||
+      s.additionalProperties?.$ref !== "#/definitions/FileJsonValue" ||
+      s.properties
+    )
+      throw Error("Invalid file extension map");
+    return;
+  }
   const allowed = new Set([
     "$schema",
     "title",
@@ -74,6 +98,10 @@ validateShape(schema);
 const snake = (s) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 const pascal = (s) => s[0].toUpperCase() + s.slice(1);
 function ts(s) {
+  if (s === schema.definitions.FileJsonValue)
+    return "null | boolean | number | string | FileJsonValue[] | { [key: string]: FileJsonValue }";
+  if (s === schema.definitions.FileExtensions)
+    return "Record<string, FileJsonValue>";
   if (s.$ref) return s.$ref.split("/").at(-1);
   if (s.oneOf || s.anyOf) return (s.oneOf ?? s.anyOf).map(ts).join(" | ");
   if (s.enum) return s.enum.map(JSON.stringify).join(" | ");
@@ -105,6 +133,15 @@ const transportNames = new Set([
   "ApiError",
 ]);
 function rust(s, name) {
+  if (
+    s === schema.definitions.FileJsonValue ||
+    s === schema.definitions.FileExtensions
+  ) {
+    declarations.push(
+      `pub type ${name} = ${name === "FileJsonValue" ? "serde_json::Value" : "std::collections::BTreeMap<String, FileJsonValue>"};`,
+    );
+    return name;
+  }
   if (s.$ref) return s.$ref.split("/").at(-1);
   if (s.oneOf) {
     const tag = Object.keys(s.oneOf[0].properties).find((k) =>

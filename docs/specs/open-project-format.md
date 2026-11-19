@@ -1,7 +1,8 @@
 # Open project format and file-authoring specification
 
-Status: specification draft for implementation review, 2026-11-19. No runtime
-changes are delivered by this document. Baseline: `release/1.0.0` at `bf56982`.
+Status: implementation in progress, 2026-11-19. OP1 contracts/codec are reviewed;
+file persistence and platform integration remain later gates.
+Baseline: `release/1.0.0` at `bf56982`.
 Decision: [ADR 0005](../decisions/0005-open-project-workspace.md). Delivery gates
 and OP1–OP6 assignments: [execution plan](../open-project-execution.md).
 
@@ -140,11 +141,13 @@ are not identities. Duplicate IDs, missing locked IDs or ambiguous mappings cann
 silently create replacement approved objects. Surface unresolved binding and keep
 the prior confirmed state.
 
-The exact marker grammar and container/child mapping require an OP1 codec proof
-covering headings, nested lists, blockquotes, fenced code, literal marker-looking
-text and unsupported Markdown. Root records the tested encoding in the stage
-spec before OP2/OP3 consume it. This is an explicit early compatibility gate, not
-an unrestricted implementer choice or a claim that markers already work.
+The tested encoding is frozen in [OP1](open-project-op1.md), with shared insertion
+and read/failure corpora. It adds the explicit `scenesparrow:empty` variant for
+zero-content leaves, uses suffix markers for container paragraphs/headings, and
+never assigns both a list/quote parent and its content leaves the same identity.
+Root reviewed the CommonMark meaning proof before downstream storage/UI work.
+This is a codec proof; runtime persistence and speech/export integration have
+their own later acceptance gates.
 
 ## 5. Files, revisions and external changes
 
@@ -250,7 +253,7 @@ projection; retain the legacy bytes/objects as provenance. Applied migrations
 Use named, versioned project operations over the existing PlatformClient and
 generated HTTP/preload contract. Required operation semantics are inspect/open,
 create, read/save source with a base hash, inspect external changes, accept/discard
-candidate, migrate, package/inspect/import and capability status. OP1 fixes DTO
+candidate, migrate, package/inspect/import and capability status. Each stage fixes its operation DTO
 names in the executable contract; this is not an arbitrary file/shell endpoint.
 
 The same core owns both platforms. Web selects a configured development/private

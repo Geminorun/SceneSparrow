@@ -1,6 +1,6 @@
 # Open project implementation and review plan
 
-Status: documentation/preparation only, 2026-11-19. Implementation has not started.
+Status: implementation authorized on 2026-11-19. OP1 passed independent local review; OP2–OP6 are pending.
 Branch: `feat/open-project-format`, based on remote `release/1.0.0` at `bf56982`.
 The PR targets that release branch and remains draft during staged delivery.
 
@@ -13,8 +13,8 @@ Source: [open project specification](specs/open-project-format.md),
 
 The root writes the common specification, architecture decisions, stage briefs,
 plan and validation summaries. Planning/design/documentation use no subagents.
-This preparation checkpoint changes documentation only. It does not authorize
-code implementation in this turn, auto-merge, release or deployment.
+The initial checkpoint changed documentation only. The user has now authorized
+the six-stage implementation. Auto-merge, release and deployment remain excluded.
 
 After implementation is started, substantial coding stages use a fresh agent with
 `model: gpt-6.1-sol`, `reasoning_effort: high`, `fork_turns: none`. Root remains

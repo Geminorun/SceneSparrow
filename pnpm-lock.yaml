@@ -130,6 +130,9 @@ importers:
       '@scenesparrow/contracts':
         specifier: workspace:*
         version: link:../contracts
+      mdast-util-from-markdown:
+        specifier: 2.0.2
+        version: 2.0.2(supports-color@8.1.1)
       mdast-util-to-markdown:
         specifier: 2.1.2
         version: 2.1.2

@@ -90,7 +90,7 @@ packages/
     transport.ts                 # HTTP response validation/classification
     links.ts                     # External-link validation used by both adapters
   contracts/                     # Schemas and generated TypeScript types
-  manuscript-format/             # Pure shared Markdown writer
+  manuscript-format/             # Legacy writer and source-preserving codec
   ai-runtime/                    # Generic provider runtime and output guards
   video-runtime/                 # Separate Remotion sample
 

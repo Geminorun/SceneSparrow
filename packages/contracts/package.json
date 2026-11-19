@@ -5,7 +5,9 @@
   "name": "@scenesparrow/contracts",
   "exports": {
     ".": "./src/generated.ts",
-    "./schema": "./schema/protocol.schema.json"
+    "./schema": "./schema/protocol.schema.json",
+    "./open-project": "./src/open-project.ts",
+    "./open-project-schema": "./schema/open-project.schema.json"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

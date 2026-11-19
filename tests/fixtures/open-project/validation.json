@@ -1,0 +1,827 @@
+[
+  {
+    "name": "text only has no name or media",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md"
+    },
+    "result": "supported"
+  },
+  {
+    "name": "all optional declarations and opaque JSON",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "name": "幕雀 👩‍💻",
+      "audio": {
+        "plan": "audio/plan.json"
+      },
+      "video": {
+        "entry": "src/index.ts",
+        "compositionId": "Example"
+      },
+      "extensions": {
+        "org.example:tool": {
+          "unknown": [
+            null,
+            true,
+            1.25,
+            {
+              "中文": "👋"
+            }
+          ]
+        }
+      }
+    },
+    "result": "supported"
+  },
+  {
+    "name": "future retains unknown shape before v1 validation",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 2,
+      "unknownFuture": [1, 2]
+    },
+    "result": "future-read-only"
+  },
+  {
+    "name": "unknown core",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "typo": true
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "null optional",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "audio": null
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "bad uuid",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "not-a-uuid",
+      "manuscript": "manuscript.md"
+    },
+    "result": "IDENTITY_INVALID"
+  },
+  {
+    "name": "noncanonical uuid",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+      "manuscript": "manuscript.md"
+    },
+    "result": "IDENTITY_INVALID"
+  },
+  {
+    "name": "wrong uuid version",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-1111-8111-111111111111",
+      "manuscript": "manuscript.md"
+    },
+    "result": "IDENTITY_INVALID"
+  },
+  {
+    "name": "version zero",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 0,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md"
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "fraction version",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1.5,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md"
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "empty name",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "name": "  "
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "unknown video",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "video": {
+        "entry": "src/index.ts",
+        "compositionId": "x",
+        "fps": 24
+      }
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "unnamespaced extensions",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "extensions": {
+        "unknown": 1
+      }
+    },
+    "result": "EXTENSIONS_INVALID"
+  },
+  {
+    "name": "extension null",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "extensions": null
+    },
+    "result": "EXTENSIONS_INVALID"
+  },
+  {
+    "name": "management manuscript",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": ".scenesparrow/snapshot.md"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "git manuscript",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "a/.GIT/prose.md"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "wrong manuscript extension",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "project.json"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio kind",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "audio": {
+        "plan": "audio/plan.wav"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "video kind",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "video": {
+        "entry": "src/index.md",
+        "compositionId": "x"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "case role collision",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "Src/story.md",
+      "video": {
+        "entry": "src/index.ts",
+        "compositionId": "x"
+      }
+    },
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "invalid path ''",
+    "kind": "paths",
+    "value": [""],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path '/x.md'",
+    "kind": "paths",
+    "value": ["/x.md"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path '//server/file'",
+    "kind": "paths",
+    "value": ["//server/file"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'C:/x.md'",
+    "kind": "paths",
+    "value": ["C:/x.md"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a\\\\b'",
+    "kind": "paths",
+    "value": ["a\\b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path '../x.md'",
+    "kind": "paths",
+    "value": ["../x.md"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a/./b'",
+    "kind": "paths",
+    "value": ["a/./b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a//b'",
+    "kind": "paths",
+    "value": ["a//b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a/'",
+    "kind": "paths",
+    "value": ["a/"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'CON'",
+    "kind": "paths",
+    "value": ["CON"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'NUL.txt'",
+    "kind": "paths",
+    "value": ["NUL.txt"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'LPT1.wav'",
+    "kind": "paths",
+    "value": ["LPT1.wav"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'COM¹.txt'",
+    "kind": "paths",
+    "value": ["COM¹.txt"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a.'",
+    "kind": "paths",
+    "value": ["a."],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a '",
+    "kind": "paths",
+    "value": ["a "],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a\\x00b'",
+    "kind": "paths",
+    "value": ["a\u0000b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a\\x85b'",
+    "kind": "paths",
+    "value": ["ab"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a:b'",
+    "kind": "paths",
+    "value": ["a:b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "invalid path 'a?b'",
+    "kind": "paths",
+    "value": ["a?b"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "collision ['Foo/a', 'foo/b']",
+    "kind": "paths",
+    "value": ["Foo/a", "foo/b"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "collision ['a', 'a/b']",
+    "kind": "paths",
+    "value": ["a", "a/b"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "collision ['a', 'a']",
+    "kind": "paths",
+    "value": ["a", "a"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "collision ['é/a', 'é/b']",
+    "kind": "paths",
+    "value": ["é/a", "é/b"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "collision ['a.md', 'A.md']",
+    "kind": "paths",
+    "value": ["a.md", "A.md"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "Unicode paths",
+    "kind": "paths",
+    "value": ["稿件/中文.md", "public/images/雀.svg"],
+    "result": "valid"
+  },
+  {
+    "name": "video envelope",
+    "kind": "video",
+    "value": {
+      "format": "scenesparrow-video",
+      "formatVersion": 1,
+      "entry": "src/index.ts",
+      "compositionId": "Demo"
+    },
+    "result": "valid"
+  },
+  {
+    "name": "audio explicit units and provenance",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "valid"
+  },
+  {
+    "name": "audio invalid interval",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 10,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "audio duplicate ids",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        },
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "IDENTITY_INVALID"
+  },
+  {
+    "name": "audio unsafe samples",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 9007199254740992,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "audio invalid media",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": ".scenesparrow/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio shared physical take may be reused",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        },
+        {
+          "id": "77777777-7777-4777-8777-777777777777",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "valid"
+  },
+  {
+    "name": "audio take paths collide across segments",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        },
+        {
+          "id": "77777777-7777-4777-8777-777777777777",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "Public/audio/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "Unicode caseless sigma collision",
+    "kind": "paths",
+    "value": ["Σ/a.md", "ς/b.md"],
+    "result": "PATH_COLLISION"
+  },
+  {
+    "name": "manuscript portable protected alias .ſcenesparrow",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": ".ſcenesparrow/source.md"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio portable protected alias .ſcenesparrow",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "audio": {
+        "plan": ".ſcenesparrow/plan.json"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "video portable protected alias .ſcenesparrow",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "video": {
+        "entry": ".ſcenesparrow/index.ts",
+        "compositionId": "Demo"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "video declaration portable protected alias .ſcenesparrow",
+    "kind": "video",
+    "value": {
+      "format": "scenesparrow-video",
+      "formatVersion": 1,
+      "entry": ".ſcenesparrow/index.ts",
+      "compositionId": "Demo"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio media portable protected alias .ſcenesparrow",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": ".ſcenesparrow/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "manuscript portable protected alias .gıt",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": ".gıt/source.md"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio portable protected alias .gıt",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "audio": {
+        "plan": ".gıt/plan.json"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "video portable protected alias .gıt",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": "manuscript.md",
+      "video": {
+        "entry": ".gıt/index.ts",
+        "compositionId": "Demo"
+      }
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "video declaration portable protected alias .gıt",
+    "kind": "video",
+    "value": {
+      "format": "scenesparrow-video",
+      "formatVersion": 1,
+      "entry": ".gıt/index.ts",
+      "compositionId": "Demo"
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "audio media portable protected alias .gıt",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": ".gıt/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "ordinary namespace-like role segments remain valid",
+    "kind": "manifest",
+    "value": {
+      "format": "scenesparrow",
+      "formatVersion": 1,
+      "projectId": "11111111-1111-4111-8111-111111111111",
+      "manuscript": ".ſcenesparrow-notes/source.md",
+      "audio": {
+        "plan": ".gıt-notes/plan.json"
+      },
+      "video": {
+        "entry": "scenesparrow/git/index.ts",
+        "compositionId": "Demo"
+      }
+    },
+    "result": "supported"
+  },
+  {
+    "name": "ordinary namespace-like media segment remains valid",
+    "kind": "audio",
+    "value": {
+      "format": "scenesparrow-audio",
+      "formatVersion": 1,
+      "segments": [
+        {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "sourceBlockId": "33333333-3333-4333-8333-333333333333",
+          "sourceRevision": 7,
+          "narrationText": "A retained take",
+          "media": "public/.gıt-notes/take.wav",
+          "trimStartSample": 10,
+          "trimEndSample": 48010,
+          "placementSample": 0,
+          "gainMilliDb": -3000
+        }
+      ]
+    },
+    "result": "valid"
+  },
+  {
+    "name": "ordinary namespace-like video segment remains valid",
+    "kind": "video",
+    "value": {
+      "format": "scenesparrow-video",
+      "formatVersion": 1,
+      "entry": ".ſcenesparrow-notes/index.ts",
+      "compositionId": "Demo"
+    },
+    "result": "valid"
+  },
+  {
+    "name": "mixed case reserved portable name",
+    "kind": "paths",
+    "value": ["AuX.md"],
+    "result": "PATH_INVALID"
+  },
+  {
+    "name": "mixed case reserved numbered name",
+    "kind": "paths",
+    "value": ["cOm¹.txt"],
+    "result": "PATH_INVALID"
+  }
+]

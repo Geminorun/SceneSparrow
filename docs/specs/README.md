@@ -17,6 +17,8 @@ interoperability contract. Its [OP1–OP6 execution plan](../open-project-execut
 defines the next migration effort. It is specified, not implemented; the delivered
 S1–S4 behavior below remains the regression baseline. Root supplies the owning
 stage brief and resolves its explicit format/recovery gates before delegation.
+The [OP1 stage brief](open-project-op1.md) starts the authorized implementation
+with contracts, source-fidelity/identity proofs and a portable skeleton.
 
 | Document                                                         | Scope                                                                              | Status                                                                      |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
