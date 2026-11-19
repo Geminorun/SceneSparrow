@@ -132,6 +132,63 @@ fn extensions(value: &Value, field: &str) -> Result<()> {
     }
     Ok(())
 }
+fn file_integer(value: &Value, field: &str) -> Result<i64> {
+    let number = value
+        .as_f64()
+        .filter(|n| n.is_finite() && n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0)
+        .ok_or_else(|| error("FORMAT_INVALID", field))?;
+    Ok(number as i64)
+}
+/// Normalize only schema-declared file integers on a validation clone. Opaque
+/// extensions and original file bytes remain untouched; transport DTOs are strict.
+fn normalize_file_integers(
+    value: &mut Value,
+    schema: &Value,
+    definitions: &Value,
+    field: &str,
+) -> Result<()> {
+    if let Some(reference) = schema["$ref"].as_str() {
+        let name = reference
+            .rsplit('/')
+            .next()
+            .ok_or_else(|| error("FORMAT_INVALID", field))?;
+        return match name {
+            "FileJsonValue" | "FileExtensions" => Ok(()),
+            _ => normalize_file_integers(value, &definitions[name], definitions, field),
+        };
+    }
+    match schema["type"].as_str() {
+        Some("integer") => *value = Value::from(file_integer(value, field)?),
+        Some("object") => {
+            if let Some(object) = value.as_object_mut() {
+                for (key, child) in object {
+                    if let Some(property) = schema["properties"].get(key) {
+                        normalize_file_integers(
+                            child,
+                            property,
+                            definitions,
+                            &format!("{field}.{key}"),
+                        )?;
+                    }
+                }
+            }
+        }
+        Some("array") => {
+            if let Some(items) = value.as_array_mut() {
+                for (index, child) in items.iter_mut().enumerate() {
+                    normalize_file_integers(
+                        child,
+                        &schema["items"],
+                        definitions,
+                        &format!("{field}.{index}"),
+                    )?;
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 fn shape(value: &Value, schema: &Value, definitions: &Value, field: &str) -> Result<()> {
     let invalid = || error("FORMAT_INVALID", field);
     if let Some(reference) = schema["$ref"].as_str() {
@@ -215,10 +272,10 @@ fn role_path(path: &str, role: &str) -> Result<()> {
     Ok(())
 }
 pub fn inspect_project_manifest(value: Value) -> Result<ManifestInspection> {
-    let version = value["formatVersion"]
-        .as_i64()
-        .filter(|v| *v >= 1 && *v <= 9_007_199_254_740_991)
-        .ok_or_else(|| error("FORMAT_INVALID", "formatVersion"))?;
+    let version = file_integer(&value["formatVersion"], "formatVersion")?;
+    if version < 1 {
+        return Err(error("FORMAT_INVALID", "formatVersion"));
+    }
     if value["format"] != "scenesparrow" {
         return Err(error("FORMAT_INVALID", "formatVersion"));
     }
@@ -229,6 +286,8 @@ pub fn inspect_project_manifest(value: Value) -> Result<ManifestInspection> {
         });
     }
     let defs = definitions();
+    let mut value = value;
+    normalize_file_integers(&mut value, &defs["OpenProjectManifest"], &defs, "manifest")?;
     shape(&value, &defs["OpenProjectManifest"], &defs, "manifest")?;
     let manifest: OpenProjectManifest =
         serde_json::from_value(value).map_err(|_| error("FORMAT_INVALID", "manifest"))?;
@@ -266,6 +325,18 @@ pub fn inspect_project_manifest(value: Value) -> Result<ManifestInspection> {
 }
 pub fn validate_media_declaration(value: &Value, audio: bool) -> Result<()> {
     let defs = definitions();
+    let mut normalized = value.clone();
+    normalize_file_integers(
+        &mut normalized,
+        &defs[if audio {
+            "AudioPlanDeclaration"
+        } else {
+            "VideoProjectDeclaration"
+        }],
+        &defs,
+        if audio { "audio" } else { "video" },
+    )?;
+    let value = &normalized;
     shape(
         value,
         &defs[if audio {
@@ -351,7 +422,10 @@ mod tests {
         ))
         .unwrap();
         for fixture in &fixtures {
-            let value = &fixture["value"];
+            let parsed = fixture["json"]
+                .as_str()
+                .map(|raw| serde_json::from_str::<Value>(raw).unwrap());
+            let value = parsed.as_ref().unwrap_or(&fixture["value"]);
             let result: std::result::Result<&str, FormatError> =
                 match fixture["kind"].as_str().unwrap() {
                     "manifest" => inspect_project_manifest(value.clone()).map(|v| match v {
@@ -397,6 +471,33 @@ mod tests {
         assert!(
             serde_json::from_value::<crate::contracts::ProjectAudioDeclaration>(
                 serde_json::json!({ "plan": "audio/plan.json", "unknown": 1 })
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn normalization_preserves_opaque_numbers_and_transport_integer_strictness() {
+        let raw:Value=serde_json::from_str(r#"{"format":"scenesparrow","formatVersion":1e0,"projectId":"11111111-1111-4111-8111-111111111111","manuscript":"manuscript.md","extensions":{"org.example:numbers":[1.0,2e0,1.5]}}"#).unwrap();
+        let original = raw.clone();
+        let ManifestInspection::Supported(manifest) = inspect_project_manifest(raw).unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            serde_json::to_value(manifest).unwrap()["extensions"],
+            original["extensions"]
+        );
+        let future: Value =
+            serde_json::from_str(r#"{"format":"scenesparrow","formatVersion":2.0,"future":1e0}"#)
+                .unwrap();
+        let ManifestInspection::FutureReadOnly { raw, .. } =
+            inspect_project_manifest(future.clone()).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(raw, future);
+        assert!(
+            serde_json::from_str::<crate::contracts::CopyRequest>(
+                r#"{"requestId":"11111111-1111-4111-8111-111111111111","expectedRevision":1.0,"expectedBodyHash":"hash"}"#
             )
             .is_err()
         );

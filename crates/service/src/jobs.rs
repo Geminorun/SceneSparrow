@@ -25,6 +25,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
             };
             let _ = tokio::task::spawn_blocking(move || -> Result<(), ManuscriptError> {
                 let repository = service.repository();
+                let _ = repository.inspect_source_changes(false);
                 repository.reconcile_planning()?;
                 repository.reconcile_reviews()?;
                 if run_maintenance
@@ -32,6 +33,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
                         .map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?
                         .is_some()
                 {
+                    repository.prune_source_candidates()?;
                     repository.prune_export_inputs()?;
                     repository.prune_planning_payloads()?;
                     repository.prune_review_payloads()?;
@@ -41,6 +43,7 @@ fn drive_ai_and_maintenance(state: &AppState) {
                     repository
                         .execute_next_ai(settings)
                         .map_err(|e| ManuscriptError(e.0, None))?;
+                    let _ = repository.inspect_source_changes(false);
                     repository.reconcile_planning()?;
                     repository.reconcile_reviews()?;
                 }

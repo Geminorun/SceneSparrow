@@ -108,7 +108,17 @@ async function fixture(t) {
     }
     throw Error("Timeout " + logs);
   };
-  return { root, boot, stop, req, command, save, wait, url: () => base };
+  return {
+    root,
+    boot,
+    stop,
+    req,
+    command,
+    save,
+    wait,
+    bytes: (path) => fetch(base + path, { headers }),
+    url: () => base,
+  };
 }
 test("OPF-AC01/03/06/19 authenticated raw source create/save/reopen needs no Node and keeps receipt identity", async (t) => {
   const f = await fixture(t);
@@ -432,6 +442,38 @@ test("OPF-AC06/07 generated initial list draft and accepted AI edit share raw so
       (await f.save(active.source + "\n")).data.code,
       "TASK_USING_CONTENT",
     );
+    await writeFile(
+      join(f.root, "manuscript.md"),
+      active.source.replace(quote, "External protected scope"),
+    );
+    const status = (await f.req("/manuscript/source/rescan", {}, "POST")).data;
+    const resolution = {
+      requestId: randomUUID(),
+      projectId: active.projectId,
+      expectedWorkingRevision: active.workingRevision,
+      expectedGeneration: active.generation,
+      expectedHash: active.acceptedHash,
+      candidateId: status.candidateId,
+      candidateHash: status.externalHash,
+      disposition: "accept",
+      source: null,
+      group: group(),
+    };
+    assert.equal(
+      (await f.req("/manuscript/source/resolve", resolution)).data.code,
+      "TASK_USING_CONTENT",
+    );
+    assert.equal(
+      (
+        await f.req("/manuscript/source/resolve", {
+          ...resolution,
+          requestId: randomUUID(),
+          disposition: "discard",
+          group: group(),
+        })
+      ).status,
+      200,
+    );
   } finally {
     releaseReview();
   }
@@ -656,4 +698,394 @@ test("OPF-AC06/07 accepted section insertion preserves unrelated unsupported sou
     200,
   );
   assert.equal((await f.req("/manuscript/source")).data.source, after.source);
+});
+
+test("OP3 native observations require explicit reconciliation, reject stale/unknown DTOs, and keep grouped history", async (t) => {
+  const f = await fixture(t);
+  await f.boot("format-create");
+  const saved = await f.save("Accepted\r\n\r\nOther leaf\n");
+  assert.equal(saved.status, 200);
+  const base = saved.data.snapshot;
+  const history = (await f.req("/history")).data;
+  const external = base.source.replace("Accepted", "Outside");
+  await writeFile(join(f.root, "manuscript.md"), external);
+  const status = (await f.req("/manuscript/source/rescan", {}, "POST")).data;
+  assert.equal(status.externalStatus, "changed");
+  assert.equal(status.acceptedHash, base.acceptedHash);
+  assert.equal(Object.hasOwn(status, "source"), false);
+  const candidate = (
+    await f.req(`/manuscript/source/candidates/${status.candidateId}`)
+  ).data;
+  assert.equal(candidate.source, external);
+  assert.equal(candidate.baseGeneration, base.generation);
+  assert.deepEqual((await f.req("/history")).data, history);
+  const body = {
+    requestId: randomUUID(),
+    projectId: base.projectId,
+    expectedWorkingRevision: base.workingRevision,
+    expectedGeneration: base.generation,
+    expectedHash: base.acceptedHash,
+    candidateId: candidate.id,
+    candidateHash: candidate.liveHash,
+    disposition: "proposal",
+    source: base.source.replace("Accepted", "Combined local choice"),
+    group: group(),
+  };
+  assert.equal(
+    (
+      await f.req("/manuscript/source/resolve", {
+        ...body,
+        path: "/etc/passwd",
+      })
+    ).status,
+    400,
+  );
+  const accepted = await f.req("/manuscript/source/resolve", body);
+  assert.equal(accepted.status, 200, JSON.stringify(accepted));
+  assert.equal(accepted.data.receipt.undoCount, history.undoCount + 1);
+  assert.match(accepted.data.snapshot.source, /Combined local choice/);
+  assert.deepEqual(
+    (await f.req("/manuscript/source/resolve", body)).data.receipt,
+    accepted.data.receipt,
+  );
+  assert.equal(
+    (
+      await f.req("/manuscript/source/resolve", {
+        ...body,
+        source: "different proposal",
+      })
+    ).data.code,
+    "REQUEST_ID_CONFLICT",
+  );
+  await f.command(
+    "UndoProject",
+    {},
+    {
+      expectedHistoryRevision: (await f.req("/history")).data.historyRevision,
+      expectedCursor: (await f.req("/history")).data.cursor,
+    },
+  );
+  assert.equal((await f.req("/manuscript/source")).data.source, base.source);
+  const current = (await f.req("/manuscript/source")).data;
+  await writeFile(
+    join(f.root, "manuscript.md"),
+    current.source.replace("Accepted", "Outside again"),
+  );
+  const observed = (await f.req("/manuscript/source/rescan", {}, "POST")).data;
+  const discard = {
+    ...body,
+    requestId: randomUUID(),
+    expectedWorkingRevision: current.workingRevision,
+    expectedGeneration: current.generation,
+    expectedHash: current.acceptedHash,
+    candidateId: observed.candidateId,
+    candidateHash: observed.externalHash,
+    disposition: "discard",
+    source: null,
+    group: group(),
+  };
+  await writeFile(join(f.root, "manuscript.md"), "Newer outside write\n");
+  assert.equal(
+    (await f.req("/manuscript/source/resolve", discard)).data.code,
+    "SOURCE_CANDIDATE_STALE",
+  );
+  assert.equal(
+    await readFile(join(f.root, "manuscript.md"), "utf8"),
+    "Newer outside write\n",
+  );
+});
+
+test("OP3 clean Markdown copy/export retains unknown syntax, code literals and captured raw identity", async (t) => {
+  const f = await fixture(t);
+  await f.boot("format-create");
+  const literal = `<!-- scenesparrow:block=${randomUUID()} -->`;
+  const source = `\ufeffBody\r\n\r\n\`\`\`html\r\n${literal}\r\n\`\`\`\n\n<table>unknown content</table>\r\n`;
+  const saved = await f.save(source);
+  assert.equal(saved.status, 200);
+  const identity = (await f.req("/manuscript/identity")).data;
+  const body = {
+    requestId: randomUUID(),
+    expectedRevision: saved.data.snapshot.workingRevision,
+    expectedBodyHash: identity.bodyHash,
+    format: "md",
+  };
+  const copy = await f.req("/manuscript/copies", body);
+  assert.equal(copy.status, 200, JSON.stringify(copy));
+  assert.match(copy.data.text, /<table>unknown content<\/table>\r\n/);
+  assert.ok(copy.data.text.includes(literal));
+  assert.equal(
+    copy.data.text.includes(saved.data.snapshot.semanticBlockIds[0]),
+    false,
+  );
+  const job = await f.req("/manuscript/exports", {
+    ...body,
+    requestId: randomUUID(),
+  });
+  assert.equal(job.status, 200, JSON.stringify(job));
+  await f.save(saved.data.snapshot.source.replace("Body", "Newer input"));
+  assert.deepEqual((await f.req("/manuscript/copies", body)).data, copy.data);
+  const ready = await f.wait(
+    async () => (await f.req(`/manuscript/exports/${job.data.id}`)).data,
+    (j) => ["ready", "failed", "interrupted"].includes(j.status),
+  );
+  assert.equal(ready.status, "ready", JSON.stringify(ready));
+  assert.equal(ready.bodyHash, identity.bodyHash);
+  assert.equal(ready.serializerVersion, "source-markdown-1");
+  // Artifact retrieval uses the existing scoped delivery endpoint.
+  const artifact = await f.bytes(`/manuscript/exports/${job.data.id}/artifact`);
+  assert.equal(artifact.status, 200);
+  assert.equal(
+    Buffer.from(await artifact.arrayBuffer()).toString("utf8"),
+    copy.data.text,
+  );
+  await f.stop();
+  await f.boot();
+  assert.equal(
+    (await f.req(`/manuscript/exports/${job.data.id}`)).data.status,
+    "ready",
+  );
+});
+
+test("OP3 missing external manuscript has an explicit no-clobber saved-source restoration", async (t) => {
+  const f = await fixture(t);
+  await f.boot("format-create");
+  const saved = await f.save("Saved source before deletion\r\n");
+  const base = saved.data.snapshot;
+  const history = (await f.req("/history")).data;
+  await rm(join(f.root, "manuscript.md"));
+  const status = (await f.req("/manuscript/source/rescan", {}, "POST")).data;
+  assert.equal(status.externalStatus, "missing");
+  assert.ok(status.candidateId);
+  assert.ok(status.observationFingerprint);
+  const candidate = (
+    await f.req(`/manuscript/source/candidates/${status.candidateId}`)
+  ).data;
+  assert.equal(candidate.liveHash, null);
+  assert.equal(candidate.source, null);
+  const body = {
+    requestId: randomUUID(),
+    projectId: base.projectId,
+    expectedWorkingRevision: base.workingRevision,
+    expectedGeneration: base.generation,
+    expectedHash: base.acceptedHash,
+    candidateId: candidate.id,
+    candidateHash: null,
+    disposition: "accept",
+    source: null,
+    group: group(),
+  };
+  assert.equal(
+    (await f.req("/manuscript/source/resolve", body)).data.code,
+    "SOURCE_REQUIRED_FILE_DELETED",
+  );
+  const restored = await f.req("/manuscript/source/resolve", {
+    ...body,
+    requestId: randomUUID(),
+    disposition: "discard",
+    group: group(),
+  });
+  assert.equal(restored.status, 200, JSON.stringify(restored));
+  assert.equal(
+    await readFile(join(f.root, "manuscript.md"), "utf8"),
+    base.source,
+  );
+  assert.deepEqual((await f.req("/history")).data, history);
+});
+
+test("OP3 succeeded initial-draft artifact waits for external reconciliation without a second provider call", async (t) => {
+  for (const choice of ["restore", "cancel"]) {
+    const f = await fixture(t);
+    const provider = await planningProvider();
+    t.after(() => provider.close());
+    await f.boot("format-create");
+    await configurePlanning(f.req, provider.root);
+    const planning = (await f.req("/planning")).data.content;
+    planning.brief.topic = "Captured initial draft";
+    planning.brief.language = "en";
+    assert.equal(
+      (await f.command("SavePlanning", { content: planning, group: group() }))
+        .status,
+      200,
+    );
+    let prep = await f.req("/planning/preparations", {
+      operation: "generate_outline",
+    });
+    let started = await f.command("StartPlanningTask", {
+      preparationId: prep.data.id,
+      retryOfTaskId: null,
+    });
+    await f.wait(
+      async () =>
+        (await f.req(`/planning/tasks/${started.body.requestId}`)).data,
+      (v) => v.application === "applied",
+    );
+    const priorCalls = provider.calls.length;
+    let release;
+    const barrier = new Promise((resolve) => (release = resolve));
+    provider.setHandler(async (_req, res, body) => {
+      await barrier;
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              message: { content: JSON.stringify(planningOutput(body)) },
+              finish_reason: "stop",
+            },
+          ],
+        }),
+      );
+    });
+    prep = await f.req("/planning/preparations", {
+      operation: "generate_initial_draft",
+    });
+    started = await f.command("StartPlanningTask", {
+      preparationId: prep.data.id,
+      retryOfTaskId: null,
+    });
+    assert.equal(started.status, 200, JSON.stringify(started));
+    try {
+      await f.wait(
+        async () => provider.calls.length,
+        (v) => v === priorCalls + 1,
+      );
+      await writeFile(
+        join(f.root, "manuscript.md"),
+        "External notes while initial draft runs\n",
+      );
+    } finally {
+      release();
+    }
+    const succeeded = await f.wait(
+      async () =>
+        (await f.req(`/planning/tasks/${started.body.requestId}`)).data,
+      (v) => v.run?.status === "succeeded",
+    );
+    assert.equal(succeeded.application, "pending");
+    assert.ok(succeeded.run.result);
+    assert.ok(succeeded.preview);
+    await new Promise((resolve) => setTimeout(resolve, 650));
+    assert.equal(
+      (await f.req(`/planning/tasks/${started.body.requestId}`)).data
+        .application,
+      "pending",
+    );
+    assert.equal(provider.calls.length - priorCalls, 1);
+    let status = (await f.req("/manuscript/source/rescan", {}, "POST")).data;
+    if (choice === "cancel") {
+      const cancelled = await f.command("CancelPlanningTask", {
+        taskId: started.body.requestId,
+      });
+      assert.equal(cancelled.status, 200, JSON.stringify(cancelled));
+    }
+    const base = (await f.req("/manuscript/source")).data;
+    const resolved = await f.req("/manuscript/source/resolve", {
+      requestId: randomUUID(),
+      projectId: base.projectId,
+      expectedWorkingRevision: base.workingRevision,
+      expectedGeneration: base.generation,
+      expectedHash: base.acceptedHash,
+      candidateId: status.candidateId,
+      candidateHash: status.externalHash,
+      disposition: choice === "restore" ? "discard" : "accept",
+      source: null,
+      group: group(),
+    });
+    assert.equal(resolved.status, 200, JSON.stringify(resolved));
+    const settled = await f.wait(
+      async () =>
+        (await f.req(`/planning/tasks/${started.body.requestId}`)).data,
+      (v) => v.application !== "pending",
+    );
+    assert.equal(settled.run.runId, succeeded.run.runId);
+    assert.equal(
+      settled.application,
+      choice === "restore" ? "applied" : "cancelled",
+    );
+    const accepted = (await f.req("/manuscript/source")).data;
+    assert.equal(accepted.source.includes("完整初稿"), choice === "restore");
+    assert.equal(
+      accepted.source.includes("External notes"),
+      choice === "cancel",
+    );
+    await f.stop();
+    await f.boot();
+    assert.equal(
+      (await f.req("/manuscript/source")).data.acceptedHash,
+      accepted.acceptedHash,
+    );
+    assert.equal(provider.calls.length - priorCalls, 1);
+  }
+});
+
+test("OPF-AC02 native file inspection/adoption accepts integral JSON spellings without rewriting the manifest", async (t) => {
+  const f = await fixture(t);
+  await mkdir(f.root);
+  await writeFile(join(f.root, "manuscript.md"), "Authored original\n");
+  const project = {
+    format: "scenesparrow",
+    formatVersion: 1,
+    projectId: randomUUID(),
+    manuscript: "manuscript.md",
+    extensions: { "org.example:numbers": [1.5, 2] },
+  };
+  for (const [spelling, status] of [
+    ["1.0", "unmanaged"],
+    ["1e0", "unmanaged"],
+    ["2.0", "futureReadOnly"],
+  ]) {
+    const raw = JSON.stringify(project).replace(
+      '"formatVersion":1',
+      '"formatVersion":' + spelling,
+    );
+    await writeFile(join(f.root, "project.json"), raw);
+    const inspection = JSON.parse(
+      execFileSync(binary, ["--inspect-format", f.root], { encoding: "utf8" }),
+    );
+    assert.equal(inspection.status, status);
+    assert.equal(await readFile(join(f.root, "project.json"), "utf8"), raw);
+    await assert.rejects(
+      readFile(join(f.root, ".scenesparrow/project.sqlite")),
+    );
+  }
+  for (const spelling of ["1.5", "9007199254740992.0"]) {
+    await writeFile(
+      join(f.root, "project.json"),
+      JSON.stringify(project).replace(
+        '"formatVersion":1',
+        '"formatVersion":' + spelling,
+      ),
+    );
+    assert.throws(() =>
+      execFileSync(binary, ["--inspect-format", f.root], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
+  }
+  const raw = JSON.stringify(project).replace(
+    '"formatVersion":1',
+    '"formatVersion":1e0',
+  );
+  await writeFile(join(f.root, "project.json"), raw);
+  await f.boot("format-adopt");
+  assert.equal((await f.req("/project/format")).data.status, "managed");
+  assert.equal(await readFile(join(f.root, "project.json"), "utf8"), raw);
+  assert.equal(
+    (await f.req(`/manuscript/source/recoveries/${"0".repeat(64)}/evidence`))
+      .status,
+    404,
+  );
+  assert.equal(
+    (
+      await fetch(
+        f.url() + `/manuscript/source/recoveries/${"0".repeat(64)}/evidence`,
+      )
+    ).status,
+    401,
+  );
+  await f.stop();
+  await f.boot();
+  assert.equal((await f.req("/project/format")).data.status, "managed");
 });

@@ -36,6 +36,7 @@ pub struct SqliteProjectRepository {
     business_read_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     fail_export_directory_sync: std::sync::atomic::AtomicBool,
+    source_observation: Mutex<open_source::Observation>,
     connection: Mutex<Connection>,
     quiescing: std::sync::atomic::AtomicBool,
     workers: std::sync::atomic::AtomicUsize,
@@ -153,7 +154,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 11 || (require_existing && version < 1) {
+        if version > 12 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -245,6 +246,12 @@ impl SqliteProjectRepository {
             storage(tx.execute_batch(include_str!("../migrations/011_open_source.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 12 {
+            backup::migration_backup(&connection, directory, 12)?;
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/012_source_candidates.sql")))?;
+            storage(tx.commit())?;
+        }
         storage(std::fs::create_dir_all(directory.join("exports")))?;
         storage(std::fs::create_dir_all(directory.join("objects")))?;
         storage(std::fs::create_dir_all(directory.join("staging")))?;
@@ -257,6 +264,7 @@ impl SqliteProjectRepository {
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
+            source_observation: Mutex::new(open_source::Observation::default()),
             connection: Mutex::new(connection),
             quiescing: std::sync::atomic::AtomicBool::new(false),
             workers: std::sync::atomic::AtomicUsize::new(0),
@@ -698,7 +706,7 @@ mod tests {
         let history = repo.read_history().unwrap();
         drop(repo);
         let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
-        c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
+        c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;ALTER TABLE export_jobs DROP COLUMN serializer_version;DROP TABLE project_rename_receipts; PRAGMA user_version=9; CREATE TABLE project_rename_receipts(conflict INTEGER);").unwrap();
         assert!(SqliteProjectRepository::open(directory.path()).is_err());
         assert_eq!(
             c.pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
@@ -781,7 +789,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            11
+            12
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -849,7 +857,7 @@ pub mod credentials;
 #[cfg(test)]
 fn drop_finalization_schema_for_legacy_fixture(c: &Connection) {
     c.execute_batch(
-        "DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;",
+        "DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;",
     )
     .unwrap();
     c.execute_batch("DROP TABLE project_rename_receipts;")
@@ -893,6 +901,7 @@ impl SqliteProjectRepository {
     pub fn quiesce(&self) -> Result<(), Error> {
         self.quiescing
             .store(true, std::sync::atomic::Ordering::Release);
+        self.stop_source_watcher().map_err(|_| Error::Storage)?;
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(self)
             .map_err(|_| Error::Storage)?;
         self.reconcile_planning().map_err(|_| Error::Storage)?;

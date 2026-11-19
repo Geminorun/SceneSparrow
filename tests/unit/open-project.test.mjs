@@ -15,12 +15,13 @@ const fixtures = JSON.parse(
 );
 for (const fixture of fixtures)
   test(`OPF-AC01/02/03 declarations: ${fixture.name}`, () => {
+    const value = fixture.json ? JSON.parse(fixture.json) : fixture.value;
     const run = () =>
       fixture.kind === "manifest"
-        ? inspectProjectManifest(fixture.value).kind
+        ? inspectProjectManifest(value).kind
         : fixture.kind === "paths"
-          ? (validatePortablePaths(fixture.value), "valid")
-          : (validateMediaDeclaration(fixture.value, fixture.kind), "valid");
+          ? (validatePortablePaths(value), "valid")
+          : (validateMediaDeclaration(value, fixture.kind), "valid");
     if (["supported", "future-read-only", "valid"].includes(fixture.result))
       assert.equal(run(), fixture.result);
     else assert.throws(run, { code: fixture.result });

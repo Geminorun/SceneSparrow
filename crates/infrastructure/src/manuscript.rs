@@ -235,11 +235,22 @@ impl SqliteProjectRepository {
         command: &ManuscriptCommand,
         source_request: Option<&crate::open_source::SourceSaveRequest>,
     ) -> Result<CommandReceipt> {
+        self.execute_manuscript_source_action_locked(c, command, source_request, None)
+    }
+    pub(crate) fn execute_manuscript_source_action_locked(
+        &self,
+        c: &mut Connection,
+        command: &ManuscriptCommand,
+        source_request: Option<&crate::open_source::SourceSaveRequest>,
+        resolution: Option<&AuthoredSourceResolveRequest>,
+    ) -> Result<CommandReceipt> {
         let (request, project_id, _) = manuscript::envelope(command);
         if !manuscript::uuid4(request) {
             return Err(ManuscriptError("INVALID_REQUEST", None));
         }
-        let digest = hash(&if let Some(source) = source_request {
+        let digest = hash(&if let Some(resolution) = resolution {
+            db(serde_json::to_vec(resolution))?
+        } else if let Some(source) = source_request {
             db(serde_json::to_vec(source))?
         } else {
             db(serde_json::to_vec(command))?
@@ -251,6 +262,9 @@ impl SqliteProjectRepository {
             return Self::decode(&outcome);
         }
         self.guard_source_recovery()?;
+        if source_request.is_some() {
+            self.guard_source_application(c)?;
+        }
         Self::expire_downstream_now(c)?;
         let project = read_project(c).map_err(|_| ManuscriptError("STORAGE_UNAVAILABLE", None))?;
         let Some(_project) = project.filter(|p| p.id == project_id) else {
@@ -300,11 +314,15 @@ impl SqliteProjectRepository {
                     return Err(ManuscriptError("REVISION_CONFLICT", None));
                 }
                 profile.phase("identities");
-                let mut transition = if let Some(source) = source_request {
-                    self.source_edit_transition(c, source, &before, &identities)?
-                } else {
-                    self.history_transition(c, command, &before, &identities)?
-                };
+                let resolved_request = resolution
+                    .map(|request| self.resolution_source_request(c, request))
+                    .transpose()?;
+                let mut transition =
+                    if let Some(source) = resolved_request.as_ref().or(source_request) {
+                        self.source_edit_transition(c, source, &before, &identities)?
+                    } else {
+                        self.history_transition(c, command, &before, &identities)?
+                    };
                 profile.phase("domain-transition");
                 self.coordinate_planning(c, command, &before, &mut transition)?;
                 self.coordinate_reviews(c, command, &before, &mut transition)?;
@@ -450,7 +468,8 @@ impl SqliteProjectRepository {
             } else {
                 None
             };
-        let source_intent = self.prepare_source_intent(c, request, &digest, &transition)?;
+        let source_intent =
+            self.prepare_source_intent(c, request, &digest, &transition, resolution)?;
         let transaction = db(c.transaction())?;
         let current_revision: i64 = db(transaction.query_row(
             "SELECT working_revision FROM manuscripts WHERE singleton=1",

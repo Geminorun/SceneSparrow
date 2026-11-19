@@ -1090,18 +1090,50 @@ impl SqliteProjectRepository {
         let ids = {
             let c = db(self.connection.lock())?;
             let mut stmt = db(c.prepare(
-                "SELECT id,application_command_id FROM script_ai_tasks WHERE application='pending'",
+                "SELECT id,application_command_id,operation FROM script_ai_tasks WHERE application='pending'",
             ))?;
-            db(stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))))?
-                .map(db)
-                .collect::<Result<Vec<_>>>()?
+            db(stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            }))?
+            .map(db)
+            .collect::<Result<Vec<_>>>()?
         };
         let mut changed = false;
-        for (id, application_id) in ids {
+        for (id, application_id, operation) in ids {
             let run = ai(self.read_run(&id))?;
             if run.status == AiRunStatus::Succeeded {
-                changed = true;
                 let mut c = db(self.connection.lock())?;
+                if let Some((_, outcome)) = Self::outcome(&c, &application_id)?
+                    && db(serde_json::from_str::<serde_json::Value>(&outcome))?["error"]
+                        == "SOURCE_EXTERNAL_CHANGE"
+                {
+                    let tx = db(c.transaction())?;
+                    db(tx.execute("UPDATE script_ai_tasks SET application='not_applied',error='SOURCE_EXTERNAL_CHANGE' WHERE id=?1 AND application='pending'",[&id]))?;
+                    changed = true;
+                    // The original business request is definitely rejected. Keep
+                    // the paid artifact and binding for explicit UsePlanningResult.
+                    Self::planning_event(&tx, "planningTask.changed", Some(&id))?;
+                    db(tx.commit())?;
+                    continue;
+                }
+                // A succeeded artifact is still valid while its registered
+                // creative file needs reconciliation. Keep the original paid
+                // run and application identity; do not parse/apply it repeatedly.
+                if operation == "generate_initial_draft" {
+                    match self.guard_source_application(&c) {
+                        Ok(()) => {}
+                        Err(error) if error.0 == "SOURCE_RECOVERY_REQUIRED" => return Err(error),
+                        Err(error) if crate::open_source::application_source_conflict(error.0) => {
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                changed = true;
                 let (state, history, project) = (
                     self.load(&c)?,
                     Self::history_metadata(&c)?,
@@ -1115,6 +1147,9 @@ impl SqliteProjectRepository {
                 if let Err(error) = self.execute_manuscript_locked(&mut c, &command) {
                     if matches!(error.0, "STORAGE_UNAVAILABLE" | "SOURCE_RECOVERY_REQUIRED") {
                         return Err(error);
+                    }
+                    if crate::open_source::application_source_conflict(error.0) {
+                        continue;
                     }
                     let tx = db(c.transaction())?;
                     db(tx.execute("UPDATE script_ai_tasks SET application=?2,error=?3 WHERE id=?1 AND application='pending'",params![id,if error.0=="HISTORY_DIVERGED"{"not_applied"}else if error.0=="PLANNING_RESULT_STALE"{"stale"}else{"invalid"},error.0]))?;

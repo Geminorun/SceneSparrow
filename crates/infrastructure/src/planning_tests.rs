@@ -1478,3 +1478,124 @@ fn rename_link_keeps_current_consent_but_respects_frozen_draft_inputs() {
     assert_eq!(r.read_run(&task).unwrap(), before);
     cancel(&r, &p, &task).unwrap();
 }
+
+#[test]
+fn source_recovery_rejects_only_the_application_request_and_explicitly_reuses_one_sdk_artifact() {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    let r = SqliteProjectRepository::create_format(&root).unwrap();
+    let p = r.read_source_snapshot().unwrap().project_id;
+    let settings = SettingsStore::open(&dir.path().join("app")).unwrap();
+    let mut view = crate::ai::tests::configured(&settings, "none");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    view.settings.providers[0].base_url = format!("http://{address}/custom");
+    settings
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    plan(&r, &p, true);
+    let output = draft(&r);
+    let count = Arc::new(AtomicUsize::new(0));
+    let counted = count.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut request = vec![];
+        let mut buffer = [0; 8192];
+        loop {
+            let n = stream.read(&mut buffer).unwrap();
+            assert!(n > 0);
+            request.extend_from_slice(&buffer[..n]);
+            if let Some(at) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                let size = std::str::from_utf8(&request[..at])
+                    .unwrap()
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                if request.len() >= at + 4 + size {
+                    break;
+                }
+            }
+        }
+        counted.fetch_add(1, Ordering::SeqCst);
+        let body=json!({"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":output.to_string()}}]}).to_string();
+        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+    });
+    let (task, _) = start(&r, &settings, &p, "generate_initial_draft");
+    let run = r.execute_next_ai(&settings).unwrap().unwrap();
+    assert_eq!(run.status, AiRunStatus::Succeeded);
+    server.join().unwrap();
+    *r.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert_eq!(r.reconcile_planning().unwrap_err().0, "STORAGE_UNAVAILABLE");
+    std::fs::write(
+        root.join("manuscript.md"),
+        "External notes while application failed\n",
+    )
+    .unwrap();
+    let status = r.rescan_source().unwrap();
+    let pending = status.pending_intent.unwrap();
+    let recovery = AuthoredSourceRecoverRequest {
+        project_id: p.clone(),
+        intent_hash: pending.intent_hash,
+        request_id: pending.request_id.clone(),
+        disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+        observation_fingerprint: status.observation_fingerprint,
+    };
+    r.recover_source(&recovery).unwrap();
+    r.reconcile_planning().unwrap();
+    let saved = r.planning_task(&task).unwrap();
+    assert_eq!(saved.application, "not_applied");
+    assert_eq!(saved.run.status, AiRunStatus::Succeeded);
+    assert!(saved.preview.is_some());
+    r.reconcile_planning().unwrap();
+    assert_eq!(r.planning_task(&task).unwrap().application, "not_applied");
+    let base = r.read_source_snapshot().unwrap();
+    let status = r.rescan_source().unwrap();
+    let restore:AuthoredSourceResolveRequest=serde_json::from_value(json!({"requestId":id(),"projectId":p,"expectedWorkingRevision":base.working_revision,"expectedGeneration":base.generation,"expectedHash":base.accepted_hash,"candidateId":status.candidate_id,"candidateHash":status.external_hash,"disposition":"discard","source":null,"group":{"groupId":id(),"clientSessionId":id(),"groupSequence":1,"kind":"discrete"}})).unwrap();
+    r.resolve_source(&restore).unwrap();
+    let apply = cmd(
+        &r,
+        &p,
+        "UsePlanningResult",
+        json!({"taskId":task,"expectedHistoryRevision":r.read_history().unwrap().history_revision,"explicit":true}),
+    );
+    let receipt = r.execute_manuscript(&apply).unwrap();
+    assert_eq!(r.execute_manuscript(&apply).unwrap(), receipt);
+    let duplicate = cmd(
+        &r,
+        &p,
+        "UsePlanningResult",
+        json!({"taskId":task,"expectedHistoryRevision":r.read_history().unwrap().history_revision,"explicit":true}),
+    );
+    assert_eq!(
+        r.execute_manuscript(&duplicate).unwrap_err().0,
+        "ALREADY_APPLIED"
+    );
+    assert_eq!(r.planning_task(&task).unwrap().run.run_id, run.run_id);
+    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert!(
+        r.read_source_snapshot()
+            .unwrap()
+            .source
+            .contains("完整初稿")
+    );
+    assert!(r.execute_next_ai(&settings).unwrap().is_none());
+}

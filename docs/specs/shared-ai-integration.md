@@ -88,7 +88,11 @@ delivery adds its own migration instead of rewriting an earlier step. Additional
 to the sequence; never renumber an applied migration or reuse a version for another
 layout. OP2 appends `011_open_source.sql` for accepted authored-source hashes,
 file-operation commit identities and retained raw snapshot pins. It does not
-change AI-provider execution semantics or rewrite migrations 001–010. Global
+change AI-provider execution semantics or rewrite migrations 001–010. OP3-A appends
+`012_source_candidates.sql` for bounded external source observations, explicit
+recovery decisions/evidence and source-aware export serializer identity. It does
+not dispatch inference again when applying a retained succeeded result. Applied
+migrations 001–011 remain immutable. Global
 settings have their own JSON `schemaVersion`, not a second database.
 
 ## 3. Global settings and capability contract

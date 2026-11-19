@@ -2,7 +2,10 @@
 
 Status: implementation authorized on 2026-11-19. OP1 and Linux OP2 passed
 independent local review; OP1's native-worker correction `04ca8e4` also passed
-Foundation checks. OP3–OP6 remain pending. Each later gate must pass separately.
+Foundation checks. OP2 was pushed as `9c59723` and passed Foundation checks.
+OP3-A backend is independently reviewed; OP3-B editor/UI follows on the same PR.
+OP3 remains incomplete until both pass. OP4–OP6 remain pending. Each later gate
+must pass separately.
 
 Branch: `feat/open-project-format`, based on remote `release/1.0.0` at `bf56982`.
 The PR targets that release branch and remains draft during staged delivery.

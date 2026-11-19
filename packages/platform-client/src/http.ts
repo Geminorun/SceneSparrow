@@ -1,5 +1,7 @@
 import type {
   AuthoredSourceSaveRequest,
+  AuthoredSourceResolveRequest,
+  AuthoredSourceRecoverRequest,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -35,6 +37,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     path: string,
     body?:
       | AuthoredSourceSaveRequest
+      | AuthoredSourceResolveRequest
+      | AuthoredSourceRecoverRequest
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -114,6 +118,23 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   return {
     inspectProjectFormat: () => request("/v1/project/format"),
     readAuthoredSource: () => request("/v1/manuscript/source"),
+    readAuthoredSourceRecoveryEvidence: (intent) =>
+      request(
+        `/v1/manuscript/source/recoveries/${encodeURIComponent(intent)}/evidence`,
+      ),
+    readAuthoredSourceRecoveryVersion: (intent, source) =>
+      request(
+        `/v1/manuscript/source/recoveries/${encodeURIComponent(intent)}/evidence/${encodeURIComponent(source)}`,
+      ),
+    readAuthoredSourceStatus: () => request("/v1/manuscript/source/status"),
+    rescanAuthoredSource: () =>
+      request("/v1/manuscript/source/rescan", undefined, "POST"),
+    readAuthoredSourceCandidate: (id) =>
+      request(`/v1/manuscript/source/candidates/${encodeURIComponent(id)}`),
+    resolveAuthoredSource: (body) =>
+      request("/v1/manuscript/source/resolve", body),
+    recoverAuthoredSource: (body) =>
+      request("/v1/manuscript/source/recover", body),
     saveAuthoredSource: (body) => request("/v1/manuscript/source", body),
     readManuscriptIdentity: () => request("/v1/manuscript/identity"),
     prepareCopy: (body) => request("/v1/manuscript/copies", body),

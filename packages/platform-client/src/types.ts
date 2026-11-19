@@ -1,5 +1,11 @@
 import type {
   AuthoredSourceSnapshot,
+  AuthoredSourceRecoveryEvidence,
+  AuthoredSourceRecoveryBytes,
+  AuthoredSourceStatus,
+  AuthoredSourceCandidate,
+  AuthoredSourceResolveRequest,
+  AuthoredSourceRecoverRequest,
   AuthoredSourceSaveRequest,
   AuthoredSourceSaveResponse,
   ProjectFormatInspection,
@@ -61,6 +67,22 @@ export interface RecentProject {
 export interface PlatformClient {
   inspectProjectFormat?(): Promise<ProjectFormatInspection>;
   readAuthoredSource?(): Promise<AuthoredSourceSnapshot>;
+  readAuthoredSourceRecoveryEvidence?(
+    intentHash: string,
+  ): Promise<AuthoredSourceRecoveryEvidence>;
+  readAuthoredSourceRecoveryVersion?(
+    intentHash: string,
+    sourceHash: string,
+  ): Promise<AuthoredSourceRecoveryBytes>;
+  readAuthoredSourceStatus?(): Promise<AuthoredSourceStatus>;
+  rescanAuthoredSource?(): Promise<AuthoredSourceStatus>;
+  readAuthoredSourceCandidate?(id: string): Promise<AuthoredSourceCandidate>;
+  resolveAuthoredSource?(
+    request: AuthoredSourceResolveRequest,
+  ): Promise<AuthoredSourceSaveResponse>;
+  recoverAuthoredSource?(
+    request: AuthoredSourceRecoverRequest,
+  ): Promise<AuthoredSourceStatus>;
   saveAuthoredSource?(
     request: AuthoredSourceSaveRequest,
   ): Promise<AuthoredSourceSaveResponse>;
@@ -152,6 +174,24 @@ export type BridgeResult<T> =
 export interface DesktopBridge {
   inspectProjectFormat?(): Promise<BridgeResult<ProjectFormatInspection>>;
   readAuthoredSource?(): Promise<BridgeResult<AuthoredSourceSnapshot>>;
+  readAuthoredSourceRecoveryEvidence?(
+    intentHash: string,
+  ): Promise<BridgeResult<AuthoredSourceRecoveryEvidence>>;
+  readAuthoredSourceRecoveryVersion?(
+    intentHash: string,
+    sourceHash: string,
+  ): Promise<BridgeResult<AuthoredSourceRecoveryBytes>>;
+  readAuthoredSourceStatus?(): Promise<BridgeResult<AuthoredSourceStatus>>;
+  rescanAuthoredSource?(): Promise<BridgeResult<AuthoredSourceStatus>>;
+  readAuthoredSourceCandidate?(
+    id: string,
+  ): Promise<BridgeResult<AuthoredSourceCandidate>>;
+  resolveAuthoredSource?(
+    request: AuthoredSourceResolveRequest,
+  ): Promise<BridgeResult<AuthoredSourceSaveResponse>>;
+  recoverAuthoredSource?(
+    request: AuthoredSourceRecoverRequest,
+  ): Promise<BridgeResult<AuthoredSourceStatus>>;
   saveAuthoredSource?(
     request: AuthoredSourceSaveRequest,
   ): Promise<BridgeResult<AuthoredSourceSaveResponse>>;

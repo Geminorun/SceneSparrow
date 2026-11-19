@@ -57,3 +57,5 @@ files. Those are introduced and checked with the implementation. Keep completed
 specs aligned with the final behavior and record material deviations.
 
 - [OP2 file storage and recovery](open-project-op2.md): native source, coordinated promotion and recovery.
+
+- [OP3 source authoring and reconciliation](open-project-op3.md): lossless editor, external changes and explicit recovery.

@@ -273,6 +273,13 @@ async function main() {
     ["manuscript:history", "/history"],
     ["project:format", "/project/format"],
     ["manuscript:source-read", "/manuscript/source"],
+    ["manuscript:source-evidence", "/manuscript/source/recoveries"],
+    ["manuscript:source-evidence-version", "/manuscript/source/recoveries"],
+    ["manuscript:source-status", "/manuscript/source/status"],
+    ["manuscript:source-rescan", "/manuscript/source/rescan"],
+    ["manuscript:source-candidate", "/manuscript/source/candidates"],
+    ["manuscript:source-resolve", "/manuscript/source/resolve"],
+    ["manuscript:source-recover", "/manuscript/source/recover"],
     ["manuscript:source-save", "/manuscript/source"],
     ["manuscript:identity", "/manuscript/identity"],
     ["manuscript:read", "/manuscript"],
@@ -281,7 +288,36 @@ async function main() {
   ] as const) {
     ipcMain.handle(channel, async (event, command: unknown) => {
       checkSender(event);
-      if (channel === "manuscript:receipt") {
+      if (channel === "manuscript:source-evidence") {
+        if (typeof command !== "string" || !/^[0-9a-f]{64}$/.test(command))
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(`${path}/${command}/evidence`);
+      }
+      if (channel === "manuscript:source-evidence-version") {
+        if (
+          !command ||
+          typeof command !== "object" ||
+          Object.keys(command).sort().join(",") !== "intentHash,sourceHash"
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        const { intentHash, sourceHash } = command as {
+          intentHash: unknown;
+          sourceHash: unknown;
+        };
+        if (
+          typeof intentHash !== "string" ||
+          typeof sourceHash !== "string" ||
+          !/^[0-9a-f]{64}$/.test(intentHash) ||
+          !/^[0-9a-f]{64}$/.test(sourceHash)
+        )
+          return { ok: false, code: "INVALID_REQUEST" };
+        return request(`${path}/${intentHash}/evidence/${sourceHash}`);
+      }
+      if (channel === "manuscript:source-rescan") return request(path, {});
+      if (
+        channel === "manuscript:receipt" ||
+        channel === "manuscript:source-candidate"
+      ) {
         if (typeof command !== "string" || !/^[0-9a-f-]{36}$/.test(command))
           return { ok: false, code: "INVALID_REQUEST" };
         return request(`${path}/${encodeURIComponent(command)}`);
@@ -292,7 +328,9 @@ async function main() {
           channel === "project:ensure" ||
           channel === "project:rename" ||
           channel === "manuscript:command" ||
-          channel === "manuscript:source-save"
+          channel === "manuscript:source-save" ||
+          channel === "manuscript:source-resolve" ||
+          channel === "manuscript:source-recover"
           ? command
           : undefined,
       );

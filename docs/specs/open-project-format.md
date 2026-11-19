@@ -109,6 +109,12 @@ Core manifest fields are strict; extensions have explicit names and preserve
 unrecognized payloads. Unsupported major format versions are inspectable read-only
 with a localized explanation, never silently rewritten or initialized as blank.
 
+Schema-declared file integers follow mathematical JSON integer semantics within
+the JavaScript safe-integer range: integral spellings such as `1`, `1.0` and `1e0`
+agree across the Node/native validators. Validation may normalize its typed clone;
+it does not rewrite raw files or opaque extension values. Fractions and unsafe
+core integers reject. Live transport DTO decoding remains independently strict.
+
 Paths in manifests/plans are UTF-8 project-root-relative paths with `/`
 separators. Logical names and user text allow Unicode. Validate Windows reserved
 names, case-insensitive collisions and path normalization before accepting a

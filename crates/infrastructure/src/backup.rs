@@ -189,7 +189,7 @@ impl SqliteProjectRepository {
             source.join("manifest.json"),
         ))?))?;
         if manifest.version != 1
-            || manifest.schema > 11
+            || manifest.schema > 12
             || !manifest.files.contains_key("project.sqlite")
         {
             return Err(Error::Storage);
@@ -391,7 +391,7 @@ impl SqliteProjectRepository {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
         ))?;
         let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if !(1..=11).contains(&version) {
+        if !(1..=12).contains(&version) {
             return Err(Error::SchemaUnsupported);
         }
         let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
@@ -408,6 +408,7 @@ impl SqliteProjectRepository {
             business_read_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             fail_export_directory_sync: std::sync::atomic::AtomicBool::new(false),
+            source_observation: Mutex::new(open_source::Observation::default()),
             connection: Mutex::new(c),
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
@@ -498,8 +499,13 @@ mod tests {
     fn downgrade(repo: &SqliteProjectRepository, version: i64) {
         let c = repo.connection.lock().unwrap();
         c.pragma_update(None, "foreign_keys", false).unwrap();
+        if (9..12).contains(&version) {
+            c.execute_batch("ALTER TABLE export_jobs DROP COLUMN serializer_version")
+                .unwrap();
+        }
         let migrations = [
             (11, include_str!("../migrations/011_open_source.sql")),
+            (12, include_str!("../migrations/012_source_candidates.sql")),
             (10, include_str!("../migrations/010_project_metadata.sql")),
             (9, include_str!("../migrations/009_exports.sql")),
             (8, include_str!("../migrations/008_finalization.sql")),
@@ -567,9 +573,9 @@ mod tests {
         }
     }
     #[test]
-    fn every_supported_legacy_schema_upgrades_to_eleven_and_backup_manifest_verifies_its_actual_graph()
+    fn every_supported_legacy_schema_upgrades_to_twelve_and_backup_manifest_verifies_its_actual_graph()
      {
-        for version in 1..=10 {
+        for version in 1..=11 {
             let d = tempfile::tempdir().unwrap();
             let r = SqliteProjectRepository::open(d.path()).unwrap();
             r.create("legacy", "Legacy direct upgrade").unwrap();
@@ -606,7 +612,7 @@ mod tests {
                     .unwrap()
                     .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
                     .unwrap(),
-                11
+                12
             );
             let backup = opened.verified_backup().unwrap();
             assert!(backup.join("manifest.json").is_file());

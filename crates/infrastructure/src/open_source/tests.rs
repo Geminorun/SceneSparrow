@@ -413,6 +413,7 @@ fn complete_supported_exports_use_raw_fingerprint_and_unknown_exports_refuse() {
     let changed = repo.manuscript_identity().unwrap();
     assert_ne!(identity.body_hash, changed.body_hash);
     let copy = CopyRequest {
+        format: None,
         request_id: id(),
         expected_body_hash: changed.body_hash,
         expected_revision: repo.read_source_snapshot().unwrap().working_revision,
@@ -425,6 +426,7 @@ fn complete_supported_exports_use_raw_fingerprint_and_unknown_exports_refuse() {
     ))
     .unwrap();
     let copy = CopyRequest {
+        format: None,
         request_id: id(),
         expected_body_hash: repo.manuscript_identity().unwrap().body_hash,
         expected_revision: repo.read_source_snapshot().unwrap().working_revision,
@@ -568,7 +570,7 @@ fn append_only_migration_eleven_failure_preserves_legacy_then_retries() {
     let state = repo.read_manuscript().unwrap();
     drop(repo);
     let c = Connection::open(directory.path().join("project.sqlite")).unwrap();
-    c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;PRAGMA user_version=10;CREATE TABLE authored_source(conflict INTEGER);").unwrap();
+    c.execute_batch("DROP TABLE authored_source;DROP TABLE source_operations;DROP TABLE source_pins;DROP TABLE source_candidates;DROP TABLE source_candidate_observation;DROP TABLE source_recovery_evidence;DROP TABLE source_recovery_decisions;ALTER TABLE export_jobs DROP COLUMN serializer_version;PRAGMA user_version=10;CREATE TABLE authored_source(conflict INTEGER);").unwrap();
     assert!(SqliteProjectRepository::open(directory.path()).is_err());
     assert_eq!(
         c.pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
@@ -883,4 +885,899 @@ fn canonical_and_near_root_names_allow_ordinary_inspection_adoption_and_reopen()
     ));
     let reopened = SqliteProjectRepository::open_format(root).unwrap();
     assert_eq!(reopened.read_source_snapshot().unwrap().source, source);
+}
+
+fn candidate_request(
+    repo: &SqliteProjectRepository,
+    disposition: &str,
+    proposal: Option<&str>,
+) -> AuthoredSourceResolveRequest {
+    let status = repo.rescan_source().unwrap();
+    let candidate = repo
+        .source_candidate(status.candidate_id.as_deref().expect("stable candidate"))
+        .unwrap();
+    let save = request(repo, "");
+    serde_json::from_value(serde_json::json!({"requestId":save.request_id,"projectId":save.project_id,"expectedWorkingRevision":save.expected_working_revision,"expectedGeneration":save.expected_generation,"expectedHash":save.expected_hash,"group":save.group,"candidateId":candidate.id,"candidateHash":candidate.live_hash,"disposition":disposition,"source":proposal})).unwrap()
+}
+#[test]
+fn explicit_resolution_replay_grouped_history_reopen_and_retained_three_versions() {
+    let (_dir, root, repo) = fixture();
+    let before = repo
+        .save_source(&request(&repo, "Local accepted\n\n```raw\nunknown\n```\n"))
+        .unwrap()
+        .snapshot;
+    let external = before.source.replace("Local accepted", "External authored");
+    std::fs::write(root.join("manuscript.md"), &external).unwrap();
+    let r = candidate_request(
+        &repo,
+        "proposal",
+        Some(&before.source.replace("Local accepted", "Combined chosen")),
+    );
+    let old_history = repo.read_history().unwrap();
+    let result = repo.resolve_source(&r).unwrap();
+    assert_eq!(result.receipt.undo_count, old_history.undo_count + 1);
+    assert!(result.snapshot.source.contains("Combined chosen"));
+    assert_eq!(repo.resolve_source(&r).unwrap().receipt, result.receipt);
+    let mut changed = r.clone();
+    changed.source = Some("changed payload".into());
+    assert_eq!(
+        repo.resolve_source(&changed).unwrap_err().0,
+        "REQUEST_ID_CONFLICT"
+    );
+    command(&repo, "UndoProject", serde_json::json!({}));
+    assert_eq!(repo.read_source_snapshot().unwrap().source, before.source);
+    command(&repo, "RedoProject", serde_json::json!({}));
+    assert_eq!(
+        repo.read_source_snapshot().unwrap().source,
+        result.snapshot.source
+    );
+    repo.collect_objects(Duration::ZERO).unwrap();
+    assert_eq!(
+        repo.read_object(r.candidate_hash.as_deref().unwrap())
+            .unwrap(),
+        external.as_bytes()
+    );
+    drop(repo);
+    let reopened = SqliteProjectRepository::open_format(&root).unwrap();
+    assert_eq!(
+        reopened.read_source_snapshot().unwrap().source,
+        result.snapshot.source
+    );
+    assert_eq!(
+        reopened
+            .source_candidate(&r.candidate_id)
+            .unwrap()
+            .disposition,
+        AuthoredSourceCandidateDisposition::Proposal
+    );
+}
+#[test]
+fn discard_advances_fence_without_prose_history_and_stale_live_never_overwrites() {
+    let (_dir, root, repo) = fixture();
+    let before = repo
+        .save_source(&request(&repo, "Accepted\n"))
+        .unwrap()
+        .snapshot;
+    std::fs::write(root.join("manuscript.md"), "Outside\n").unwrap();
+    let stale = candidate_request(&repo, "discard", None);
+    std::fs::write(root.join("manuscript.md"), "Newer outside\n").unwrap();
+    assert_eq!(
+        repo.resolve_source(&stale).unwrap_err().0,
+        "SOURCE_CANDIDATE_STALE"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+        "Newer outside\n"
+    );
+    let r = candidate_request(&repo, "discard", None);
+    let history = repo.read_history().unwrap();
+    let result = repo.resolve_source(&r).unwrap();
+    assert_eq!(repo.read_history().unwrap(), history);
+    assert_eq!(result.snapshot.source, before.source);
+    assert_eq!(result.snapshot.generation, before.generation + 1);
+    assert_eq!(result.snapshot.working_revision, before.working_revision);
+    assert_eq!(
+        std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+        before.source
+    );
+    assert_eq!(repo.resolve_source(&r).unwrap().receipt, result.receipt);
+}
+#[test]
+fn v2_external_fault_cuts_restore_physical_before_separately_from_metadata() {
+    for disposition in ["accept", "discard", "proposal"] {
+        for cut in [
+            "after-intent",
+            "before-promotion",
+            "after-promotion",
+            "before-sql",
+            "after-sql",
+            "before-cleanup",
+        ] {
+            let (_dir, root, repo) = fixture();
+            let before = repo
+                .save_source(&request(&repo, "Accepted\n"))
+                .unwrap()
+                .snapshot;
+            let external = before.source.replace("Accepted", "Outside");
+            std::fs::write(root.join("manuscript.md"), &external).unwrap();
+            let r = candidate_request(
+                &repo,
+                disposition,
+                if disposition == "proposal" {
+                    Some("Chosen combined\n")
+                } else {
+                    None
+                },
+            );
+            *repo.source_fault.lock().unwrap() = Some(cut.into());
+            assert!(repo.resolve_source(&r).is_err(), "{disposition} {cut}");
+            let pending = repo.source_status().unwrap().pending_intent.unwrap();
+            let raw: Intent =
+                serde_json::from_slice(&std::fs::read(repo.intent_path()).unwrap()).unwrap();
+            assert_eq!(raw.version, 2);
+            assert_ne!(
+                raw.changes[0].before_hash.as_ref().unwrap(),
+                &raw.accepted.as_ref().unwrap().before_hash
+            );
+            let mut recovery = AuthoredSourceRecoverRequest {
+                disposition: None,
+                observation_fingerprint: None,
+                project_id: before.project_id.clone(),
+                intent_hash: pending.intent_hash.clone(),
+                request_id: pending.request_id.clone(),
+            };
+            recovery.intent_hash = "0".repeat(64);
+            assert_eq!(
+                repo.recover_source(&recovery).unwrap_err().0,
+                "SOURCE_RECOVERY_STALE"
+            );
+            recovery.intent_hash = pending.intent_hash;
+            repo.recover_source(&recovery).unwrap();
+            let committed = matches!(cut, "after-sql" | "before-cleanup");
+            let current = repo.read_source_snapshot().unwrap();
+            if committed {
+                assert_eq!(current.generation, before.generation + 1);
+                assert_eq!(
+                    hash(&std::fs::read(root.join("manuscript.md")).unwrap()),
+                    current.accepted_hash
+                );
+                assert_eq!(
+                    repo.resolve_source(&r).unwrap().receipt.request_id,
+                    r.request_id
+                );
+            } else {
+                assert_eq!(current.accepted_hash, before.accepted_hash);
+                assert_eq!(
+                    std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+                    external
+                );
+                assert_eq!(
+                    repo.source_candidate(&r.candidate_id).unwrap().disposition,
+                    AuthoredSourceCandidateDisposition::Pending
+                );
+                repo.resolve_source(&r).unwrap();
+            }
+            assert!(!repo.intent_path().exists());
+        }
+    }
+}
+#[test]
+fn recovery_v1_remains_compatible_on_each_side_of_sql() {
+    for cut in ["after-promotion", "after-sql"] {
+        let (_dir, root, repo) = fixture();
+        let before = repo
+            .save_source(&request(&repo, "Before\n"))
+            .unwrap()
+            .snapshot;
+        let save = request(&repo, &before.source.replace("Before", "After"));
+        *repo.source_fault.lock().unwrap() = Some(cut.into());
+        assert!(repo.save_source(&save).is_err());
+        // Reconstruct the exact legacy envelope, rather than interpreting v1 as v2.
+        let mut intent: Intent =
+            serde_json::from_slice(&std::fs::read(repo.intent_path()).unwrap()).unwrap();
+        intent.version = 1;
+        intent.accepted = None;
+        intent.resolution = None;
+        let bytes = serde_json::to_vec(&intent).unwrap();
+        std::fs::write(repo.intent_path(), &bytes).unwrap();
+        repo.connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE source_operations SET intent_hash=?2 WHERE request_id=?1",
+                params![save.request_id, hash(&bytes)],
+            )
+            .unwrap();
+        drop(repo);
+        let reopened = SqliteProjectRepository::open_format(&root).unwrap();
+        assert_eq!(
+            reopened
+                .read_source_snapshot()
+                .unwrap()
+                .source
+                .contains("After"),
+            cut == "after-sql"
+        );
+    }
+}
+#[test]
+fn source_observation_partial_missing_invalid_missed_events_and_own_echo_do_not_add_history() {
+    let (_dir, root, repo) = fixture();
+    let saved = repo
+        .save_source(&request(&repo, "Accepted\n"))
+        .unwrap()
+        .snapshot;
+    let history = repo.read_history().unwrap();
+    assert_eq!(
+        repo.rescan_source().unwrap().external_status,
+        AuthoredSourceStatusExternalStatus::Unchanged
+    );
+    std::fs::write(root.join("manuscript.md"), "partial").unwrap();
+    repo.inspect_source_changes(true).unwrap();
+    assert_eq!(
+        repo.source_status().unwrap().external_status,
+        AuthoredSourceStatusExternalStatus::Unstable
+    );
+    std::fs::remove_file(root.join("manuscript.md")).unwrap();
+    assert_eq!(
+        repo.rescan_source().unwrap().external_status,
+        AuthoredSourceStatusExternalStatus::Missing
+    );
+    std::fs::write(root.join("manuscript.md"), b"\xff").unwrap();
+    assert_eq!(
+        repo.rescan_source().unwrap().external_status,
+        AuthoredSourceStatusExternalStatus::Invalid
+    );
+    assert_eq!(repo.read_source_snapshot().unwrap().source, saved.source);
+    // No native watcher available/event delivered: explicit rescan still proves bytes.
+    {
+        let mut o = repo.source_observation.lock().unwrap();
+        o.watcher = None;
+        o.watch_attempted = true;
+    }
+    std::fs::write(root.join("manuscript.md"), "Missed rename completed\n").unwrap();
+    let status = repo.rescan_source().unwrap();
+    assert_eq!(status.watch_mode, AuthoredSourceStatusWatchMode::Polling);
+    assert!(status.candidate_id.is_some());
+    assert_eq!(repo.read_history().unwrap(), history);
+    repo.stop_source_watcher().unwrap();
+}
+#[test]
+fn external_resolution_obeys_actual_leaf_scope_and_unknown_recovery_preserves_bytes() {
+    let (_dir, root, repo) = fixture();
+    let original = repo
+        .save_source(&request(&repo, "A\n\nB\n"))
+        .unwrap()
+        .snapshot;
+    let a = original.semantic_block_ids[0].clone();
+    command(
+        &repo,
+        "SetUserLocks",
+        serde_json::json!({"blockIds":[a],"locked":true,"all":false}),
+    );
+    let locked = repo.read_manuscript().unwrap().blocks[0].clone();
+    std::fs::write(
+        root.join("manuscript.md"),
+        original.source.replace("\nB\n", "\nEdited B\n"),
+    )
+    .unwrap();
+    let r = candidate_request(&repo, "accept", None);
+    repo.resolve_source(&r).unwrap();
+    assert_eq!(repo.read_manuscript().unwrap().blocks[0], locked);
+    let current = repo.read_source_snapshot().unwrap();
+    std::fs::write(
+        root.join("manuscript.md"),
+        current.source.replace("\nA\n", "\nChanged A\n"),
+    )
+    .unwrap();
+    let r = candidate_request(&repo, "accept", None);
+    assert_eq!(repo.resolve_source(&r).unwrap_err().0, "CONTENT_LOCKED");
+    let discard = candidate_request(&repo, "discard", None);
+    *repo.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert!(repo.resolve_source(&discard).is_err());
+    std::fs::write(root.join("manuscript.md"), "Unknown after failure\n").unwrap();
+    let pending = repo.source_status().unwrap().pending_intent.unwrap();
+    let recovery = AuthoredSourceRecoverRequest {
+        disposition: None,
+        observation_fingerprint: None,
+        project_id: current.project_id,
+        intent_hash: pending.intent_hash,
+        request_id: pending.request_id,
+    };
+    assert_eq!(
+        repo.recover_source(&recovery).unwrap_err().0,
+        "SOURCE_EXTERNAL_CHANGE"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+        "Unknown after failure\n"
+    );
+    assert!(repo.intent_path().exists());
+    assert!(
+        repo.directory
+            .join("conflicts")
+            .join(hash(b"Unknown after failure\n"))
+            .exists()
+    );
+}
+#[test]
+fn clean_markdown_copy_captures_unknown_source_and_literal_marker_code() {
+    let (_dir, _root, repo) = fixture();
+    let literal = format!("<!-- scenesparrow:block={} -->", id());
+    let raw = format!(
+        "\u{feff}Body\r\n\r\n```html\r\n{literal}\r\n```\n\n<table>unknown HTML</table>\r\n"
+    );
+    let saved = repo.save_source(&request(&repo, &raw)).unwrap().snapshot;
+    let copy = CopyRequest {
+        request_id: id(),
+        expected_revision: saved.working_revision,
+        expected_body_hash: repo.manuscript_identity().unwrap().body_hash,
+        format: Some(CopyRequestFormat::Md),
+    };
+    let prepared = repo.prepare_copy(&copy).unwrap();
+    assert!(prepared.text.contains(&literal));
+    assert!(prepared.text.contains("<table>unknown HTML</table>\r\n"));
+    assert!(prepared.text.starts_with('\u{feff}'));
+    assert!(!prepared.text.contains(&saved.semantic_block_ids[0]));
+    repo.save_source(&request(&repo, &saved.source.replace("Body", "New body")))
+        .unwrap();
+    assert_eq!(repo.prepare_copy(&copy).unwrap(), prepared);
+    assert_eq!(repo.prepared_copy(&copy.request_id).unwrap(), prepared);
+    assert_ne!(
+        repo.manuscript_identity().unwrap().body_hash,
+        prepared.body_hash
+    );
+}
+
+#[test]
+fn missing_external_file_restores_without_history_and_recovers_absence_at_fault_cuts() {
+    for disposition in ["discard", "proposal"] {
+        for cut in ["after-intent", "after-promotion", "before-sql", "after-sql"] {
+            let (_dir, root, repo) = fixture();
+            let before = repo
+                .save_source(&request(&repo, "Accepted before deletion\r\n"))
+                .unwrap()
+                .snapshot;
+            let history = repo.read_history().unwrap();
+            std::fs::remove_file(root.join("manuscript.md")).unwrap();
+            let r = candidate_request(
+                &repo,
+                disposition,
+                if disposition == "proposal" {
+                    Some("Local restored proposal\r\n")
+                } else {
+                    None
+                },
+            );
+            assert!(r.candidate_hash.is_none());
+            let mut accept = r.clone();
+            accept.request_id = id();
+            accept.disposition = AuthoredSourceResolveRequestDisposition::Accept;
+            accept.source = None;
+            assert_eq!(
+                repo.resolve_source(&accept).unwrap_err().0,
+                "SOURCE_REQUIRED_FILE_DELETED"
+            );
+            *repo.source_fault.lock().unwrap() = Some(cut.into());
+            assert!(repo.resolve_source(&r).is_err());
+            let intent: Intent =
+                serde_json::from_slice(&std::fs::read(repo.intent_path()).unwrap()).unwrap();
+            assert!(intent.changes[0].before_hash.is_none());
+            assert!(intent.changes[0].before_identity.is_none());
+            let pending = repo.source_status().unwrap().pending_intent.unwrap();
+            repo.recover_source(&AuthoredSourceRecoverRequest {
+                disposition: None,
+                observation_fingerprint: None,
+                project_id: before.project_id.clone(),
+                intent_hash: pending.intent_hash,
+                request_id: pending.request_id,
+            })
+            .unwrap();
+            if cut == "after-sql" {
+                assert!(root.join("manuscript.md").is_file());
+                assert_eq!(
+                    repo.read_source_snapshot().unwrap().generation,
+                    before.generation + 1
+                );
+            } else {
+                assert!(!root.join("manuscript.md").exists());
+                assert_eq!(repo.read_source_snapshot().unwrap().source, before.source);
+                repo.resolve_source(&r).unwrap();
+            }
+            if disposition == "discard" {
+                assert_eq!(repo.read_history().unwrap(), history);
+            }
+            assert_eq!(
+                hash(&std::fs::read(root.join("manuscript.md")).unwrap()),
+                repo.read_source_snapshot().unwrap().accepted_hash
+            );
+        }
+    }
+}
+#[test]
+fn missing_restore_never_clobbers_external_recreation_after_inspection_or_at_promotion() {
+    for during_promotion in [false, true] {
+        let (_dir, root, repo) = fixture();
+        repo.save_source(&request(&repo, "Accepted\n")).unwrap();
+        std::fs::remove_file(root.join("manuscript.md")).unwrap();
+        let r = candidate_request(&repo, "discard", None);
+        let live = root.join("manuscript.md");
+        if during_promotion {
+            *repo.source_action.lock().unwrap() = Some((
+                "before-promotion".into(),
+                Box::new(move || std::fs::write(live, "External recreated\n").unwrap()),
+            ));
+        } else {
+            std::fs::write(live, "External recreated\n").unwrap();
+        }
+        assert!(repo.resolve_source(&r).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+            "External recreated\n"
+        );
+        if during_promotion {
+            assert_eq!(
+                repo.recover_source_intents().unwrap_err().0,
+                "SOURCE_EXTERNAL_CHANGE"
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_preserve_external_recovery_settles_original_and_clears_fence_without_overwrite() {
+    for committed in [false, true] {
+        for crash_after_decision in [false, true] {
+            let (_dir, root, repo) = fixture();
+            let before = repo
+                .save_source(&request(&repo, "Accepted\n"))
+                .unwrap()
+                .snapshot;
+            let original = request(&repo, &before.source.replace("Accepted", "App pending"));
+            *repo.source_fault.lock().unwrap() = Some(
+                if committed {
+                    "after-sql"
+                } else {
+                    "after-promotion"
+                }
+                .into(),
+            );
+            assert!(repo.save_source(&original).is_err());
+            let intent: Intent =
+                serde_json::from_slice(&std::fs::read(repo.intent_path()).unwrap()).unwrap();
+            let stage = root.join(&intent.changes[0].staged_name);
+            std::fs::write(&stage, "Unknown displaced artifact\n").unwrap();
+            std::fs::write(root.join("manuscript.md"), "Unknown live external\n").unwrap();
+            assert_eq!(
+                repo.recover_source_intents().unwrap_err().0,
+                "SOURCE_EXTERNAL_CHANGE"
+            );
+            let status = repo.rescan_source().unwrap();
+            let pending = status.pending_intent.unwrap();
+            let recovery = AuthoredSourceRecoverRequest {
+                project_id: before.project_id.clone(),
+                intent_hash: pending.intent_hash,
+                request_id: pending.request_id,
+                disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+                observation_fingerprint: status.observation_fingerprint,
+            };
+            if crash_after_decision {
+                *repo.source_fault.lock().unwrap() = Some("after-recovery-decision".into());
+            }
+            let result = repo.recover_source(&recovery);
+            if crash_after_decision {
+                assert!(result.is_err());
+                assert!(repo.intent_path().exists());
+                drop(repo);
+                let reopened = SqliteProjectRepository::open_format(&root).unwrap();
+                assert!(!reopened.intent_path().exists());
+                assert_eq!(
+                    std::fs::read_to_string(&stage).unwrap(),
+                    "Unknown displaced artifact\n"
+                );
+                assert_eq!(
+                    std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+                    "Unknown live external\n"
+                );
+                assert_eq!(reopened.save_source(&original).is_ok(), committed);
+                reopened.recover_source(&recovery).unwrap();
+                continue;
+            }
+            result.unwrap();
+            assert!(!repo.intent_path().exists());
+            assert_eq!(
+                std::fs::read_to_string(stage).unwrap(),
+                "Unknown displaced artifact\n"
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+                "Unknown live external\n"
+            );
+            let current = repo.read_source_snapshot().unwrap();
+            assert_eq!(current.source.contains("App pending"), committed);
+            let replay = repo.save_source(&original);
+            if committed {
+                assert!(replay.is_ok());
+            } else {
+                assert_eq!(replay.unwrap_err().0, "SOURCE_EXTERNAL_CHANGE");
+            }
+            repo.recover_source(&recovery).unwrap();
+            let resolution = candidate_request(&repo, "accept", None);
+            let accepted = repo.resolve_source(&resolution).unwrap();
+            assert!(accepted.snapshot.source.contains("Unknown live external"));
+            assert!(
+                repo.directory
+                    .join("conflicts")
+                    .join(hash(b"Unknown displaced artifact\n"))
+                    .exists()
+            );
+        }
+    }
+}
+#[test]
+fn preserve_external_recovery_rejects_stale_fingerprint_and_supports_missing_live() {
+    let (_dir, root, repo) = fixture();
+    repo.save_source(&request(&repo, "Accepted\n")).unwrap();
+    let pending_save = request(&repo, "App edit\n");
+    *repo.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert!(repo.save_source(&pending_save).is_err());
+    std::fs::write(root.join("manuscript.md"), "External choice\n").unwrap();
+    let status = repo.rescan_source().unwrap();
+    let pending = status.pending_intent.unwrap();
+    let mut recovery = AuthoredSourceRecoverRequest {
+        project_id: pending_save.project_id.clone(),
+        intent_hash: pending.intent_hash,
+        request_id: pending.request_id,
+        disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+        observation_fingerprint: status.observation_fingerprint,
+    };
+    std::fs::write(root.join("manuscript.md"), "New external choice\n").unwrap();
+    assert_eq!(
+        repo.recover_source(&recovery).unwrap_err().0,
+        "SOURCE_RECOVERY_STALE"
+    );
+    let status = repo.rescan_source().unwrap();
+    recovery.observation_fingerprint = status.observation_fingerprint;
+    let path = root.join("manuscript.md");
+    *repo.source_action.lock().unwrap() = Some((
+        "before-recovery-decision".into(),
+        Box::new(move || std::fs::remove_file(path).unwrap()),
+    ));
+    assert_eq!(
+        repo.recover_source(&recovery).unwrap_err().0,
+        "SOURCE_RECOVERY_STALE"
+    );
+    recovery.observation_fingerprint = repo.rescan_source().unwrap().observation_fingerprint;
+    repo.recover_source(&recovery).unwrap();
+    assert!(!root.join("manuscript.md").exists());
+    assert!(!repo.intent_path().exists());
+    assert_eq!(
+        repo.save_source(&pending_save).unwrap_err().0,
+        "SOURCE_EXTERNAL_CHANGE"
+    );
+    let restore = candidate_request(&repo, "discard", None);
+    repo.resolve_source(&restore).unwrap();
+    assert!(root.join("manuscript.md").is_file());
+}
+
+#[test]
+fn watcher_quiesces_without_worker_thread_and_status_never_loads_the_projection() {
+    let (_dir, _root, repo) = fixture();
+    repo.save_source(&request(&repo, "Accepted\n")).unwrap();
+    repo.rescan_source().unwrap();
+    let count = repo
+        .business_read_count
+        .load(std::sync::atomic::Ordering::Acquire);
+    for _ in 0..10 {
+        repo.source_status().unwrap();
+    }
+    assert_eq!(
+        repo.business_read_count
+            .load(std::sync::atomic::Ordering::Acquire),
+        count
+    );
+    repo.quiesce().unwrap();
+    assert_eq!(
+        repo.source_status().unwrap().watch_mode,
+        AuthoredSourceStatusWatchMode::Stopped
+    );
+    assert!(repo.source_observation.lock().unwrap().watcher.is_none());
+    repo.inspect_source_changes(true).unwrap();
+    assert!(repo.source_observation.lock().unwrap().watcher.is_none());
+    repo.resume();
+    repo.rescan_source().unwrap();
+    assert_ne!(
+        repo.source_status().unwrap().watch_mode,
+        AuthoredSourceStatusWatchMode::Stopped
+    );
+}
+#[test]
+fn external_replacement_inside_accept_and_discard_promotion_is_retained_and_blocked() {
+    for disposition in ["accept", "discard"] {
+        let (_dir, root, repo) = fixture();
+        let saved = repo
+            .save_source(&request(&repo, "Accepted\n"))
+            .unwrap()
+            .snapshot;
+        std::fs::write(
+            root.join("manuscript.md"),
+            saved.source.replace("Accepted", "Candidate"),
+        )
+        .unwrap();
+        let r = candidate_request(&repo, disposition, None);
+        let live = root.join("manuscript.md");
+        *repo.source_action.lock().unwrap() = Some((
+            "before-promotion".into(),
+            Box::new(move || std::fs::write(live, "Late unseen external\n").unwrap()),
+        ));
+        assert_eq!(
+            repo.resolve_source(&r).unwrap_err().0,
+            "SOURCE_EXTERNAL_CHANGE"
+        );
+        assert!(
+            repo.directory
+                .join("conflicts")
+                .join(hash(b"Late unseen external\n"))
+                .exists()
+        );
+        assert_eq!(
+            repo.recover_source_intents().unwrap_err().0,
+            "SOURCE_EXTERNAL_CHANGE"
+        );
+        assert_eq!(
+            repo.read_source_snapshot().unwrap().accepted_hash,
+            saved.accepted_hash
+        );
+    }
+}
+
+#[test]
+fn replay_of_preserve_recovery_cannot_settle_a_newer_pending_operation() {
+    let (_dir, root, repo) = fixture();
+    repo.save_source(&request(&repo, "Accepted\n")).unwrap();
+    let original = request(&repo, "First failed app edit\n");
+    *repo.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert!(repo.save_source(&original).is_err());
+    std::fs::write(root.join("manuscript.md"), "Outside choice\n").unwrap();
+    let status = repo.rescan_source().unwrap();
+    let pending = status.pending_intent.unwrap();
+    let recovery = AuthoredSourceRecoverRequest {
+        project_id: original.project_id.clone(),
+        intent_hash: pending.intent_hash,
+        request_id: pending.request_id,
+        disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+        observation_fingerprint: status.observation_fingerprint,
+    };
+    repo.recover_source(&recovery).unwrap();
+    let resolution = candidate_request(&repo, "discard", None);
+    repo.resolve_source(&resolution).unwrap();
+    let next = request(&repo, "New app edit\n");
+    *repo.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert!(repo.save_source(&next).is_err());
+    let next_intent = std::fs::read(repo.intent_path()).unwrap();
+    let live = std::fs::read(root.join("manuscript.md")).unwrap();
+    let status = repo.recover_source(&recovery).unwrap();
+    assert_eq!(status.pending_intent.unwrap().request_id, next.request_id);
+    assert_eq!(std::fs::read(repo.intent_path()).unwrap(), next_intent);
+    assert_eq!(std::fs::read(root.join("manuscript.md")).unwrap(), live);
+}
+
+#[test]
+fn normal_noop_save_cannot_acknowledge_over_an_external_physical_version() {
+    let (_dir, root, repo) = fixture();
+    let saved = repo
+        .save_source(&request(&repo, "Accepted\n"))
+        .unwrap()
+        .snapshot;
+    let noop = request(&repo, &saved.source);
+    std::fs::write(root.join("manuscript.md"), "Outside changed\n").unwrap();
+    assert_eq!(
+        repo.save_source(&noop).unwrap_err().0,
+        "SOURCE_EXTERNAL_CHANGE"
+    );
+    assert_eq!(
+        repo.read_source_snapshot().unwrap().accepted_hash,
+        saved.accepted_hash
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("manuscript.md")).unwrap(),
+        "Outside changed\n"
+    );
+}
+
+#[test]
+fn automatic_candidates_are_bounded_while_pending_and_explicit_evidence_survive() {
+    let (_dir, root, repo) = fixture();
+    let saved = repo
+        .save_source(&request(&repo, "Accepted\n"))
+        .unwrap()
+        .snapshot;
+    std::fs::write(root.join("manuscript.md"), "Pending original external\n").unwrap();
+    let resolution = candidate_request(&repo, "accept", None);
+    *repo.source_fault.lock().unwrap() = Some("after-intent".into());
+    assert!(repo.resolve_source(&resolution).is_err());
+    let mut observations = vec![];
+    for n in 0..15 {
+        let raw = format!("External automatic {n} {}\n", "content ".repeat(40));
+        std::fs::write(root.join("manuscript.md"), &raw).unwrap();
+        let status = repo.rescan_source().unwrap();
+        observations.push((status.candidate_id.unwrap(), hash(raw.as_bytes())));
+    }
+    let current = observations.last().unwrap();
+    let c = repo.connection.lock().unwrap();
+    let (rows, payload_bytes): (i64, i64) = c
+        .query_row(
+            "SELECT COUNT(*),SUM(length(payload_json)) FROM source_candidates",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(rows, 7);
+    assert!(payload_bytes < 7 * 1500);
+    drop(c);
+    assert!(repo.source_candidate(&resolution.candidate_id).is_ok());
+    assert!(repo.source_candidate(&current.0).is_ok());
+    assert_eq!(
+        repo.source_candidate(&observations[0].0).unwrap_err().0,
+        "SOURCE_CANDIDATE_STALE"
+    );
+    let roots = repo.retained_object_roots().unwrap();
+    assert!(roots.contains(&resolution.candidate_hash.clone().unwrap()));
+    assert!(roots.contains(&current.1));
+    assert!(!roots.contains(&observations[0].1));
+    repo.collect_objects(Duration::ZERO).unwrap();
+    assert!(repo.read_object(&observations[0].1).is_err());
+    let status = repo.rescan_source().unwrap();
+    let pending = status.pending_intent.unwrap();
+    repo.recover_source(&AuthoredSourceRecoverRequest {
+        project_id: saved.project_id,
+        intent_hash: pending.intent_hash,
+        request_id: pending.request_id,
+        disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+        observation_fingerprint: status.observation_fingerprint,
+    })
+    .unwrap();
+    let preserved = current.clone();
+    for n in 15..25 {
+        std::fs::write(root.join("manuscript.md"), format!("New automatic {n}\n")).unwrap();
+        repo.rescan_source().unwrap();
+    }
+    repo.prune_source_candidates().unwrap();
+    repo.collect_objects(Duration::ZERO).unwrap();
+    assert!(repo.source_candidate(&preserved.0).is_ok());
+    assert!(repo.read_object(&preserved.1).is_ok());
+    let c = repo.connection.lock().unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT explicitly_retained FROM source_candidates WHERE id=?1",
+            [&preserved.0],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        c.query_row("SELECT COUNT(*) FROM source_candidates", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        7
+    );
+}
+#[test]
+fn original_resolution_receipt_replays_after_automatic_candidate_pruning() {
+    let (_dir, root, repo) = fixture();
+    repo.save_source(&request(&repo, "Accepted\n")).unwrap();
+    std::fs::write(root.join("manuscript.md"), "External accepted once\n").unwrap();
+    let original = candidate_request(&repo, "accept", None);
+    let accepted = repo.resolve_source(&original).unwrap();
+    for n in 0..9 {
+        std::fs::write(root.join("manuscript.md"), format!("Later external {n}\n")).unwrap();
+        repo.rescan_source().unwrap();
+    }
+    assert_eq!(
+        repo.source_candidate(&original.candidate_id).unwrap_err().0,
+        "SOURCE_CANDIDATE_STALE"
+    );
+    assert_eq!(
+        repo.resolve_source(&original).unwrap().receipt,
+        accepted.receipt
+    );
+    let mut changed = original.clone();
+    changed.source = Some("Different proposal".into());
+    changed.disposition = AuthoredSourceResolveRequestDisposition::Proposal;
+    assert_eq!(
+        repo.resolve_source(&changed).unwrap_err().0,
+        "REQUEST_ID_CONFLICT"
+    );
+    assert_eq!(
+        repo.connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM source_candidates", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        6
+    );
+}
+
+#[test]
+fn scoped_recovery_evidence_exposes_unknown_staged_bytes_after_cleanup_and_reopen() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let (_dir, root, repo) = fixture();
+    let before = repo
+        .save_source(&request(&repo, "Accepted\n"))
+        .unwrap()
+        .snapshot;
+    let original = request(&repo, "Local A\n");
+    *repo.source_fault.lock().unwrap() = Some("after-promotion".into());
+    assert!(repo.save_source(&original).is_err());
+    let intent_bytes = std::fs::read(repo.intent_path()).unwrap();
+    let intent: Intent = serde_json::from_slice(&intent_bytes).unwrap();
+    let intent_hash = hash(&intent_bytes);
+    let unknown = b"\xef\xbb\xbfUnseen external B\r\n\xff";
+    std::fs::write(root.join(&intent.changes[0].staged_name), unknown).unwrap();
+    let status = repo.rescan_source().unwrap();
+    repo.recover_source(&AuthoredSourceRecoverRequest {
+        project_id: before.project_id.clone(),
+        request_id: original.request_id,
+        intent_hash: intent_hash.clone(),
+        disposition: Some(AuthoredSourceRecoverRequestDisposition::PreserveExternal),
+        observation_fingerprint: status.observation_fingerprint,
+    })
+    .unwrap();
+    assert!(!repo.intent_path().exists());
+    let foreign = repo.object(b"Unrelated management payload").unwrap();
+    assert_eq!(
+        repo.source_recovery_bytes(&intent_hash, &foreign)
+            .unwrap_err()
+            .0,
+        "OBJECT_NOT_FOUND"
+    );
+    assert_eq!(
+        repo.source_recovery_bytes(&intent_hash, &intent_hash)
+            .unwrap_err()
+            .0,
+        "OBJECT_NOT_FOUND"
+    );
+    for n in 0..9 {
+        std::fs::write(root.join("manuscript.md"), format!("Later {n}\n")).unwrap();
+        repo.rescan_source().unwrap();
+    }
+    repo.collect_objects(Duration::ZERO).unwrap();
+    drop(repo);
+    let reopened = SqliteProjectRepository::open_format(&root).unwrap();
+    let evidence = reopened.source_recovery_evidence(&intent_hash).unwrap();
+    assert_eq!(evidence.project_id, before.project_id);
+    assert!(
+        !evidence
+            .versions
+            .iter()
+            .any(|v| v.source_hash == intent_hash)
+    );
+    let staged = evidence
+        .versions
+        .iter()
+        .find(|v| v.source_hash == hash(unknown))
+        .unwrap();
+    assert_eq!(staged.roles, vec!["staged"]);
+    assert!(!staged.utf8);
+    assert_eq!(staged.size, unknown.len() as i64);
+    let bytes = reopened
+        .source_recovery_bytes(&intent_hash, &staged.source_hash)
+        .unwrap();
+    assert!(bytes.source.is_none());
+    assert_eq!(STANDARD.decode(bytes.bytes_base64).unwrap(), unknown);
+    let local = evidence
+        .versions
+        .iter()
+        .find(|v| v.roles.contains(&"live".to_string()))
+        .unwrap();
+    assert!(
+        reopened
+            .source_recovery_bytes(&intent_hash, &local.source_hash)
+            .unwrap()
+            .source
+            .unwrap()
+            .contains("Local A")
+    );
 }

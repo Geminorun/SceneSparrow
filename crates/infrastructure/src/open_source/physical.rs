@@ -162,6 +162,30 @@ impl Parent {
 }
 impl Parent {
     #[cfg(target_os = "linux")]
+    pub fn rename_no_replace(&self, from: &str, to: &str) -> Result<()> {
+        self.verify()?;
+        let from = CString::new(from).map_err(|_| fail("SOURCE_PATH_UNSAFE"))?;
+        let to = CString::new(to).map_err(|_| fail("SOURCE_PATH_UNSAFE"))?;
+        let result = unsafe {
+            libc::renameat2(
+                self.directory.as_raw_fd(),
+                from.as_ptr(),
+                self.directory.as_raw_fd(),
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if result != 0 {
+            return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+        }
+        self.sync()?;
+        self.verify()
+    }
+    #[cfg(not(target_os = "linux"))]
+    pub fn rename_no_replace(&self, _: &str, _: &str) -> Result<()> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
+    #[cfg(target_os = "linux")]
     pub fn exchange(&self, first: &str, second: &str) -> Result<()> {
         self.verify()?;
         let first = CString::new(first).map_err(|_| fail("SOURCE_PATH_UNSAFE"))?;

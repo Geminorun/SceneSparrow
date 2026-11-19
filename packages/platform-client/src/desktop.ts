@@ -38,6 +38,51 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     ...(bridge.inspectProjectFormat
       ? { inspectProjectFormat: () => unwrap(bridge.inspectProjectFormat!()) }
       : {}),
+    ...(bridge.readAuthoredSourceRecoveryEvidence
+      ? {
+          readAuthoredSourceRecoveryEvidence: (intent: string) =>
+            unwrap(bridge.readAuthoredSourceRecoveryEvidence!(intent)),
+        }
+      : {}),
+    ...(bridge.readAuthoredSourceRecoveryVersion
+      ? {
+          readAuthoredSourceRecoveryVersion: (intent: string, source: string) =>
+            unwrap(bridge.readAuthoredSourceRecoveryVersion!(intent, source)),
+        }
+      : {}),
+    ...(bridge.readAuthoredSourceStatus
+      ? {
+          readAuthoredSourceStatus: () =>
+            unwrap(bridge.readAuthoredSourceStatus!()),
+        }
+      : {}),
+    ...(bridge.rescanAuthoredSource
+      ? { rescanAuthoredSource: () => unwrap(bridge.rescanAuthoredSource!()) }
+      : {}),
+    ...(bridge.readAuthoredSourceCandidate
+      ? {
+          readAuthoredSourceCandidate: (id: string) =>
+            unwrap(bridge.readAuthoredSourceCandidate!(id)),
+        }
+      : {}),
+    ...(bridge.resolveAuthoredSource
+      ? {
+          resolveAuthoredSource: (
+            body: Parameters<
+              NonNullable<DesktopBridge["resolveAuthoredSource"]>
+            >[0],
+          ) => unwrap(bridge.resolveAuthoredSource!(body)),
+        }
+      : {}),
+    ...(bridge.recoverAuthoredSource
+      ? {
+          recoverAuthoredSource: (
+            body: Parameters<
+              NonNullable<DesktopBridge["recoverAuthoredSource"]>
+            >[0],
+          ) => unwrap(bridge.recoverAuthoredSource!(body)),
+        }
+      : {}),
     ...(bridge.readAuthoredSource
       ? { readAuthoredSource: () => unwrap(bridge.readAuthoredSource!()) }
       : {}),

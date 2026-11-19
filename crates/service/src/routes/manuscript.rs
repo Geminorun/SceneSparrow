@@ -23,7 +23,9 @@ pub(crate) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND" | "OBJECT_NOT_FOUND" | "COMMAND_NOT_FOUND" => {
                     StatusCode::NOT_FOUND
                 }
-                "SOURCE_BASE_MISMATCH"
+                "SOURCE_CANDIDATE_STALE"
+                | "SOURCE_RECOVERY_STALE"
+                | "SOURCE_BASE_MISMATCH"
                 | "SOURCE_EXTERNAL_CHANGE"
                 | "SOURCE_RECOVERY_REQUIRED"
                 | "SOURCE_ADOPTION_REQUIRED"
@@ -57,7 +59,9 @@ pub(crate) fn result<T: serde::Serialize>(
                 | "PLANNING_TASK_ACTIVE"
                 | "PLANNING_RESULT_STALE"
                 | "HISTORY_DIVERGED" => StatusCode::CONFLICT,
-                "SOURCE_SEMANTIC_UNSUPPORTED"
+                "SOURCE_REQUIRED_FILE_DELETED"
+                | "SOURCE_CANDIDATE_INVALID"
+                | "SOURCE_SEMANTIC_UNSUPPORTED"
                 | "SOURCE_CAPABILITY_UNSUPPORTED"
                 | "SOURCE_FUTURE_READ_ONLY"
                 | "NO_MANUSCRIPT_CONTENT"

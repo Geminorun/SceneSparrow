@@ -202,6 +202,345 @@
           ]
         }
       }
+    },
+    "AuthoredSourceResolveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "projectId",
+        "expectedWorkingRevision",
+        "expectedGeneration",
+        "expectedHash",
+        "group",
+        "candidateId",
+        "candidateHash",
+        "disposition",
+        "source"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "expectedWorkingRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expectedHash": {
+          "type": "string"
+        },
+        "group": {
+          "$ref": "#/definitions/EditGroup"
+        },
+        "candidateId": {
+          "type": "string"
+        },
+        "candidateHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["accept", "discard", "proposal"]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AuthoredSourceCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "projectId",
+        "baseHash",
+        "baseGeneration",
+        "liveHash",
+        "source",
+        "bindings",
+        "validationError",
+        "disposition"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "baseHash": {
+          "type": "string"
+        },
+        "baseGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "liveHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuthoredSourceBinding"
+          }
+        },
+        "validationError": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["pending", "accept", "discard", "proposal"]
+        }
+      }
+    },
+    "AuthoredSourcePendingIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intentHash", "requestId", "version"],
+      "properties": {
+        "intentHash": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "AuthoredSourceStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "generation",
+        "acceptedHash",
+        "externalStatus",
+        "externalHash",
+        "candidateId",
+        "pendingIntent",
+        "watchMode",
+        "observationFingerprint"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "acceptedHash": {
+          "type": "string"
+        },
+        "externalStatus": {
+          "type": "string",
+          "enum": [
+            "unchanged",
+            "changed",
+            "missing",
+            "unavailable",
+            "unstable",
+            "invalid"
+          ]
+        },
+        "externalHash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "candidateId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingIntent": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AuthoredSourcePendingIntent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "watchMode": {
+          "type": "string",
+          "enum": ["native", "polling", "stopped"]
+        },
+        "observationFingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AuthoredSourceRecoverRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "intentHash", "requestId"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "intentHash": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": ["known", "preserveExternal"]
+        },
+        "observationFingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "AuthoredSourceRescanRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "AuthoredSourceRecoveryVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceHash", "roles", "size", "utf8"],
+      "properties": {
+        "sourceHash": {
+          "type": "string"
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "utf8": {
+          "type": "boolean"
+        }
+      }
+    },
+    "AuthoredSourceRecoveryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "intentHash", "versions"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "intentHash": {
+          "type": "string"
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AuthoredSourceRecoveryVersion"
+          }
+        }
+      }
+    },
+    "AuthoredSourceRecoveryBytes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "intentHash",
+        "sourceHash",
+        "bytesBase64",
+        "source"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "intentHash": {
+          "type": "string"
+        },
+        "sourceHash": {
+          "type": "string"
+        },
+        "bytesBase64": {
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     }
   }
 }

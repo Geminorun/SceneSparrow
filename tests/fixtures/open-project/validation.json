@@ -823,5 +823,71 @@
     "kind": "paths",
     "value": ["cOm¹.txt"],
     "result": "PATH_INVALID"
+  },
+  {
+    "name": "parsed manifest integer spelling 1.0",
+    "kind": "manifest",
+    "json": "{\"format\":\"scenesparrow\",\"formatVersion\":1.0,\"projectId\":\"11111111-1111-4111-8111-111111111111\",\"manuscript\":\"manuscript.md\"}",
+    "result": "supported"
+  },
+  {
+    "name": "parsed manifest integer spelling 1e0",
+    "kind": "manifest",
+    "json": "{\"format\":\"scenesparrow\",\"formatVersion\":1e0,\"projectId\":\"11111111-1111-4111-8111-111111111111\",\"manuscript\":\"manuscript.md\"}",
+    "result": "supported"
+  },
+  {
+    "name": "parsed manifest integer spelling 2.0",
+    "kind": "manifest",
+    "json": "{\"format\":\"scenesparrow\",\"formatVersion\":2.0,\"projectId\":\"11111111-1111-4111-8111-111111111111\",\"manuscript\":\"manuscript.md\"}",
+    "result": "future-read-only"
+  },
+  {
+    "name": "parsed manifest integer spelling 1.5",
+    "kind": "manifest",
+    "json": "{\"format\":\"scenesparrow\",\"formatVersion\":1.5,\"projectId\":\"11111111-1111-4111-8111-111111111111\",\"manuscript\":\"manuscript.md\"}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed manifest integer spelling 9007199254740992.0",
+    "kind": "manifest",
+    "json": "{\"format\":\"scenesparrow\",\"formatVersion\":9007199254740992.0,\"projectId\":\"11111111-1111-4111-8111-111111111111\",\"manuscript\":\"manuscript.md\"}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed audio all integral spellings",
+    "kind": "audio",
+    "json": "{\"format\":\"scenesparrow-audio\",\"formatVersion\":1e0,\"segments\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"sourceBlockId\":\"33333333-3333-4333-8333-333333333333\",\"sourceRevision\":7.0,\"narrationText\":\"A retained take\",\"media\":\"public/audio/take.wav\",\"trimStartSample\":1e1,\"trimEndSample\":4.801e4,\"placementSample\":0.0,\"gainMilliDb\":-3e3}]}",
+    "result": "valid"
+  },
+  {
+    "name": "parsed audio fractional revision",
+    "kind": "audio",
+    "json": "{\"format\":\"scenesparrow-audio\",\"formatVersion\":1,\"segments\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"sourceBlockId\":\"33333333-3333-4333-8333-333333333333\",\"sourceRevision\":7.5,\"narrationText\":\"A retained take\",\"media\":\"public/audio/take.wav\",\"trimStartSample\":10,\"trimEndSample\":48010,\"placementSample\":0,\"gainMilliDb\":-3000}]}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed audio unsafe placement",
+    "kind": "audio",
+    "json": "{\"format\":\"scenesparrow-audio\",\"formatVersion\":1,\"segments\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"sourceBlockId\":\"33333333-3333-4333-8333-333333333333\",\"sourceRevision\":7,\"narrationText\":\"A retained take\",\"media\":\"public/audio/take.wav\",\"trimStartSample\":10,\"trimEndSample\":48010,\"placementSample\":9007199254740992.0,\"gainMilliDb\":-3000}]}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed audio fractional trim",
+    "kind": "audio",
+    "json": "{\"format\":\"scenesparrow-audio\",\"formatVersion\":1,\"segments\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"sourceBlockId\":\"33333333-3333-4333-8333-333333333333\",\"sourceRevision\":7,\"narrationText\":\"A retained take\",\"media\":\"public/audio/take.wav\",\"trimStartSample\":10,\"trimEndSample\":48010.5,\"placementSample\":0,\"gainMilliDb\":-3000}]}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed audio equal float trims",
+    "kind": "audio",
+    "json": "{\"format\":\"scenesparrow-audio\",\"formatVersion\":1,\"segments\":[{\"id\":\"22222222-2222-4222-8222-222222222222\",\"sourceBlockId\":\"33333333-3333-4333-8333-333333333333\",\"sourceRevision\":7,\"narrationText\":\"A retained take\",\"media\":\"public/audio/take.wav\",\"trimStartSample\":10,\"trimEndSample\":10.0,\"placementSample\":0,\"gainMilliDb\":-3000}]}",
+    "result": "FORMAT_INVALID"
+  },
+  {
+    "name": "parsed video integral version",
+    "kind": "video",
+    "json": "{\"format\":\"scenesparrow-video\",\"formatVersion\":1.0,\"entry\":\"src/index.ts\",\"compositionId\":\"Demo\"}",
+    "result": "valid"
   }
 ]

@@ -826,6 +826,33 @@ pub fn known_leaf_change_scope(
     ))
 }
 
+/// Presentation only: remove parser-owned metadata HTML nodes, preserving every
+/// other byte (including unknown syntax, BOM, line endings and code literals).
+pub fn clean_markdown(input: &[u8]) -> Result<String> {
+    let source = std::str::from_utf8(input).map_err(|_| error("SOURCE_UTF8_INVALID", "source"))?;
+    fn collect(node: &Value, ranges: &mut Vec<(usize, usize)>) -> Result<()> {
+        if marker(node)?.is_some() {
+            ranges.push((start(node), end(node)));
+        } else {
+            for child in children(node) {
+                collect(child, ranges)?;
+            }
+        }
+        Ok(())
+    }
+    let mut ranges = vec![];
+    collect(&parse(source)?, &mut ranges)?;
+    ranges.sort_unstable();
+    let mut output = String::new();
+    let mut cursor = 0;
+    for (start, end) in ranges {
+        output.push_str(&source[cursor..start]);
+        cursor = end;
+    }
+    output.push_str(&source[cursor..]);
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1027,5 +1054,18 @@ mod tests {
             apply_patches(&doc, doc.source.as_bytes(), &[patch(1, 4)]).unwrap(),
             "aX👩‍💻z".as_bytes()
         );
+    }
+}
+
+#[cfg(test)]
+mod clean_delivery_tests {
+    #[test]
+    fn clean_markdown_removes_only_real_metadata_ranges_byte_for_byte() {
+        let marker = "<!-- scenesparrow:block=11111111-1111-4111-8111-111111111111 -->";
+        let raw = format!(
+            "\u{feff}{marker}\r\n\r\n**Visible**  \r\nnext\n\n```html\r\n{marker}\r\n```\n\n`{marker}`\n\n<table>unknown HTML</table>\r\n\n[reference]: https://example.invalid\n"
+        );
+        let expected = raw.replacen(marker, "", 1);
+        assert_eq!(super::clean_markdown(raw.as_bytes()).unwrap(), expected);
     }
 }

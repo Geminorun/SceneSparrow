@@ -3244,6 +3244,10 @@
         },
         "expectedBodyHash": {
           "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["txt", "md"]
         }
       }
     },

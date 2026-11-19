@@ -1759,6 +1759,13 @@ pub struct DeliveryReceipt {
     pub error: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CopyRequestFormat {
+    #[serde(rename = "txt")]
+    Txt,
+    #[serde(rename = "md")]
+    Md,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CopyRequest {
     #[serde(rename = "requestId")]
@@ -1767,6 +1774,13 @@ pub struct CopyRequest {
     pub expected_revision: i64,
     #[serde(rename = "expectedBodyHash")]
     pub expected_body_hash: String,
+    #[serde(
+        rename = "format",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub format: Option<CopyRequestFormat>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2747,4 +2761,199 @@ pub struct ProjectFormatInspection {
     pub format_version: Option<i64>,
     #[serde(rename = "projectId", deserialize_with = "required_nullable")]
     pub project_id: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceResolveRequestDisposition {
+    #[serde(rename = "accept")]
+    Accept,
+    #[serde(rename = "discard")]
+    Discard,
+    #[serde(rename = "proposal")]
+    Proposal,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceResolveRequest {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "expectedWorkingRevision")]
+    pub expected_working_revision: i64,
+    #[serde(rename = "expectedGeneration")]
+    pub expected_generation: i64,
+    #[serde(rename = "expectedHash")]
+    pub expected_hash: String,
+    #[serde(rename = "group")]
+    pub group: EditGroup,
+    #[serde(rename = "candidateId")]
+    pub candidate_id: String,
+    #[serde(rename = "candidateHash", deserialize_with = "required_nullable")]
+    pub candidate_hash: Option<String>,
+    #[serde(rename = "disposition")]
+    pub disposition: AuthoredSourceResolveRequestDisposition,
+    #[serde(rename = "source", deserialize_with = "required_nullable")]
+    pub source: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceCandidateDisposition {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "accept")]
+    Accept,
+    #[serde(rename = "discard")]
+    Discard,
+    #[serde(rename = "proposal")]
+    Proposal,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceCandidate {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "baseHash")]
+    pub base_hash: String,
+    #[serde(rename = "baseGeneration")]
+    pub base_generation: i64,
+    #[serde(rename = "liveHash", deserialize_with = "required_nullable")]
+    pub live_hash: Option<String>,
+    #[serde(rename = "source", deserialize_with = "required_nullable")]
+    pub source: Option<String>,
+    #[serde(rename = "bindings")]
+    pub bindings: Vec<AuthoredSourceBinding>,
+    #[serde(rename = "validationError", deserialize_with = "required_nullable")]
+    pub validation_error: Option<String>,
+    #[serde(rename = "disposition")]
+    pub disposition: AuthoredSourceCandidateDisposition,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourcePendingIntent {
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "version")]
+    pub version: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceStatusExternalStatus {
+    #[serde(rename = "unchanged")]
+    Unchanged,
+    #[serde(rename = "changed")]
+    Changed,
+    #[serde(rename = "missing")]
+    Missing,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "unstable")]
+    Unstable,
+    #[serde(rename = "invalid")]
+    Invalid,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceStatusWatchMode {
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "polling")]
+    Polling,
+    #[serde(rename = "stopped")]
+    Stopped,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceStatus {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "generation")]
+    pub generation: i64,
+    #[serde(rename = "acceptedHash")]
+    pub accepted_hash: String,
+    #[serde(rename = "externalStatus")]
+    pub external_status: AuthoredSourceStatusExternalStatus,
+    #[serde(rename = "externalHash", deserialize_with = "required_nullable")]
+    pub external_hash: Option<String>,
+    #[serde(rename = "candidateId", deserialize_with = "required_nullable")]
+    pub candidate_id: Option<String>,
+    #[serde(rename = "pendingIntent", deserialize_with = "required_nullable")]
+    pub pending_intent: Option<AuthoredSourcePendingIntent>,
+    #[serde(rename = "watchMode")]
+    pub watch_mode: AuthoredSourceStatusWatchMode,
+    #[serde(
+        rename = "observationFingerprint",
+        deserialize_with = "required_nullable"
+    )]
+    pub observation_fingerprint: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthoredSourceRecoverRequestDisposition {
+    #[serde(rename = "known")]
+    Known,
+    #[serde(rename = "preserveExternal")]
+    PreserveExternal,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceRecoverRequest {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(
+        rename = "disposition",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub disposition: Option<AuthoredSourceRecoverRequestDisposition>,
+    #[serde(
+        rename = "observationFingerprint",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub observation_fingerprint: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceRescanRequest {}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceRecoveryVersion {
+    #[serde(rename = "sourceHash")]
+    pub source_hash: String,
+    #[serde(rename = "roles")]
+    pub roles: Vec<String>,
+    #[serde(rename = "size")]
+    pub size: i64,
+    #[serde(rename = "utf8")]
+    pub utf8: bool,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceRecoveryEvidence {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "versions")]
+    pub versions: Vec<AuthoredSourceRecoveryVersion>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoredSourceRecoveryBytes {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "intentHash")]
+    pub intent_hash: String,
+    #[serde(rename = "sourceHash")]
+    pub source_hash: String,
+    #[serde(rename = "bytesBase64")]
+    pub bytes_base64: String,
+    #[serde(rename = "source", deserialize_with = "required_nullable")]
+    pub source: Option<String>,
 }

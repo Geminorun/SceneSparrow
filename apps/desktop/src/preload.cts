@@ -14,6 +14,22 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
   inspectProjectFormat: () => ipcRenderer.invoke("project:format"),
+  readAuthoredSourceRecoveryEvidence: (intentHash: string) =>
+    ipcRenderer.invoke("manuscript:source-evidence", intentHash),
+  readAuthoredSourceRecoveryVersion: (intentHash: string, sourceHash: string) =>
+    ipcRenderer.invoke("manuscript:source-evidence-version", {
+      intentHash,
+      sourceHash,
+    }),
+  readAuthoredSourceStatus: () =>
+    ipcRenderer.invoke("manuscript:source-status"),
+  rescanAuthoredSource: () => ipcRenderer.invoke("manuscript:source-rescan"),
+  readAuthoredSourceCandidate: (id: string) =>
+    ipcRenderer.invoke("manuscript:source-candidate", id),
+  resolveAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-resolve", body),
+  recoverAuthoredSource: (body: unknown) =>
+    ipcRenderer.invoke("manuscript:source-recover", body),
   readAuthoredSource: () => ipcRenderer.invoke("manuscript:source-read"),
   saveAuthoredSource: (body: unknown) =>
     ipcRenderer.invoke("manuscript:source-save", body),

@@ -138,6 +138,19 @@ pub(super) fn read_job(c: &Connection, id: &str) -> Result<ExportJob> {
             status,
             ExportJobStatus::Failed | ExportJobStatus::Interrupted
         ) || job.12 >= now_ms());
+    let schema: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
+    let serializer_version: String = if schema >= 12 {
+        db(c.query_row(
+            "SELECT serializer_version FROM export_jobs WHERE id=?1",
+            [id],
+            |r| r.get(0),
+        ))?
+    } else {
+        "canonical-1".into()
+    };
+    if !["canonical-1", "source-markdown-1"].contains(&serializer_version.as_str()) {
+        return Err(err("PROJECT_INTEGRITY_FAILED"));
+    }
     Ok(ExportJob {
         id: id.into(),
         delivery,
@@ -152,7 +165,7 @@ pub(super) fn read_job(c: &Connection, id: &str) -> Result<ExportJob> {
         size: job.8,
         error: job.9,
         input_retained,
-        serializer_version: "canonical-1".into(),
+        serializer_version,
         captured_finalized: job.11.is_some(),
         captured_baseline: job.11,
     })
@@ -224,7 +237,12 @@ impl SqliteProjectRepository {
         if queued >= 4 {
             return Err(err("QUEUE_FULL"));
         }
-        if self.source_has_unknown(&c, None)? {
+        let source_markdown = if r.format == ExportRequestFormat::Md {
+            self.captured_source_markdown(&c)?
+        } else {
+            None
+        };
+        if source_markdown.is_none() && self.source_has_unknown(&c, None)? {
             return Err(err("SOURCE_SEMANTIC_UNSUPPORTED"));
         }
         let state = self.load(&c)?;
@@ -243,16 +261,22 @@ impl SqliteProjectRepository {
         if state.workspace_stage != ManuscriptStateWorkspaceStage::Draft {
             return Err(err("STAGE_CONFLICT"));
         }
-        if !state
-            .blocks
-            .iter()
-            .flat_map(|b| &b.runs)
-            .any(|r| !r.text.trim().is_empty())
+        if source_markdown.is_none()
+            && !state
+                .blocks
+                .iter()
+                .flat_map(|b| &b.runs)
+                .any(|r| !r.text.trim().is_empty())
         {
             return Err(err("NO_MANUSCRIPT_CONTENT"));
         }
         // Body identity deliberately excludes the global business sequence and approval metadata.
-        let snapshot = serde_json::json!({"version":1,"manuscriptId":state.manuscript_id,"schemaVersion":state.schema_version,"blocks":state.blocks});
+        let serializer_version = if source_markdown.is_some() {
+            "source-markdown-1"
+        } else {
+            "canonical-1"
+        };
+        let snapshot = source_markdown.unwrap_or_else(||serde_json::json!({"version":1,"manuscriptId":state.manuscript_id,"schemaVersion":state.schema_version,"blocks":state.blocks}));
         let bytes = db(serde_json::to_vec(&snapshot))?;
         let snapshot_hash = self.object(&bytes)?;
         let baseline: Option<String> = db(c.query_row(
@@ -293,7 +317,7 @@ impl SqliteProjectRepository {
         };
         let filename = std::format!("{}.{}", name, format(&r.format));
         let tx = db(c.transaction())?;
-        db(tx.execute("INSERT INTO export_jobs(id,request_digest,format,status,attempt,snapshot_hash,body_hash,captured_revision,filename,captured_baseline) VALUES(?1,?2,?3,'queued',1,?4,?5,?6,?7,?8)",params![r.request_id,digest,format(&r.format),snapshot_hash,body_hash,state.working_revision,filename,baseline]))?;
+        db(tx.execute("INSERT INTO export_jobs(id,request_digest,format,status,attempt,snapshot_hash,body_hash,captured_revision,filename,captured_baseline,serializer_version) VALUES(?1,?2,?3,'queued',1,?4,?5,?6,?7,?8,?9)",params![r.request_id,digest,format(&r.format),snapshot_hash,body_hash,state.working_revision,filename,baseline,serializer_version]))?;
         db(tx.execute(
             "INSERT INTO external_object_pins VALUES(?1,?2)",
             params![std::format!("export:{}", r.request_id), snapshot_hash],
@@ -638,6 +662,30 @@ impl SqliteProjectRepository {
             return Err(err("EXPORT_TOO_LARGE"));
         }
         let bytes = db(std::fs::read(path))?;
+        if j.serializer_version == "source-markdown-1" && !j.input_retained {
+            if j.format != ExportJobFormat::Md || std::str::from_utf8(&bytes).is_err() {
+                return Err(err("EXPORT_INVALID"));
+            }
+            // Ready artifact identity is verified against its durable hash by the
+            // caller. Its completed input snapshot may already be collected.
+            return Ok(bytes);
+        }
+        if j.serializer_version == "source-markdown-1" {
+            let snapshot: serde_json::Value =
+                db(serde_json::from_slice(&self.read_object(&j.snapshot_hash)?))?;
+            if j.format != ExportJobFormat::Md
+                || snapshot["version"] != 2
+                || snapshot["cleanMarkdown"].as_str().map(str::as_bytes) != Some(bytes.as_slice())
+                || snapshot["source"]
+                    .as_str()
+                    .map(|s| hash(s.as_bytes()))
+                    .as_deref()
+                    != snapshot["sourceHash"].as_str()
+            {
+                return Err(err("EXPORT_INVALID"));
+            }
+            return Ok(bytes);
+        }
         match j.format {
             ExportJobFormat::Docx => validate_docx(&bytes)?,
             _ => {
@@ -1132,14 +1180,20 @@ impl SqliteProjectRepository {
             if payload.is_some() {
                 return self.copy_locked(&c, &r.request_id, now);
             }
-            let blocks: Vec<Block> = db(serde_json::from_slice(&self.read_object(&input)?))?;
+            let snapshot: serde_json::Value =
+                db(serde_json::from_slice(&self.read_object(&input)?))?;
             drop(c);
-            return self.finish_copy(&r.request_id, &blocks, now);
+            return self.finish_copy(&r.request_id, &snapshot, now);
         }
         if namespace_conflict(&c, &r.request_id, "copy")? {
             return Err(err("INVALID_REQUEST"));
         }
-        if self.source_has_unknown(&c, None)? {
+        let source_markdown = if r.format == Some(CopyRequestFormat::Md) {
+            self.captured_source_markdown(&c)?
+        } else {
+            None
+        };
+        if source_markdown.is_none() && self.source_has_unknown(&c, None)? {
             return Err(err("SOURCE_SEMANTIC_UNSUPPORTED"));
         }
         let state = self.load(&c)?;
@@ -1153,18 +1207,26 @@ impl SqliteProjectRepository {
         if state.workspace_stage != ManuscriptStateWorkspaceStage::Draft {
             return Err(err("STAGE_CONFLICT"));
         }
-        if !state
-            .blocks
-            .iter()
-            .flat_map(|b| &b.runs)
-            .any(|r| !r.text.trim().is_empty())
+        if source_markdown.is_none()
+            && !state
+                .blocks
+                .iter()
+                .flat_map(|b| &b.runs)
+                .any(|r| !r.text.trim().is_empty())
         {
             return Err(err("NO_MANUSCRIPT_CONTENT"));
         }
         let expires_at = now + 600_000;
         // TXT needs no utility job or retained generated file. Its bounded canonical
         // serializer runs outside SQL while this short-lived preparation owns pins.
-        let input = self.object(&db(serde_json::to_vec(&state.blocks))?)?;
+        let snapshot = if let Some(source) = source_markdown {
+            source
+        } else if r.format == Some(CopyRequestFormat::Md) {
+            return Err(err("SOURCE_CAPABILITY_UNSUPPORTED"));
+        } else {
+            db(serde_json::to_value(&state.blocks))?
+        };
+        let input = self.object(&db(serde_json::to_vec(&snapshot))?)?;
         let tx = db(c.transaction())?;
         db(tx.execute("DELETE FROM external_object_pins WHERE owner_id IN (SELECT 'copy:'||id FROM copy_preparations WHERE expires_at<?1)",[now]))?;
         db(tx.execute(
@@ -1196,10 +1258,24 @@ impl SqliteProjectRepository {
         ))?;
         db(tx.commit())?;
         drop(c);
-        self.finish_copy(&r.request_id, &state.blocks, now)
+        self.finish_copy(&r.request_id, &snapshot, now)
     }
-    fn finish_copy(&self, id: &str, blocks: &[Block], now: i64) -> Result<PreparedCopy> {
-        let text = scenesparrow_domain::exports::plain(blocks);
+    fn finish_copy(
+        &self,
+        id: &str,
+        snapshot: &serde_json::Value,
+        now: i64,
+    ) -> Result<PreparedCopy> {
+        let text = if snapshot["version"] == 2 {
+            snapshot["cleanMarkdown"]
+                .as_str()
+                .ok_or(err("EXPORT_INVALID"))?
+                .to_string()
+        } else {
+            scenesparrow_domain::exports::plain(&db(serde_json::from_value::<Vec<Block>>(
+                snapshot.clone(),
+            ))?)
+        };
         let mut c = db(self.connection.lock())?;
         let payload = self.object(text.as_bytes())?;
         let tx = db(c.transaction())?;
@@ -1351,6 +1427,7 @@ mod fault_tests {
         let state = r.read_manuscript().unwrap();
         let history = r.read_history().unwrap();
         let req = CopyRequest {
+            format: None,
             request_id: id(),
             expected_revision: state.working_revision,
             expected_body_hash: hash(scenesparrow_domain::exports::body_token(&state).as_bytes()),
@@ -1857,6 +1934,7 @@ mod worker_tests {
         assert_eq!(r.start_export(&collision).unwrap_err().0, "INVALID_REQUEST");
         let state = r.read_manuscript().unwrap();
         let copy = CopyRequest {
+            format: None,
             request_id: id(),
             expected_revision: 2,
             expected_body_hash: hash(scenesparrow_domain::exports::body_token(&state).as_bytes()),

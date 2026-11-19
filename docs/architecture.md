@@ -17,9 +17,12 @@ The open-project ownership change is specified in the
 [ADR 0005](decisions/0005-open-project-workspace.md), with an
 [OP1–OP6 delivery plan](open-project-execution.md). It introduces file-authoring
 sources while retaining core-owned approval/management records. OP1 contracts
-and the Linux OP2 native source store are locally reviewed; the shared UI still
-uses legacy authoring until OP3. Packaging and full platform support retain their
-later gates. See [OP2 validation](validation/open-project-op2.md).
+and the Linux OP2 native source store are locally reviewed. OP3-A adds explicit
+external-file reconciliation, reachable same-process recovery and clean Markdown
+delivery; the shared UI still uses legacy authoring until OP3-B. Packaging and
+full platform support retain their later gates. See
+[OP2 validation](validation/open-project-op2.md) and
+[OP3-A validation](validation/open-project-op3a.md).
 
 ## Runtime and dependency boundaries
 
@@ -106,7 +109,8 @@ crates/
   infrastructure/src/
     lib.rs                       # Repository lifecycle and shared writer ownership
     storage/                     # DB errors, hashing, immutable objects and retention
-    open_source.rs               # Native source writer and journal; open_source/ owns I/O/tests
+    open_source.rs               # Native source writer and journal
+    open_source/                 # Physical I/O, observations, reconciliation, recovery and tests
     worker_process.rs            # Common document-process mechanisms
     manuscript.rs                # Canonical command transaction coordination
     history.rs                   # Bounded project history

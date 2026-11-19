@@ -13,7 +13,11 @@ use std::{
     io::Write,
     path::PathBuf,
 };
+mod inspection;
 mod physical;
+mod reconciliation;
+mod recovery;
+pub(crate) use inspection::Observation;
 use physical::{Identity, Parent};
 #[cfg(test)]
 pub(super) type TestAction = Box<dyn FnOnce() + Send>;
@@ -56,6 +60,25 @@ pub(crate) struct Intent {
     project_id: String,
     expected_generation: i64,
     changes: Vec<FileChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    accepted: Option<AcceptedChange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolution: Option<BoundResolution>,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AcceptedChange {
+    before_hash: String,
+    after_hash: String,
+}
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoundResolution {
+    candidate_id: String,
+    base_hash: String,
+    base_generation: i64,
+    live_hash: Option<String>,
+    disposition: String,
 }
 fn sync_directory(path: &Path) -> Result<()> {
     #[cfg(unix)]
@@ -986,6 +1009,25 @@ fn patch_semantics(
     source::apply_patches(document, document.source.as_bytes(), &patches).map_err(format_error)
 }
 impl SqliteProjectRepository {
+    pub(crate) fn guard_source_application(&self, c: &Connection) -> Result<()> {
+        self.guard_source_recovery()?;
+        if let Some((_, path, accepted, _)) = source_row(c)? {
+            let parent = Parent::open(
+                self.creative_root
+                    .as_ref()
+                    .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?,
+                &path,
+            )?;
+            let live = parent.read(&parent.name, false)?;
+            if live
+                .as_ref()
+                .is_none_or(|(bytes, _)| hash(bytes) != accepted)
+            {
+                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn guard_source_recovery(&self) -> Result<()> {
         if self.creative_root.is_none() {
             return Ok(());
@@ -1031,6 +1073,16 @@ impl SqliteProjectRepository {
             db(String::from_utf8(marker_bytes))?,
         ))
     }
+    pub(crate) fn captured_source_markdown(
+        &self,
+        c: &Connection,
+    ) -> Result<Option<serde_json::Value>> {
+        source_row(c)?.map(|(_,_,accepted,_)| {
+            let raw=self.read_object(&accepted)?;
+            let clean=scenesparrow_domain::source::clean_markdown(&raw).map_err(format_error)?;
+            Ok(serde_json::json!({"version":2,"sourceHash":accepted,"source":db(String::from_utf8(raw))?,"cleanMarkdown":clean}))
+        }).transpose()
+    }
     pub(crate) fn source_body_identity(c: &Connection, semantic_hash: String) -> Result<String> {
         Ok(if let Some((_, _, accepted, _)) = source_row(c)? {
             hash(&db(serde_json::to_vec(&(semantic_hash, accepted)))?)
@@ -1050,7 +1102,9 @@ impl SqliteProjectRepository {
     pub(crate) fn source_retention_roots(&self, c: &Connection) -> Result<BTreeSet<String>> {
         let mut roots = BTreeSet::new();
         let mut query = db(c.prepare(
-            "SELECT accepted_hash FROM authored_source UNION SELECT source_hash FROM source_pins",
+            if db(c.pragma_query_value::<i64,_>(None,"user_version",|r|r.get(0)))? >= 12 {
+                "SELECT accepted_hash FROM authored_source UNION SELECT source_hash FROM source_pins UNION SELECT live_hash FROM source_candidates WHERE live_hash IS NOT NULL UNION SELECT base_hash FROM source_candidates"
+            } else {"SELECT accepted_hash FROM authored_source UNION SELECT source_hash FROM source_pins"},
         ))?;
         for row in db(query.query_map([], |r| r.get::<_, String>(0)))? {
             roots.insert(db(row)?);
@@ -1067,6 +1121,10 @@ impl SqliteProjectRepository {
             let bytes = db(std::fs::read(self.intent_path()))?;
             let intent: Intent = db(serde_json::from_slice(&bytes))?;
             roots.insert(hash(&bytes));
+            if let Some(accepted) = intent.accepted {
+                roots.insert(accepted.before_hash);
+                roots.insert(accepted.after_hash);
+            }
             for change in intent.changes {
                 roots.extend(change.before_hash);
                 roots.extend(change.after_hash);
@@ -1083,6 +1141,7 @@ impl SqliteProjectRepository {
         request: &str,
         digest: &str,
         t: &Transition,
+        resolution: Option<&AuthoredSourceResolveRequest>,
     ) -> Result<Option<Intent>> {
         let Some((project_id, path, accepted, generation)) = source_row(c)? else {
             return Ok(None);
@@ -1091,7 +1150,7 @@ impl SqliteProjectRepository {
             return Err(fail("SOURCE_RECOVERY_REQUIRED"));
         }
         let after = t.source_hash.as_deref().unwrap_or(&accepted);
-        if after == accepted {
+        if after == accepted && resolution.is_none() {
             return Ok(None);
         }
         self.source_cut("before-stage")?;
@@ -1100,28 +1159,57 @@ impl SqliteProjectRepository {
             .as_ref()
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         let parent = Parent::open(root, &path)?;
-        let (live, before_identity) = parent
-            .read(&parent.name, false)?
-            .ok_or(fail("SOURCE_EXTERNAL_CHANGE"))?;
-        if hash(&live) != accepted {
-            return Err(fail("SOURCE_EXTERNAL_CHANGE"));
-        }
+        let live = parent.read(&parent.name, false)?;
+        let bound = if let Some(request) = resolution {
+            let (candidate, identity) = self.validate_source_candidate(c, request)?;
+            if !matches_physical(live.as_ref(), &candidate.live_hash, &identity) {
+                return Err(fail("SOURCE_CANDIDATE_STALE"));
+            }
+            Some(BoundResolution {
+                candidate_id: candidate.id,
+                base_hash: accepted.clone(),
+                base_generation: generation,
+                live_hash: candidate.live_hash,
+                disposition: db(serde_json::to_value(&request.disposition))?
+                    .as_str()
+                    .ok_or(fail("INVALID_REQUEST"))?
+                    .into(),
+            })
+        } else {
+            if live
+                .as_ref()
+                .is_none_or(|(bytes, _)| hash(bytes) != accepted)
+            {
+                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            }
+            None
+        };
+        let physical_before = live
+            .as_ref()
+            .map(|(bytes, _)| self.object(bytes))
+            .transpose()?;
+        let before_identity = live.map(|(_, identity)| identity);
         self.read_object(&accepted)?;
         let bytes = self.read_object(after)?;
         let staged_name = format!(".scenesparrow-stage-{}", uuid::Uuid::new_v4());
         let after_identity = parent.stage(&staged_name, &bytes)?;
         self.source_cut("after-stage")?;
         let intent = Intent {
-            version: 1,
+            version: 2,
+            accepted: Some(AcceptedChange {
+                before_hash: accepted.clone(),
+                after_hash: after.into(),
+            }),
+            resolution: bound,
             request_id: request.into(),
             digest: digest.into(),
             project_id,
             expected_generation: generation,
             changes: vec![FileChange {
                 relative_path: path,
-                before_hash: Some(accepted.clone()),
+                before_hash: physical_before,
                 after_hash: Some(after.into()),
-                before_identity: Some(before_identity),
+                before_identity,
                 after_identity: Some(after_identity),
                 staged_name,
             }],
@@ -1141,24 +1229,32 @@ impl SqliteProjectRepository {
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         for change in &intent.changes {
             let parent = Parent::open(root, &change.relative_path)?;
-            let current = parent
-                .read(&parent.name, false)?
-                .ok_or(fail("SOURCE_EXTERNAL_CHANGE"))?;
-            if !matches_version(&current, &change.before_hash, &change.before_identity) {
-                self.preserve_conflict(&current.0)?;
+            let current = parent.read(&parent.name, false)?;
+            if !matches_physical(
+                current.as_ref(),
+                &change.before_hash,
+                &change.before_identity,
+            ) {
+                if let Some(current) = current {
+                    self.preserve_conflict(&current.0)?;
+                }
                 return Err(fail("SOURCE_EXTERNAL_CHANGE"));
             }
             self.source_cut("before-promotion")?;
-            // EXCHANGE atomically captures the displaced file, including an
-            // external replacement after the last check. It is not a CAS claim.
-            parent.exchange(&parent.name, &change.staged_name)?;
-            self.source_cut("after-promotion")?;
-            let displaced = parent
-                .read(&change.staged_name, false)?
-                .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
-            if !matches_version(&displaced, &change.before_hash, &change.before_identity) {
-                self.preserve_conflict(&displaced.0)?;
-                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            if change.before_hash.is_none() {
+                parent.rename_no_replace(&change.staged_name, &parent.name)?;
+                self.source_cut("after-promotion")?;
+            } else {
+                // Exchange captures any replacement after the read as evidence.
+                parent.exchange(&parent.name, &change.staged_name)?;
+                self.source_cut("after-promotion")?;
+                let displaced = parent
+                    .read(&change.staged_name, false)?
+                    .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+                if !matches_version(&displaced, &change.before_hash, &change.before_identity) {
+                    self.preserve_conflict(&displaced.0)?;
+                    return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+                }
             }
             let current = parent
                 .read(&parent.name, false)?
@@ -1181,7 +1277,21 @@ impl SqliteProjectRepository {
                 .changes
                 .first()
                 .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
-            db(c.execute("UPDATE authored_source SET accepted_hash=?1,generation=generation+1 WHERE singleton=1 AND generation=?2",params![change.after_hash,intent.expected_generation]))?;
+            let accepted_before = intent
+                .accepted
+                .as_ref()
+                .map(|a| &a.before_hash)
+                .or(change.before_hash.as_ref());
+            let updated=db(c.execute("UPDATE authored_source SET accepted_hash=?1,generation=generation+1 WHERE singleton=1 AND generation=?2 AND accepted_hash=?3",params![intent.accepted.as_ref().map(|a| &a.after_hash).or(change.after_hash.as_ref()),intent.expected_generation,accepted_before]))?;
+            if updated != 1 {
+                return Err(fail("SOURCE_BASE_MISMATCH"));
+            }
+            if let Some(bound) = &intent.resolution {
+                let updated = db(c.execute("UPDATE source_candidates SET disposition=?2 WHERE id=?1 AND disposition='pending'",params![bound.candidate_id,bound.disposition]))?;
+                if updated != 1 {
+                    return Err(fail("SOURCE_CANDIDATE_STALE"));
+                }
+            }
             db(c.execute(
                 "INSERT INTO source_operations VALUES(?1,?2,?3,?4)",
                 params![
@@ -1214,16 +1324,16 @@ impl SqliteProjectRepository {
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         for change in &intent.changes {
             let parent = Parent::open(root, &change.relative_path)?;
-            let live = parent
-                .read(&parent.name, false)?
-                .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+            let live = parent.read(&parent.name, false)?;
             let (digest, identity) = if committed {
                 (&change.after_hash, &change.after_identity)
             } else {
                 (&change.before_hash, &change.before_identity)
             };
-            if !matches_version(&live, digest, identity) {
-                self.preserve_conflict(&live.0)?;
+            if !matches_physical(live.as_ref(), digest, identity) {
+                if let Some(live) = live {
+                    self.preserve_conflict(&live.0)?;
+                }
                 return Err(fail("SOURCE_EXTERNAL_CHANGE"));
             }
         }
@@ -1265,6 +1375,10 @@ impl SqliteProjectRepository {
         Ok(())
     }
     pub(crate) fn recover_source_intents(&self) -> Result<()> {
+        let c = db(self.connection.lock())?;
+        self.recover_source_intents_locked(&c)
+    }
+    fn recover_source_intents_locked(&self, c: &Connection) -> Result<()> {
         if !self.intent_path().exists() {
             return Ok(());
         }
@@ -1274,11 +1388,91 @@ impl SqliteProjectRepository {
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?
             .0;
         let intent: Intent = db(serde_json::from_slice(&bytes))?;
-        if intent.version != 1 || intent.changes.is_empty() {
+        if !matches!(intent.version, 1 | 2)
+            || intent.changes.is_empty()
+            || (intent.version == 1 && (intent.accepted.is_some() || intent.resolution.is_some()))
+            || (intent.version == 2 && intent.accepted.is_none())
+        {
             return Err(fail("SOURCE_RECOVERY_REQUIRED"));
         }
-        let c = db(self.connection.lock())?;
-        let project = read_project(&c)
+        let committed = self.validate_source_intent_metadata(c, &intent, &bytes)?;
+        if self.finish_preserved_source_intent(c, &intent, &bytes)? {
+            return Ok(());
+        }
+        let root = self
+            .creative_root
+            .as_ref()
+            .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+        for change in &intent.changes {
+            // Validate every immutable generation before any live recovery.
+            for digest in [&change.before_hash, &change.after_hash]
+                .into_iter()
+                .flatten()
+            {
+                self.read_object(digest)?;
+            }
+            let parent = Parent::open(root, &change.relative_path)?;
+            let live = parent.read(&parent.name, false)?;
+            let before =
+                matches_physical(live.as_ref(), &change.before_hash, &change.before_identity);
+            let after = matches_physical(live.as_ref(), &change.after_hash, &change.after_identity);
+            if !before && !after {
+                if let Some(live) = live {
+                    self.preserve_conflict(&live.0)?;
+                }
+                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            }
+            if committed && !after || !committed && !before {
+                if change.before_hash.is_none() && !committed {
+                    // Move known after bytes aside without unlinking a path that an
+                    // external editor may replace between validation and mutation.
+                    parent.rename_no_replace(&parent.name, &change.staged_name)?;
+                    let moved = parent
+                        .read(&change.staged_name, false)?
+                        .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+                    if !matches_version(&moved, &change.after_hash, &change.after_identity) {
+                        self.preserve_conflict(&moved.0)?;
+                        let _ = parent.rename_no_replace(&change.staged_name, &parent.name);
+                        return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+                    }
+                } else {
+                    let staged = parent
+                        .read(&change.staged_name, false)?
+                        .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+                    let valid = if committed {
+                        matches_version(&staged, &change.after_hash, &change.after_identity)
+                    } else {
+                        matches_version(&staged, &change.before_hash, &change.before_identity)
+                    };
+                    if !valid {
+                        self.preserve_conflict(&staged.0)?;
+                        return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+                    }
+                    if change.before_hash.is_none() {
+                        parent.rename_no_replace(&change.staged_name, &parent.name)?;
+                    } else {
+                        parent.exchange(&parent.name, &change.staged_name)?;
+                    }
+                }
+            }
+        }
+        self.verify_intent_live(&intent, committed)?;
+        self.cleanup_intent(&intent)
+    }
+    fn validate_source_intent_metadata(
+        &self,
+        c: &Connection,
+        intent: &Intent,
+        bytes: &[u8],
+    ) -> Result<bool> {
+        if !matches!(intent.version, 1 | 2)
+            || intent.changes.is_empty()
+            || (intent.version == 1 && (intent.accepted.is_some() || intent.resolution.is_some()))
+            || (intent.version == 2 && intent.accepted.is_none())
+        {
+            return Err(fail("SOURCE_RECOVERY_REQUIRED"));
+        }
+        let project = read_project(c)
             .map_err(|_| fail("SOURCE_RECOVERY_REQUIRED"))?
             .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         if project.id != intent.project_id {
@@ -1294,12 +1488,12 @@ impl SqliteProjectRepository {
         let committed = if let Some((digest, generation, intent_hash)) = operation {
             if digest != intent.digest
                 || generation != intent.expected_generation + 1
-                || intent_hash != hash(&bytes)
+                || intent_hash != hash(bytes)
             {
                 return Err(fail("SOURCE_RECOVERY_REQUIRED"));
             }
             let receipt =
-                Self::outcome(&c, &intent.request_id)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+                Self::outcome(c, &intent.request_id)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
             if receipt.0 != digest {
                 return Err(fail("SOURCE_RECOVERY_REQUIRED"));
             }
@@ -1308,7 +1502,7 @@ impl SqliteProjectRepository {
             false
         };
         let (source_project, source_path, accepted, generation) =
-            source_row(&c)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
+            source_row(c)?.ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
         if source_project != intent.project_id
             || generation != intent.expected_generation + if committed { 1 } else { 0 }
             || intent.changes.len() != 1
@@ -1317,13 +1511,19 @@ impl SqliteProjectRepository {
             return Err(fail("SOURCE_RECOVERY_REQUIRED"));
         }
         for change in &intent.changes {
-            let expected = if committed {
-                &change.after_hash
+            let expected = if let Some(accepted) = &intent.accepted {
+                Some(if committed {
+                    accepted.after_hash.as_str()
+                } else {
+                    accepted.before_hash.as_str()
+                })
+            } else if committed {
+                change.after_hash.as_deref()
             } else {
-                &change.before_hash
+                change.before_hash.as_deref()
             };
             if change.relative_path != source_path
-                || expected.as_deref() != Some(accepted.as_str())
+                || expected != Some(accepted.as_str())
                 || !change
                     .staged_name
                     .strip_prefix(".scenesparrow-stage-")
@@ -1332,46 +1532,38 @@ impl SqliteProjectRepository {
                 return Err(fail("SOURCE_RECOVERY_REQUIRED"));
             }
         }
-        let root = self
-            .creative_root
-            .as_ref()
-            .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
-        for change in &intent.changes {
-            // Validate every immutable generation before any live recovery.
-            for digest in [&change.before_hash, &change.after_hash]
-                .into_iter()
-                .flatten()
-            {
-                self.read_object(digest)?;
+        if let Some(accepted) = &intent.accepted {
+            self.read_object(&accepted.before_hash)?;
+            self.read_object(&accepted.after_hash)?;
+            let change = &intent.changes[0];
+            if change.after_hash.as_ref() != Some(&accepted.after_hash) {
+                return Err(fail("SOURCE_RECOVERY_REQUIRED"));
             }
-            let parent = Parent::open(root, &change.relative_path)?;
-            let live = parent
-                .read(&parent.name, false)?
-                .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
-            let before = matches_version(&live, &change.before_hash, &change.before_identity);
-            let after = matches_version(&live, &change.after_hash, &change.after_identity);
-            if !before && !after {
-                self.preserve_conflict(&live.0)?;
-                return Err(fail("SOURCE_EXTERNAL_CHANGE"));
-            }
-            if committed && !after || !committed && !before {
-                let staged = parent
-                    .read(&change.staged_name, false)?
-                    .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;
-                let valid = if committed {
-                    matches_version(&staged, &change.after_hash, &change.after_identity)
-                } else {
-                    matches_version(&staged, &change.before_hash, &change.before_identity)
-                };
-                if !valid {
-                    self.preserve_conflict(&staged.0)?;
-                    return Err(fail("SOURCE_EXTERNAL_CHANGE"));
+            if let Some(bound) = &intent.resolution {
+                let (candidate, identity) = self.source_candidate_locked(c, &bound.candidate_id)?;
+                let disposition = db(serde_json::to_value(candidate.disposition))?;
+                if candidate.project_id != intent.project_id
+                    || candidate.base_hash != bound.base_hash
+                    || candidate.base_generation != bound.base_generation
+                    || candidate.live_hash != bound.live_hash
+                    || bound.base_hash != accepted.before_hash
+                    || bound.base_generation != intent.expected_generation
+                    || change.before_hash != bound.live_hash
+                    || change.before_identity != identity
+                    || disposition.as_str()
+                        != Some(if committed {
+                            bound.disposition.as_str()
+                        } else {
+                            "pending"
+                        })
+                {
+                    return Err(fail("SOURCE_RECOVERY_REQUIRED"));
                 }
-                parent.exchange(&parent.name, &change.staged_name)?;
+            } else if change.before_hash.as_ref() != Some(&accepted.before_hash) {
+                return Err(fail("SOURCE_RECOVERY_REQUIRED"));
             }
         }
-        self.verify_intent_live(&intent, committed)?;
-        self.cleanup_intent(&intent)
+        Ok(committed)
     }
     pub(crate) fn source_cut(&self, point: &str) -> Result<()> {
         #[cfg(test)]
@@ -1397,6 +1589,29 @@ fn matches_version(
     identity: &Option<Identity>,
 ) -> bool {
     digest.as_ref().is_some_and(|h| hash(&file.0) == *h) && identity.as_ref() == Some(&file.1)
+}
+
+pub(crate) fn application_source_conflict(code: &str) -> bool {
+    matches!(
+        code,
+        "SOURCE_RECOVERY_REQUIRED"
+            | "SOURCE_EXTERNAL_CHANGE"
+            | "SOURCE_CANDIDATE_STALE"
+            | "SOURCE_RECOVERY_STALE"
+            | "SOURCE_PATH_UNSAFE"
+            | "SOURCE_READ_UNAVAILABLE"
+            | "SOURCE_CAPABILITY_UNSUPPORTED"
+    )
+}
+fn matches_physical(
+    file: Option<&(Vec<u8>, Identity)>,
+    digest: &Option<String>,
+    identity: &Option<Identity>,
+) -> bool {
+    match file {
+        Some(file) => matches_version(file, digest, identity),
+        None => digest.is_none() && identity.is_none(),
+    }
 }
 
 #[cfg(test)]
