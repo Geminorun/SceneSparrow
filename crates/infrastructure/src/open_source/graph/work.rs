@@ -3,6 +3,7 @@
 use super::*;
 mod decisions;
 mod lifecycle;
+mod package;
 mod readers;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -255,7 +256,7 @@ impl SqliteProjectRepository {
         }
         Ok(())
     }
-    fn work_item_locked(&self, c: &Connection, item: &str) -> Result<WorkItemView> {
+    pub(crate) fn work_item_locked(&self, c: &Connection, item: &str) -> Result<WorkItemView> {
         id(item)?;
         type ItemRow = (
             String,
@@ -285,6 +286,7 @@ impl SqliteProjectRepository {
             candidate,
         ) = row.ok_or(fail("WORK_ITEM_NOT_FOUND"))?;
         Ok(WorkItemView {
+            copy_available: origin == "copy" && self.copy_available(c, item)?,
             project_id: p,
             work_item_id: item.into(),
             origin: parse(&json(&origin)?)?,
@@ -657,6 +659,9 @@ impl SqliteProjectRepository {
                 r.expected_graph_generation,
             )?;
             let item = self.work_item_locked(&c, &r.work_item_id)?;
+            if item.origin == WorkItemViewOrigin::Copy && !item.copy_available {
+                return Err(fail("WORK_COPY_UNAVAILABLE"));
+            }
             if item.item_revision != r.expected_item_revision
                 || item.base_graph_hash != g.hash
                 || matches!(item.state, WorkItemViewState::Discarded)
@@ -693,6 +698,9 @@ impl SqliteProjectRepository {
     pub fn reveal_work_item_location(&self, item: &str) -> Result<PathBuf> {
         let c = db(self.connection.lock())?;
         let item = self.work_item_locked(&c, item)?;
+        if !item.copy_available {
+            return Err(fail("WORK_COPY_UNAVAILABLE"));
+        }
         if item.origin != WorkItemViewOrigin::Copy
             || matches!(
                 item.state,

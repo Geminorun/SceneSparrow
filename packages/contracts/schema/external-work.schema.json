@@ -592,6 +592,9 @@
               "type": "null"
             }
           ]
+        },
+        "copyAvailable": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -606,7 +609,8 @@
         "itemRevision",
         "state",
         "operationRequestId",
-        "latestCandidate"
+        "latestCandidate",
+        "copyAvailable"
       ]
     },
     "WorkOperationView": {

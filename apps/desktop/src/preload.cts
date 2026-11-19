@@ -13,6 +13,34 @@ ipcRenderer.on("manuscript:close-request", async (_event, nonce: string) => {
 });
 
 contextBridge.exposeInMainWorld("sceneSparrow", {
+  readPackageBase: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageBase", ...args),
+  startProjectPackageExport: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:startProjectPackageExport", ...args),
+  startWorkCopyPackageExport: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:startWorkCopyPackageExport", ...args),
+  readPackageOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageOperation", ...args),
+  controlPackageOperation: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:controlPackageOperation", ...args),
+  createPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:createPackageIntake", ...args),
+  readPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageIntake", ...args),
+  uploadPackageChunk: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:uploadPackageChunk", ...args),
+  controlPackageIntake: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:controlPackageIntake", ...args),
+  inspectPackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:inspectPackage", ...args),
+  readPackageInspection: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:readPackageInspection", ...args),
+  issuePackageRestoreTarget: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:issuePackageRestoreTarget", ...args),
+  restorePackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:restorePackage", ...args),
+  returnPackage: (...args: unknown[]) =>
+    ipcRenderer.invoke("project-package:returnPackage", ...args),
   inspectLegacyMigration: (...args: unknown[]) =>
     ipcRenderer.invoke("project-transfer:inspectLegacyMigration", ...args),
   issueMigrationTarget: (...args: unknown[]) =>

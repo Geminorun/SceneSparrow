@@ -1592,7 +1592,7 @@ fn source_recovery_rejects_only_the_application_request_and_explicitly_reuses_on
         "ALREADY_APPLIED"
     );
     assert_eq!(r.planning_task(&task).unwrap().run.run_id, run.run_id);
-    assert_eq!(count.load(Ordering::SeqCst), 1);
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(
         r.read_source_snapshot()
             .unwrap()
@@ -1706,4 +1706,53 @@ fn migration_fences_copied_queued_ai_documents_visuals_and_preserves_original_or
         AiRunStatus::Queued
     );
     assert_eq!(r.planning_task(&task).unwrap().run.run_id, original.run_id);
+}
+#[test]
+fn package_preserves_paid_planning_result_and_fences_native_copied_queued_run_without_sdk() {
+    let (d, r, settings, p) = setup();
+    plan(&r, &p, false);
+    let (count, server) = crate::project_transfer::tests::mock_provider(&settings, outline());
+    let (task, _) = start(&r, &settings, &p, "generate_outline");
+    let paid = r.execute_next_ai(&settings).unwrap().unwrap();
+    server.join().unwrap();
+    let target = crate::project_transfer::tests::convert(d.path(), &d.path().join("project"), &r);
+    let native = SqliteProjectRepository::open(&target).unwrap();
+    native.reconcile_planning().unwrap();
+    plan(&native, &p, true);
+    let old_preparation = prepare(&native, &settings, "generate_initial_draft");
+    let (queued, _) = start(&native, &settings, &p, "generate_initial_draft");
+    let original = native.planning_task(&queued).unwrap().run;
+    let (_copy, restored) = crate::project_transfer::package::tests::roundtrip(&native);
+    assert_eq!(
+        restored.planning_task(&task).unwrap().run.run_id,
+        paid.run_id
+    );
+    assert_eq!(
+        restored.planning_task(&task).unwrap().run.status,
+        AiRunStatus::Succeeded
+    );
+    assert_eq!(
+        restored.planning_task(&queued).unwrap().run.status,
+        AiRunStatus::Interrupted
+    );
+    assert_eq!(
+        native.planning_task(&queued).unwrap().run.status,
+        AiRunStatus::Queued
+    );
+    assert_eq!(
+        native.planning_task(&queued).unwrap().run.run_id,
+        original.run_id
+    );
+    let copied = cmd(
+        &restored,
+        &p,
+        "StartPlanningTask",
+        json!({"preparationId":old_preparation.id,"retryOfTaskId":null}),
+    );
+    assert_eq!(
+        restored.start_planning(&settings, &copied).unwrap_err().0,
+        "PREFLIGHT_STALE"
+    );
+    assert!(restored.execute_next_ai(&settings).unwrap().is_none());
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 1);
 }

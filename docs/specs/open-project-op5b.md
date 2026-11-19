@@ -1,7 +1,9 @@
 # OP5-B: complete portable package backend
 
-Status: root preparation, 2026-11-19. Not dispatched. Freeze the accepted OP5-A
-commit and actual helper signatures before assignment. This document refines
+Status: independently reviewed Linux backend checkpoint, 2026-11-19. Assignment
+baseline is OP5-A `b51673669ada92e20bf7ca983289e23fcf407645`; read the
+[exact handoff](open-project-op5b-handoff.md) and final
+[validation](../validation/open-project-op5b.md). This document covers
 OP5-T04–T06; a sequential OP5-C owns visible transfer workflows and native/browser
 streaming adapters. OP5 remains incomplete until both pass. Parent: OP5 and the
 common open-project specification. No change to activation/default startup yet.
@@ -123,7 +125,9 @@ and long operation leases, one worker and five admissions. Current-source root
 ownership is distinct from the result project's UUID: restoring project B while
 A is open cannot make B's identity authorize actions on A. A purpose-bound target
 capability records its owner/source locator, inspected immutable intake identity,
-result project UUID and new app-owned location. Do not reuse a migration target
+result project UUID and new app-owned location. Preserve that archived business
+UUID even when it matches the owner project; separate root/target identity owns
+the new filesystem context. Do not reuse a migration target
 as an unrestricted import target or return imported project metadata as though
 it were the active project's current snapshot.
 
@@ -131,7 +135,13 @@ Intake registers declared archive length/digest, writes bounded chunks at exact
 offsets and checks each length/hash. An identical acknowledged chunk replays
 without appending; a changed same-offset chunk conflicts. Verify final length and
 SHA-256 before inspection. Retain uploaded bytes for explicit recovery/returned
-edits. Cancellation, expiry and collection respect active readers. Never recreate
+edits. Ready archive cache and terminal export captures awaiting their original
+retry have a seven-day retention window; an accepted explicit retry renews the
+capture window. Active operations/readers remain protected. Unused or canceled
+intake expires after 24 hours, while returned candidate evidence extends its
+retention as specified in the exact handoff. Expired capture retry reports
+PACKAGE_EXPIRED, preserving original outcomes without recapturing newer content.
+Cancellation, expiry and collection respect active readers. Never recreate
 deletion authority from an old pathname or replay; preserve unknown residuals.
 Quiesce tracks/cancels workers. Restart marks unfinished work interrupted and
 requires an explicit control/retry against the original capture/target; no silent

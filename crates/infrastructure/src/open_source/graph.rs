@@ -1,7 +1,7 @@
 //! Native immutable creative graphs. These methods are infrastructure primitives,
 //! not external work-item grants; the recorded-work-item owner must authorize them.
 use super::*;
-mod inventory;
+pub(crate) mod inventory;
 pub(crate) mod work;
 pub use work::WorkMemberReader;
 pub(super) mod journal;
@@ -420,13 +420,20 @@ impl SqliteProjectRepository {
         Ok(())
     }
     pub(crate) fn graph_retention_roots(&self, c: &Connection) -> Result<BTreeSet<String>> {
+        self.graph_retention_roots_mode(c, true)
+    }
+    pub(crate) fn graph_retention_roots_mode(
+        &self,
+        c: &Connection,
+        verify_payloads: bool,
+    ) -> Result<BTreeSet<String>> {
         let mut roots = BTreeSet::new();
-        let mut query=db(c.prepare("SELECT graph_hash FROM accepted_file_graph UNION SELECT before_hash FROM history_file_graphs UNION SELECT after_hash FROM history_file_graphs UNION SELECT graph_hash FROM file_graph_pins UNION SELECT graph_hash FROM approved_file_graphs"))?;
+        let mut query=db(c.prepare(if verify_payloads{"SELECT graph_hash FROM accepted_file_graph UNION SELECT before_hash FROM history_file_graphs UNION SELECT after_hash FROM history_file_graphs UNION SELECT graph_hash FROM file_graph_pins UNION SELECT graph_hash FROM approved_file_graphs"}else{"SELECT graph_hash FROM accepted_file_graph UNION SELECT before_hash FROM history_file_graphs UNION SELECT after_hash FROM history_file_graphs UNION SELECT graph_hash FROM file_graph_pins WHERE owner_id NOT LIKE 'package:%' UNION SELECT graph_hash FROM approved_file_graphs"}))?;
         let mut graphs = BTreeSet::new();
         for row in db(query.query_map([], |r| r.get::<_, String>(0)))? {
             graphs.insert(db(row)?);
         }
-        if self.intent_path().exists() {
+        if verify_payloads && self.intent_path().exists() {
             let intent: Intent = db(serde_json::from_slice(
                 &self
                     .read_intent_bytes()?
@@ -444,10 +451,13 @@ impl SqliteProjectRepository {
             let graph = self.read_file_graph(&hash)?;
             roots.insert(hash);
             for file in graph.files {
-                if self.verify_object_stream(&file.hash)? != file.size {
+                if verify_payloads && self.verify_object_stream(&file.hash)? != file.size {
                     return Err(fail("GRAPH_INVALID"));
                 }
                 roots.insert(file.hash);
+                if !verify_payloads && roots.len() > 20_000 {
+                    return Err(fail("PACKAGE_SIZE_LIMIT"));
+                }
             }
         }
         let mut query = db(c.prepare("SELECT object_hash FROM graph_recovery_members"))?;

@@ -1,4 +1,8 @@
 import type {
+  ProjectPackageClient,
+  ProjectPackageBridge,
+} from "./project-package";
+import type {
   ProjectTransferClient,
   ProjectTransferBridge,
 } from "./project-transfer";
@@ -70,7 +74,7 @@ export interface RecentProject {
 }
 
 export interface PlatformClient
-  extends ExternalWorkClient, ProjectTransferClient {
+  extends ExternalWorkClient, ProjectTransferClient, ProjectPackageClient {
   inspectProjectFormat?(): Promise<ProjectFormatInspection>;
   readAuthoredSource?(): Promise<AuthoredSourceSnapshot>;
   readAuthoredSourceRecoveryEvidence?(
@@ -178,7 +182,7 @@ export type BridgeResult<T> =
   | { ok: true; data: T }
   | { ok: false; code: string; details?: HistoryErrorDetails };
 export interface DesktopBridge
-  extends ExternalWorkBridge, ProjectTransferBridge {
+  extends ExternalWorkBridge, ProjectTransferBridge, ProjectPackageBridge {
   inspectProjectFormat?(): Promise<BridgeResult<ProjectFormatInspection>>;
   readAuthoredSource?(): Promise<BridgeResult<AuthoredSourceSnapshot>>;
   readAuthoredSourceRecoveryEvidence?(

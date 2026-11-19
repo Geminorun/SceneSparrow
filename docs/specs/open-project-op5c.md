@@ -1,9 +1,29 @@
 # OP5-C: visible transfer workflows and streamed platform delivery
 
 Status: root preparation, 2026-11-19. Not dispatched. Freeze accepted OP5-B
-contracts and the exact brief before assigning a fresh coding agent. Completes
+contracts and the [exact brief](open-project-op5c-handoff.md) before assigning a fresh coding agent. Completes
 OP5-T07 and visible A/B workflows; host activation is still OP6. Root owns
 specification, product decisions, acceptance docs and Git.
+
+## Visual and interaction direction
+
+Apply the installed `frontend-design` and `ui-ux-pro-max` guidance within the
+user's existing Obsidian/Notion direction. Reuse `WritingDialog`, the current
+notification presenter and workspace CSS tokens: paper `#f6f5f2`, panel `#efeeeb`,
+ink `#37352f`, muted `#716f68`, accent `#4070a0`, danger `#a3332b`. Keep the existing
+system/CJK font stack, compact 14 px controls, left-aligned content and one clear
+primary action. Do not add a new theme, hero, decorative cards or marketing copy.
+Desktop web controls retain visible focus and at least a 24 CSS px hit target;
+small touch layouts can expand the hit area without oversized desktop buttons.
+
+Use a heading/close row, compact file or operation summary, actual phase/progress
+and contextual action row. Progress does not remount inputs or steal focus.
+Current `WritingDialog` supplies focus trapping/return; notification presentation
+already follows the topmost native modal. General React guidance is to clean up
+subscriptions/timers; the repository's captured-owner/session rules govern stale
+responses. Do not substitute a mutable latest-props callback for an old operation's
+captured context. User-requested three-second top notices and compact durable
+status take precedence over generic recommendations for inline error panels.
 
 ## Shared workbench flow
 
@@ -77,9 +97,14 @@ before prerequisite awaits and retain it; do not retarget a completed chooser
 through a later mutable host.session(). OP6 adds activation-epoch fencing.
 
 Stream native reads and save writes with bounded buffers and exact expected
-length/hash. Extend the existing descriptor/identity-checked commitMemberStream
-with a trusted resource-specific 8 GiB archive policy while preserving the 4 GiB
-ordinary-member limit. Native save cancel is a truthful benign outcome, destination
+length/hash. Use a trusted resource-specific 8 GiB archive policy while preserving
+the 4 GiB ordinary-member limit. The exact brief selects a private native core
+delivery operation; do not extend the existing check-then-rename JavaScript save
+path for package delivery. Actual destination I/O must remain bound to held native
+parent identity; a path precheck followed by an ordinary overwrite rename is not
+preservation. Root freezes the private native delivery seam after B; new-file-only
+no-clobber archive save avoids implicit overwrite authority. Native save cancel
+is a truthful benign outcome, destination
 replacement/link changes are refused, and any unknown bytes remain preserved.
 No renderer-provided numeric cap, path or expected artifact overrides core facts.
 

@@ -105,7 +105,12 @@ Root logs are `.artifacts/op5a/root-rust.log`, `root-node.log`,
 failure fixes and 35-file hashes are indexed by `.artifacts/op5a/HANDOFF.md`.
 Original pre-containment evidence is preserved separately. Prior OP4-B Foundation
 run [44512734493](https://github.com/Geminorun/SceneSparrow/actions/runs/44512734493)
-passed; it is not final-head or final OP6 proof.
+passed. Immutable A run
+[44522712124](https://github.com/Geminorun/SceneSparrow/actions/runs/44522712124)
+passed its complete second attempt, including legacy/source browsers. Attempt1
+failed before browser execution because Ubuntu package mirrors returned HTTP503
+during dependency installation; no code change was made for that transient.
+These checkpoints are not final OP6 proof.
 
 ## Remaining gates
 

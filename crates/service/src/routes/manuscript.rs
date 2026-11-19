@@ -23,8 +23,24 @@ pub(crate) fn result<T: serde::Serialize>(
                 "PROJECT_NOT_FOUND"
                 | "OBJECT_NOT_FOUND"
                 | "COMMAND_NOT_FOUND"
-                | "MIGRATION_NOT_FOUND" => StatusCode::NOT_FOUND,
-                "MIGRATION_REQUEST_CONFLICT"
+                | "MIGRATION_NOT_FOUND"
+                | "PACKAGE_NOT_FOUND" => StatusCode::NOT_FOUND,
+                "PACKAGE_REQUEST_CONFLICT"
+                | "PACKAGE_BASE_MISMATCH"
+                | "PACKAGE_QUEUE_FULL"
+                | "PACKAGE_REVISION_CONFLICT"
+                | "PACKAGE_INTERRUPTED"
+                | "PACKAGE_CAPTURE_INVALID"
+                | "PACKAGE_TARGET_INVALID"
+                | "PACKAGE_TARGET_EXISTS"
+                | "PACKAGE_RESTORE_UNAVAILABLE"
+                | "PACKAGE_TRUSTED_BASE_MISSING"
+                | "PACKAGE_INTAKE_CLOSED"
+                | "PACKAGE_INTAKE_INCOMPLETE"
+                | "PACKAGE_CHUNK_CONFLICT"
+                | "PACKAGE_EXPIRED"
+                | "WORK_COPY_UNAVAILABLE"
+                | "MIGRATION_REQUEST_CONFLICT"
                 | "MIGRATION_TARGET_INVALID"
                 | "MIGRATION_TARGET_EXISTS"
                 | "MIGRATION_BASE_MISMATCH"
@@ -79,7 +95,13 @@ pub(crate) fn result<T: serde::Serialize>(
                 | "PLANNING_TASK_ACTIVE"
                 | "PLANNING_RESULT_STALE"
                 | "HISTORY_DIVERGED" => StatusCode::CONFLICT,
-                "SOURCE_REQUIRED_FILE_DELETED"
+                "PACKAGE_ARCHIVE_INVALID"
+                | "PACKAGE_PATH_INVALID"
+                | "PACKAGE_MANAGEMENT_CHANGED"
+                | "PACKAGE_HASH_MISMATCH"
+                | "PACKAGE_NATIVE_REQUIRED"
+                | "PACKAGE_MEMBER_MISSING"
+                | "SOURCE_REQUIRED_FILE_DELETED"
                 | "SOURCE_CANDIDATE_INVALID"
                 | "SOURCE_SEMANTIC_UNSUPPORTED"
                 | "SOURCE_CAPABILITY_UNSUPPORTED"
@@ -96,9 +118,8 @@ pub(crate) fn result<T: serde::Serialize>(
                 | "SOURCE_TEXT_UNAVAILABLE"
                 | "TEXT_ENCODING_UNSUPPORTED" => StatusCode::UNPROCESSABLE_ENTITY,
                 "STORAGE_UNAVAILABLE" => StatusCode::INTERNAL_SERVER_ERROR,
-                "EXPORT_TOO_LARGE" | "DOCUMENT_TOO_LARGE" | "INPUT_TOO_LARGE" => {
-                    StatusCode::PAYLOAD_TOO_LARGE
-                }
+                "PACKAGE_SIZE_LIMIT" | "EXPORT_TOO_LARGE" | "DOCUMENT_TOO_LARGE"
+                | "INPUT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
                 _ => StatusCode::BAD_REQUEST,
             };
             (

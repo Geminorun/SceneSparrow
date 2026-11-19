@@ -468,6 +468,10 @@ impl Parent {
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
         )
     }
+    #[cfg(not(unix))]
+    pub fn create_file(&self, _: &str) -> Result<File> {
+        Err(fail("SOURCE_CAPABILITY_UNSUPPORTED"))
+    }
     #[cfg(unix)]
     pub fn stage_object(
         &self,

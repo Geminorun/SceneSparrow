@@ -38,6 +38,15 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | Work.ProjectPackageExportRequest
+      | Work.WorkCopyPackageExportRequest
+      | Work.PackageControlRequest
+      | Work.PackageIntakeRequest
+      | Work.PackageIntakeControlRequest
+      | Work.PackageInspectionRequest
+      | Work.PackageRestoreTargetRequest
+      | Work.PackageRestoreRequest
+      | Work.PackageReturnRequest
       | Work.MigrationTargetRequest
       | Work.LegacyMigrationRequest
       | Work.MigrationControlRequest
@@ -136,6 +145,63 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     return true;
   };
   return {
+    readPackageBase: () => request("/v1/project/packages/base"),
+    startProjectPackageExport: (body) =>
+      request("/v1/project/packages/exports", body),
+    startWorkCopyPackageExport: (body) =>
+      request(
+        `/v1/project/work-items/${encodeURIComponent(body.workItemId)}/package`,
+        body,
+      ),
+    readPackageOperation: (id) =>
+      request(`/v1/project/packages/operations/${encodeURIComponent(id)}`),
+    controlPackageOperation: (body) =>
+      request(
+        `/v1/project/packages/operations/${encodeURIComponent(body.operationId)}/control`,
+        body,
+      ),
+    createPackageIntake: (body) => request("/v1/project/package-intakes", body),
+    readPackageIntake: (id) =>
+      request(`/v1/project/package-intakes/${encodeURIComponent(id)}`),
+    uploadPackageChunk: async (body, bytes) => {
+      if (bytes.byteLength !== body.length || bytes.byteLength > 1024 * 1024)
+        throw new ApiError("INVALID_REQUEST");
+      const response = await fetchResponse(
+        `${baseUrl}/v1/project/package-intakes/${encodeURIComponent(body.intakeId)}/chunks`,
+        {
+          method: "PUT",
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-scenesparrow-owner-project-id": body.ownerProjectId,
+            "x-scenesparrow-chunk-offset": String(body.offset),
+            "x-scenesparrow-chunk-length": String(body.length),
+            "x-scenesparrow-chunk-sha256": body.hash,
+          },
+          body: bytes as BodyInit,
+        },
+      );
+      return decodeJson<Work.PackageChunkAck>(response, "PUT");
+    },
+    controlPackageIntake: (body) =>
+      request(
+        `/v1/project/package-intakes/${encodeURIComponent(body.intakeId)}/control`,
+        body,
+      ),
+    inspectPackage: (body) => request("/v1/project/packages/inspections", body),
+    readPackageInspection: (id) =>
+      request(`/v1/project/packages/inspections/${encodeURIComponent(id)}`),
+    issuePackageRestoreTarget: (body) =>
+      request("/v1/project/packages/restore-targets", body),
+    restorePackage: (body) => request("/v1/project/packages/restores", body),
+    returnPackage: (body) => request("/v1/project/packages/returns", body),
+    openPackageArchive: async (id) => {
+      const response = await fetchResponse(
+        `${baseUrl}/v1/project/packages/archives/${encodeURIComponent(id)}`,
+        {},
+      );
+      if (!response.ok) await decodeJson(response, "GET");
+      return response;
+    },
     inspectLegacyMigration: () => request("/v1/project/migration"),
     issueMigrationTarget: (body: Work.MigrationTargetRequest) =>
       request("/v1/project/migration-targets", body),

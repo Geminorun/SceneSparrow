@@ -1,6 +1,7 @@
 //! Explicit legacy conversion and durable lifecycle receipts, outside project SQL.
 mod conversion;
 mod journal;
+pub mod package;
 use crate::storage::{Result, db, hash};
 use crate::{SqliteProjectRepository, read_project};
 pub use conversion::{MigrationPaths, inspect_legacy, migrate_legacy};

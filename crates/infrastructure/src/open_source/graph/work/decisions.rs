@@ -294,7 +294,17 @@ impl SqliteProjectRepository {
                 if disposition != "pending" {
                     return Err(fail("WORK_CANDIDATE_STALE"));
                 }
-                if item.origin == WorkItemViewOrigin::Copy {
+                let packaged: bool = db(c.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM work_package_candidates WHERE candidate_id=?1)",
+                    [&r.candidate_id],
+                    |r| r.get(0),
+                ))?;
+                if packaged {
+                    // The immutable upload graph has already been bound to this actual candidate.
+                } else if item.origin == WorkItemViewOrigin::Copy {
+                    if !item.copy_available {
+                        return Err(fail("WORK_COPY_UNAVAILABLE"));
+                    }
                     let parent = Parent::open(
                         &self.directory,
                         &format!("work-items/{}/project/__work__", item.work_item_id),

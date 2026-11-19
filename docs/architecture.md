@@ -29,14 +29,19 @@ applied text conflicts preserve the local buffer for explicit merge/reload.
 OP5-A adds read-only legacy inspection, consistent verified backup and staged
 conversion preserving identity/history/approval evidence. Global app-data transfer
 receipts track filesystem lifecycle independently of project content and shared
-AI; copied runtime capabilities are fenced before target readiness. Packaging
+AI; copied runtime capabilities are fenced before target readiness. OP5-B adds
+fixed portable Project/Work ZIP packages, bounded binary intake/verification,
+independent restore and returned edits through the same OP4 owner. Original
+control hashes, precise capture pins and finite custody preserve snapshot/retry
+identity; copied authority is revoked before readiness. Visible transfer flows
 and full platform/lifecycle support retain their later gates. See
 [OP2 validation](validation/open-project-op2.md) and
 [OP3-A validation](validation/open-project-op3a.md) and
 [OP3-B validation](validation/open-project-op3b.md) and
 [OP4-A validation](validation/open-project-op4a.md) and
 [OP4-B validation](validation/open-project-op4b.md) and
-[OP5-A validation](validation/open-project-op5a.md).
+[OP5-A validation](validation/open-project-op5a.md) and
+[OP5-B validation](validation/open-project-op5b.md).
 
 ## Runtime and dependency boundaries
 
@@ -138,6 +143,7 @@ crates/
     backup.rs                    # Verified backup and recovered-copy operations
     project_transfer.rs          # Explicit conversion and global lifecycle receipts
     project_transfer/            # Schema-only conversion, bounded journals and tests
+      package/                   # Fixed captures, ZIP/intake/restore/return and finite custody
 
 workers/
   agent/                         # Supervised AI process host

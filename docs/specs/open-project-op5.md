@@ -1,7 +1,9 @@
 # OP5: explicit migration and complete portable packages
 
-Status: root-owned contract, 2026-11-19. OP5-A is frozen after accepted OP4-B
-`77c0044`; see its separate brief/handoff. OP5-B/C remain preparation until their preceding checkpoints pass. Parent: open-project-format.md,
+Status: root-owned contract, 2026-11-19. OP5-A is independently reviewed/pushed
+as `b516736`; see its validation. OP5-B is independently reviewed against that
+checkpoint; its validation tracks final checks. OP5-C remains preparation until
+B is committed. Parent: open-project-format.md,
 OPF-AC13–AC15/17/19. Root owns design/specs, one writer per checkpoint and Git.
 
 ## Delivery tasks and sequential checkpoints

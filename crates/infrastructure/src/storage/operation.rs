@@ -133,3 +133,28 @@ pub(crate) fn read(path: &Path, digest: &str, mut file: std::fs::File) -> std::i
         Ok(bytes)
     })
 }
+
+// Package workers own this thread-scoped cancellation probe. Ordinary writers,
+// AI workers and A conversions have no probe installed.
+thread_local! {static CANCEL:RefCell<Option<Box<dyn Fn()->bool>>>=const{RefCell::new(None)};}
+pub(crate) struct Cancellation(Option<Box<dyn Fn() -> bool>>);
+impl Cancellation {
+    pub(crate) fn begin(check: impl Fn() -> bool + 'static) -> Self {
+        Self(CANCEL.with(|c| c.replace(Some(Box::new(check)))))
+    }
+}
+impl Drop for Cancellation {
+    fn drop(&mut self) {
+        CANCEL.with(|c| c.replace(self.0.take()));
+    }
+}
+pub(crate) fn check_cancelled() -> std::io::Result<()> {
+    if CANCEL.with(|c| c.borrow().as_ref().is_some_and(|f| f())) {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "package cancelled",
+        ))
+    } else {
+        Ok(())
+    }
+}

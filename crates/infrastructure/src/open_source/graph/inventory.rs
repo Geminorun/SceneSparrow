@@ -34,7 +34,7 @@ fn credential(key: &str) -> bool {
             .iter()
             .any(|suffix| key.ends_with(suffix))
 }
-pub(super) fn excluded(segment: &str, submitted: bool) -> Result<bool> {
+pub(crate) fn excluded(segment: &str, submitted: bool) -> Result<bool> {
     let key = scenesparrow_domain::open_project::portable_key(segment);
     if matches!(key.as_str(), ".scenesparrow" | ".git") {
         if submitted || segment != key {

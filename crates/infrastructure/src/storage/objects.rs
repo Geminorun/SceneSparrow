@@ -114,6 +114,8 @@ pub(crate) fn stream_copy_with_buffer(
     let mut hasher = Sha256::new();
     let mut size = 0u64;
     loop {
+        crate::storage::operation::check_cancelled()
+            .map_err(|_| ManuscriptError("PACKAGE_CANCELLED", None))?;
         let n = db(input.read(buffer))?;
         if n == 0 {
             break;
@@ -364,7 +366,7 @@ impl SqliteProjectRepository {
 }
 
 fn management_error(error: ManuscriptError) -> ManuscriptError {
-    if error.0 == "GRAPH_BUDGET_EXCEEDED" {
+    if matches!(error.0, "GRAPH_BUDGET_EXCEEDED" | "PACKAGE_CANCELLED") {
         error
     } else {
         ManuscriptError("STORAGE_UNAVAILABLE", None)

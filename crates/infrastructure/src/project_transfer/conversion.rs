@@ -39,7 +39,7 @@ fn legacy_connection(root: &Path) -> Result<Connection> {
     }
     let c = read_only(&root.join("project.sqlite"))?;
     let version: i64 = db(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-    if !(1..=14).contains(&version) {
+    if !(1..=15).contains(&version) {
         return Err(fail("SCHEMA_UNSUPPORTED"));
     }
     if version >= 11 {

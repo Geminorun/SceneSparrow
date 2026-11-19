@@ -289,9 +289,20 @@ impl SqliteProjectRepository {
         if let Some(parent) = private_parent {
             parent.verify()?;
         }
+        self.prepare_work_graph(request, item, path, protected, (raw, identities, false))
+    }
+    pub(super) fn prepare_work_graph(
+        &self,
+        request: &str,
+        item: &WorkItemView,
+        path: &str,
+        protected: &[String],
+        captured: (FileGraph, BTreeMap<String, Identity>, bool),
+    ) -> Result<()> {
+        let (raw, identities, package) = captured;
         let raw_hash = self.object(&db(serde_json::to_vec(&raw))?)?;
         self.source_cut("work-inspection-held")?;
-        let observation = if item.origin == WorkItemViewOrigin::Live {
+        let observation = if !package && item.origin == WorkItemViewOrigin::Live {
             Some(GraphObservation {
                 base_hash: item.base_graph_hash.clone(),
                 generation: item.base_graph_generation,
@@ -420,6 +431,12 @@ impl SqliteProjectRepository {
                 json(&changes)?
             ],
         ))?;
+        if package {
+            db(tx.execute(
+                "INSERT INTO work_package_candidates VALUES(?1)",
+                [&candidate],
+            ))?;
+        }
         db(tx.execute(
             "UPDATE work_items SET latest_candidate=?2 WHERE id=?1",
             params![item.work_item_id, candidate],

@@ -5,6 +5,7 @@ mod exports;
 mod external_work;
 pub(crate) mod manuscript;
 mod planning;
+mod project_package;
 pub(crate) mod project_transfer;
 mod review;
 
@@ -21,4 +22,5 @@ pub(crate) fn routes() -> Router<AppState> {
         .merge(planning::routes())
         .merge(review::routes())
         .merge(project_transfer::routes())
+        .merge(project_package::routes())
 }

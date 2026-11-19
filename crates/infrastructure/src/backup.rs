@@ -244,7 +244,7 @@ impl SqliteProjectRepository {
             source.join("manifest.json"),
         ))?))?;
         if manifest.version != 1
-            || manifest.schema > 14
+            || manifest.schema > 15
             || !manifest.files.contains_key("project.sqlite")
         {
             return Err(Error::Storage);
@@ -502,8 +502,8 @@ impl SqliteProjectRepository {
             directory: directory.to_path_buf(),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
             ai_consumers: Mutex::new(BTreeMap::new()),
-            quiescing: std::sync::atomic::AtomicBool::new(false),
-            workers: std::sync::atomic::AtomicUsize::new(0),
+            quiescing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             _owner: None,
         }
     }
@@ -512,7 +512,7 @@ impl SqliteProjectRepository {
         let directory = &self.directory;
         let c = storage(self.connection.lock())?;
         let version: i64 = storage(c.pragma_query_value(None, "user_version", |r| r.get(0)))?;
-        if !(1..=14).contains(&version) {
+        if !(1..=15).contains(&version) {
             return Err(Error::SchemaUnsupported);
         }
         let integrity: String = storage(c.query_row("PRAGMA quick_check", [], |r| r.get(0)))?;
@@ -652,7 +652,7 @@ pub(crate) fn copy_verified_storage(
     }
     let bytes = storage(std::fs::read(source.join("manifest.json")))?;
     let manifest: Manifest = storage(serde_json::from_slice(&bytes))?;
-    if manifest.version != 1 || !(1..=14).contains(&manifest.schema) {
+    if manifest.version != 1 || !(1..=15).contains(&manifest.schema) {
         return Err(Error::Storage);
     }
     let inventory = SqliteProjectRepository::portable_inventory(source)?;
@@ -701,7 +701,12 @@ pub(crate) mod tests {
             c.execute_batch("ALTER TABLE export_jobs DROP COLUMN serializer_version")
                 .unwrap();
         }
+        if version < 15 {
+            c.execute_batch("DROP TRIGGER IF EXISTS package_intake_decision_retention")
+                .unwrap();
+        }
         let migrations = [
+            (15, include_str!("../migrations/015_project_packages.sql")),
             (13, include_str!("../migrations/013_file_graph.sql")),
             (14, include_str!("../migrations/014_external_work.sql")),
             (11, include_str!("../migrations/011_open_source.sql")),
@@ -773,7 +778,7 @@ pub(crate) mod tests {
         }
     }
     #[test]
-    fn every_supported_legacy_schema_upgrades_to_fourteen_and_backup_manifest_verifies_its_actual_graph()
+    fn every_supported_legacy_schema_upgrades_to_latest_and_backup_manifest_verifies_its_actual_graph()
      {
         for version in 1..=11 {
             let d = tempfile::tempdir().unwrap();
@@ -812,7 +817,7 @@ pub(crate) mod tests {
                     .unwrap()
                     .pragma_query_value::<i64, _>(None, "user_version", |r| r.get(0))
                     .unwrap(),
-                14
+                15
             );
             let backup = opened.verified_backup().unwrap();
             assert!(backup.join("manifest.json").is_file());

@@ -417,7 +417,17 @@ export async function createGateway({
           )
         )
           return reply(403, "ORIGIN_DENIED");
-        if (Number(req.headers["content-length"] ?? 0) > UPLOAD_LIMIT)
+        const packageChunk =
+          req.method === "PUT" &&
+          /^\/v1\/project\/package-intakes\/[0-9a-f-]{36}\/chunks$/.test(
+            target,
+          );
+        const packageArchive =
+          req.method === "GET" &&
+          /^\/v1\/project\/packages\/archives\/[0-9a-f-]{36}$/.test(target);
+        const uploadLimit = packageChunk ? 1024 * 1024 : UPLOAD_LIMIT;
+        const downloadLimit = packageArchive ? 8 * 1024 ** 3 : DOWNLOAD_LIMIT;
+        if (Number(req.headers["content-length"] ?? 0) > uploadLimit)
           return reply(413, "INPUT_TOO_LARGE");
         const headers = {
           authorization: `Bearer ${token}`,
@@ -433,6 +443,16 @@ export async function createGateway({
         ])
           if (typeof req.headers[name] === "string")
             headers[name] = req.headers[name];
+        if (packageChunk)
+          for (const name of [
+            "content-length",
+            "x-scenesparrow-owner-project-id",
+            "x-scenesparrow-chunk-offset",
+            "x-scenesparrow-chunk-length",
+            "x-scenesparrow-chunk-sha256",
+          ])
+            if (typeof req.headers[name] === "string")
+              headers[name] = req.headers[name];
         const upstream = httpRequest({
           host: "127.0.0.1",
           port: corePort,
@@ -453,14 +473,17 @@ export async function createGateway({
         req.on("aborted", () => upstream.destroy());
         upstream.on("response", (incoming) => {
           if (exceeded) return incoming.destroy();
-          if (
-            Number(incoming.headers["content-length"] ?? 0) > DOWNLOAD_LIMIT
-          ) {
+          if (Number(incoming.headers["content-length"] ?? 0) > downloadLimit) {
             incoming.destroy();
             return reply(502, "OUTPUT_TOO_LARGE");
           }
           const responseHeaders = {};
-          for (const name of ["content-type", "content-disposition"])
+          for (const name of [
+            "content-type",
+            "content-disposition",
+            "content-length",
+            "x-scenesparrow-content-sha256",
+          ])
             if (incoming.headers[name])
               responseHeaders[name] = incoming.headers[name];
           // Flush immediately for SSE; pipe preserves backpressure and close cancels the core request.
@@ -474,7 +497,7 @@ export async function createGateway({
           if (isEvents) event("SSE_OPEN");
           incoming.on("data", (chunk) => {
             received += chunk.length;
-            if (!isEvents && received > DOWNLOAD_LIMIT) {
+            if (!isEvents && received > downloadLimit) {
               completion = "truncated";
               incoming.destroy();
               res.destroy();
@@ -486,7 +509,7 @@ export async function createGateway({
         let sent = 0;
         req.on("data", (chunk) => {
           sent += chunk.length;
-          if (sent > UPLOAD_LIMIT) {
+          if (sent > uploadLimit) {
             exceeded = true;
             upstream.destroy();
             reply(413, "INPUT_TOO_LARGE");

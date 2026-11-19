@@ -35,6 +35,122 @@ export function createDesktopClient(bridge: DesktopBridge): PlatformClient {
     }
   }
   return {
+    ...(bridge.readPackageBase
+      ? {
+          readPackageBase: (
+            ...args: Parameters<NonNullable<DesktopBridge["readPackageBase"]>>
+          ) => unwrap(bridge.readPackageBase!(...args)),
+        }
+      : {}),
+    ...(bridge.startProjectPackageExport
+      ? {
+          startProjectPackageExport: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["startProjectPackageExport"]>
+            >
+          ) => unwrap(bridge.startProjectPackageExport!(...args)),
+        }
+      : {}),
+    ...(bridge.startWorkCopyPackageExport
+      ? {
+          startWorkCopyPackageExport: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["startWorkCopyPackageExport"]>
+            >
+          ) => unwrap(bridge.startWorkCopyPackageExport!(...args)),
+        }
+      : {}),
+    ...(bridge.readPackageOperation
+      ? {
+          readPackageOperation: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readPackageOperation"]>
+            >
+          ) => unwrap(bridge.readPackageOperation!(...args)),
+        }
+      : {}),
+    ...(bridge.controlPackageOperation
+      ? {
+          controlPackageOperation: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["controlPackageOperation"]>
+            >
+          ) => unwrap(bridge.controlPackageOperation!(...args)),
+        }
+      : {}),
+    ...(bridge.createPackageIntake
+      ? {
+          createPackageIntake: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["createPackageIntake"]>
+            >
+          ) => unwrap(bridge.createPackageIntake!(...args)),
+        }
+      : {}),
+    ...(bridge.readPackageIntake
+      ? {
+          readPackageIntake: (
+            ...args: Parameters<NonNullable<DesktopBridge["readPackageIntake"]>>
+          ) => unwrap(bridge.readPackageIntake!(...args)),
+        }
+      : {}),
+    ...(bridge.uploadPackageChunk
+      ? {
+          uploadPackageChunk: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["uploadPackageChunk"]>
+            >
+          ) => unwrap(bridge.uploadPackageChunk!(...args)),
+        }
+      : {}),
+    ...(bridge.controlPackageIntake
+      ? {
+          controlPackageIntake: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["controlPackageIntake"]>
+            >
+          ) => unwrap(bridge.controlPackageIntake!(...args)),
+        }
+      : {}),
+    ...(bridge.inspectPackage
+      ? {
+          inspectPackage: (
+            ...args: Parameters<NonNullable<DesktopBridge["inspectPackage"]>>
+          ) => unwrap(bridge.inspectPackage!(...args)),
+        }
+      : {}),
+    ...(bridge.readPackageInspection
+      ? {
+          readPackageInspection: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["readPackageInspection"]>
+            >
+          ) => unwrap(bridge.readPackageInspection!(...args)),
+        }
+      : {}),
+    ...(bridge.issuePackageRestoreTarget
+      ? {
+          issuePackageRestoreTarget: (
+            ...args: Parameters<
+              NonNullable<DesktopBridge["issuePackageRestoreTarget"]>
+            >
+          ) => unwrap(bridge.issuePackageRestoreTarget!(...args)),
+        }
+      : {}),
+    ...(bridge.restorePackage
+      ? {
+          restorePackage: (
+            ...args: Parameters<NonNullable<DesktopBridge["restorePackage"]>>
+          ) => unwrap(bridge.restorePackage!(...args)),
+        }
+      : {}),
+    ...(bridge.returnPackage
+      ? {
+          returnPackage: (
+            ...args: Parameters<NonNullable<DesktopBridge["returnPackage"]>>
+          ) => unwrap(bridge.returnPackage!(...args)),
+        }
+      : {}),
     ...(bridge.inspectLegacyMigration
       ? {
           inspectLegacyMigration: (

@@ -62,7 +62,7 @@
   `docs/validation/step-08.md` and `docs/validation/acceptance-matrix.md`.
   Real providers/native credential stores remain unverified. Large-document and
   attachment-heavy interaction budgets and native worker RSS enforcement remain
-  open; do not claim full stage acceptance. Applied migrations 001–014 are
+  open; do not claim full stage acceptance. Applied migrations 001–015 are
   immutable after delivery; append new versions using the shared ledger.
 - In managed cloud shells, source `scripts/cloud-env.sh`. Use `pnpm check`,
   `pnpm build`, `pnpm test:integration`, and `pnpm test:e2e` as applicable;
@@ -122,7 +122,13 @@
   see `docs/validation/open-project-op5a.md`. It preserves the source and prepares
   a new target without activation. Actual output I/O uses held native parent
   descriptors; never replace that binding with preflight-only path checks.
-  Complete packages, visible transfer flows and platform support retain their later gates. OP2 currently refuses
+  OP5-B adds fixed Project/Work packages, bounded ZIP intake/verification, independent
+  restore and original-base returned edits; see `docs/validation/open-project-op5b.md`.
+  Preserve immutable capture control hashes, precise pins, finite cache custody,
+  original outcome/current status separation and one-shot cleanup. Status reads
+  must not overwrite newer whole-record updates; large transfer records use their
+  own bounded writer rather than the small journal/index writer. Visible transfer
+  flows and platform support retain their later gates. OP2 currently refuses
   native file promotion outside Linux; Windows source access is also unsupported.
   OP6 must implement these capabilities before claiming cross-platform delivery.
   For authorized coding,

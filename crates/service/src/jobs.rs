@@ -93,6 +93,7 @@ fn drive_transfers(state: &AppState) {
     let service = Arc::downgrade(&state.service);
     let transfers = Arc::downgrade(&state.transfers);
     tokio::spawn(async move {
+        let mut maintenance = std::time::Instant::now();
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             let (Some(service), Some(transfers)) = (service.upgrade(), transfers.upgrade()) else {
@@ -102,7 +103,18 @@ fn drive_transfers(state: &AppState) {
                 continue;
             };
             let store = store.clone();
-            let _ = tokio::task::spawn_blocking(move || store.run_next(service.repository())).await;
+            let expire = maintenance.elapsed() >= std::time::Duration::from_secs(60);
+            if expire {
+                maintenance = std::time::Instant::now();
+            }
+            let _ = tokio::task::spawn_blocking(move || {
+                let result = store.run_next(service.repository());
+                if expire {
+                    let _ = store.expire_packages(service.repository());
+                }
+                result
+            })
+            .await;
         }
     });
 }

@@ -1149,6 +1149,13 @@ impl SqliteProjectRepository {
         Ok(())
     }
     pub(crate) fn source_retention_roots(&self, c: &Connection) -> Result<BTreeSet<String>> {
+        self.source_retention_roots_mode(c, true)
+    }
+    pub(crate) fn source_retention_roots_mode(
+        &self,
+        c: &Connection,
+        include_live: bool,
+    ) -> Result<BTreeSet<String>> {
         let mut roots = BTreeSet::new();
         let mut query = db(c.prepare(
             if db(c.pragma_query_value::<i64,_>(None,"user_version",|r|r.get(0)))? >= 12 {
@@ -1166,7 +1173,7 @@ impl SqliteProjectRepository {
                 roots.insert(hash.into());
             }
         }
-        if self.intent_path().exists() {
+        if include_live && self.intent_path().exists() {
             let bytes = self
                 .read_intent_bytes()?
                 .ok_or(fail("SOURCE_RECOVERY_REQUIRED"))?;

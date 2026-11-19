@@ -130,7 +130,7 @@ test("OP5-A named conversion preserves source, original acknowledgments and dura
   const f = await fixture(t);
   const receipt = await f.seed();
   const inspection = await f.req("/project/migration");
-  assert.equal(inspection.legacySchema, 14);
+  assert.equal(inspection.legacySchema, 15);
   assert.equal(inspection.blockCount, 1);
   assert.match(inspection.contentBase, /^[a-f0-9]{64}$/);
   const issuance = {

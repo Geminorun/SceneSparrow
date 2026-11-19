@@ -57,6 +57,15 @@ Object.assign(
     ),
   ).definitions,
 );
+Object.assign(
+  schema.definitions,
+  JSON.parse(
+    await readFile(
+      new URL("packages/contracts/schema/project-package.schema.json", root),
+      "utf8",
+    ),
+  ).definitions,
+);
 // This generator deliberately supports the protocol subset used here. Constraint
 // validation remains in the core; unsupported type constructs fail generation.
 function validateShape(s) {

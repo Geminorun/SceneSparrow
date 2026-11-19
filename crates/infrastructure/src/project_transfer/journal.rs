@@ -10,33 +10,37 @@ use std::{
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Saved<T> {
-    digest: String,
-    source: String,
-    result: std::result::Result<T, String>,
+pub(super) struct Saved<T> {
+    pub(super) digest: String,
+    pub(super) source: String,
+    pub(super) result: std::result::Result<T, String>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TargetRecord {
     target: MigrationTarget,
-    source: String,
+    pub(super) source: String,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Operation {
     request: LegacyMigrationRequest,
-    source: String,
-    owner: String,
+    pub(super) source: String,
+    pub(super) owner: String,
     view: MigrationOperationView,
     cancel: bool,
     attempt: u64,
 }
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Active {
-    ids: Vec<String>,
+pub(super) struct Active {
+    pub(super) ids: Vec<String>,
     #[serde(default)]
     pending: Option<JournalUpdate>,
+    #[serde(default)]
+    pub(super) package_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) package_pending: Option<super::package::JournalUpdate>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,7 +50,7 @@ struct JournalUpdate {
     receipt_name: String,
     receipt: serde_json::Value,
 }
-struct Lease(File);
+pub(super) struct Lease(pub(super) File);
 impl Drop for Lease {
     fn drop(&mut self) {
         let _ = self.0.unlock();
@@ -54,19 +58,19 @@ impl Drop for Lease {
 }
 /// Short durable record updates never own the long copy/serializer lease.
 pub struct ProjectTransferStore {
-    directory: PathBuf,
-    roots: PathBuf,
-    owner: String,
+    pub(super) directory: PathBuf,
+    pub(super) roots: PathBuf,
+    pub(super) owner: String,
     _session: Lease,
     working: AtomicBool,
     #[cfg(test)]
-    fault: std::sync::Mutex<Option<&'static str>>,
+    pub(super) fault: std::sync::Mutex<Option<&'static str>>,
     #[cfg(test)]
-    hook: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
+    pub(super) hook: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     install_hook: std::sync::Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
 }
-fn read<T: DeserializeOwned>(path: &Path) -> Result<T> {
+pub(super) fn read<T: DeserializeOwned>(path: &Path) -> Result<T> {
     if !db(std::fs::symlink_metadata(path))?.is_file()
         || db(std::fs::metadata(path))?.len() > 64 * 1024
     {
@@ -74,7 +78,7 @@ fn read<T: DeserializeOwned>(path: &Path) -> Result<T> {
     }
     db(serde_json::from_slice(&db(std::fs::read(path))?))
 }
-fn save<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+pub(super) fn save<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let bytes = db(serde_json::to_vec(value))?;
     if bytes.len() > 64 * 1024 {
         return Err(fail("STORAGE_UNAVAILABLE"));
@@ -86,7 +90,7 @@ fn save<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     db(File::open(path.parent().ok_or(fail("STORAGE_UNAVAILABLE"))?).and_then(|f| f.sync_all()))?;
     Ok(())
 }
-fn lock(path: &Path) -> Result<Lease> {
+pub(super) fn lock(path: &Path) -> Result<Lease> {
     let f = db(File::options()
         .read(true)
         .write(true)
@@ -153,15 +157,17 @@ impl ProjectTransferStore {
         }
         save(&store.directory.join("active.json"), &index)?;
         drop(_lock);
+        store.recover_packages()?;
         Ok(store)
     }
-    fn journal_lock(&self) -> Result<Lease> {
+    pub(super) fn journal_lock(&self) -> Result<Lease> {
         let lease = lock(&self.directory.join("journal.lock"))?;
         self.recover_pending()?;
+        self.recover_package_pending()?;
         self.prune_terminal()?;
         Ok(lease)
     }
-    fn cut(&self, point: &str) -> Result<()> {
+    pub(super) fn cut(&self, point: &str) -> Result<()> {
         #[cfg(test)]
         {
             let mut fault = db(self.fault.lock())?;
@@ -218,6 +224,7 @@ impl ProjectTransferStore {
         if before != index.ids.len() {
             save(&self.directory.join("active.json"), &index)?;
         }
+        self.prune_packages()?;
         Ok(())
     }
     fn commit<T: Serialize>(
@@ -242,7 +249,7 @@ impl ProjectTransferStore {
         self.cut("pending")?;
         self.recover_pending()
     }
-    fn index(&self) -> Result<Active> {
+    pub(super) fn index(&self) -> Result<Active> {
         let p = self.directory.join("active.json");
         if p.exists() {
             read(&p)
@@ -264,7 +271,7 @@ impl ProjectTransferStore {
         }
         Ok(op)
     }
-    fn replay<T: DeserializeOwned>(
+    pub(super) fn replay<T: DeserializeOwned>(
         &self,
         path: &Path,
         digest: &str,
@@ -380,7 +387,7 @@ impl ProjectTransferStore {
                 return Err(fail("MIGRATION_BASE_MISMATCH"));
             }
             let mut index = self.index()?;
-            if index.ids.len() >= 5 {
+            if index.ids.len() + index.package_ids.len() >= 5 {
                 return Err(fail("MIGRATION_QUEUE_FULL"));
             }
             let view = MigrationOperationView {
@@ -608,7 +615,7 @@ impl ProjectTransferStore {
                         return Err(fail("MIGRATION_TARGET_INVALID"));
                     }
                     let mut index = self.index()?;
-                    if index.ids.len() >= 5 {
+                    if index.ids.len() + index.package_ids.len() >= 5 {
                         return Err(fail("MIGRATION_QUEUE_FULL"));
                     }
                     op.view.state = MigrationOperationViewState::Queued;
@@ -684,7 +691,8 @@ impl ProjectTransferStore {
                 }
             }
             let Some(mut op) = selected else {
-                return Ok(false);
+                drop(_lock);
+                return self.run_next_package(repository);
             };
             op.attempt += 1;
             op.view.state = MigrationOperationViewState::Running;
@@ -832,7 +840,10 @@ fn merge_ready(current: &mut Operation, verified: &Operation) -> Result<()> {
     current.view.operation_revision = manuscript::next_revision(current.view.operation_revision)?;
     Ok(())
 }
-fn safe_code(code: &str) -> &'static str {
+pub(super) fn safe_code(code: &str) -> &'static str {
+    if let Some(code) = super::package::safe_code(code) {
+        return code;
+    }
     match code {
         "INVALID_REQUEST" => "INVALID_REQUEST",
         "PROJECT_NOT_FOUND" => "PROJECT_NOT_FOUND",

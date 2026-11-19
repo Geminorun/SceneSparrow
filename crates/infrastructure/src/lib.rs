@@ -41,8 +41,8 @@ pub struct SqliteProjectRepository {
     preparation_leases: Arc<std::sync::atomic::AtomicUsize>,
     preparation_worker: std::sync::atomic::AtomicBool,
     connection: Mutex<Connection>,
-    quiescing: std::sync::atomic::AtomicBool,
-    workers: std::sync::atomic::AtomicUsize,
+    quiescing: Arc<std::sync::atomic::AtomicBool>,
+    workers: Arc<std::sync::atomic::AtomicUsize>,
     directory: std::path::PathBuf,
     creative_root: Option<std::path::PathBuf>,
     policy: Arc<dyn scenesparrow_domain::manuscript::MutationPolicy>,
@@ -166,7 +166,7 @@ impl SqliteProjectRepository {
         storage(connection.busy_timeout(Duration::from_secs(3)))?;
         let version: i64 =
             storage(connection.pragma_query_value(None, "user_version", |row| row.get(0)))?;
-        if version > 14 || (require_existing && version < 1) {
+        if version > 15 || (require_existing && version < 1) {
             return Err(Error::SchemaUnsupported);
         }
         storage(connection.pragma_update(None, "journal_mode", "WAL"))?;
@@ -304,6 +304,14 @@ impl SqliteProjectRepository {
             storage(tx.execute_batch(include_str!("../migrations/014_external_work.sql")))?;
             storage(tx.commit())?;
         }
+        if version < 15 {
+            if startup {
+                backup::migration_backup(&connection, directory, 15)?;
+            }
+            let tx = storage(connection.transaction())?;
+            storage(tx.execute_batch(include_str!("../migrations/015_project_packages.sql")))?;
+            storage(tx.commit())?;
+        }
         if startup {
             storage(connection.execute("UPDATE work_operations SET status='interrupted',failure_code='WORK_OPERATION_INTERRUPTED' WHERE status IN ('queued','running')", []))?;
             storage(connection.execute(
@@ -327,8 +335,8 @@ impl SqliteProjectRepository {
             preparation_leases: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             preparation_worker: std::sync::atomic::AtomicBool::new(false),
             connection: Mutex::new(connection),
-            quiescing: std::sync::atomic::AtomicBool::new(false),
-            workers: std::sync::atomic::AtomicUsize::new(0),
+            quiescing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            workers: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             directory: directory.to_path_buf(),
             creative_root: creative_root.map(std::path::Path::to_path_buf),
             policy: Arc::new(scenesparrow_domain::manuscript::Unrestricted),
@@ -360,6 +368,17 @@ impl SqliteProjectRepository {
                 "UPDATE downstream_inputs SET status='cancelled' WHERE status='using'",
                 [],
             ))?;
+        }
+        {
+            let c = storage(repository.connection.lock())?;
+            if !repository
+                .execution_origin_is_original(&c)
+                .map_err(|_| Error::Storage)?
+            {
+                repository
+                    .fence_copied_project_work(&c)
+                    .map_err(|_| Error::Storage)?;
+            }
         }
         scenesparrow_application::ai::AiExecutionPort::reconcile_execution(&repository)
             .map_err(|_| Error::Storage)?;
@@ -866,7 +885,7 @@ mod tests {
             connection
                 .pragma_query_value::<i64, _>(None, "user_version", |row| row.get(0))
                 .unwrap(),
-            14
+            15
         );
         assert!(directory.path().join("pre-migration-002.sqlite").exists());
     }
@@ -933,6 +952,7 @@ pub mod credentials;
 
 #[cfg(test)]
 fn drop_file_graph_schema_for_legacy_fixture(c: &Connection) {
+    c.execute_batch("DROP TRIGGER IF EXISTS package_intake_decision_retention;DROP TABLE IF EXISTS package_intake_leases;DROP TABLE IF EXISTS work_package_returns;DROP TABLE IF EXISTS work_package_candidates;DROP TABLE IF EXISTS work_copy_availability;DROP TABLE IF EXISTS package_capture_pins;DROP TABLE IF EXISTS package_exports;").unwrap();
     c.execute_batch("DROP TABLE work_items;DROP TABLE work_operations;DROP TABLE work_candidates;DROP TABLE work_preparations;DROP TABLE work_copy_locations;DROP TABLE production_file_locks;DROP TABLE history_production_locks;").unwrap();
     c.execute_batch("DROP TABLE accepted_file_graph;DROP TABLE history_file_graphs;DROP TABLE file_graph_pins;DROP TABLE approved_file_graphs;DROP TABLE graph_recovery_members;DROP TABLE graph_recovery_decisions;").unwrap();
 }

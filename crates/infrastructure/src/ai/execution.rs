@@ -630,6 +630,17 @@ impl SqliteProjectRepository {
         safe(f.write_all(serde_json::json!({"origin":origin,"watermark":watermark,"fileIdentity":self.origin_identity()?}).to_string().as_bytes()))?;
         safe(f.commit())
     }
+    pub(crate) fn execution_origin_is_original(&self, c: &Connection) -> Result<bool> {
+        let (origin, watermark) = self.origin_record(c)?;
+        let record = std::fs::read(self.origin_file()?)
+            .ok()
+            .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok());
+        Ok(record.is_some_and(|r| {
+            r["origin"].as_str() == Some(&origin)
+                && r["fileIdentity"].as_str() == self.origin_identity().ok().as_deref()
+                && r["watermark"].as_i64() == Some(watermark)
+        }))
+    }
     pub(crate) fn initialize_ai_origin(&self) -> Result<()> {
         let c = safe(self.connection.lock())?;
         self.origin_write(&c)
@@ -725,15 +736,7 @@ impl AiExecutionPort for SqliteProjectRepository {
     }
     fn reconcile_execution(&self) -> Result<()> {
         let mut c = safe(self.connection.lock())?;
-        let (origin, watermark) = self.origin_record(&c)?;
-        let record = std::fs::read(self.origin_file()?)
-            .ok()
-            .and_then(|v| serde_json::from_slice::<serde_json::Value>(&v).ok());
-        let original = record.is_some_and(|r| {
-            r["origin"].as_str() == Some(&origin)
-                && r["fileIdentity"].as_str() == self.origin_identity().ok().as_deref()
-                && r["watermark"].as_i64() == Some(watermark)
-        });
+        let original = self.execution_origin_is_original(&c)?;
         let tx = safe(c.transaction())?;
         safe(tx.execute("DELETE FROM external_object_pins WHERE owner_id IN (SELECT owner_id FROM ai_preparations)",[]))?;
         safe(tx.execute("DELETE FROM ai_preparations", []))?;

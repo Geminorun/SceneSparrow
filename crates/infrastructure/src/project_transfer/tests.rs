@@ -130,7 +130,7 @@ fn unopened_inspection_includes_live_wal_without_source_lock_and_rejects_wrong_l
 }
 #[test]
 fn every_supported_schema_converts_in_distinct_target_without_upgrading_source() {
-    for version in 1..=14 {
+    for version in 1..=15 {
         let (d, path, r) = fixture();
         if version == 1 {
             let c = r.connection.lock().unwrap();

@@ -1,3 +1,4 @@
+import { registerProjectPackageIpc } from "./project-package-ipc.js";
 import { registerProjectTransferIpc } from "./project-transfer-ipc.js";
 import {
   app,
@@ -359,6 +360,43 @@ async function main() {
     if (closingCore && !existing) throw Error("PROJECT_CLOSING");
   };
   registerProjectTransferIpc(ipcMain, { checkSender, request });
+  registerProjectPackageIpc(ipcMain, {
+    checkSender,
+    request,
+    uploadChunk: async (metadata, bytes) => {
+      const owningCore = core;
+      const response = await fetch(
+        `${baseUrl}/project/package-intakes/${metadata.intakeId}/chunks`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-scenesparrow-native": nativeToken,
+            "content-type": "application/octet-stream",
+            "x-scenesparrow-owner-project-id": metadata.ownerProjectId,
+            "x-scenesparrow-chunk-offset": String(metadata.offset),
+            "x-scenesparrow-chunk-length": String(metadata.length),
+            "x-scenesparrow-chunk-sha256": metadata.hash,
+          },
+          body: bytes as BodyInit,
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (core !== owningCore) return { ok: false, code: "CAPABILITY_EXPIRED" };
+      const data = (await response.json()) as {
+        code?: string;
+        details?: unknown;
+      };
+      return response.ok
+        ? { ok: true, data }
+        : {
+            ok: false,
+            code: data.code ?? "SERVICE_UNAVAILABLE",
+            details: data.details,
+          };
+    },
+  });
+
   const externalWork = registerExternalWorkIpc(ipcMain, {
     checkSender,
     session: () => ({ core, baseUrl, token }),

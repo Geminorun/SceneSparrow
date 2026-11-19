@@ -103,6 +103,7 @@ impl SqliteProjectRepository {
         let value: serde_json::Value = db(serde_json::from_str(outcome))?;
         if let Some(code) = value.get("error").and_then(|v| v.as_str()) {
             const CODES: &[&str] = &[
+                "WORK_COPY_UNAVAILABLE",
                 "WORK_ITEM_NOT_FOUND",
                 "WORK_ITEM_STALE",
                 "WORK_CANDIDATE_STALE",

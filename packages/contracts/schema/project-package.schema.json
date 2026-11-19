@@ -1,0 +1,717 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Project package operations",
+  "definitions": {
+    "ProjectPackageBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "workingRevision",
+        "historyRevision",
+        "sourceHash",
+        "sourceGeneration",
+        "graphHash",
+        "graphGeneration"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "workingRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "historyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sourceHash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "sourceGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "graphHash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "graphGeneration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ProjectPackageExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "base"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "base": {
+          "$ref": "#/definitions/ProjectPackageBase"
+        }
+      }
+    },
+    "WorkCopyPackageExportRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "ownerProjectId",
+        "workItemId",
+        "expectedWorkItemRevision"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "workItemId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "expectedWorkItemRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "PackageArchiveView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archiveId",
+        "ownerProjectId",
+        "kind",
+        "filename",
+        "hash",
+        "size",
+        "entryCount",
+        "expandedBytes",
+        "expiresAt"
+      ],
+      "properties": {
+        "archiveId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["project", "work-copy"]
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "entryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expandedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "PackageIntakeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "ownerProjectId", "filename", "length", "hash"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      }
+    },
+    "PackageIntakeView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intakeId",
+        "ownerProjectId",
+        "filename",
+        "length",
+        "hash",
+        "receivedBytes",
+        "revision",
+        "state",
+        "expiresAt"
+      ],
+      "properties": {
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "filename": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "receivedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "state": {
+          "type": "string",
+          "enum": ["open", "sealed", "cancelled", "expired"]
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "PackageChunkRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ownerProjectId", "intakeId", "offset", "length", "hash"],
+      "properties": {
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      }
+    },
+    "PackageChunkAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intakeId", "offset", "length", "hash", "acknowledgedEnd"],
+      "properties": {
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "acknowledgedEnd": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "PackageIntakeControlRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "ownerProjectId",
+        "intakeId",
+        "expectedRevision",
+        "action"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "action": {
+          "type": "string",
+          "enum": ["cancel"]
+        }
+      }
+    },
+    "PackageInspectionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "ownerProjectId", "intakeId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
+    },
+    "PackageInspectionView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inspectionId",
+        "ownerProjectId",
+        "intakeId",
+        "kind",
+        "entryCount",
+        "expandedBytes",
+        "verifiedRestore",
+        "trustedReturn",
+        "managementPolicy"
+      ],
+      "properties": {
+        "inspectionId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "intakeId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["project", "work-copy", "unmanaged"]
+        },
+        "resultProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "exportId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "workItemId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "entryCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expandedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "verifiedRestore": {
+          "type": "boolean"
+        },
+        "trustedReturn": {
+          "type": "boolean"
+        },
+        "managementPolicy": {
+          "type": "string",
+          "enum": ["verified", "ignored", "absent"]
+        }
+      }
+    },
+    "PackageRestoreTargetRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "ownerProjectId",
+        "inspectionId",
+        "destination"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "inspectionId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "destination": {
+          "type": "string",
+          "enum": ["managed"]
+        }
+      }
+    },
+    "PackageRestoreTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetId",
+        "ownerProjectId",
+        "inspectionId",
+        "resultProjectId",
+        "destination"
+      ],
+      "properties": {
+        "targetId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "inspectionId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "resultProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "destination": {
+          "type": "string",
+          "enum": ["managed"]
+        }
+      }
+    },
+    "PackageRestoreRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "ownerProjectId", "inspectionId", "targetId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "inspectionId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
+    },
+    "PackageReturnRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "ownerProjectId", "inspectionId"],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "inspectionId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "workItemId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "grant": {
+          "$ref": "#/definitions/CreativeGrant"
+        }
+      }
+    },
+    "PackageOperationView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "ownerProjectId",
+        "operationRevision",
+        "kind",
+        "state",
+        "phase",
+        "completedBytes",
+        "completedEntries"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "operationRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["export", "work-copy-export", "inspect", "restore", "return"]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "capturing",
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "phase": {
+          "type": "string",
+          "enum": [
+            "capture",
+            "queued",
+            "copy",
+            "archive",
+            "seal",
+            "inspect",
+            "verify",
+            "prepare",
+            "promote",
+            "ready"
+          ]
+        },
+        "completedBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "completedEntries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "archive": {
+          "$ref": "#/definitions/PackageArchiveView"
+        },
+        "inspection": {
+          "$ref": "#/definitions/PackageInspectionView"
+        },
+        "target": {
+          "$ref": "#/definitions/PackageRestoreTarget"
+        },
+        "candidate": {
+          "$ref": "#/definitions/WorkCandidateView"
+        },
+        "failureCode": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "lastControlId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        }
+      }
+    },
+    "PackageStartResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted", "operation"],
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "operation": {
+          "$ref": "#/definitions/PackageOperationView"
+        }
+      }
+    },
+    "PackageControlRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "ownerProjectId",
+        "operationId",
+        "expectedOperationRevision",
+        "action"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "ownerProjectId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 36,
+          "maxLength": 36
+        },
+        "expectedOperationRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "action": {
+          "type": "string",
+          "enum": ["cancel", "retry"]
+        }
+      }
+    }
+  }
+}
