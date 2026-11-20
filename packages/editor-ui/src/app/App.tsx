@@ -12,6 +12,7 @@ import {
   type PlatformClient,
   type RecentProject,
 } from "@scenesparrow/platform-client";
+import { MarkdownWorkspace } from "../markdown/MarkdownWorkspace";
 import { AiSettings } from "../ai-settings/AiSettings";
 import {
   NotificationPresenter,
@@ -36,6 +37,30 @@ type Locale = "en" | "zh-CN";
 const catalogs: Record<Locale, typeof en> = { en, "zh-CN": zhCN };
 
 export function App({ client }: { client: PlatformClient }) {
+  const [markdown, setMarkdown] = useState<boolean | null>(
+    client.markdownProjects ? null : false,
+  );
+  useEffect(() => {
+    if (client.markdownProjects)
+      void client.health().then(
+        (health) => setMarkdown(health.markdownProjects === true),
+        () => setMarkdown(false),
+      );
+  }, [client]);
+  return markdown && client.markdownProjects ? (
+    <MarkdownWorkspace client={client.markdownProjects} />
+  ) : (
+    <LegacyApp client={client} ready={markdown === false} />
+  );
+}
+
+function LegacyApp({
+  client,
+  ready,
+}: {
+  client: PlatformClient;
+  ready: boolean;
+}) {
   const preferences = useSyncExternalStore(
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
@@ -151,11 +176,12 @@ export function App({ client }: { client: PlatformClient }) {
     }
   }, [client, startupNotice.report, startupNotice.resolve]);
   useEffect(() => {
+    if (!ready) return;
     void load();
     return () => {
       loadGeneration.current++;
     };
-  }, [load]);
+  }, [load, ready]);
 
   useEffect(() => {
     if (!project) return;

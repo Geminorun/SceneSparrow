@@ -1,5 +1,6 @@
 pub mod contracts;
 mod jobs;
+pub mod markdown_projects;
 mod routes;
 
 use routes::{ai, manuscript};
@@ -116,19 +117,31 @@ fn api_error(status: StatusCode, code: &str) -> Response {
         .into_response()
 }
 
-async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {
+fn authorize_request(
+    request: &Request,
+    authorization: &str,
+    allowed_origin: &str,
+) -> Option<Response> {
     if request
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        != Some(state.authorization.as_str())
+        != Some(authorization)
     {
-        return api_error(StatusCode::UNAUTHORIZED, "UNAUTHORIZED");
+        return Some(api_error(StatusCode::UNAUTHORIZED, "UNAUTHORIZED"));
     }
     if let Some(origin) = request.headers().get("origin")
-        && origin.to_str().ok() != Some(state.allowed_origin.as_str())
+        && origin.to_str().ok() != Some(allowed_origin)
     {
-        return api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED");
+        return Some(api_error(StatusCode::FORBIDDEN, "ORIGIN_DENIED"));
+    }
+    None
+}
+
+async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if let Some(response) = authorize_request(&request, &state.authorization, &state.allowed_origin)
+    {
+        return response;
     }
     let native = request
         .uri()
@@ -159,6 +172,7 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
 
 async fn health() -> Json<contracts::Health> {
     Json(contracts::Health {
+        markdown_projects: None,
         protocol_version: "0.1.0".to_owned(),
         status: "ok".to_owned(),
     })
