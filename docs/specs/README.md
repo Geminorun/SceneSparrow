@@ -46,3 +46,7 @@ distinction between a plan, implemented behavior, and actual validation evidence
 Specification prose does not replace executable JSON Schema contracts or migration
 files. Those are introduced and checked with the implementation. Keep completed
 specs aligned with the final behavior and record material deviations.
+
+The [Markdown file project](markdown-file-project.md) spec proposes a separate
+Web validation slice for file-backed manuscript creation, clean Markdown import,
+save, reopen, and export.

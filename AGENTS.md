@@ -126,6 +126,22 @@
   work. Keep planning and design with the primary agent, and retain the model,
   single-writer, independent review, and root-owned Git rules above.
 
+## Ponytail usage
+
+- Use Ponytail Full for implementation and refactoring. Start with the smallest
+  change that satisfies the user's goal and reuse existing code. Include the
+  skill in the brief for any implementation subagent already in scope.
+- Run `ponytail-review` on the intended diff and affected callers before the
+  primary agent commits a code change. Record the review outcome alongside
+  the relevant checks.
+- Use `ponytail-audit` when a whole-repository review is requested or a
+  milestone warrants it. Use `ponytail-debt` to review deliberate `shortcut:`
+  and legacy `ponytail:` notes when planning follow-up work.
+- Invoke the skill explicitly. If the host does not expose the skill, read its
+  installed `SKILL.md` and apply it directly. If the file is also unavailable,
+  report that and review the change using the principles above. A plugin
+  installation or lifecycle hook does not establish that a review ran.
+
 ## Git workflow
 
 - Check the current branch and working tree before editing. Preserve existing work.
