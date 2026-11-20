@@ -602,5 +602,16 @@
   "SOURCE_LINK_URL_INVALID": "请输入不含登录信息的 HTTP 或 HTTPS 链接。",
   "SOURCE_LINK_INVALID": "无法保存此参考资料，请检查名称和网址。",
   "SOURCE_READ_FAILED": "无法重新加载参考资料。已有条目已保留。",
-  "libraryFullUrl": "完整参考网址"
+  "libraryFullUrl": "完整参考网址",
+  "markdownWorkspace": "Markdown 写作空间",
+  "markdownNew": "新建文稿",
+  "markdownImport": "将 .md 打开为新文稿",
+  "markdownDownload": "下载 .md",
+  "markdownText": "Markdown 文稿",
+  "MARKDOWN_PROJECT_INVALID": "此项目不完整或格式不受支持。",
+  "MARKDOWN_TEXT_INVALID": "请选择一个不超过 2 MiB 的 UTF-8 .md 文件。",
+  "MARKDOWN_STORAGE_UNAVAILABLE": "无法读取或写入项目。本地文字仍然保留。",
+  "MARKDOWN_CONFLICT": "已保存的文稿发生了变化。请先下载本地文字，再刷新。",
+  "MARKDOWN_SWITCH_PENDING": "新修改仍然保留在此处。完成编辑后请再次尝试打开。",
+  "markdownSave": "保存"
 }

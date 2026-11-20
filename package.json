@@ -24,7 +24,8 @@
     "test:integration": "cargo build --locked -p scenesparrow-service && node --test tests/integration/*.test.mjs",
     "env:check": "node scripts/doctor.mjs",
     "release:version": "node scripts/release/version.mjs",
-    "perf:s1": "SCENESPARROW_PERFORMANCE=1 playwright test tests/e2e/performance.spec.ts"
+    "perf:s1": "SCENESPARROW_PERFORMANCE=1 playwright test tests/e2e/performance.spec.ts",
+    "test:e2e:markdown": "playwright test --config playwright.markdown.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

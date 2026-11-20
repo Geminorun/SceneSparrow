@@ -1,6 +1,6 @@
 // Generated from protocol.schema.json. Do not edit by hand.
 export type Project = { id: string; title: string; workingRevision: number; approvedBaseline: number | null; };
-export type Health = { status: string; protocolVersion: string; };
+export type Health = { status: string; protocolVersion: string; markdownProjects?: boolean; };
 export type CreateProject = { requestId: string; title: string; };
 export type EnsureProject = { requestId: string; title: string; };
 export type RenameProject = { requestId: string; projectId: string; previousTitle: string; title: string; };
@@ -99,6 +99,9 @@ export type ReferenceDirectoryEntry = { intake: Intake; relativePath: string; };
 export type ReferenceDirectoryOutcome = { relativePath: string; status: "skipped" | "error"; code: string; };
 export type ReferenceDirectoryBatch = { association: ReferenceDirectoryAssociation; entries: Array<ReferenceDirectoryEntry>; outcomes: Array<ReferenceDirectoryOutcome>; truncated: boolean; };
 export type RenameSourceLinkPayload = { sourceId: string; expectedSourceRevision: number; title: string; };
+export type MarkdownProject = { projectId: string; text: string; revision: string; };
+export type CreateMarkdownProject = { text: string; };
+export type SaveMarkdownProject = { text: string; revision: string; };
 export type AiCategory = "text" | "audio" | "video";
 export type AiCapability = "text.generate" | "audio.synthesize" | "video.generate";
 export type AiEvidence = { state: "supported" | "unsupported" | "unknown"; source: "unknown" | "user" | "provider" | "test"; scope: string; observedAt: string | null; };

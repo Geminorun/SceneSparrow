@@ -17,6 +17,7 @@ export async function startRuntime({
   corePort = 4318,
   gatewayPort = 8080,
   projectDir = "/data/project",
+  markdownProjectsDir,
   appDataDir = "/data/app",
   masterKeyFile,
   signals = process,
@@ -42,6 +43,9 @@ export async function startRuntime({
     SCENESPARROW_CORE_PORT: String(corePort),
     SCENESPARROW_WEB_ORIGIN: origin,
     SCENESPARROW_PROJECT_DIR: projectDir,
+    ...(markdownProjectsDir !== undefined
+      ? { SCENESPARROW_MARKDOWN_PROJECTS_DIR: markdownProjectsDir }
+      : {}),
     SCENESPARROW_APP_DATA_DIR: appDataDir,
     ...(masterKeyFile !== undefined
       ? { SCENESPARROW_AI_MASTER_KEY_FILE: masterKeyFile }
@@ -92,22 +96,23 @@ export async function startRuntime({
       try {
         await gateway?.close();
         if (child.pid && child.exitCode === null && child.signalCode === null) {
-          try {
-            const result = await fetch(
-              `http://127.0.0.1:${corePort}/v1/project/quiesce`,
-              {
-                method: "POST",
-                headers: {
-                  authorization: `Bearer ${token}`,
-                  "x-scenesparrow-native": native,
+          if (markdownProjectsDir === undefined)
+            try {
+              const result = await fetch(
+                `http://127.0.0.1:${corePort}/v1/project/quiesce`,
+                {
+                  method: "POST",
+                  headers: {
+                    authorization: `Bearer ${token}`,
+                    "x-scenesparrow-native": native,
+                  },
+                  signal: AbortSignal.timeout(quiesceMs),
                 },
-                signal: AbortSignal.timeout(quiesceMs),
-              },
-            );
-            if (!result.ok) failed = true;
-          } catch {
-            failed = true;
-          }
+              );
+              if (!result.ok) failed = true;
+            } catch {
+              failed = true;
+            }
           child.kill("SIGINT");
           await exited;
         }
@@ -212,6 +217,7 @@ if (
     await startRuntime({
       origin,
       operator,
+      markdownProjectsDir: process.env.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
       masterKeyFile:
         process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
         "/run/secrets/ai_master_key",

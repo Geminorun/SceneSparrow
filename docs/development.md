@@ -474,3 +474,28 @@ commands, and the [130-case acceptance matrix](validation/acceptance-matrix.md).
 Large-document and attachment-heavy interaction budgets remain unmet; every body
 edit still verifies referenced source bytes. Native worker resource enforcement,
 packaged desktop behavior and real-provider interoperability remain open.
+
+### Markdown file validation workspace
+
+Set `SCENESPARROW_MARKDOWN_PROJECTS_DIR` to an explicitly selected, separate
+persistent directory before `pnpm dev`. This opt-in Web mode creates UUID folders
+containing only `project.json` and `manuscript.md`; it does not initialize project
+SQLite storage or background jobs. Without this variable, Web and Electron retain
+the existing SQLite workflow. Desktop file operations are outside this slice.
+
+The production Web supervisor also forwards this variable to the core. Mount and
+select an independent persistent directory; do not point it at the existing
+SQLite project volume. The same operator authentication and exact-origin gateway
+remain required. One operator/core owns the trusted local volume; this is not a
+shared network filesystem or a hostile local-writer isolation boundary.
+
+The project is reopened through `?project=<id>`. New and imported manuscripts get
+new identities. Only one UTF-8 `.md` file up to 2 MiB is accepted. Untouched imports
+and downloads preserve BOM and mixed line endings. Intentional textarea edits use
+LF endings and retain the imported BOM. Download captures local text without
+saving; conflicting or failed saves keep the local buffer available for download.
+Browser close can warn about unsaved text but cannot guarantee an asynchronous save.
+
+Run `pnpm test:e2e:markdown` for the focused Web flow, in addition to the ordinary
+`pnpm test:e2e` suite. The file-store unit tests and
+`tests/integration/markdown-file-project.test.mjs` cover storage and real-core HTTP.

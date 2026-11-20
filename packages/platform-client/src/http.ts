@@ -1,4 +1,6 @@
 import type {
+  CreateMarkdownProject,
+  SaveMarkdownProject,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -33,6 +35,8 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | CreateMarkdownProject
+      | SaveMarkdownProject
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -110,6 +114,12 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     };
   };
   return {
+    markdownProjects: {
+      create: (text) => request("/v1/markdown-projects", { text }),
+      read: (id) => request(`/v1/markdown-projects/${encodeURIComponent(id)}`),
+      save: (id, body) =>
+        request(`/v1/markdown-projects/${encodeURIComponent(id)}`, body),
+    },
     readManuscriptIdentity: () => request("/v1/manuscript/identity"),
     prepareCopy: (body) => request("/v1/manuscript/copies", body),
     readExports: () => request("/v1/manuscript/exports"),

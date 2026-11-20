@@ -31,6 +31,13 @@ pub struct Health {
     pub status: String,
     #[serde(rename = "protocolVersion")]
     pub protocol_version: String,
+    #[serde(
+        rename = "markdownProjects",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub markdown_projects: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
