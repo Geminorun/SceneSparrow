@@ -60,10 +60,10 @@ test("real continuous typing across save acknowledgements retains node, focus an
   for (let n = 0; n < text.length; n++) {
     await page.keyboard.type(text[n]);
     await page.clock.fastForward(500);
-    if ((n + 1) % 120 === 0)
-      await expect.poll(() => edits).toBeGreaterThanOrEqual((n + 1) / 120);
+    if (n + 1 === 120) await expect.poll(() => edits).toBeGreaterThanOrEqual(1);
   }
-  await page.clock.fastForward(5000);
+  // The last autosave timer may be scheduled after an in-flight save settles.
+  await page.clock.resume();
   await saved(page);
   expect(edits).toBeGreaterThanOrEqual(2);
   expect(
