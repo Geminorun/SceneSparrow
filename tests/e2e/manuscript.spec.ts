@@ -16,6 +16,10 @@ const saved = (page: Page) =>
     "data-state",
     "saved",
   );
+async function saveManually(page: Page) {
+  await editor(page).press("ControlOrMeta+s");
+  await saved(page);
+}
 test.describe.configure({ mode: "serial" });
 test("writes Unicode, formatting, headings and nested lists and reopens without a no-op save", async ({
   page,
@@ -354,7 +358,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
   const input = editor(page);
   await input.fill("Identity boundary text");
   await input.press("ControlOrMeta+Alt+0");
-  await saved(page);
+  await saveManually(page);
   const read = async () =>
     (await page.request.get("/api/v1/manuscript")).json();
   const before = await read();
@@ -362,7 +366,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
   expect(before.blocks).toHaveLength(1);
   await input.press("ControlOrMeta+Home");
   await input.press("Enter");
-  await saved(page);
+  await saveManually(page);
   const split = await read();
   expect(split.blocks).toHaveLength(2);
   expect(split.blocks[0].id).toBe(original);
@@ -381,15 +385,15 @@ test("split at the start keeps the first identity across paragraph/list merge an
   await input.press("ControlOrMeta+End");
   await input.press("Home");
   await input.press("Backspace");
-  await saved(page);
+  await saveManually(page);
   const merged = await read();
   expect(merged.blocks).toHaveLength(1);
   expect(merged.blocks[0].id).toBe(original);
   await input.press("ControlOrMeta+Shift+8");
-  await saved(page);
+  await saveManually(page);
   await input.press("ControlOrMeta+Home");
   await input.press("Enter");
-  await saved(page);
+  await saveManually(page);
   const listSplit = await read();
   expect(listSplit.blocks).toHaveLength(2);
   expect(listSplit.blocks[0].id).toBe(original);
@@ -400,14 +404,14 @@ test("split at the start keeps the first identity across paragraph/list merge an
   await input.press("ControlOrMeta+End");
   await input.press("Home");
   await input.press("Backspace");
-  await saved(page);
+  await saveManually(page);
   const lifted = await read();
   expect(lifted.blocks).toHaveLength(2);
   expect(lifted.blocks[0].id).toBe(original);
   expect(lifted.blocks[1].id).toBe(listSplit.blocks[1].id);
   expect(lifted.blocks[1].kind).toBe("paragraph");
   await input.press("Backspace");
-  await saved(page);
+  await saveManually(page);
   const listMerged = await read();
   expect(listMerged.blocks).toHaveLength(1);
   expect(listMerged.blocks[0].id).toBe(original);
@@ -415,7 +419,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
     "Identity boundary text",
   );
   await input.press("ControlOrMeta+Shift+8");
-  await saved(page);
+  await saveManually(page);
   await input.press("ControlOrMeta+End");
   await input.evaluate((element, tombstone) => {
     const data = new DataTransfer();
@@ -433,7 +437,7 @@ test("split at the start keeps the first identity across paragraph/list merge an
     );
   }, second);
   await expect(input).toContainText("Pasted second");
-  await saved(page);
+  await saveManually(page);
   const pasted = await read();
   const ids = pasted.blocks.map((b: any) => b.id);
   expect(new Set(ids).size).toBe(ids.length);
@@ -588,11 +592,11 @@ test("five retained operations share document-menu actions and shortcuts, preser
   const input = editor(page);
   await input.fill("History 0");
   await input.press("ControlOrMeta+Alt+0");
-  await saved(page);
+  await saveManually(page);
   await page.waitForTimeout(800);
   for (let n = 1; n <= 6; n++) {
     await input.fill(`History ${n}`);
-    await saved(page);
+    await saveManually(page);
     await page.waitForTimeout(800);
   }
   const history = async () =>
@@ -633,7 +637,7 @@ test("five retained operations share document-menu actions and shortcuts, preser
   expect(await history()).toEqual(before);
   expect(documentWrites).toBe(0);
   await input.fill("Branched history");
-  await saved(page);
+  await saveManually(page);
   expect((await history()).redoCount).toBe(0);
   await openDocumentMenu(page);
   await expect(
