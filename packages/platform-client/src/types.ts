@@ -1,4 +1,6 @@
 import type {
+  MarkdownProject,
+  SaveMarkdownProject,
   ManuscriptIdentity,
   CopyRequest,
   PreparedCopy,
@@ -55,6 +57,11 @@ export interface RecentProject {
 }
 
 export interface PlatformClient {
+  markdownProjects?: {
+    create(text: string): Promise<MarkdownProject>;
+    read(id: string): Promise<MarkdownProject>;
+    save(id: string, request: SaveMarkdownProject): Promise<MarkdownProject>;
+  };
   readManuscriptIdentity?(): Promise<ManuscriptIdentity>;
   prepareCopy(request: CopyRequest): Promise<PreparedCopy>;
 

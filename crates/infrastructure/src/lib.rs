@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod markdown_projects;
 use std::{
     fs::File,
     path::Path,

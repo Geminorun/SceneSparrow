@@ -1,6 +1,12 @@
 import type en from "../locales/en.json";
 /** Workspace slots stay separate from the core manuscript stage. */
-export function WorkspaceRibbon({ t }: { t: typeof en }) {
+export function WorkspaceRibbon({
+  t,
+  onWrite,
+}: {
+  t: typeof en;
+  onWrite?: () => void;
+}) {
   return (
     <nav className="workspace-ribbon" aria-label={t.workbench}>
       <span className="ribbon-mark" aria-hidden="true">
@@ -15,7 +21,10 @@ export function WorkspaceRibbon({ t }: { t: typeof en }) {
         aria-label={t.workspaceWrite}
         aria-current="page"
         title={t.workspaceWrite}
-        onClick={() => document.querySelector<HTMLElement>(".tiptap")?.focus()}
+        onClick={
+          onWrite ??
+          (() => document.querySelector<HTMLElement>(".tiptap")?.focus())
+        }
       >
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path

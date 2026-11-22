@@ -81,6 +81,9 @@
         },
         "protocolVersion": {
           "type": "string"
+        },
+        "markdownProjects": {
+          "type": "boolean"
         }
       }
     },
@@ -3390,6 +3393,45 @@
           "maximum": 9007199254740991
         },
         "title": {
+          "type": "string"
+        }
+      }
+    },
+    "MarkdownProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "text", "revision"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      }
+    },
+    "CreateMarkdownProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      }
+    },
+    "SaveMarkdownProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "revision"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "revision": {
           "type": "string"
         }
       }

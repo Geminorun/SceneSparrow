@@ -602,5 +602,16 @@
   "SOURCE_LINK_URL_INVALID": "Enter an HTTP or HTTPS link without login details.",
   "SOURCE_LINK_INVALID": "Could not save this reference. Check its title and URL.",
   "SOURCE_READ_FAILED": "Could not reload references. Your existing items are kept.",
-  "libraryFullUrl": "Full reference URL"
+  "libraryFullUrl": "Full reference URL",
+  "markdownWorkspace": "Markdown workspace",
+  "markdownNew": "New manuscript",
+  "markdownImport": "Open .md as new manuscript",
+  "markdownDownload": "Download .md",
+  "markdownText": "Markdown manuscript",
+  "MARKDOWN_PROJECT_INVALID": "This project is incomplete or has an unsupported format.",
+  "MARKDOWN_TEXT_INVALID": "Choose one UTF-8 .md file up to 2 MiB.",
+  "MARKDOWN_STORAGE_UNAVAILABLE": "The project could not be read or written. Your local text is still available.",
+  "MARKDOWN_CONFLICT": "The saved manuscript changed. Download your local text before refreshing.",
+  "MARKDOWN_SWITCH_PENDING": "Newer edits are still here. Finish editing and try opening again.",
+  "markdownSave": "Save"
 }

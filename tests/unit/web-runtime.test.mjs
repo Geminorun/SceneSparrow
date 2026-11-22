@@ -75,6 +75,31 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
       assert.equal(exits.at(-1), 0);
       assert.equal(runtime.child.exitCode, 0);
 
+      const markdownProjectsDir = join(directory, "markdown-projects");
+      runtime = await startRuntime({
+        ...config,
+        corePort: await port(),
+        markdownProjectsDir,
+      });
+      const fileEnv = JSON.parse(
+        await readFile(join(directory, "core-env.json"), "utf8"),
+      );
+      assert.equal(
+        fileEnv.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
+        markdownProjectsDir,
+      );
+      await runtime.stop();
+      assert.match(
+        await readFile(join(directory, "lifecycle"), "utf8"),
+        /\nSIGINT\n$/,
+      );
+      assert.ok(
+        !(await readFile(join(directory, "lifecycle"), "utf8")).includes(
+          "quiesce",
+        ),
+      );
+      assert.equal(exits.at(-1), 0);
+
       const masterKeyFile = join(directory, "master-key");
       const encoded = Buffer.alloc(32, 9).toString("base64");
       await writeFile(masterKeyFile, encoded + "\n", { mode: 0o444 });

@@ -1870,6 +1870,30 @@ pub struct RenameSourceLinkPayload {
     pub title: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownProject {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CreateMarkdownProject {
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveMarkdownProject {
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,
