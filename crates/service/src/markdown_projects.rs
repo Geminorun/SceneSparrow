@@ -1,7 +1,7 @@
 use crate::{api_error, authorize_request, contracts, observe_transport};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Request, State, rejection::JsonRejection},
+    extract::{DefaultBodyLimit, FromRef, Path, Request, State, rejection::JsonRejection},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -12,12 +12,14 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct FileState {
     store: Arc<MarkdownProjects>,
+    ai: Arc<crate::ai::AiState>,
     authorization: String,
     origin: String,
 }
 pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Router, &'static str> {
     let state = FileState {
         store: Arc::new(MarkdownProjects::open(root)?),
+        ai: Arc::new(crate::ai::AiState::default()),
         authorization: format!("Bearer {token}"),
         origin: origin.into(),
     };
@@ -34,6 +36,8 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
         )
         .route("/v1/markdown-projects", post(create))
         .route("/v1/markdown-projects/{id}", get(read).post(save))
+        .route("/v1/markdown-projects/{id}/writing", post(writing))
+        .merge(crate::ai::settings_routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         // A 2 MiB UTF-8 manuscript can occupy six times as much JSON when escaped.
         .layer(DefaultBodyLimit::max(
@@ -94,4 +98,54 @@ async fn save(
         store.save(&id, &body.revision, body.text)
     })
     .await
+}
+
+impl FromRef<FileState> for Arc<crate::ai::AiState> {
+    fn from_ref(state: &FileState) -> Self {
+        state.ai.clone()
+    }
+}
+async fn writing(
+    State(state): State<FileState>,
+    Path(id): Path<String>,
+    body: Result<Json<scenesparrow_domain::contracts::MarkdownWritingAction>, JsonRejection>,
+) -> Response {
+    use scenesparrow_application::markdown_writing;
+    use scenesparrow_domain::{
+        ai::{AiError, ensure},
+        contracts::MarkdownWritingResult,
+    };
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    let Ok(slot) = state.ai.blocking_slots.clone().try_acquire_owned() else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
+    };
+    crate::ai::result(
+        tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            let saved = state.store.read(&id).map_err(AiError)?;
+            ensure(saved.revision == body.revision, "MARKDOWN_CONFLICT")?;
+            let input = markdown_writing::input(&body)?;
+            let context =
+                serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;
+            let text = state.ai.actions.text(
+                state.ai.settings()?,
+                scenesparrow_infrastructure::ai::actions::TextAction {
+                    action_id: &body.action_id,
+                    session_id: &body.session_id,
+                    fingerprint: &body.fingerprint,
+                    context: &context,
+                    input: &input,
+                },
+            )?;
+            markdown_writing::validate_output(&text)?;
+            Ok(MarkdownWritingResult {
+                action_id: body.action_id,
+                text,
+            })
+        })
+        .await
+        .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),
+    )
 }

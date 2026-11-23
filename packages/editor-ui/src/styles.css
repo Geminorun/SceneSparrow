@@ -2539,3 +2539,51 @@ body > .notifications {
     padding: 1rem;
   }
 }
+
+.markdown-writing,
+.markdown-draft {
+  flex: 1 1 360px;
+  min-width: 260px;
+  max-height: 75vh;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.markdown-writing {
+  flex: 0 0 300px;
+}
+.markdown-writing h2,
+.markdown-draft h2 {
+  font-size: 1rem;
+}
+.markdown-writing label {
+  display: block;
+  margin-block: 1rem;
+}
+.markdown-writing textarea {
+  display: block;
+  min-height: 100px;
+  padding: 0.75rem;
+  resize: vertical;
+}
+.markdown-document > textarea {
+  flex: 1 1 400px;
+}
+.markdown-preview {
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.markdown-preview pre {
+  white-space: pre-wrap;
+}
+.markdown-conflict {
+  color: var(--danger);
+}
+@media (max-width: 1100px) {
+  .markdown-document:has(.markdown-writing, .markdown-draft) {
+    flex-wrap: wrap;
+    overflow: auto;
+  }
+}

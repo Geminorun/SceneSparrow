@@ -1,5 +1,6 @@
 import type {
   CreateMarkdownProject,
+  MarkdownWritingAction,
   SaveMarkdownProject,
   CopyRequest,
   ExportRequest,
@@ -35,6 +36,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | MarkdownWritingAction
       | CreateMarkdownProject
       | SaveMarkdownProject
       | CopyRequest
@@ -57,11 +59,13 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   ): Promise<T> {
     try {
       const signal = AbortSignal.timeout(
-        path.includes("connection-tests")
-          ? 35_000
-          : path.includes("models/discover")
-            ? 20_000
-            : 10_000,
+        path.endsWith("/writing")
+          ? 190_000
+          : path.includes("connection-tests")
+            ? 35_000
+            : path.includes("models/discover")
+              ? 20_000
+              : 10_000,
       );
       const response = await fetchResponse(`${baseUrl}${path}`, {
         method: method ?? (body ? "POST" : "GET"),
@@ -115,6 +119,11 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   };
   return {
     markdownProjects: {
+      write: (id, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/writing`,
+          body,
+        ),
       create: (text) => request("/v1/markdown-projects", { text }),
       read: (id) => request(`/v1/markdown-projects/${encodeURIComponent(id)}`),
       save: (id, body) =>

@@ -334,3 +334,309 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
     "external version",
   );
 });
+
+async function mockWriting(
+  page: Page,
+  reply: (kind: string) => Promise<string> | string,
+) {
+  const submitted: any[] = [];
+  await page.route("**/api/v1/ai/configuration", (route) =>
+    route.fulfill({
+      json: { configuration: { fingerprint: "browser-fixture" } },
+    }),
+  );
+  await page.route("**/api/v1/markdown-projects/*/writing", async (route) => {
+    const body = route.request().postDataJSON();
+    submitted.push(body);
+    try {
+      await route.fulfill({
+        json: { actionId: body.actionId, text: await reply(body.kind) },
+      });
+    } catch {
+      /* A project switch or navigation can close the requesting page. */
+    }
+  });
+  return submitted;
+}
+async function beginWriting(page: Page) {
+  await page.getByRole("button", { name: "AI Writing", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Writing request", exact: true })
+    .fill("Write a bilingual story");
+  await page
+    .getByRole("button", { name: "Generate Outline", exact: true })
+    .click();
+  await expect(
+    page.getByRole("textbox", { name: "Editable outline", exact: true }),
+  ).toHaveValue("# Outline\n\n- Opening");
+}
+async function savedFile(page: Page) {
+  return page.evaluate(async () => {
+    const id = new URL(location.href).searchParams.get("project");
+    return (await fetch(`/api/v1/markdown-projects/${id}`)).json();
+  });
+}
+
+test("WFW-AC03: edit outline, preview without writing, close or explicitly adopt, and reload only the manuscript", async ({
+  page,
+}) => {
+  const submitted = await mockWriting(page, (kind) =>
+    kind === "outline"
+      ? "# Outline\n\n- Opening"
+      : "# Draft\n\nGenerated 中文.\n\n<script>never runs</script>",
+  );
+  await page.goto("/");
+  await editor(page).fill("Original saved manuscript");
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  await beginWriting(page);
+  await page
+    .getByRole("textbox", { name: "Editable outline", exact: true })
+    .fill("# Edited outline\n\n- User ending");
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(
+    preview.getByRole("heading", { name: "Draft", exact: true }),
+  ).toBeVisible();
+  await expect(preview.locator("script")).toHaveCount(0);
+  expect(submitted[1].outline).toBe("# Edited outline\n\n- User ending");
+  expect((await savedFile(page)).text).toBe("Original saved manuscript");
+  await expect(editor(page)).toHaveValue("Original saved manuscript");
+  await preview.getByRole("button", { name: "Close", exact: true }).click();
+  expect((await savedFile(page)).text).toBe("Original saved manuscript");
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  await expect(editor(page)).toHaveValue(/^# Draft/);
+  expect((await savedFile(page)).text).toMatch(/^# Draft/);
+  await page.reload();
+  await expect(editor(page)).toHaveValue(/^# Draft/);
+  await expect(
+    page.getByRole("region", { name: "Draft preview", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "AI Writing", exact: true }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Writing request", exact: true }),
+  ).toHaveValue("");
+  await expect(
+    page.getByRole("textbox", { name: "Editable outline", exact: true }),
+  ).toHaveValue("");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Default models", exact: true }),
+  ).toBeVisible();
+});
+
+test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts retain both texts and switched projects ignore late drafts", async ({
+  page,
+}) => {
+  let release!: (value: string) => void;
+  let held = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const submitted = await mockWriting(page, (kind) =>
+    kind === "outline" ? "# Outline\n\n- Opening" : held,
+  );
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  await editor(page).fill("Initial manuscript");
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await beginWriting(page);
+  const generate = page.getByRole("button", {
+    name: "Write Draft from Outline",
+    exact: true,
+  });
+  await generate.evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect.poll(() => submitted.length).toBe(2);
+  await expect(editor(page)).toBeEditable();
+  await editor(page).fill("Newer local writing during generation");
+  release("# Unapplied draft\n\nGenerated text");
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(preview).toContainText(
+    "The manuscript changed since generation began.",
+  );
+  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  await expect(editor(page)).toHaveValue(
+    "Newer local writing during generation",
+  );
+  expect((await savedFile(page)).text).toBe("Initial manuscript");
+  await expect(preview).toContainText("Unapplied draft");
+  held = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  await generate.click();
+  await expect.poll(() => submitted.length).toBe(3);
+  await projectAction(page, "New manuscript");
+  await expect(editor(page)).toHaveValue("");
+  release("# Late draft from previous project");
+  await expect(
+    page.getByRole("region", { name: "Draft preview", exact: true }),
+  ).toHaveCount(0);
+  await expect(editor(page)).toHaveValue("");
+});
+
+test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosave until an explicit save", async ({
+  page,
+}) => {
+  await mockWriting(page, (kind) =>
+    kind === "outline"
+      ? "# Outline\n\n- Opening"
+      : "# Adopted draft\n\nSaved generation",
+  );
+  await page.goto("/");
+  await editor(page).fill("Initial manuscript");
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("after_delay");
+  await page
+    .getByRole("combobox", { name: "Save delay", exact: true })
+    .selectOption("5");
+  await beginWriting(page);
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let saved!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    saved = resolve;
+  });
+  await page.route(/\/api\/v1\/markdown-projects\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    saved();
+    await gate;
+    await route.fulfill({ response });
+  });
+  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  await arrived;
+  await editor(page).fill("Newer local keystrokes while adopting");
+  release();
+  await expect(preview).toHaveCount(0);
+  await expect(editor(page)).toHaveValue(
+    "Newer local keystrokes while adopting",
+  );
+  await expect(
+    page.locator(".markdown-main > .markdown-conflict"),
+  ).toContainText("autosave is paused");
+  await page.waitForTimeout(5500);
+  expect((await savedFile(page)).text).toBe(
+    "# Adopted draft\n\nSaved generation",
+  );
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  expect((await savedFile(page)).text).toBe(
+    "Newer local keystrokes while adopting",
+  );
+});
+
+test("WFW-AC04: model errors use the selected locale and retain the manuscript and outline", async ({
+  page,
+}) => {
+  await mockWriting(page, () => "# Outline\n\n- Opening");
+  await page.goto("/");
+  await editor(page).fill("Keep my manuscript");
+  await beginWriting(page);
+  await page.route("**/api/v1/markdown-projects/*/writing", (route) =>
+    route.fulfill({ status: 422, json: { code: "PROVIDER_SERVER_FAILED" } }),
+  );
+  await page
+    .getByRole("combobox", { name: "Language", exact: true })
+    .selectOption("zh-CN");
+  await page
+    .getByRole("button", { name: "根据大纲写草稿", exact: true })
+    .click();
+  await expect(
+    page.getByText("上游服务返回服务器错误。请稍后重试。", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Markdown 文稿", exact: true }),
+  ).toHaveValue("Keep my manuscript");
+  await expect(
+    page.getByRole("textbox", { name: "可编辑大纲", exact: true }),
+  ).toHaveValue("# Outline\n\n- Opening");
+});
+
+test("WFW-AC03: adoption waits for an in-flight save of exactly the captured text and keeps its valid revision", async ({
+  page,
+}) => {
+  await mockWriting(page, (kind) =>
+    kind === "outline"
+      ? "# Outline\n\n- Opening"
+      : "# Draft after pending save",
+  );
+  await page.goto("/");
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  await editor(page).fill("Saved baseline");
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  await beginWriting(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let saved!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    saved = resolve;
+  });
+  let writes = 0;
+  await page.route(/\/api\/v1\/markdown-projects\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    writes++;
+    const response = await route.fetch();
+    if (writes === 1) {
+      saved();
+      await gate;
+    }
+    await route.fulfill({ response });
+  });
+  await editor(page).fill("Captured buffered text");
+  await save(page);
+  await arrived;
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  expect(writes).toBe(1);
+  release();
+  await expect(editor(page)).toHaveValue("# Draft after pending save");
+  expect(writes).toBe(2);
+  expect((await savedFile(page)).text).toBe("# Draft after pending save");
+});
