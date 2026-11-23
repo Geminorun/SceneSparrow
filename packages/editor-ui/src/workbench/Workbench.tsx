@@ -22,6 +22,7 @@ import { WorkspaceSkeleton } from "./WorkspaceSkeleton";
 import { serializeMarkdown } from "../manuscript/markdown";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { Locks } from "../review/Locks";
+import type { TrackLocalLock } from "../review/local-lock-events";
 import { contentProtectionKey } from "../manuscript/content-protection";
 import { Planning } from "../planning/Planning";
 import type { SaveFeedback } from "../project-session/types";
@@ -37,6 +38,7 @@ export function Workbench({
   projectId,
   t,
   onRevision,
+  trackLock,
   onBeforeClose,
   approvedBaseline,
 }: {
@@ -44,6 +46,7 @@ export function Workbench({
   projectId: string;
   t: typeof en;
   onRevision: (revision: number) => void;
+  trackLock: TrackLocalLock;
   onBeforeClose: () => void;
   approvedBaseline: number | null;
 }) {
@@ -104,6 +107,7 @@ export function Workbench({
       projectId={projectId}
       t={t}
       onRevision={onRevision}
+      trackLock={trackLock}
       onBeforeClose={onBeforeClose}
       approvedBaseline={approvedBaseline}
     />
@@ -116,6 +120,7 @@ function WorkbenchContent({
   projectId,
   t,
   onRevision,
+  trackLock,
   onBeforeClose,
   approvedBaseline,
 }: {
@@ -125,6 +130,7 @@ function WorkbenchContent({
   projectId: string;
   t: typeof en;
   onRevision: (revision: number) => void;
+  trackLock: TrackLocalLock;
   onBeforeClose: () => void;
   approvedBaseline: number | null;
 }) {
@@ -725,6 +731,7 @@ function WorkbenchContent({
                 t={t}
                 headerTarget={lockHeader}
                 onReady={setProtectionReady}
+                trackLock={trackLock}
               />
             )}
           </div>
