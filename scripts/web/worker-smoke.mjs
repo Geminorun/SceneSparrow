@@ -1,5 +1,5 @@
 // Executed through stdin inside the final image, with a synthetic operator credential.
-// Review dispatch reaches the actual Rust-supervised agent worker and actual SDK.
+// File writing reaches the actual Rust-supervised agent worker and SDK.
 import assert from "node:assert/strict";
 import { createServer, request } from "node:http";
 import { once } from "node:events";
@@ -14,7 +14,10 @@ const server = createServer(async (req, res) => {
   assert.equal(req.headers.authorization, `Bearer ${syntheticApiKey}`);
   let body = "";
   for await (const chunk of req) body += chunk;
-  assert.equal(JSON.parse(body).model, "smoke-model");
+  const payload = JSON.parse(body);
+  assert.equal(payload.model, "smoke-model");
+  assert.equal(payload.max_tokens, undefined);
+  assert.equal(payload.max_completion_tokens, undefined);
   res.writeHead(200, { "content-type": "application/json" });
   res.end(
     JSON.stringify({
@@ -22,11 +25,10 @@ const server = createServer(async (req, res) => {
         {
           index: 0,
           message: {
-            content: JSON.stringify({
-              schemaVersion: 1,
-              answer: "Packaged Rust agent SDK answer",
-              evidenceReferences: [],
-            }),
+            content:
+              calls === 1
+                ? "# Outline\n\n- Opening"
+                : "# Draft\n\nPackaged Rust agent SDK text",
           },
           finish_reason: "stop",
         },
@@ -134,65 +136,37 @@ try {
     secret: syntheticApiKey,
   });
   assert.equal(credentialView.presentCredentialRevisions.length, 1);
-  const project = (await api("/project")).project;
-  const command = async (type, payload) => {
-    const state = await api("/manuscript");
-    return api("/manuscript/commands", {
-      type,
-      requestId: randomUUID(),
-      projectId: project.id,
-      expectedWorkingRevision: state.workingRevision,
-      payload,
-    });
+  const project = await api("/markdown-projects", { text: "Before writing." });
+  const path = `/markdown-projects/${project.projectId}`;
+  const readiness = await api("/ai/configuration");
+  const common = {
+    sessionId: credentialView.sessionId,
+    fingerprint: readiness.configuration.fingerprint,
+    brief: "Write a story",
+    text: project.text,
+    revision: project.revision,
   };
-  const block = (await api("/manuscript")).blocks[0];
-  const quote = block.runs.map((run) => run.text).join("");
-  const id = randomUUID();
-  await command("SaveReview", {
-    expectedRequestVersion: 0,
-    thread: {
-      id,
-      kind: "question",
-      requestVersion: 0,
-      text: "Explain this source",
-      anchor: {
-        ranges: [
-          {
-            blockId: block.id,
-            revision: block.revision,
-            start: 0,
-            end: quote.length,
-            quote,
-            wholeBlock: true,
-          },
-        ],
-        state: "mapped",
-        slot: null,
-      },
-      handled: false,
-      deleted: false,
-      language: "en",
-      evidence: [],
-      decision: null,
-      userMessageIds: [],
-    },
+  const outline = await api(path + "/writing", {
+    ...common,
+    actionId: randomUUID(),
+    kind: "outline",
+    outline: "",
   });
-  assert.equal(calls, 0);
-  await command("StartReviewTask", { threadId: id, requestVersion: 1 });
-  let card;
-  for (let n = 0; n < 300; n++) {
-    card = (await api("/reviews")).cards.find(
-      (value) => value.thread.id === id,
-    );
-    if (card.task && card.task.application !== "pending") break;
-    await new Promise((done) => setTimeout(done, 50));
-  }
-  assert.equal(
-    card.task.answer,
-    "Packaged Rust agent SDK answer",
-    JSON.stringify(card),
-  );
-  assert.equal(calls, 1);
+  assert.match(outline.text, /Opening/);
+  const draft = await api(path + "/writing", {
+    ...common,
+    actionId: randomUUID(),
+    kind: "draft",
+    outline: outline.text,
+  });
+  assert.match(draft.text, /Packaged Rust agent SDK text/);
+  assert.equal(calls, 2);
+  assert.deepEqual(await api(path), project);
+  const adopted = await api(path, {
+    text: draft.text,
+    revision: project.revision,
+  });
+  assert.equal(adopted.text, draft.text);
 } finally {
   server.closeAllConnections();
   await new Promise((done) => server.close(done));

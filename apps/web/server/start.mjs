@@ -217,7 +217,9 @@ if (
     await startRuntime({
       origin,
       operator,
-      markdownProjectsDir: process.env.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
+      markdownProjectsDir:
+        process.env.SCENESPARROW_MARKDOWN_PROJECTS_DIR ??
+        "/data/project/markdown-projects",
       masterKeyFile:
         process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
         "/run/secrets/ai_master_key",

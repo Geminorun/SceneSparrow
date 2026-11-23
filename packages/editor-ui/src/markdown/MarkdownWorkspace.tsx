@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { MarkdownProject } from "@scenesparrow/contracts";
+import type {
+  MarkdownExchangeReview,
+  MarkdownProject,
+} from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import {
   applicationPreferences,
@@ -9,20 +12,38 @@ import {
 import {
   NotificationPresenter,
   useNoticeOwner,
+  SettingsActions,
+  type SettingsSection,
 } from "../feedback/NotificationPresenter";
 import { CompositionActions } from "../project-session/composition-actions";
 import { WorkspaceRibbon } from "../workbench/WorkspaceRibbon";
+import { AiSettings } from "../ai-settings/AiSettings";
+import { SettingsModal } from "../ai-settings/SettingsModal";
+import {
+  MarkdownWriting,
+  type WritingCapture,
+  type WritingDraft,
+} from "./MarkdownWriting";
+import { MarkdownPreview } from "./MarkdownPreview";
+import { ExchangeComparison } from "./ExchangeComparison";
+import { HeadingNavigation } from "./HeadingNavigation";
 import en from "../locales/en.json";
 import zhCN from "../locales/zh-CN.json";
 
+type ExchangeCandidate = WritingDraft & {
+  review: MarkdownExchangeReview;
+  conflict: boolean;
+};
 type Buffer = { project: MarkdownProject; text: string; epoch: number };
 const withoutBom = (text: string) =>
   text.startsWith("\ufeff") ? text.slice(1) : text;
+const lastProjectKey = "scenesparrow.markdown-project";
 export function MarkdownWorkspace({
-  client,
+  platformClient,
 }: {
-  client: NonNullable<PlatformClient["markdownProjects"]>;
+  platformClient: PlatformClient;
 }) {
+  const client = platformClient.markdownProjects!;
   const preferences = useSyncExternalStore(
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
@@ -41,13 +62,29 @@ export function MarkdownWorkspace({
   const buffer = useRef<Buffer | null>(null);
   const [, render] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [writingOpen, setWritingOpen] = useState(false);
+  const [draft, setDraft] = useState<WritingDraft | null>(null);
+  const draftRef = useRef<WritingDraft | null>(null);
+  const [exchange, setExchange] = useState<ExchangeCandidate | null>(null);
+  const exchangeRef = useRef<ExchangeCandidate | null>(null);
+  const [separateProject, setSeparateProject] = useState<string | null>(null);
+  const [exchangeBusy, setExchangeBusy] = useState(false);
+  const exchangeRunning = useRef(false);
+  const exchangeInput = useRef<HTMLInputElement>(null);
+  const [applying, setApplying] = useState(false);
+  const applyingRef = useRef(false);
+  const [editorSession, setEditorSession] = useState(0);
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection | null>(null);
   const [busy, setBusy] = useState(false);
   const switching = useRef(false);
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const [autosavePaused, setAutosavePaused] = useState(false);
   const pendingSave = useRef<Promise<void> | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectMenu = useRef<HTMLDetailsElement>(null);
   const composition = useRef(new CompositionActions()).current;
   const notice = useNoticeOwner();
   const redraw = () => render((value) => value + 1);
@@ -55,13 +92,32 @@ export function MarkdownWorkspace({
     const url = new URL(window.location.href);
     url.searchParams.set("project", project.projectId);
     window.history.replaceState(null, "", url);
+    try {
+      localStorage.setItem(lastProjectKey, project.projectId);
+    } catch {
+      // The explicit URL remains usable when browser storage is unavailable.
+    }
     buffer.current = { project, text: project.text, epoch: 0 };
+    draftRef.current = null;
+    setDraft(null);
+    exchangeRef.current = null;
+    setExchange(null);
+    setSeparateProject(null);
+    setWritingOpen(false);
     setSaveFailed(false);
+    setAutosavePaused(false);
     redraw();
   }
   useEffect(() => {
     let active = true;
-    const id = new URL(window.location.href).searchParams.get("project");
+    let id = new URL(window.location.href).searchParams.get("project");
+    if (id === null) {
+      try {
+        id = localStorage.getItem(lastProjectKey);
+      } catch {
+        // Profiles without browser storage can still open an explicit URL.
+      }
+    }
     void (id === null ? client.create("") : client.read(id))
       .then(
         (project) => {
@@ -88,18 +144,31 @@ export function MarkdownWorkspace({
       /* Session preference remains available. */
     }
   }, [locale, t]);
-  function save(): Promise<void> {
+  function save(adoption?: WritingDraft): Promise<void> {
     if (pendingSave.current) return pendingSave.current;
     const current = buffer.current;
-    if (!current || current.text === current.project.text)
+    if (!current || (!adoption && current.text === current.project.text))
       return Promise.resolve();
-    const { text, project } = current;
+    const { project, epoch } = current;
+    const text = adoption?.text ?? current.text;
     setSaving(true);
     const promise = client
       .save(project.projectId, { text, revision: project.revision })
       .then((saved) => {
         if (buffer.current === current) {
           current.project = saved;
+          const retainedNewerInput = !!adoption && current.epoch !== epoch;
+          if (adoption) {
+            if (current.epoch === epoch) {
+              current.text = saved.text;
+              current.epoch++;
+              setEditorSession((value) => value + 1);
+            } else {
+              setAutosavePaused(true);
+              notice.report("MARKDOWN_DRAFT_NEWER_INPUT");
+            }
+          }
+          if (!retainedNewerInput) setAutosavePaused(false);
           setSaveFailed(false);
           redraw();
         }
@@ -116,7 +185,59 @@ export function MarkdownWorkspace({
     return promise;
   }
   function runSave() {
-    void composition.run("save", save).catch(notice.report);
+    void composition.run("save", () => save()).catch(notice.report);
+  }
+  function capture(): WritingCapture {
+    const current = buffer.current;
+    if (!current) throw new ApiError("MARKDOWN_WRITING_INVALID");
+    return {
+      session: current,
+      projectId: current.project.projectId,
+      revision: current.project.revision,
+      text: current.text,
+      epoch: current.epoch,
+    };
+  }
+  function draftChanged(candidate: WritingDraft) {
+    const current = buffer.current;
+    const base = candidate.capture;
+    return (
+      current !== base.session ||
+      current?.epoch !== base.epoch ||
+      current.text !== base.text ||
+      (current.project.revision !== base.revision &&
+        current.project.text !== base.text)
+    );
+  }
+  function assertDraft(candidate: WritingDraft) {
+    if (draftRef.current !== candidate || draftChanged(candidate))
+      throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+  }
+  async function useDraft() {
+    const candidate = draftRef.current;
+    if (!candidate || applyingRef.current) return;
+    applyingRef.current = true;
+    setApplying(true);
+    try {
+      await composition.run("use-draft", async () => {
+        assertDraft(candidate);
+        if (pendingSave.current) await pendingSave.current;
+        assertDraft(candidate);
+        await save(candidate);
+        if (draftRef.current === candidate) {
+          draftRef.current = null;
+          setDraft(null);
+        }
+      });
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      applyingRef.current = false;
+      setApplying(false);
+    }
+  }
+  function closeMenu() {
+    if (projectMenu.current) projectMenu.current.open = false;
   }
   const current = buffer.current;
   const dirty = !!current && current.text !== current.project.text;
@@ -125,15 +246,21 @@ export function MarkdownWorkspace({
       !dirty ||
       saving ||
       saveFailed ||
+      autosavePaused ||
       preferences.saveMode !== "after_delay"
     )
       return;
     const timer = setTimeout(runSave, preferences.saveDelaySeconds * 1000);
     return () => clearTimeout(timer);
-  }, [current?.epoch, dirty, saving, saveFailed, preferences]);
+  }, [current?.epoch, dirty, saving, saveFailed, autosavePaused, preferences]);
   useEffect(() => {
     const blur = () => {
-      if (preferences.saveMode === "on_window_change" && !saveFailed) runSave();
+      if (
+        preferences.saveMode === "on_window_change" &&
+        !saveFailed &&
+        !autosavePaused
+      )
+        runSave();
     };
     const visibility = () => {
       if (document.hidden) blur();
@@ -153,7 +280,7 @@ export function MarkdownWorkspace({
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("beforeunload", unload);
     };
-  }, [preferences, saveFailed]);
+  }, [preferences, saveFailed, autosavePaused]);
   function changed(value: string) {
     const current = buffer.current;
     if (!current || value === withoutBom(current.text).replace(/\r\n?/g, "\n"))
@@ -197,166 +324,503 @@ export function MarkdownWorkspace({
       .run("download", () => {
         const current = buffer.current;
         if (!current) return;
-        const url = URL.createObjectURL(
-          new Blob([new TextEncoder().encode(current.text)], {
-            type: "text/markdown;charset=utf-8",
-          }),
+        deliver(
+          new TextEncoder().encode(current.text),
+          "manuscript.md",
+          "text/markdown;charset=utf-8",
         );
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "manuscript.md";
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
       })
       .catch(notice.report);
   }
+  function deliver(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) {
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function downloadProject() {
+    if (exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      await composition.run("download-project", async () => {
+        const base = capture();
+        const captured = buffer.current;
+        const assert = () => same(captured, base.epoch);
+        if (pendingSave.current) await pendingSave.current;
+        assert();
+        await save();
+        assert();
+        const saved = buffer.current!.project;
+        const bytes = await client.download(saved.projectId, saved.revision);
+        assert();
+        deliver(
+          bytes as Uint8Array<ArrayBuffer>,
+          "scenesparrow-project.zip",
+          "application/zip",
+        );
+      });
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
+  }
+  async function importChanges(file: File, count: number) {
+    if (exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      await composition.run("import-changes", async () => {
+        const base = capture();
+        if (
+          count !== 1 ||
+          !/\.zip$/i.test(file.name) ||
+          file.size > 2 * 1024 * 1024 + 65536
+        )
+          throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (buffer.current !== base.session) return;
+        const review = await client.review(base.projectId, bytes);
+        if (buffer.current !== base.session) return;
+        const candidate = {
+          capture: base,
+          text: review.text,
+          review,
+          conflict: false,
+        };
+        exchangeRef.current = candidate;
+        setExchange(candidate);
+        setSeparateProject(null);
+      });
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
+  }
+  function exchangeChanged(candidate: ExchangeCandidate) {
+    const value = buffer.current;
+    return (
+      candidate.conflict ||
+      draftChanged(candidate) ||
+      candidate.review.currentRevision !== candidate.review.baseRevision ||
+      value?.project.revision !== candidate.review.baseRevision ||
+      value.text !== value.project.text
+    );
+  }
+  async function applyChanges() {
+    const candidate = exchangeRef.current;
+    if (!candidate || applyingRef.current) return;
+    applyingRef.current = true;
+    setApplying(true);
+    const assert = () => {
+      if (exchangeRef.current !== candidate || exchangeChanged(candidate))
+        throw new ApiError("MARKDOWN_EXCHANGE_CONFLICT");
+    };
+    try {
+      await composition.run("apply-changes", async () => {
+        assert();
+        if (pendingSave.current) await pendingSave.current;
+        assert();
+        await save(candidate);
+        if (exchangeRef.current === candidate) {
+          exchangeRef.current = null;
+          setExchange(null);
+        }
+      });
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.code === "MARKDOWN_CONFLICT") {
+        candidate.conflict = true;
+        redraw();
+      }
+      notice.report(failure);
+    } finally {
+      applyingRef.current = false;
+      setApplying(false);
+    }
+  }
+  async function saveReturnedSeparately() {
+    const candidate = exchangeRef.current;
+    if (!candidate || exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      const project = await client.create(candidate.text);
+      if (exchangeRef.current !== candidate) return;
+      const url = new URL(window.location.href);
+      url.searchParams.set("project", project.projectId);
+      setSeparateProject(url.href);
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
+  }
   return (
-    <div className="workspace markdown-workspace">
-      <NotificationPresenter t={t} />
-      <a className="skip-link" href="#markdown-editor">
-        {t.skipToWorkbench}
-      </a>
-      <WorkspaceRibbon t={t} onWrite={() => editor.current?.focus()} />
-      <header className="workspace-header">
-        <div className="workspace-brand">{t.appName}</div>
-        <div className="workspace-actions">
-          <button
-            disabled={loading || busy}
-            onClick={() => void open(async () => "")}
-          >
-            {t.markdownNew}
-          </button>
-          <button
-            disabled={loading || busy}
-            onClick={() => fileInput.current?.click()}
-          >
-            {t.markdownImport}
-          </button>
-          <input
-            ref={fileInput}
-            hidden
-            type="file"
-            accept=".md,text/markdown"
-            onChange={(event) => {
-              const files = event.currentTarget.files;
-              const file = files?.[0];
-              const count = files?.length;
-              event.currentTarget.value = "";
-              if (!file) return;
-              void open(async () => {
-                if (
-                  count !== 1 ||
-                  !/\.md$/i.test(file.name) ||
-                  file.size > 2 * 1024 * 1024
-                )
-                  throw new ApiError("MARKDOWN_TEXT_INVALID");
-                try {
-                  return new TextDecoder("utf-8", {
-                    fatal: true,
-                    ignoreBOM: true,
-                  }).decode(await file.arrayBuffer());
-                } catch {
-                  throw new ApiError("MARKDOWN_TEXT_INVALID");
-                }
-              });
-            }}
-          />
-          <button disabled={!current || saving} onClick={runSave}>
-            {t.markdownSave}
-          </button>
-          <button disabled={!current} onClick={download}>
-            {t.markdownDownload}
-          </button>
-          <select
-            aria-label={t.language}
-            value={locale}
-            onChange={(event) => setLocale(event.target.value)}
-          >
-            <option value="en">English</option>
-            <option value="zh-CN">简体中文</option>
-          </select>
-        </div>
-      </header>
-      <main className="markdown-main">
-        <div className="markdown-toolbar">
-          <strong>{t.markdownWorkspace}</strong>
-          <span role="status">
-            {saving
-              ? t.save_saving
-              : dirty
-                ? t.save_pending
-                : current
-                  ? t.save_saved
-                  : loading
-                    ? t.workspaceLoading
-                    : ""}
-          </span>
-          <label>
-            {t.autosaveMode}
+    <SettingsActions.Provider value={setSettingsSection}>
+      <div className="workspace markdown-workspace">
+        <NotificationPresenter t={t} />
+        <a className="skip-link" href="#markdown-editor">
+          {t.skipToWorkbench}
+        </a>
+        <WorkspaceRibbon t={t} onWrite={() => editor.current?.focus()} />
+        <header className="workspace-header">
+          <div className="workspace-brand">{t.appName}</div>
+          <div className="workspace-actions">
+            <details className="project-menu" ref={projectMenu}>
+              <summary>{t.markdownProjectMenu}</summary>
+              <nav aria-label={t.markdownProjectMenu}>
+                <button
+                  disabled={loading || busy}
+                  onClick={() => {
+                    closeMenu();
+                    void open(async () => "");
+                  }}
+                >
+                  {t.markdownNew}
+                </button>
+                <button
+                  disabled={loading || busy}
+                  onClick={() => {
+                    closeMenu();
+                    fileInput.current?.click();
+                  }}
+                >
+                  {t.markdownImport}
+                </button>
+                <button
+                  disabled={!current || saving}
+                  onClick={() => {
+                    closeMenu();
+                    runSave();
+                  }}
+                >
+                  {t.markdownSave}
+                </button>
+                <button
+                  disabled={!current}
+                  onClick={() => {
+                    closeMenu();
+                    download();
+                  }}
+                >
+                  {t.markdownDownload}
+                </button>
+                <p>{t.markdownExchangeHelp}</p>
+                <button
+                  disabled={!current || exchangeBusy}
+                  onClick={() => {
+                    closeMenu();
+                    void downloadProject();
+                  }}
+                >
+                  {dirty || saving
+                    ? t.markdownSaveDownload
+                    : t.markdownDownloadProject}
+                </button>
+                <button
+                  disabled={!current || exchangeBusy}
+                  onClick={() => {
+                    closeMenu();
+                    exchangeInput.current?.click();
+                  }}
+                >
+                  {t.markdownImportChanges}
+                </button>
+              </nav>
+            </details>
+            <input
+              ref={exchangeInput}
+              hidden
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                const count = event.currentTarget.files?.length ?? 0;
+                event.currentTarget.value = "";
+                if (file) void importChanges(file, count);
+              }}
+            />
+            <input
+              ref={fileInput}
+              hidden
+              type="file"
+              accept=".md,text/markdown"
+              onChange={(event) => {
+                const files = event.currentTarget.files;
+                const file = files?.[0];
+                const count = files?.length;
+                event.currentTarget.value = "";
+                if (!file) return;
+                void open(async () => {
+                  if (
+                    count !== 1 ||
+                    !/\.md$/i.test(file.name) ||
+                    file.size > 2 * 1024 * 1024
+                  )
+                    throw new ApiError("MARKDOWN_TEXT_INVALID");
+                  try {
+                    return new TextDecoder("utf-8", {
+                      fatal: true,
+                      ignoreBOM: true,
+                    }).decode(await file.arrayBuffer());
+                  } catch {
+                    throw new ApiError("MARKDOWN_TEXT_INVALID");
+                  }
+                });
+              }}
+            />
+            <button disabled={!current} onClick={() => setWritingOpen(true)}>
+              {t.markdownAiWriting}
+            </button>
+            <button onClick={() => setSettingsSection("services")}>
+              {t.settings}
+            </button>
             <select
-              value={preferences.saveMode}
-              onChange={(event) =>
-                applicationPreferences.update({
-                  saveMode: event.target.value as SaveMode,
-                })
-              }
+              aria-label={t.language}
+              value={locale}
+              onChange={(event) => setLocale(event.target.value)}
             >
-              <option value="after_delay">{t.autosaveAfterDelay}</option>
-              <option value="on_window_change">
-                {t.autosaveOnWindowChange}
-              </option>
-              <option value="off">{t.autosaveOff}</option>
+              <option value="en">English</option>
+              <option value="zh-CN">简体中文</option>
             </select>
-          </label>
-          {preferences.saveMode === "after_delay" && (
+          </div>
+        </header>
+        <main className="markdown-main">
+          <div className="markdown-toolbar">
+            <strong>{t.markdownWorkspace}</strong>
+            <span role="status">
+              {saving
+                ? t.save_saving
+                : saveFailed
+                  ? t.save_error
+                  : dirty
+                    ? t.save_pending
+                    : current
+                      ? t.save_saved
+                      : loading
+                        ? t.workspaceLoading
+                        : ""}
+            </span>
             <label>
-              {t.autosaveDelay}
+              {t.autosaveMode}
               <select
-                value={preferences.saveDelaySeconds}
+                value={preferences.saveMode}
                 onChange={(event) =>
                   applicationPreferences.update({
-                    saveDelaySeconds: Number(event.target.value) as SaveDelay,
+                    saveMode: event.target.value as SaveMode,
                   })
                 }
               >
-                {([5, 10, 30] as const).map((seconds) => (
-                  <option key={seconds} value={seconds}>
-                    {t.autosaveSeconds.replace("{seconds}", String(seconds))}
-                  </option>
-                ))}
+                <option value="after_delay">{t.autosaveAfterDelay}</option>
+                <option value="on_window_change">
+                  {t.autosaveOnWindowChange}
+                </option>
+                <option value="off">{t.autosaveOff}</option>
               </select>
             </label>
+            {preferences.saveMode === "after_delay" && (
+              <label>
+                {t.autosaveDelay}
+                <select
+                  value={preferences.saveDelaySeconds}
+                  onChange={(event) =>
+                    applicationPreferences.update({
+                      saveDelaySeconds: Number(event.target.value) as SaveDelay,
+                    })
+                  }
+                >
+                  {([5, 10, 30] as const).map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {t.autosaveSeconds.replace("{seconds}", String(seconds))}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {autosavePaused && (
+            <p className="markdown-conflict">{t.MARKDOWN_DRAFT_NEWER_INPUT}</p>
           )}
-        </div>
-        {current && (
-          <textarea
-            key={current.project.projectId}
-            ref={editor}
-            id="markdown-editor"
-            aria-label={t.markdownText}
-            autoFocus
-            defaultValue={withoutBom(current.text)}
-            onChange={(event) => changed(event.currentTarget.value)}
-            onCompositionStart={() => composition.composition("markdown", true)}
-            onCompositionEnd={() => composition.composition("markdown", false)}
-            onBlur={() =>
-              composition.blur("markdown", () => {
-                if (editor.current) changed(editor.current.value);
-                composition.composition("markdown", false);
-              })
-            }
-            onKeyDown={(event) => {
-              if (
-                (event.ctrlKey || event.metaKey) &&
-                event.key.toLowerCase() === "s"
-              ) {
-                event.preventDefault();
-                runSave();
-              }
-            }}
-          />
+          {!current && !loading && <p>{t.markdownOpenFailed}</p>}
+          {current && (
+            <div className="markdown-document">
+              <HeadingNavigation
+                key={`contents-${current.project.projectId}`}
+                text={withoutBom(current.text).replace(/\r\n?/g, "\n")}
+                label={t.workspaceTab_structure}
+                empty={t.noHeadings}
+                onSelect={(offset) => {
+                  editor.current?.setSelectionRange(offset, offset);
+                  editor.current?.focus();
+                }}
+              />
+              <textarea
+                key={`${current.project.projectId}:${editorSession}`}
+                ref={editor}
+                id="markdown-editor"
+                aria-label={t.markdownText}
+                autoFocus
+                defaultValue={withoutBom(current.text)}
+                onChange={(event) => changed(event.currentTarget.value)}
+                onCompositionStart={() =>
+                  composition.composition("markdown", true)
+                }
+                onCompositionEnd={() =>
+                  composition.composition("markdown", false)
+                }
+                onBlur={() =>
+                  composition.blur("markdown", () => {
+                    if (editor.current) changed(editor.current.value);
+                    composition.composition("markdown", false);
+                  })
+                }
+                onKeyDown={(event) => {
+                  if (
+                    (event.ctrlKey || event.metaKey) &&
+                    event.key.toLowerCase() === "s"
+                  ) {
+                    event.preventDefault();
+                    runSave();
+                  }
+                }}
+              />
+              {exchange && (
+                <section
+                  className="markdown-draft markdown-exchange"
+                  aria-label={t.markdownExchangePreview}
+                >
+                  <div className="dialog-heading">
+                    <h2>{t.markdownExchangePreview}</h2>
+                    <button
+                      disabled={applying}
+                      onClick={() => {
+                        exchangeRef.current = null;
+                        setExchange(null);
+                      }}
+                    >
+                      {t.markdownKeepCurrent}
+                    </button>
+                  </div>
+                  <p>{t.markdownExchangeHelp}</p>
+                  {exchangeChanged(exchange) && (
+                    <p className="markdown-conflict">
+                      {t.MARKDOWN_EXCHANGE_CONFLICT}
+                    </p>
+                  )}
+                  {current.text === exchange.text ? (
+                    <p>{t.markdownExchangeUnchanged}</p>
+                  ) : (
+                    <ExchangeComparison
+                      current={current.text}
+                      returned={exchange.text}
+                      t={t}
+                    />
+                  )}
+                  <button
+                    disabled={
+                      applying ||
+                      exchangeChanged(exchange) ||
+                      current.text === exchange.text
+                    }
+                    onClick={() => void applyChanges()}
+                  >
+                    {t.markdownApplyChanges}
+                  </button>
+                  <button
+                    disabled={exchangeBusy || !!separateProject}
+                    onClick={() => void saveReturnedSeparately()}
+                  >
+                    {t.markdownSaveReturned}
+                  </button>
+                  {separateProject && (
+                    <a
+                      href={separateProject}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t.markdownOpenReturned}
+                    </a>
+                  )}
+                </section>
+              )}
+              {draft && (
+                <section
+                  className="markdown-draft"
+                  aria-label={t.markdownDraftPreview}
+                >
+                  <div className="dialog-heading">
+                    <h2>{t.markdownDraftPreview}</h2>
+                    <button
+                      disabled={applying}
+                      onClick={() => {
+                        draftRef.current = null;
+                        setDraft(null);
+                      }}
+                    >
+                      {t.close}
+                    </button>
+                  </div>
+                  <p>{t.markdownDraftHelp}</p>
+                  {draftChanged(draft) && (
+                    <p className="markdown-conflict">
+                      {t.MARKDOWN_DRAFT_CONFLICT}
+                    </p>
+                  )}
+                  <MarkdownPreview text={draft.text} />
+                  <button disabled={applying} onClick={() => void useDraft()}>
+                    {t.markdownUseDraft}
+                  </button>
+                </section>
+              )}
+              {writingOpen && (
+                <MarkdownWriting
+                  key={current.project.projectId}
+                  client={platformClient}
+                  t={t}
+                  composition={composition}
+                  capture={capture}
+                  onClose={() => setWritingOpen(false)}
+                  onDraft={(candidate) => {
+                    if (buffer.current !== candidate.capture.session) return;
+                    draftRef.current = candidate;
+                    setDraft(candidate);
+                  }}
+                />
+              )}
+            </div>
+          )}
+        </main>
+        {settingsSection && (
+          <SettingsModal
+            title={t.settings}
+            t={t}
+            onClose={() => setSettingsSection(null)}
+          >
+            <nav className="settings-tabs" aria-label={t.settings}>
+              <button onClick={() => setSettingsSection("services")}>
+                {t.aiModels}
+              </button>
+              <button onClick={() => setSettingsSection("defaults")}>
+                {t.aiDefaultModels}
+              </button>
+            </nav>
+            <AiSettings
+              client={platformClient}
+              t={t}
+              active
+              open
+              section={settingsSection === "defaults" ? "defaults" : "services"}
+            />
+          </SettingsModal>
         )}
-      </main>
-    </div>
+      </div>
+    </SettingsActions.Provider>
   );
 }

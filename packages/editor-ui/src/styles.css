@@ -2475,9 +2475,42 @@ body > .notifications {
 .markdown-toolbar select {
   min-width: 0;
 }
+.markdown-document {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 1rem;
+}
+.markdown-contents {
+  flex: 0 0 210px;
+  min-width: 0;
+  overflow: auto;
+}
+.markdown-contents:not([open]) {
+  flex-basis: auto;
+}
+.markdown-contents summary {
+  cursor: pointer;
+}
+.markdown-contents ul {
+  list-style: none;
+  padding-inline-start: 0;
+  margin-block: 0.5rem;
+}
+.markdown-contents button {
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.markdown-contents p {
+  color: var(--muted);
+}
 .markdown-main textarea {
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 55vh;
   resize: none;
   border: 1px solid var(--border);
@@ -2493,4 +2526,85 @@ body > .notifications {
 }
 .markdown-workspace .workspace-actions {
   flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .markdown-document {
+    flex-direction: column;
+  }
+  .markdown-contents {
+    flex-basis: auto;
+    max-height: 25vh;
+  }
+  .markdown-main textarea {
+    padding: 1rem;
+  }
+}
+
+.markdown-writing,
+.markdown-draft {
+  flex: 1 1 360px;
+  min-width: 260px;
+  max-height: 75vh;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.markdown-writing {
+  flex: 0 0 300px;
+}
+.markdown-writing h2,
+.markdown-draft h2 {
+  font-size: 1rem;
+}
+.markdown-writing label {
+  display: block;
+  margin-block: 1rem;
+}
+.markdown-writing textarea {
+  display: block;
+  min-height: 100px;
+  padding: 0.75rem;
+  resize: vertical;
+}
+.markdown-document > textarea {
+  flex: 1 1 400px;
+}
+.markdown-preview {
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.markdown-preview pre {
+  white-space: pre-wrap;
+}
+.markdown-conflict {
+  color: var(--danger);
+}
+@media (max-width: 1100px) {
+  .markdown-document:has(.markdown-writing, .markdown-draft) {
+    flex-wrap: wrap;
+    overflow: auto;
+  }
+}
+
+.markdown-exchange-diff pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.markdown-diff-removed {
+  background: #fbe9e7;
+  color: #742a22;
+}
+.markdown-diff-added {
+  background: #e8f4e8;
+  color: #255b2b;
+}
+.project-menu nav > p {
+  max-width: 22rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
 }

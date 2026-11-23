@@ -1,5 +1,8 @@
 use crate::*;
-use axum::{extract::Path, routing::post};
+use axum::{
+    extract::{FromRef, Path},
+    routing::post,
+};
 use scenesparrow_application::ai::{AiExecutionPort, AiSettingsPort};
 use scenesparrow_domain::{ai::AiError, contracts::*};
 use scenesparrow_infrastructure::ai::{actions::SettingsActions, settings::SettingsStore};
@@ -7,7 +10,7 @@ use std::sync::OnceLock;
 
 pub struct AiState {
     settings: OnceLock<Result<SettingsStore, AiError>>,
-    actions: SettingsActions,
+    pub(crate) actions: SettingsActions,
     slots: Arc<Semaphore>,
     pub(crate) blocking_slots: Arc<Semaphore>,
 }
@@ -33,14 +36,16 @@ impl AiState {
             .map_err(|e| *e)
     }
 }
-fn result<T: serde::Serialize>(result: Result<T, AiError>) -> Response {
+pub(crate) fn result<T: serde::Serialize>(result: Result<T, AiError>) -> Response {
     match result {
         Ok(value) => Json(value).into_response(),
         Err(error) => api_error(
             match error.0 {
-                "SETTINGS_CONFLICT" | "CONFIGURATION_STALE" | "REQUEST_ID_REUSED" => {
-                    StatusCode::CONFLICT
-                }
+                "SETTINGS_CONFLICT"
+                | "CONFIGURATION_STALE"
+                | "REQUEST_ID_REUSED"
+                | "MARKDOWN_CONFLICT"
+                | "ACTION_IN_PROGRESS" => StatusCode::CONFLICT,
                 "INPUT_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
                 "STORAGE_UNAVAILABLE" => StatusCode::INTERNAL_SERVER_ERROR,
                 _ => StatusCode::UNPROCESSABLE_ENTITY,
@@ -49,7 +54,24 @@ fn result<T: serde::Serialize>(result: Result<T, AiError>) -> Response {
         ),
     }
 }
+impl FromRef<AppState> for Arc<AiState> {
+    fn from_ref(state: &AppState) -> Self {
+        state.ai.clone()
+    }
+}
 pub fn routes() -> Router<AppState> {
+    settings_routes().merge(
+        Router::new()
+            .route("/v1/ai/runs/{id}", get(read_run))
+            .route("/v1/ai/runs/{id}/result", get(read_result))
+            .route("/v1/ai/runs/{id}/cancel", post(cancel)),
+    )
+}
+pub(crate) fn settings_routes<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    Arc<AiState>: FromRef<S>,
+{
     Router::new()
         .route("/v1/ai/settings", get(read).put(update))
         .route("/v1/ai/credentials", post(credential))
@@ -58,33 +80,29 @@ pub fn routes() -> Router<AppState> {
         .route("/v1/ai/models/discover", post(discover))
         .route("/v1/ai/connection-tests", post(test))
         .route("/v1/ai/connection-tests/prepare", post(prepare_test))
-        .route("/v1/ai/runs/{id}", get(read_run))
-        .route("/v1/ai/runs/{id}/result", get(read_result))
-        .route("/v1/ai/runs/{id}/cancel", post(cancel))
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
 }
-async fn read(State(state): State<AppState>) -> Response {
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+async fn read(State(state): State<Arc<AiState>>) -> Response {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            state.ai.settings()?.read_settings()
+            state.settings()?.read_settings()
         })
         .await
         .unwrap_or(Err(AiError("STORAGE_UNAVAILABLE"))),
     )
 }
-async fn resolve(State(state): State<AppState>) -> Response {
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+async fn resolve(State(state): State<Arc<AiState>>) -> Response {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
             state
-                .ai
                 .settings()?
                 .resolve_configuration(AiCategory::Text, AiCapability::Textgenerate)
         })
@@ -93,35 +111,35 @@ async fn resolve(State(state): State<AppState>) -> Response {
     )
 }
 async fn prepare_test(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiTestTarget>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            state.ai.settings()?.resolve_test_configuration(&body)
+            state.settings()?.resolve_test_configuration(&body)
         })
         .await
         .unwrap_or(Err(AiError("STORAGE_UNAVAILABLE"))),
     )
 }
 async fn update(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiSettingsUpdate>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state.ai;
+    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
@@ -132,16 +150,16 @@ async fn update(
     )
 }
 async fn credential(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiCredentialUpdate>, JsonRejection>,
 ) -> Response {
     let Ok(Json(mut body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state.ai;
+    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
@@ -160,7 +178,7 @@ async fn credential(
     )
 }
 async fn delete_credential(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiCredentialUpdate>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = body else {
@@ -169,10 +187,10 @@ async fn delete_credential(
     if !body.secret.is_empty() {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     }
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state.ai;
+    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
@@ -184,19 +202,19 @@ async fn delete_credential(
     )
 }
 async fn discover(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiModelAction>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    let Ok(permit) = state.ai.slots.clone().try_acquire_owned() else {
+    let Ok(permit) = state.slots.clone().try_acquire_owned() else {
         return api_error(StatusCode::CONFLICT, "QUEUE_FULL");
     };
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state.ai;
+    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
@@ -210,7 +228,7 @@ async fn discover(
     )
 }
 async fn test(
-    State(state): State<AppState>,
+    State(state): State<Arc<AiState>>,
     body: Result<Json<AiTestAction>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = body else {
@@ -218,10 +236,10 @@ async fn test(
     };
     // Identical concurrent action IDs wait on the same OnceLock receipt. The core
     // session owns this operation; HTTP timeout/reconnect never starts another ID.
-    let Ok(slot) = state.ai.blocking_slots.clone().acquire_owned().await else {
+    let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state.ai;
+    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;

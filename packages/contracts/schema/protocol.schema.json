@@ -3435,6 +3435,82 @@
           "type": "string"
         }
       }
+    },
+    "MarkdownWritingAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "sessionId",
+        "fingerprint",
+        "kind",
+        "brief",
+        "outline",
+        "text",
+        "revision"
+      ],
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["outline", "draft"]
+        },
+        "brief": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "outline": {
+          "type": "string",
+          "maxLength": 262144
+        },
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      }
+    },
+    "MarkdownWritingResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "text"],
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "MarkdownExchangeReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "baseRevision", "currentRevision", "text"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "string"
+        },
+        "currentRevision": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
     }
   }
 }

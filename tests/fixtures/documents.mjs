@@ -1,5 +1,5 @@
 // Self-authored minimal fixtures (CC0). No third-party document content.
-import { deflateRawSync } from "node:zlib";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
   for (let bit = 0; bit < 8; bit++) n = (n >>> 1) ^ (n & 1 ? 0xedb88320 : 0);
   return n >>> 0;
@@ -13,7 +13,9 @@ export function zip(entries) {
   let offset = 0;
   const locals = [],
     central = [];
-  for (const [name, data] of Object.entries(entries)) {
+  for (const [name, data] of Array.isArray(entries)
+    ? entries
+    : Object.entries(entries)) {
     const plain = Buffer.isBuffer(data) ? data : Buffer.from(data);
     const compressed = deflateRawSync(plain);
     const filename = Buffer.from(name);
@@ -110,4 +112,34 @@ export function pdf(pages = [{ text: "First page" }], encrypted = false) {
       "",
     )}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R ${encrypt ? `/Encrypt ${encrypt} 0 R /ID [<${"02".repeat(16)}> <${"02".repeat(16)}>]` : ""} >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(result);
+}
+
+// Read only our bounded test ZIPs; production validation lives in Rust.
+export function zipEntries(bytes) {
+  const end = bytes.length - 22;
+  const count = bytes.readUInt16LE(end + 10);
+  let offset = bytes.readUInt32LE(end + 16);
+  const entries = {};
+  for (let i = 0; i < count; i++) {
+    const size = bytes.readUInt32LE(offset + 20);
+    const nameLength = bytes.readUInt16LE(offset + 28);
+    const extraLength = bytes.readUInt16LE(offset + 30);
+    const commentLength = bytes.readUInt16LE(offset + 32);
+    const local = bytes.readUInt32LE(offset + 42);
+    const name = bytes
+      .subarray(offset + 46, offset + 46 + nameLength)
+      .toString();
+    const data =
+      local +
+      30 +
+      bytes.readUInt16LE(local + 26) +
+      bytes.readUInt16LE(local + 28);
+    const compressed = bytes.subarray(data, data + size);
+    entries[name] =
+      bytes.readUInt16LE(offset + 10) === 8
+        ? inflateRawSync(compressed)
+        : compressed;
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
 }

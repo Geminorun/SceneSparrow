@@ -1894,6 +1894,53 @@ pub struct SaveMarkdownProject {
     pub revision: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarkdownWritingActionKind {
+    #[serde(rename = "outline")]
+    Outline,
+    #[serde(rename = "draft")]
+    Draft,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownWritingAction {
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownWritingActionKind,
+    #[serde(rename = "brief")]
+    pub brief: String,
+    #[serde(rename = "outline")]
+    pub outline: String,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownWritingResult {
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownExchangeReview {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "baseRevision")]
+    pub base_revision: String,
+    #[serde(rename = "currentRevision")]
+    pub current_revision: String,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,

@@ -1,8 +1,9 @@
 # Markdown file project
 
-Status: proposed first implementation slice. This spec defines a Web validation
-workflow for one operator. It narrows the open project proposal in [PR #19][old-pr]
-to a file-backed writing loop.
+Status — implemented as an opt-in Web validation slice for one operator. It
+narrows the open project proposal in [PR #19][old-pr] to a file-backed writing
+loop. See the [file-first Web writing workspace](web-file-workspace.md)
+for the current default workflow and scope.
 
 ## User workflow
 

@@ -67,6 +67,10 @@ try {
       SCENESPARROW_SESSION_TOKEN: token,
       SCENESPARROW_WEB_ORIGIN: `http://127.0.0.1:${webPort}`,
     };
+    if (env.SCENESPARROW_PROJECT_DIR === undefined)
+      env.SCENESPARROW_MARKDOWN_PROJECTS_DIR ??= fileURLToPath(
+        new URL("../.local/markdown-projects", import.meta.url),
+      );
     const core = supervise(start(coreBinary, [], { env }));
     await waitFor(
       `http://127.0.0.1:${corePort}/v1/health`,

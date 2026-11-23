@@ -1,13 +1,10 @@
 # Private self-hosted Web deployment
 
-The production Web entry runs the built React application, Rust core and actual
-Node AI/document workers in one Linux AMD64 container. It supports one private
-workspace with one project and shared global AI configuration. Everyone given the
-operator credential sees and changes the same data. There are no separate users,
-tenant boundaries or simultaneous independent projects. Native desktop delivery
-and native lifecycle/backup endpoints are unavailable over the public gateway;
-browser copy and TXT/Markdown/DOCX downloads remain available. The render sample
-does not become a production video service through this deployment.
+The production Web entry runs the built React application, Rust core, and Node
+AI worker in one Linux AMD64 container. A private operator can open file-backed
+manuscripts, write or generate a draft, and exchange project ZIPs. The operator
+credential grants access to the same project root and global AI configuration.
+[File-first Web specification](specs/web-file-workspace.md)
 
 The container starts `node apps/web/server/start.mjs`. The Web app owns the
 production supervisor, gateway, diagnostics and master-key validation modules in
@@ -174,11 +171,11 @@ the final image; TLS verification stays enabled. The final image retains pnpm
 workspace dependencies (including some development dependencies) and source worker
 modules so Node 24 can load their TypeScript and workspace symlinks. It contains
 neither Electron/Chromium downloads nor a Rust compiler. `/app/crates/infrastructure`
-and `/app/workers` preserve Rust's compiled worker paths. The smoke check creates
-isolated temporary Docker volumes, tests the real core and built frontend, imports
-TXT/MD/DOCX/PDF, generates TXT/MD/DOCX exports, executes a Rust-supervised review task through the actual AI SDK against
-one counted local fake response, restarts and verifies durable state. It removes
-only its own containers/volumes.
+and `/app/workers` preserve Rust's compiled worker paths. The smoke check uses
+isolated temporary Docker volumes and verifies authenticated Web startup, file
+writes, outline and draft generation through the Rust-supervised AI worker with
+a counted local fake provider, encrypted credentials, restart, and backup
+recovery into an empty volume.
 
 For first server setup, create the directory and secret, configure the existing
 reverse proxy using [the Nginx example](../deploy/nginx.conf.example), then deploy
@@ -209,21 +206,23 @@ clear it and rotate the operator secret if access must be revoked.
 
 Compose uses fixed named volumes `scenesparrow-project` and `scenesparrow-appdata`.
 The non-root container (uid/gid 1000) initializes new volumes from owned image
-directories. Existing volumes must already be owned by uid 1000; repair ownership
-offline if importing data. One stable Compose project name avoids orphaned data
-across commit deployments. Never use `docker compose down -v` on real data.
+directories. Existing volumes must be writable by uid 1000. The default project
+root is `/data/project/markdown-projects` inside the project volume. On upgrade,
+this directory starts a fresh file workspace and any older SQLite files are
+preserved outside that directory. Import exported Markdown to carry forward
+earlier manuscripts. Keep the Compose project name stable across deployments.
+Never use `docker compose down -v` on real data.
 
-On replacement, the supervisor stops admissions/connections, calls authenticated
-native quiesce, sends SIGINT to Rust, and uses a bounded process-group kill if
-necessary. Compose allows 60 seconds. Deploy stops the current service and refuses
-to proceed if **any running container** still mounts either volume. It then makes
-independent gzip tar archives of both complete volumes, including SQLite WAL,
-objects and app data, under `<DEPLOY_DIR>/backups/<timestamp>.<unique>/` before
-starting the replacement with readiness checking. No live-SQLite-only copy or
-hard-linked backup is used. First deployment backs up any existing offline
-volumes; an empty first deployment records configuration metadata without data
-archives. A backup failure leaves the old service stopped and needs operator
-inspection. Same-commit redeployment is safe and still creates a fresh backup.
+On replacement, the supervisor stops admissions and connections, sends SIGINT to
+Rust, and uses a bounded process-group kill if necessary. Compose allows 60
+seconds. Deploy stops the current service and refuses to proceed if **any running
+container** still mounts either volume. It copies both complete volumes into
+gzip tar archives under `<DEPLOY_DIR>/backups/<timestamp>.<unique>/` before starting
+the replacement with readiness checking. The project archive includes the
+`markdown-projects` directory and all its project folders, along with any older
+data still present on the volume. An empty first deployment records configuration
+metadata. A backup failure leaves the service stopped for inspection. A
+same-commit redeployment creates a fresh backup.
 
 Backups include the previous Compose/runtime configuration and requested image
 digest; they intentionally exclude operator credentials and the AI master key. Backups are never deleted

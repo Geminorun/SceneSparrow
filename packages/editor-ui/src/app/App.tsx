@@ -50,7 +50,7 @@ export function App({ client }: { client: PlatformClient }) {
       );
   }, [client]);
   return markdown && client.markdownProjects ? (
-    <MarkdownWorkspace client={client.markdownProjects} />
+    <MarkdownWorkspace platformClient={client} />
   ) : (
     <LegacyApp client={client} ready={markdown === false} />
   );

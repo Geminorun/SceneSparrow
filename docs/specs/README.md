@@ -47,6 +47,8 @@ Specification prose does not replace executable JSON Schema contracts or migrati
 files. Those are introduced and checked with the implementation. Keep completed
 specs aligned with the final behavior and record material deviations.
 
-The [Markdown file project](markdown-file-project.md) spec proposes a separate
+The [Markdown file project](markdown-file-project.md) documents the implemented
 Web validation slice for file-backed manuscript creation, clean Markdown import,
-save, reopen, and export.
+save, reopen, and export. The [file-first Web writing workspace](web-file-workspace.md)
+spec covers the next release slice for the default editor, session-only AI
+writing, and external agent handoff.

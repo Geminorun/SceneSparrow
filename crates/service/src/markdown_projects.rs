@@ -1,7 +1,8 @@
 use crate::{api_error, authorize_request, contracts, observe_transport};
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Request, State, rejection::JsonRejection},
+    body::Bytes,
+    extract::{DefaultBodyLimit, FromRef, Path, Query, Request, State, rejection::JsonRejection},
     http::StatusCode,
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -12,12 +13,14 @@ use std::sync::Arc;
 #[derive(Clone)]
 struct FileState {
     store: Arc<MarkdownProjects>,
+    ai: Arc<crate::ai::AiState>,
     authorization: String,
     origin: String,
 }
 pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Router, &'static str> {
     let state = FileState {
         store: Arc::new(MarkdownProjects::open(root)?),
+        ai: Arc::new(crate::ai::AiState::default()),
         authorization: format!("Bearer {token}"),
         origin: origin.into(),
     };
@@ -34,6 +37,14 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
         )
         .route("/v1/markdown-projects", post(create))
         .route("/v1/markdown-projects/{id}", get(read).post(save))
+        .route("/v1/markdown-projects/{id}/writing", post(writing))
+        .route(
+            "/v1/markdown-projects/{id}/exchange",
+            get(download).post(review).layer(DefaultBodyLimit::max(
+                scenesparrow_infrastructure::markdown_projects::MAX_EXCHANGE_BYTES,
+            )),
+        )
+        .merge(crate::ai::settings_routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         // A 2 MiB UTF-8 manuscript can occupy six times as much JSON when escaped.
         .layer(DefaultBodyLimit::max(
@@ -49,11 +60,9 @@ async fn authorize(State(state): State<FileState>, request: Request, next: Next)
     }
     next.run(request).await
 }
-async fn execute(
+async fn execute<T: serde::Serialize + Send + 'static>(
     state: FileState,
-    op: impl FnOnce(&MarkdownProjects) -> Result<contracts::MarkdownProject, &'static str>
-    + Send
-    + 'static,
+    op: impl FnOnce(&MarkdownProjects) -> Result<T, &'static str> + Send + 'static,
 ) -> Response {
     match tokio::task::spawn_blocking(move || op(&state.store))
         .await
@@ -92,6 +101,109 @@ async fn save(
     };
     execute(state, move |store| {
         store.save(&id, &body.revision, body.text)
+    })
+    .await
+}
+
+impl FromRef<FileState> for Arc<crate::ai::AiState> {
+    fn from_ref(state: &FileState) -> Self {
+        state.ai.clone()
+    }
+}
+async fn writing(
+    State(state): State<FileState>,
+    Path(id): Path<String>,
+    body: Result<Json<scenesparrow_domain::contracts::MarkdownWritingAction>, JsonRejection>,
+) -> Response {
+    use scenesparrow_application::markdown_writing;
+    use scenesparrow_domain::{
+        ai::{AiError, ensure},
+        contracts::MarkdownWritingResult,
+    };
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
+    };
+    let Ok(slot) = state.ai.blocking_slots.clone().try_acquire_owned() else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
+    };
+    crate::ai::result(
+        tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            let saved = state.store.read(&id).map_err(AiError)?;
+            ensure(saved.revision == body.revision, "MARKDOWN_CONFLICT")?;
+            let input = markdown_writing::input(&body)?;
+            let context =
+                serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;
+            let text = state.ai.actions.text(
+                state.ai.settings()?,
+                scenesparrow_infrastructure::ai::actions::TextAction {
+                    action_id: &body.action_id,
+                    session_id: &body.session_id,
+                    fingerprint: &body.fingerprint,
+                    context: &context,
+                    input: &input,
+                },
+            )?;
+            markdown_writing::validate_output(&text)?;
+            Ok(MarkdownWritingResult {
+                action_id: body.action_id,
+                text,
+            })
+        })
+        .await
+        .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct DownloadQuery {
+    revision: String,
+}
+async fn download(
+    State(state): State<FileState>,
+    Path(id): Path<String>,
+    Query(query): Query<DownloadQuery>,
+) -> Response {
+    match tokio::task::spawn_blocking(move || state.store.exchange(&id, &query.revision))
+        .await
+        .unwrap_or(Err("MARKDOWN_STORAGE_UNAVAILABLE"))
+    {
+        Ok(bytes) => (
+            [
+                ("content-type", "application/zip"),
+                (
+                    "content-disposition",
+                    "attachment; filename=\"scenesparrow-project.zip\"",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(code) => api_error(
+            if code == "MARKDOWN_CONFLICT" {
+                StatusCode::CONFLICT
+            } else if code == "MARKDOWN_STORAGE_UNAVAILABLE" {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            },
+            code,
+        ),
+    }
+}
+async fn review(
+    State(state): State<FileState>,
+    Path(id): Path<String>,
+    bytes: Result<Bytes, axum::extract::rejection::BytesRejection>,
+) -> Response {
+    let Ok(bytes) = bytes else {
+        return api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "MARKDOWN_EXCHANGE_INVALID",
+        );
+    };
+    execute(state, move |store| {
+        store.review_exchange(&id, bytes.to_vec())
     })
     .await
 }

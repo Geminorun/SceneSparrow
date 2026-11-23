@@ -1,11 +1,14 @@
-//! The opt-in Web validation store has no SQLite repository or background jobs.
+//! File-backed Web project storage.
 use atomic_write_file::AtomicWriteFile;
-use scenesparrow_domain::{contracts::MarkdownProject, manuscript::MAX_TEXT_BYTES};
+use scenesparrow_domain::{
+    contracts::{MarkdownExchangeReview, MarkdownProject},
+    manuscript::MAX_TEXT_BYTES,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -19,6 +22,12 @@ struct Manifest {
     format_version: u32,
     project_id: String,
     manuscript: String,
+}
+pub const MAX_EXCHANGE_BYTES: usize = MAX_TEXT_BYTES + 64 * 1024;
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Exchange {
+    base_revision: String,
 }
 pub struct MarkdownProjects {
     root: PathBuf,
@@ -133,6 +142,136 @@ impl MarkdownProjects {
             serde_json::to_vec(&manifest).map_err(|_| "MARKDOWN_PROJECT_INVALID")?,
         ))?;
         self.read_inner(&id)
+    }
+
+    pub fn exchange(&self, id: &str, revision: &str) -> Result<Vec<u8>> {
+        let _guard = self
+            .writer
+            .lock()
+            .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
+        let saved = self.read_inner(id)?;
+        if saved.revision != revision {
+            return Err("MARKDOWN_CONFLICT");
+        }
+        let manifest = read(&self.directory(id)?.join("project.json"), 1024)?;
+        let metadata = serde_json::to_vec(&Exchange {
+            base_revision: saved.revision,
+        })
+        .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, bytes) in [
+            ("exchange.json", metadata.as_slice()),
+            ("project/project.json", manifest.as_slice()),
+            ("project/manuscript.md", saved.text.as_bytes()),
+        ] {
+            archive
+                .start_file(name, options)
+                .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
+            archive
+                .write_all(bytes)
+                .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
+        }
+        Ok(archive
+            .finish()
+            .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?
+            .into_inner())
+    }
+
+    pub fn review_exchange(&self, id: &str, bytes: Vec<u8>) -> Result<MarkdownExchangeReview> {
+        let invalid = "MARKDOWN_EXCHANGE_INVALID";
+        if bytes.len() > MAX_EXCHANGE_BYTES {
+            return Err(invalid);
+        }
+        let mut archive =
+            zip::ZipArchive::new(Cursor::new(bytes.as_slice())).map_err(|_| invalid)?;
+        // ZipArchive deduplicates central-directory names; verify the raw ZIP32 count too.
+        let raw = &bytes;
+        let footer = raw
+            .len()
+            .checked_sub(22 + archive.comment().len())
+            .ok_or(invalid)?;
+        let end = &raw[footer..];
+        let short = |offset| u16::from_le_bytes([end[offset], end[offset + 1]]);
+        let long =
+            |offset| u32::from_le_bytes(end[offset..offset + 4].try_into().unwrap()) as usize;
+        if &end[..4] != b"PK\x05\x06"
+            || short(4) != 0
+            || short(6) != 0
+            || short(8) as usize != archive.len()
+            || short(10) as usize != archive.len()
+            || long(12).checked_add(long(16)) != Some(footer)
+        {
+            return Err(invalid);
+        }
+        if !(3..=4).contains(&archive.len()) {
+            return Err(invalid);
+        }
+        let mut entries = std::collections::HashMap::new();
+        let mut directory = false;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).map_err(|_| invalid)?;
+            if entry.name() == "project/" && entry.is_dir() && entry.size() == 0 && !directory {
+                let kind = entry.unix_mode().unwrap_or(0) & 0o170000;
+                if kind != 0 && kind != 0o040000 {
+                    return Err(invalid);
+                }
+                directory = true;
+                continue;
+            }
+            let limit = match entry.name() {
+                "exchange.json" | "project/project.json" => 1024,
+                "project/manuscript.md" => MAX_TEXT_BYTES,
+                _ => return Err(invalid),
+            };
+            let kind = entry.unix_mode().unwrap_or(0) & 0o170000;
+            if !entry.is_file() || (kind != 0 && kind != 0o100000) || entry.size() > limit as u64 {
+                return Err(invalid);
+            }
+            let name = entry.name().to_owned();
+            let mut decoded = Vec::new();
+            entry
+                .by_ref()
+                .take((limit + 1) as u64)
+                .read_to_end(&mut decoded)
+                .map_err(|_| invalid)?;
+            if decoded.len() > limit || entries.insert(name, decoded).is_some() {
+                return Err(invalid);
+            }
+        }
+        let manifest: Manifest =
+            serde_json::from_slice(entries.get("project/project.json").ok_or(invalid)?)
+                .map_err(|_| invalid)?;
+        if manifest.format != "scenesparrow"
+            || manifest.format_version != 1
+            || manifest.manuscript != "manuscript.md"
+        {
+            return Err(invalid);
+        }
+        if manifest.project_id != id {
+            return Err("MARKDOWN_EXCHANGE_PROJECT_MISMATCH");
+        }
+        let exchange: Exchange =
+            serde_json::from_slice(entries.get("exchange.json").ok_or(invalid)?)
+                .map_err(|_| invalid)?;
+        if exchange.base_revision.len() != 64
+            || !exchange
+                .base_revision
+                .bytes()
+                .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+        {
+            return Err(invalid);
+        }
+        let text = String::from_utf8(entries.remove("project/manuscript.md").ok_or(invalid)?)
+            .map_err(|_| invalid)?;
+        let current = self.read(id)?;
+        Ok(MarkdownExchangeReview {
+            project_id: id.into(),
+            base_revision: exchange.base_revision,
+            current_revision: current.revision,
+            text,
+        })
     }
 
     pub fn save(&self, id: &str, revision: &str, text: String) -> Result<MarkdownProject> {
