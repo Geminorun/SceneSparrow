@@ -605,6 +605,8 @@
   "SOURCE_READ_FAILED": "无法重新加载参考资料。已有条目已保留。",
   "libraryFullUrl": "完整参考网址",
   "markdownWorkspace": "Markdown 写作空间",
+  "markdownProjectMenu": "项目",
+  "markdownOpenFailed": "无法打开此项目。请在“项目”中创建文稿或打开 Markdown 文件。",
   "markdownNew": "新建文稿",
   "markdownImport": "将 .md 打开为新文稿",
   "markdownDownload": "下载 .md",

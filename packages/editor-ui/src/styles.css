@@ -2475,9 +2475,42 @@ body > .notifications {
 .markdown-toolbar select {
   min-width: 0;
 }
+.markdown-document {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 1rem;
+}
+.markdown-contents {
+  flex: 0 0 210px;
+  min-width: 0;
+  overflow: auto;
+}
+.markdown-contents:not([open]) {
+  flex-basis: auto;
+}
+.markdown-contents summary {
+  cursor: pointer;
+}
+.markdown-contents ul {
+  list-style: none;
+  padding-inline-start: 0;
+  margin-block: 0.5rem;
+}
+.markdown-contents button {
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.markdown-contents p {
+  color: var(--muted);
+}
 .markdown-main textarea {
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 55vh;
   resize: none;
   border: 1px solid var(--border);
@@ -2493,4 +2526,16 @@ body > .notifications {
 }
 .markdown-workspace .workspace-actions {
   flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .markdown-document {
+    flex-direction: column;
+  }
+  .markdown-contents {
+    flex-basis: auto;
+    max-height: 25vh;
+  }
+  .markdown-main textarea {
+    padding: 1rem;
+  }
 }

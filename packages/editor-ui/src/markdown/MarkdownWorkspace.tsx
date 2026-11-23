@@ -12,12 +12,14 @@ import {
 } from "../feedback/NotificationPresenter";
 import { CompositionActions } from "../project-session/composition-actions";
 import { WorkspaceRibbon } from "../workbench/WorkspaceRibbon";
+import { HeadingNavigation } from "./HeadingNavigation";
 import en from "../locales/en.json";
 import zhCN from "../locales/zh-CN.json";
 
 type Buffer = { project: MarkdownProject; text: string; epoch: number };
 const withoutBom = (text: string) =>
   text.startsWith("\ufeff") ? text.slice(1) : text;
+const lastProjectKey = "scenesparrow.markdown-project";
 export function MarkdownWorkspace({
   client,
 }: {
@@ -48,6 +50,7 @@ export function MarkdownWorkspace({
   const pendingSave = useRef<Promise<void> | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const projectMenu = useRef<HTMLDetailsElement>(null);
   const composition = useRef(new CompositionActions()).current;
   const notice = useNoticeOwner();
   const redraw = () => render((value) => value + 1);
@@ -55,13 +58,25 @@ export function MarkdownWorkspace({
     const url = new URL(window.location.href);
     url.searchParams.set("project", project.projectId);
     window.history.replaceState(null, "", url);
+    try {
+      localStorage.setItem(lastProjectKey, project.projectId);
+    } catch {
+      // The explicit URL remains usable when browser storage is unavailable.
+    }
     buffer.current = { project, text: project.text, epoch: 0 };
     setSaveFailed(false);
     redraw();
   }
   useEffect(() => {
     let active = true;
-    const id = new URL(window.location.href).searchParams.get("project");
+    let id = new URL(window.location.href).searchParams.get("project");
+    if (id === null) {
+      try {
+        id = localStorage.getItem(lastProjectKey);
+      } catch {
+        // Profiles without browser storage can still open an explicit URL.
+      }
+    }
     void (id === null ? client.create("") : client.read(id))
       .then(
         (project) => {
@@ -117,6 +132,9 @@ export function MarkdownWorkspace({
   }
   function runSave() {
     void composition.run("save", save).catch(notice.report);
+  }
+  function closeMenu() {
+    if (projectMenu.current) projectMenu.current.open = false;
   }
   const current = buffer.current;
   const dirty = !!current && current.text !== current.project.text;
@@ -220,18 +238,47 @@ export function MarkdownWorkspace({
       <header className="workspace-header">
         <div className="workspace-brand">{t.appName}</div>
         <div className="workspace-actions">
-          <button
-            disabled={loading || busy}
-            onClick={() => void open(async () => "")}
-          >
-            {t.markdownNew}
-          </button>
-          <button
-            disabled={loading || busy}
-            onClick={() => fileInput.current?.click()}
-          >
-            {t.markdownImport}
-          </button>
+          <details className="project-menu" ref={projectMenu}>
+            <summary>{t.markdownProjectMenu}</summary>
+            <nav aria-label={t.markdownProjectMenu}>
+              <button
+                disabled={loading || busy}
+                onClick={() => {
+                  closeMenu();
+                  void open(async () => "");
+                }}
+              >
+                {t.markdownNew}
+              </button>
+              <button
+                disabled={loading || busy}
+                onClick={() => {
+                  closeMenu();
+                  fileInput.current?.click();
+                }}
+              >
+                {t.markdownImport}
+              </button>
+              <button
+                disabled={!current || saving}
+                onClick={() => {
+                  closeMenu();
+                  runSave();
+                }}
+              >
+                {t.markdownSave}
+              </button>
+              <button
+                disabled={!current}
+                onClick={() => {
+                  closeMenu();
+                  download();
+                }}
+              >
+                {t.markdownDownload}
+              </button>
+            </nav>
+          </details>
           <input
             ref={fileInput}
             hidden
@@ -261,12 +308,6 @@ export function MarkdownWorkspace({
               });
             }}
           />
-          <button disabled={!current || saving} onClick={runSave}>
-            {t.markdownSave}
-          </button>
-          <button disabled={!current} onClick={download}>
-            {t.markdownDownload}
-          </button>
           <select
             aria-label={t.language}
             value={locale}
@@ -283,13 +324,15 @@ export function MarkdownWorkspace({
           <span role="status">
             {saving
               ? t.save_saving
-              : dirty
-                ? t.save_pending
-                : current
-                  ? t.save_saved
-                  : loading
-                    ? t.workspaceLoading
-                    : ""}
+              : saveFailed
+                ? t.save_error
+                : dirty
+                  ? t.save_pending
+                  : current
+                    ? t.save_saved
+                    : loading
+                      ? t.workspaceLoading
+                      : ""}
           </span>
           <label>
             {t.autosaveMode}
@@ -328,33 +371,50 @@ export function MarkdownWorkspace({
             </label>
           )}
         </div>
+        {!current && !loading && <p>{t.markdownOpenFailed}</p>}
         {current && (
-          <textarea
-            key={current.project.projectId}
-            ref={editor}
-            id="markdown-editor"
-            aria-label={t.markdownText}
-            autoFocus
-            defaultValue={withoutBom(current.text)}
-            onChange={(event) => changed(event.currentTarget.value)}
-            onCompositionStart={() => composition.composition("markdown", true)}
-            onCompositionEnd={() => composition.composition("markdown", false)}
-            onBlur={() =>
-              composition.blur("markdown", () => {
-                if (editor.current) changed(editor.current.value);
-                composition.composition("markdown", false);
-              })
-            }
-            onKeyDown={(event) => {
-              if (
-                (event.ctrlKey || event.metaKey) &&
-                event.key.toLowerCase() === "s"
-              ) {
-                event.preventDefault();
-                runSave();
+          <div className="markdown-document">
+            <HeadingNavigation
+              key={`contents-${current.project.projectId}`}
+              text={withoutBom(current.text).replace(/\r\n?/g, "\n")}
+              label={t.workspaceTab_structure}
+              empty={t.noHeadings}
+              onSelect={(offset) => {
+                editor.current?.setSelectionRange(offset, offset);
+                editor.current?.focus();
+              }}
+            />
+            <textarea
+              key={current.project.projectId}
+              ref={editor}
+              id="markdown-editor"
+              aria-label={t.markdownText}
+              autoFocus
+              defaultValue={withoutBom(current.text)}
+              onChange={(event) => changed(event.currentTarget.value)}
+              onCompositionStart={() =>
+                composition.composition("markdown", true)
               }
-            }}
-          />
+              onCompositionEnd={() =>
+                composition.composition("markdown", false)
+              }
+              onBlur={() =>
+                composition.blur("markdown", () => {
+                  if (editor.current) changed(editor.current.value);
+                  composition.composition("markdown", false);
+                })
+              }
+              onKeyDown={(event) => {
+                if (
+                  (event.ctrlKey || event.metaKey) &&
+                  event.key.toLowerCase() === "s"
+                ) {
+                  event.preventDefault();
+                  runSave();
+                }
+              }}
+            />
+          </div>
         )}
       </main>
     </div>

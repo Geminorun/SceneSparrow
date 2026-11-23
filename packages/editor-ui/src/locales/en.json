@@ -605,6 +605,8 @@
   "SOURCE_READ_FAILED": "Could not reload references. Your existing items are kept.",
   "libraryFullUrl": "Full reference URL",
   "markdownWorkspace": "Markdown workspace",
+  "markdownProjectMenu": "Project",
+  "markdownOpenFailed": "Could not open this project. Use Project to create a manuscript or open a Markdown file.",
   "markdownNew": "New manuscript",
   "markdownImport": "Open .md as new manuscript",
   "markdownDownload": "Download .md",
