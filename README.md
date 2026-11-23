@@ -12,6 +12,12 @@ follows later. The architecture and contributor workflow support internationaliz
 
 ## Repository status
 
+The default Web workspace saves each manuscript as a Markdown file with a
+project manifest. It supports session-only AI outlining and drafting, plus
+ZIP exchange and review before applying an external edit. The earlier SQLite
+workbench remains the desktop foundation.
+[File-first Web specification](docs/specs/web-file-workspace.md)
+
 The manuscript workbench implements the eight reviewed execution steps. Steps 1–3
 provide manual manuscript editing, autosave, recovery and persistent five-step
 undo/redo, including reopening at the current history position.

@@ -38,6 +38,10 @@
   alone commits/pushes each reviewed step. Use one writer in the shared checkout
   and stop writes during review/checks/staging. Track platform/provider gaps
   separately; this workflow does not authorize automatic merge/release.
+- The [file-first Web spec](docs/specs/web-file-workspace.md) owns the default
+  Web writing workflow. Its two-file format, session-only history and AI
+  previews, and guarded external handoff take precedence over the legacy
+  project's database, history, and approval rules in this document.
 - The foundation implements project creation/reopen, a shared bilingual UI,
   authenticated local API, SQLite storage, and a procedural render sample. Read
   `docs/development.md` for setup and limitations. Step 1 adds canonical manuscript
@@ -69,8 +73,8 @@
   `pnpm render:smoke` exercises rendering. Never claim unrun platform checks.
 - Private self-hosted Web delivery is documented in `docs/web-deployment.md` and
   ADR 0003. Preserve operator authentication, exact-origin write checks, private
-  core tokens and the loopback core boundary. One deployment shares one project
-  and global AI configuration; it does not provide user isolation. Keep Docker's
+  core tokens and the loopback core boundary. One deployment shares a project
+  root and global AI configuration under one operator credential. Keep Docker's
   build/runtime workspace layout consistent with compiled Rust worker paths.
 - The model-services follow-up is specified in `docs/design/ai-model-services.md`
   and validated in `docs/validation/ai-model-services.md`. Preserve the independent

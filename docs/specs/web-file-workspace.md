@@ -1,6 +1,6 @@
 # File-first Web writing workspace
 
-Status — draft for product approval.
+Status — approved and implemented in the default Web workspace.
 
 ## Scope
 
@@ -10,7 +10,7 @@ the project to an external agent and apply the returned manuscript. Reuse the
 two-file format, save behavior, and revision check from the
 [Markdown file project validation slice](markdown-file-project.md).
 
-This release scope supersedes the Web validation slice on approval. SQLite
+This release scope follows the initial Web validation slice. SQLite
 project migration, persistent undo/redo, active-project comments, paragraph locks,
 the reference library, native folder opening, and Remotion authoring are deferred.
 Existing manuscripts can be carried forward as ordinary Markdown using the

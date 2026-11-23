@@ -2,8 +2,8 @@
 
 Status — implemented as an opt-in Web validation slice for one operator. It
 narrows the open project proposal in [PR #19][old-pr] to a file-backed writing
-loop. See the draft [file-first Web writing workspace](web-file-workspace.md)
-for the proposed default workflow and scope.
+loop. See the [file-first Web writing workspace](web-file-workspace.md)
+for the current default workflow and scope.
 
 ## User workflow
 

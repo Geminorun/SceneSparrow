@@ -1,4 +1,4 @@
-//! The opt-in Web validation store has no SQLite repository or background jobs.
+//! File-backed Web project storage.
 use atomic_write_file::AtomicWriteFile;
 use scenesparrow_domain::{
     contracts::{MarkdownExchangeReview, MarkdownProject},
