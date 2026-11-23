@@ -1929,6 +1929,18 @@ pub struct MarkdownWritingResult {
     pub text: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownExchangeReview {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "baseRevision")]
+    pub base_revision: String,
+    #[serde(rename = "currentRevision")]
+    pub current_revision: String,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,

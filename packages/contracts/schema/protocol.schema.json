@@ -3492,6 +3492,25 @@
           "maxLength": 262144
         }
       }
+    },
+    "MarkdownExchangeReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "baseRevision", "currentRevision", "text"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "string"
+        },
+        "currentRevision": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
     }
   }
 }

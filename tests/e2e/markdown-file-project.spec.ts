@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { zip, zipEntries } from "../fixtures/documents.mjs";
 
 const editor = (page: Page) =>
   page.getByRole("textbox", { name: "Markdown manuscript", exact: true });
@@ -18,7 +19,7 @@ async function exported(page: Page) {
 }
 async function importFile(page: Page, buffer: Buffer, name = "returned.md") {
   await page
-    .locator('input[type="file"]')
+    .locator('input[accept=".md,text/markdown"]')
     .setInputFiles({ name, mimeType: "text/markdown", buffer });
 }
 
@@ -639,4 +640,203 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
   await expect(editor(page)).toHaveValue("# Draft after pending save");
   expect(writes).toBe(2);
   expect((await savedFile(page)).text).toBe("# Draft after pending save");
+});
+
+async function packageFrom(page: Page) {
+  const downloaded = page.waitForEvent("download");
+  await projectAction(page, "Download Project");
+  return zipEntries(await readFile((await (await downloaded).path())!));
+}
+async function importPackage(page: Page, bytes: Buffer) {
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({
+    name: "returned.zip",
+    mimeType: "application/zip",
+    buffer: bytes,
+  });
+}
+
+test("WFW-AC05–06: byte-preserving package review, guarded apply and independent returned project", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  const raw = Buffer.from("\ufeff# Original 中文\r\nKeep\rline\n");
+  await importFile(page, raw);
+  await expect(editor(page)).toHaveValue("# Original 中文\nKeep\nline\n");
+  const id = projectId(page);
+  const entries = await packageFrom(page);
+  expect(entries["project/manuscript.md"]).toEqual(raw);
+  expect(JSON.parse(entries["project/project.json"]).projectId).toBe(id);
+  const returned = "\ufeff# Returned 中文\r\nAdded line\r\n";
+  entries["project/manuscript.md"] = Buffer.from(returned);
+  await importPackage(page, zip(entries));
+  const preview = page.getByRole("region", {
+    name: "Review imported changes",
+    exact: true,
+  });
+  await expect(preview).toContainText("Original 中文");
+  await expect(preview).toContainText("Returned 中文");
+  expect((await savedFile(page)).text).toBe(raw.toString());
+  await preview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(preview).toHaveCount(0);
+  expect(projectId(page)).toBe(id);
+  expect(await exported(page)).toEqual(Buffer.from(returned));
+  await page.reload();
+  await expect(editor(page)).toHaveValue("# Returned 中文\nAdded line\n");
+  // The exported base is now stale; the unsaved draft must survive a separate save.
+  await editor(page).fill("Unsaved current draft");
+  await importPackage(page, zip(entries));
+  await expect(preview).toContainText("changed since export");
+  await expect(
+    preview.getByRole("button", { name: "Apply Changes", exact: true }),
+  ).toBeDisabled();
+  await preview
+    .getByRole("button", {
+      name: "Save Returned Text as New Project",
+      exact: true,
+    })
+    .click();
+  const separate = preview.getByRole("link", {
+    name: "Open Saved Project in New Tab",
+    exact: true,
+  });
+  await expect(separate).toBeVisible();
+  const forkId = new URL(
+    (await separate.getAttribute("href"))!,
+  ).searchParams.get("project");
+  expect(forkId).not.toBe(id);
+  expect(
+    (
+      await (
+        await page.request.get(`/api/v1/markdown-projects/${forkId}`)
+      ).json()
+    ).text,
+  ).toBe(returned);
+  await expect(editor(page)).toHaveValue("Unsaved current draft");
+  expect((await savedFile(page)).text).toBe(returned);
+  await preview
+    .getByRole("button", { name: "Keep Current Draft", exact: true })
+    .click();
+  await importPackage(page, Buffer.from("bad ZIP"));
+  await expect(
+    page.getByRole("alert").filter({ hasText: "valid project ZIP" }),
+  ).toBeVisible();
+  await expect(editor(page)).toHaveValue("Unsaved current draft");
+  const wrong = {
+    ...entries,
+    "project/project.json": JSON.stringify({
+      ...JSON.parse(entries["project/project.json"]),
+      projectId: crypto.randomUUID(),
+    }),
+  };
+  await importPackage(page, zip(wrong));
+  await expect(
+    page.getByRole("alert").filter({ hasText: "another project" }),
+  ).toBeVisible();
+  await expect(editor(page)).toHaveValue("Unsaved current draft");
+});
+
+test("WFW-AC06: local and stored changes after preview cannot overwrite, unchanged ZIP has no apply", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  const entries = await packageFrom(page);
+  const preview = page.getByRole("region", {
+    name: "Review imported changes",
+    exact: true,
+  });
+  await importPackage(page, zip(entries));
+  await expect(preview).toContainText("no changes to apply");
+  await expect(
+    preview.getByRole("button", { name: "Apply Changes", exact: true }),
+  ).toBeDisabled();
+  entries["project/manuscript.md"] = Buffer.from("Returned candidate");
+  await importPackage(page, zip(entries));
+  await editor(page).fill("Local intervening draft");
+  await expect(
+    preview.getByRole("button", { name: "Apply Changes", exact: true }),
+  ).toBeDisabled();
+  await save(page);
+  await expect(page.getByRole("status")).toHaveText("Saved");
+  const fresh = await packageFrom(page);
+  fresh["project/manuscript.md"] = Buffer.from("Fresh returned candidate");
+  await importPackage(page, zip(fresh));
+  const stored = await savedFile(page);
+  await page.request.post(`/api/v1/markdown-projects/${projectId(page)}`, {
+    data: { revision: stored.revision, text: "External intervening write" },
+  });
+  await preview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(preview).toContainText("changed since export");
+  await expect(preview).toContainText("Fresh returned candidate");
+  await expect(editor(page)).toHaveValue("Local intervening draft");
+  expect((await savedFile(page)).text).toBe("External intervening write");
+});
+
+test("WFW-AC05–06: save-and-download settles IME, and held application keeps newer input", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Autosave", exact: true })
+    .selectOption("off");
+  await editor(page).fill("Before composition");
+  await editor(page).dispatchEvent("compositionstart");
+  const download = page.waitForEvent("download");
+  await page.locator(".project-menu > summary").dispatchEvent("click");
+  await page
+    .getByRole("button", { name: "Save and Download", exact: true })
+    .dispatchEvent("click");
+  await editor(page).fill("Settled 中文");
+  await editor(page).dispatchEvent("compositionend");
+  const entries = zipEntries(await readFile((await (await download).path())!));
+  expect(entries["project/manuscript.md"].toString()).toBe("Settled 中文");
+  expect(JSON.parse(entries["exchange.json"]).baseRevision).toBe(
+    (await savedFile(page)).revision,
+  );
+  entries["project/manuscript.md"] = Buffer.from("Accepted returned draft");
+  await importPackage(page, zip(entries));
+  const preview = page.getByRole("region", {
+    name: "Review imported changes",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrived!: () => void;
+  const saved = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  await page.route(/\/api\/v1\/markdown-projects\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    arrived();
+    await held;
+    await route.fulfill({ response });
+  });
+  await preview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await saved;
+  await editor(page).fill("Newer input during acceptance");
+  release();
+  await expect(preview).toHaveCount(0);
+  await expect(editor(page)).toHaveValue("Newer input during acceptance");
+  await expect(
+    page.locator(".markdown-main > .markdown-conflict"),
+  ).toContainText("autosave is paused");
+  expect((await savedFile(page)).text).toBe("Accepted returned draft");
 });

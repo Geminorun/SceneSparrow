@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { MarkdownProject } from "@scenesparrow/contracts";
+import type {
+  MarkdownExchangeReview,
+  MarkdownProject,
+} from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import {
   applicationPreferences,
@@ -22,10 +25,15 @@ import {
   type WritingDraft,
 } from "./MarkdownWriting";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { ExchangeComparison } from "./ExchangeComparison";
 import { HeadingNavigation } from "./HeadingNavigation";
 import en from "../locales/en.json";
 import zhCN from "../locales/zh-CN.json";
 
+type ExchangeCandidate = WritingDraft & {
+  review: MarkdownExchangeReview;
+  conflict: boolean;
+};
 type Buffer = { project: MarkdownProject; text: string; epoch: number };
 const withoutBom = (text: string) =>
   text.startsWith("\ufeff") ? text.slice(1) : text;
@@ -57,6 +65,12 @@ export function MarkdownWorkspace({
   const [writingOpen, setWritingOpen] = useState(false);
   const [draft, setDraft] = useState<WritingDraft | null>(null);
   const draftRef = useRef<WritingDraft | null>(null);
+  const [exchange, setExchange] = useState<ExchangeCandidate | null>(null);
+  const exchangeRef = useRef<ExchangeCandidate | null>(null);
+  const [separateProject, setSeparateProject] = useState<string | null>(null);
+  const [exchangeBusy, setExchangeBusy] = useState(false);
+  const exchangeRunning = useRef(false);
+  const exchangeInput = useRef<HTMLInputElement>(null);
   const [applying, setApplying] = useState(false);
   const applyingRef = useRef(false);
   const [editorSession, setEditorSession] = useState(0);
@@ -86,6 +100,9 @@ export function MarkdownWorkspace({
     buffer.current = { project, text: project.text, epoch: 0 };
     draftRef.current = null;
     setDraft(null);
+    exchangeRef.current = null;
+    setExchange(null);
+    setSeparateProject(null);
     setWritingOpen(false);
     setSaveFailed(false);
     setAutosavePaused(false);
@@ -307,18 +324,143 @@ export function MarkdownWorkspace({
       .run("download", () => {
         const current = buffer.current;
         if (!current) return;
-        const url = URL.createObjectURL(
-          new Blob([new TextEncoder().encode(current.text)], {
-            type: "text/markdown;charset=utf-8",
-          }),
+        deliver(
+          new TextEncoder().encode(current.text),
+          "manuscript.md",
+          "text/markdown;charset=utf-8",
         );
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "manuscript.md";
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
       })
       .catch(notice.report);
+  }
+  function deliver(bytes: Uint8Array<ArrayBuffer>, name: string, type: string) {
+    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function downloadProject() {
+    if (exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      await composition.run("download-project", async () => {
+        const base = capture();
+        const captured = buffer.current;
+        const assert = () => same(captured, base.epoch);
+        if (pendingSave.current) await pendingSave.current;
+        assert();
+        await save();
+        assert();
+        const saved = buffer.current!.project;
+        const bytes = await client.download(saved.projectId, saved.revision);
+        assert();
+        deliver(
+          bytes as Uint8Array<ArrayBuffer>,
+          "scenesparrow-project.zip",
+          "application/zip",
+        );
+      });
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
+  }
+  async function importChanges(file: File, count: number) {
+    if (exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      await composition.run("import-changes", async () => {
+        const base = capture();
+        if (
+          count !== 1 ||
+          !/\.zip$/i.test(file.name) ||
+          file.size > 2 * 1024 * 1024 + 65536
+        )
+          throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (buffer.current !== base.session) return;
+        const review = await client.review(base.projectId, bytes);
+        if (buffer.current !== base.session) return;
+        const candidate = {
+          capture: base,
+          text: review.text,
+          review,
+          conflict: false,
+        };
+        exchangeRef.current = candidate;
+        setExchange(candidate);
+        setSeparateProject(null);
+      });
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
+  }
+  function exchangeChanged(candidate: ExchangeCandidate) {
+    const value = buffer.current;
+    return (
+      candidate.conflict ||
+      draftChanged(candidate) ||
+      candidate.review.currentRevision !== candidate.review.baseRevision ||
+      value?.project.revision !== candidate.review.baseRevision ||
+      value.text !== value.project.text
+    );
+  }
+  async function applyChanges() {
+    const candidate = exchangeRef.current;
+    if (!candidate || applyingRef.current) return;
+    applyingRef.current = true;
+    setApplying(true);
+    const assert = () => {
+      if (exchangeRef.current !== candidate || exchangeChanged(candidate))
+        throw new ApiError("MARKDOWN_EXCHANGE_CONFLICT");
+    };
+    try {
+      await composition.run("apply-changes", async () => {
+        assert();
+        if (pendingSave.current) await pendingSave.current;
+        assert();
+        await save(candidate);
+        if (exchangeRef.current === candidate) {
+          exchangeRef.current = null;
+          setExchange(null);
+        }
+      });
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.code === "MARKDOWN_CONFLICT") {
+        candidate.conflict = true;
+        redraw();
+      }
+      notice.report(failure);
+    } finally {
+      applyingRef.current = false;
+      setApplying(false);
+    }
+  }
+  async function saveReturnedSeparately() {
+    const candidate = exchangeRef.current;
+    if (!candidate || exchangeRunning.current) return;
+    exchangeRunning.current = true;
+    setExchangeBusy(true);
+    try {
+      const project = await client.create(candidate.text);
+      if (exchangeRef.current !== candidate) return;
+      const url = new URL(window.location.href);
+      url.searchParams.set("project", project.projectId);
+      setSeparateProject(url.href);
+    } catch (failure) {
+      notice.report(failure);
+    } finally {
+      exchangeRunning.current = false;
+      setExchangeBusy(false);
+    }
   }
   return (
     <SettingsActions.Provider value={setSettingsSection}>
@@ -370,8 +512,41 @@ export function MarkdownWorkspace({
                 >
                   {t.markdownDownload}
                 </button>
+                <p>{t.markdownExchangeHelp}</p>
+                <button
+                  disabled={!current || exchangeBusy}
+                  onClick={() => {
+                    closeMenu();
+                    void downloadProject();
+                  }}
+                >
+                  {dirty || saving
+                    ? t.markdownSaveDownload
+                    : t.markdownDownloadProject}
+                </button>
+                <button
+                  disabled={!current || exchangeBusy}
+                  onClick={() => {
+                    closeMenu();
+                    exchangeInput.current?.click();
+                  }}
+                >
+                  {t.markdownImportChanges}
+                </button>
               </nav>
             </details>
+            <input
+              ref={exchangeInput}
+              hidden
+              type="file"
+              accept=".zip,application/zip"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                const count = event.currentTarget.files?.length ?? 0;
+                event.currentTarget.value = "";
+                if (file) void importChanges(file, count);
+              }}
+            />
             <input
               ref={fileInput}
               hidden
@@ -516,6 +691,65 @@ export function MarkdownWorkspace({
                   }
                 }}
               />
+              {exchange && (
+                <section
+                  className="markdown-draft markdown-exchange"
+                  aria-label={t.markdownExchangePreview}
+                >
+                  <div className="dialog-heading">
+                    <h2>{t.markdownExchangePreview}</h2>
+                    <button
+                      disabled={applying}
+                      onClick={() => {
+                        exchangeRef.current = null;
+                        setExchange(null);
+                      }}
+                    >
+                      {t.markdownKeepCurrent}
+                    </button>
+                  </div>
+                  <p>{t.markdownExchangeHelp}</p>
+                  {exchangeChanged(exchange) && (
+                    <p className="markdown-conflict">
+                      {t.MARKDOWN_EXCHANGE_CONFLICT}
+                    </p>
+                  )}
+                  {current.text === exchange.text ? (
+                    <p>{t.markdownExchangeUnchanged}</p>
+                  ) : (
+                    <ExchangeComparison
+                      current={current.text}
+                      returned={exchange.text}
+                      t={t}
+                    />
+                  )}
+                  <button
+                    disabled={
+                      applying ||
+                      exchangeChanged(exchange) ||
+                      current.text === exchange.text
+                    }
+                    onClick={() => void applyChanges()}
+                  >
+                    {t.markdownApplyChanges}
+                  </button>
+                  <button
+                    disabled={exchangeBusy || !!separateProject}
+                    onClick={() => void saveReturnedSeparately()}
+                  >
+                    {t.markdownSaveReturned}
+                  </button>
+                  {separateProject && (
+                    <a
+                      href={separateProject}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t.markdownOpenReturned}
+                    </a>
+                  )}
+                </section>
+              )}
               {draft && (
                 <section
                   className="markdown-draft"

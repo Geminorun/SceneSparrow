@@ -635,5 +635,20 @@
   "ACTION_SESSION_ENDED": "此 AI 操作属于先前的服务会话。请重新生成以开始新操作。",
   "ACTION_IN_PROGRESS": "此 AI 操作正在运行，请等待结果。",
   "ACTION_SESSION_FULL": "此服务会话已达到 AI 操作数量上限。请重启服务后再生成。",
-  "ACTION_RESULT_EXPIRED": "此 AI 结果已从内存中清除。请重新生成以开始新操作。"
+  "ACTION_RESULT_EXPIRED": "此 AI 结果已从内存中清除。请重新生成以开始新操作。",
+  "markdownExchangeHelp": "将 ZIP 交给编辑者或智能体。只修改 project/manuscript.md，保留 project.json 和 exchange.json。导入返回的 ZIP 后先审阅再应用。",
+  "markdownDownloadProject": "下载项目",
+  "markdownSaveDownload": "保存并下载",
+  "markdownImportChanges": "导入修改",
+  "markdownExchangePreview": "审阅导入的修改",
+  "markdownKeepCurrent": "保留当前草稿",
+  "markdownApplyChanges": "应用修改",
+  "markdownSaveReturned": "将返回文本另存为新项目",
+  "markdownOpenReturned": "在新标签页打开已保存项目",
+  "markdownCurrentText": "当前编辑器草稿 — 删除的文本",
+  "markdownReturnedText": "返回草稿 — 新增的文本",
+  "markdownExchangeUnchanged": "没有可应用的修改。",
+  "MARKDOWN_EXCHANGE_INVALID": "请选择有效的项目 ZIP，包含 exchange.json、project/project.json 和 UTF-8 编码的 project/manuscript.md（不超过 2 MiB）。",
+  "MARKDOWN_EXCHANGE_PROJECT_MISMATCH": "此 ZIP 属于另一个项目。当前草稿未更改。",
+  "MARKDOWN_EXCHANGE_CONFLICT": "当前文稿自导出后已更改。请保留当前草稿，或将返回文本另存为新项目。"
 }

@@ -104,6 +104,7 @@ export type CreateMarkdownProject = { text: string; };
 export type SaveMarkdownProject = { text: string; revision: string; };
 export type MarkdownWritingAction = { actionId: string; sessionId: string; fingerprint: string; kind: "outline" | "draft"; brief: string; outline: string; text: string; revision: string; };
 export type MarkdownWritingResult = { actionId: string; text: string; };
+export type MarkdownExchangeReview = { projectId: string; baseRevision: string; currentRevision: string; text: string; };
 export type AiCategory = "text" | "audio" | "video";
 export type AiCapability = "text.generate" | "audio.synthesize" | "video.generate";
 export type AiEvidence = { state: "supported" | "unsupported" | "unknown"; source: "unknown" | "user" | "provider" | "test"; scope: string; observedAt: string | null; };

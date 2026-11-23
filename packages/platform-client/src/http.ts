@@ -119,6 +119,37 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   };
   return {
     markdownProjects: {
+      download: async (id, revision) => {
+        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}`;
+        const signal = AbortSignal.timeout(10000);
+        try {
+          const response = await fetchResponse(`${baseUrl}${path}`, { signal });
+          if (!response.ok) await decodeJson(response, "GET", false, signal);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.length > 2 * 1024 * 1024 + 65536)
+            throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
+          return bytes;
+        } catch (error) {
+          reportTransport(error, path);
+          throw error;
+        }
+      },
+      review: async (id, bytes) => {
+        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange`;
+        const signal = AbortSignal.timeout(10000);
+        try {
+          const response = await fetchResponse(`${baseUrl}${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/zip" },
+            body: bytes as Uint8Array<ArrayBuffer>,
+            signal,
+          });
+          return await decodeJson(response, "POST", false, signal);
+        } catch (error) {
+          reportTransport(error, path);
+          throw error;
+        }
+      },
       write: (id, body) =>
         request(
           `/v1/markdown-projects/${encodeURIComponent(id)}/writing`,

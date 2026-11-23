@@ -2587,3 +2587,24 @@ body > .notifications {
     overflow: auto;
   }
 }
+
+.markdown-exchange-diff pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.markdown-diff-removed {
+  background: #fbe9e7;
+  color: #742a22;
+}
+.markdown-diff-added {
+  background: #e8f4e8;
+  color: #255b2b;
+}
+.project-menu nav > p {
+  max-width: 22rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+}

@@ -1,4 +1,5 @@
 import test from "node:test";
+import { zip, zipEntries } from "../fixtures/documents.mjs";
 import assert from "node:assert/strict";
 import {
   mkdtemp,
@@ -83,6 +84,111 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
       await (await send(`/markdown-projects/${p.projectId}`)).json(),
       p,
     );
+    // WFW-AC05–06: ZIP review is read-only; application uses the same revision-checked save.
+    const exchangePath = `/markdown-projects/${p.projectId}/exchange`;
+    const exported = await send(`${exchangePath}?revision=${p.revision}`);
+    assert.equal(exported.headers.get("content-type"), "application/zip");
+    const entries = zipEntries(Buffer.from(await exported.arrayBuffer()));
+    assert.deepEqual(Object.keys(entries).sort(), [
+      "exchange.json",
+      "project/manuscript.md",
+      "project/project.json",
+    ]);
+    assert.equal(JSON.parse(entries["exchange.json"]).baseRevision, p.revision);
+    assert.deepEqual(entries["project/manuscript.md"], Buffer.from(text));
+    const review = (bytes) =>
+      fetch(url + exchangePath, {
+        method: "POST",
+        headers: {
+          Authorization: headers.Authorization,
+          "content-type": "application/zip",
+        },
+        body: bytes,
+      });
+    const unchanged = await (await review(zip(entries))).json();
+    assert.equal(unchanged.text, text);
+    assert.equal(unchanged.currentRevision, p.revision);
+    assert.equal(unchanged.baseRevision, p.revision);
+    const returnedText = "\ufeff# Returned 中文\r\nlast\rline\n";
+    entries["project/manuscript.md"] = Buffer.from(returnedText);
+    const reviewed = await (
+      await review(zip({ "project/": "", ...entries }))
+    ).json();
+    assert.equal(reviewed.text, returnedText);
+    assert.equal(reviewed.currentRevision, p.revision);
+    assert.equal(await readFile(join(dir, "manuscript.md"), "utf8"), text);
+    for (const invalid of [
+      Buffer.from("not a ZIP"),
+      zip({ ...entries, "../outside": "bad" }),
+      zip({ ...entries, "project/manuscript.md": Buffer.from([255]) }),
+      zip({ ...entries, "exchange.json": '{"baseRevision":"bad"}' }),
+      zip([...Object.entries(entries), ["project/manuscript.md", "duplicate"]]),
+      zip({
+        ...entries,
+        "project/manuscript.md": "x".repeat(2 * 1024 * 1024 + 1),
+      }),
+    ]) {
+      const response = await review(invalid);
+      assert.equal(response.status, 422);
+      assert.equal((await response.json()).code, "MARKDOWN_EXCHANGE_INVALID");
+    }
+    const symlink = zip(entries);
+    let central = symlink.readUInt32LE(symlink.length - 22 + 16);
+    symlink[central + 5] = 3; // UNIX origin makes the external mode authoritative.
+    symlink.writeUInt32LE((0o120777 << 16) >>> 0, central + 38);
+    assert.equal(
+      (await (await review(symlink)).json()).code,
+      "MARKDOWN_EXCHANGE_INVALID",
+    );
+    const wrong = {
+      ...entries,
+      "project/project.json": JSON.stringify({
+        ...JSON.parse(entries["project/project.json"]),
+        projectId: "00000000-0000-4000-8000-000000000000",
+      }),
+    };
+    assert.equal(
+      (await (await review(zip(wrong))).json()).code,
+      "MARKDOWN_EXCHANGE_PROJECT_MISMATCH",
+    );
+    assert.equal(await readFile(join(dir, "manuscript.md"), "utf8"), text);
+    const accepted = await (
+      await send(`/markdown-projects/${p.projectId}`, {
+        text: reviewed.text,
+        revision: reviewed.baseRevision,
+      })
+    ).json();
+    assert.equal(accepted.projectId, p.projectId);
+    assert.equal(
+      await readFile(join(dir, "manuscript.md"), "utf8"),
+      returnedText,
+    );
+    assert.equal(
+      (await send(`${exchangePath}?revision=${p.revision}`)).status,
+      409,
+    );
+    const conflicted = await (await review(zip(entries))).json();
+    assert.equal(conflicted.currentRevision, accepted.revision);
+    assert.equal(conflicted.baseRevision, p.revision);
+    assert.equal(
+      (
+        await send(`/markdown-projects/${p.projectId}`, {
+          text: "cannot overwrite",
+          revision: conflicted.baseRevision,
+        })
+      ).status,
+      409,
+    );
+    const forked = await (
+      await send("/markdown-projects", { text: reviewed.text })
+    ).json();
+    assert.notEqual(forked.projectId, p.projectId);
+    assert.equal(forked.text, returnedText);
+    // Restore the initial snapshot for the original stale-write checks below.
+    await send(`/markdown-projects/${p.projectId}`, {
+      text,
+      revision: accepted.revision,
+    });
     const external = "externally changed\r\n";
     await writeFile(join(dir, "manuscript.md"), external);
     const stale = await send(`/markdown-projects/${p.projectId}`, {
