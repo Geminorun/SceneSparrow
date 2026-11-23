@@ -330,6 +330,7 @@
   "lockAll": "Lock entire manuscript",
   "finalized": "Finalized",
   "notFinalized": "Editing",
+  "lockUpdating": "Updating lock…",
   "lockPending": "Resolve the candidate or wait for the task before locking.",
   "reviewUnsent": "Save or clear your unsent review before leaving the draft.",
   "lockUnavailable": "Lock status unavailable. Refresh to continue editing.",

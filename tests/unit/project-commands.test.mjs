@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ProjectSession } from "../../packages/editor-ui/src/project-session/project-session.ts";
 import { ProjectCommands } from "../../packages/editor-ui/src/project-session/project-commands.ts";
+import { localLockEvents } from "../../packages/editor-ui/src/review/local-lock-events.ts";
 import { ApiError } from "../../packages/platform-client/src/index.ts";
 function fixture() {
   const document = {
@@ -292,4 +293,56 @@ test("review and lock commands wait for committed input, deduplicate clicks and 
   } finally {
     f.save.dispose();
   }
+});
+
+test("only confirmed local lock events are consumed and a failed projection releases pending events", async () => {
+  let emit, resync;
+  const source = {
+    subscribeEvents(handler, refresh) {
+      emit = handler;
+      resync = refresh;
+      return () => {};
+    },
+  };
+  const applied = [],
+    received = [];
+  const { client, track } = localLockEvents(source, (...args) =>
+    applied.push(args),
+  );
+  const stop = client.subscribeEvents(
+    (event) => received.push(event),
+    () => received.push("resync"),
+  );
+  const local = {
+    projectId: "active",
+    requestId: "lock",
+    type: "locks.changed",
+  };
+  const foreign = { ...local, requestId: "other" };
+  const finish = track(local.projectId, local.requestId);
+  emit(local);
+  emit(foreign);
+  resync();
+  assert.deepEqual(received, [foreign, "resync"]);
+  const snapshot = { workingRevision: 2 };
+  finish(snapshot);
+  emit(local);
+  await Promise.resolve();
+  assert.deepEqual(applied, [[local.projectId, snapshot]]);
+  assert.deepEqual(received, [foreign, "resync"]);
+
+  const failed = { ...local, requestId: "unlock" };
+  const release = track(failed.projectId, failed.requestId);
+  emit(failed);
+  release();
+  await Promise.resolve();
+  assert.deepEqual(received, [foreign, "resync", failed]);
+
+  const abandoned = { ...local, requestId: "abandoned" };
+  const clear = track(abandoned.projectId, abandoned.requestId);
+  emit(abandoned);
+  stop();
+  clear();
+  await Promise.resolve();
+  assert.deepEqual(received, [foreign, "resync", failed]);
 });

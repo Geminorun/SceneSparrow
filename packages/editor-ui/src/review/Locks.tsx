@@ -6,6 +6,7 @@ import type { FinalizationState } from "@scenesparrow/contracts";
 import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { ProjectSession } from "../project-session/project-session";
 import type en from "../locales/en.json";
+import type { TrackLocalLock } from "./local-lock-events";
 import { ProjectCommands } from "../project-session/project-commands";
 import { contentProtectionKey } from "../manuscript/content-protection";
 export function Locks({
@@ -16,6 +17,7 @@ export function Locks({
   t,
   headerTarget,
   onReady,
+  trackLock,
 }: {
   client: PlatformClient;
   save: ProjectSession;
@@ -24,11 +26,12 @@ export function Locks({
   t: typeof en;
   headerTarget: Element | null;
   onReady: (ready: boolean) => void;
+  trackLock: TrackLocalLock;
 }) {
   const [state, setState] = useState<FinalizationState | null>(null),
     [error, setError] = useState(""),
     [queryError, setQueryError] = useState(false),
-    [busy, setBusy] = useState(false),
+    [pending, setPending] = useState<string | null>(null),
     [positions, setPositions] = useState<Record<string, number>>({});
   const { report, resolve } = useNoticeOwner();
   useEffect(() => {
@@ -46,6 +49,7 @@ export function Locks({
       if (n === generation.current) {
         setState(next);
         setQueryError(false);
+        return next;
       }
     } catch {
       if (n === generation.current) setQueryError(true);
@@ -155,14 +159,22 @@ export function Locks({
     };
   }, [editor, save.canonicalVersion, save.state.blocks]);
   const change = async (blockId: string | null, locked: boolean) => {
-    setBusy(true);
+    setPending(blockId ?? "all");
     setError("");
+    let settleEvents: ReturnType<TrackLocalLock> | undefined;
+    let confirmed: FinalizationState | undefined;
+    const requestId = () => {
+      settleEvents?.();
+      const id = crypto.randomUUID();
+      settleEvents = trackLock(projectId, id);
+      return id;
+    };
     try {
       let result = await commands.run(
         `lock:${blockId ?? "all"}:${locked}`,
         (revision) => ({
           type: "SetUserLocks",
-          requestId: crypto.randomUUID(),
+          requestId: requestId(),
           projectId,
           expectedWorkingRevision: locked
             ? revision
@@ -180,7 +192,7 @@ export function Locks({
           `lock:${blockId ?? "all"}:${locked}`,
           () => ({
             type: "SetUserLocks",
-            requestId: crypto.randomUUID(),
+            requestId: requestId(),
             projectId,
             expectedWorkingRevision: latest.workingRevision,
             payload: {
@@ -192,11 +204,21 @@ export function Locks({
         );
       }
       if (!result.ok) setError(result.error || "PENDING_CANDIDATE");
-      await refresh();
+      const receipt = save.businessReceipt;
+      const next = await refresh();
+      if (
+        result.ok &&
+        receipt &&
+        result.completed?.requestId === receipt.requestId &&
+        next?.workingRevision === receipt.receipt.workingRevision &&
+        next.workingRevision === save.state.workingRevision
+      )
+        confirmed = next;
     } catch {
       setError("STORAGE_UNAVAILABLE");
     } finally {
-      setBusy(false);
+      settleEvents?.(confirmed);
+      setPending(null);
     }
   };
   return (
@@ -212,35 +234,17 @@ export function Locks({
                   : t.notFinalized}
             </span>
             <button
-              disabled={!state || busy}
-              aria-label={t.lockAll}
-              title={t.lockAll}
+              disabled={!state || pending !== null}
+              aria-busy={pending === "all" || undefined}
+              aria-label={pending === "all" ? t.lockUpdating : t.lockAll}
+              title={pending === "all" ? t.lockUpdating : t.lockAll}
               onClick={() => void change(null, true)}
             >
-              <svg
+              <LockGlyph
                 className="lock-all-icon"
-                aria-hidden="true"
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-              >
-                <rect
-                  x="5"
-                  y="10"
-                  width="14"
-                  height="11"
-                  rx="2"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                />
-                <path
-                  d="M8 10V7a4 4 0 0 1 8 0v3"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                />
-              </svg>
+                locked
+                pending={pending === "all"}
+              />
               <span className="lock-all-label">{t.lockAll}</span>
             </button>
           </div>,
@@ -254,6 +258,12 @@ export function Locks({
               const using = state?.reservedBlockIds.includes(block.id) ?? false;
               const locked =
                 state?.locks.some((l) => l.blockId === block.id) ?? false;
+              const updating = pending === block.id;
+              const label = updating
+                ? t.lockUpdating
+                : locked
+                  ? t.unlock
+                  : t.lock;
               return (
                 <div
                   key={block.id}
@@ -283,45 +293,15 @@ export function Locks({
                   )}
                   <button
                     data-lock-block={block.id}
-                    aria-label={locked ? t.unlock : t.lock}
+                    aria-label={label}
                     aria-pressed={locked}
-                    disabled={!state || busy}
-
+                    aria-busy={updating || undefined}
+                    disabled={!state || pending !== null}
+                    title={label}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => void change(block.id, !locked)}
                   >
-                    <svg
-                      aria-hidden="true"
-                      width="15"
-                      height="15"
-                      viewBox="0 0 24 24"
-                    >
-                      <rect
-                        x="5"
-                        y="10"
-                        width="14"
-                        height="11"
-                        rx="2"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                      />
-                      <path
-                        d={
-                          locked
-                            ? "M8 10V7a4 4 0 0 1 8 0v3"
-                            : "M8 10V7a4 4 0 0 1 8 0"
-                        }
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                      />
-                      <path
-                        d="M12 14v3"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                      />
-                    </svg>
+                    <LockGlyph locked={locked} pending={updating} />
                   </button>
                 </div>
               );
@@ -329,5 +309,53 @@ export function Locks({
         </div>
       </aside>
     </>
+  );
+}
+
+function LockGlyph({
+  className,
+  locked,
+  pending,
+}: {
+  className?: string;
+  locked: boolean;
+  pending: boolean;
+}) {
+  return (
+    <svg
+      className={[className, pending && "lock-pending-icon"]
+        .filter(Boolean)
+        .join(" ")}
+      aria-hidden="true"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+    >
+      {pending ? (
+        <path d="M12 4a8 8 0 1 1-8 8" />
+      ) : (
+        <>
+          <rect
+            x="5"
+            y="10"
+            width="14"
+            height="11"
+            rx="2"
+            fill={locked ? "currentColor" : "none"}
+          />
+          <path
+            d={locked ? "M8 10V7a4 4 0 0 1 8 0v3" : "M8 10V7a4 4 0 0 1 7.5-2"}
+          />
+          <path
+            d="M12 14v3"
+            stroke={locked ? "var(--canvas)" : "currentColor"}
+          />
+        </>
+      )}
+    </svg>
   );
 }

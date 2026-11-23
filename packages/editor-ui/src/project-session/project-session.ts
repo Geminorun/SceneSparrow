@@ -385,6 +385,24 @@ export class ProjectSession {
         : false,
     );
   }
+  private applyLockRevision(
+    command: ManuscriptCommand,
+    receipt: CommandReceipt,
+  ) {
+    if (
+      command.type !== "SetUserLocks" ||
+      receipt.requestId !== command.requestId ||
+      command.expectedWorkingRevision !== this.state.workingRevision ||
+      receipt.normalized ||
+      receipt.blockRevisions.length ||
+      receipt.workingRevision < this.state.workingRevision ||
+      receipt.workingRevision > this.state.workingRevision + 1
+    )
+      return false;
+    // A lock changes the revision and history while preserving the visible body.
+    this.state = { ...this.state, workingRevision: receipt.workingRevision };
+    return true;
+  }
   async reconcileMetadataReceipt(command: ManuscriptCommand) {
     if (
       command.type !== "SetUserLocks" ||
@@ -432,16 +450,18 @@ export class ProjectSession {
         this.businessReceipt = { requestId: command.requestId, receipt };
         this.acceptHistory(receipt);
         this.metadataPending = null;
-        try {
-          const canonical = await this.client.readManuscript();
-          if (
-            JSON.stringify(canonical.blocks) ===
-              JSON.stringify(this.state.blocks) &&
-            canonical.workspaceStage === this.state.workspaceStage
-          )
-            this.state = canonical;
-        } catch {
-          /* The proven metadata receipt is final; a later explicit resync can refresh tokens. */
+        if (!this.applyLockRevision(command, receipt)) {
+          try {
+            const canonical = await this.client.readManuscript();
+            if (
+              JSON.stringify(canonical.blocks) ===
+                JSON.stringify(this.state.blocks) &&
+              canonical.workspaceStage === this.state.workspaceStage
+            )
+              this.state = canonical;
+          } catch {
+            /* The proven metadata receipt is final; a later explicit resync can refresh tokens. */
+          }
         }
         this.notify();
         return true;
@@ -673,6 +693,12 @@ export class ProjectSession {
         proven = true;
         this.businessReceipt = { requestId: command.requestId, receipt };
         this.acceptHistory(receipt);
+        if (this.applyLockRevision(command, receipt)) {
+          this.pendingControl = null;
+          this.error = "";
+          this.status = this.same() ? "saved" : "pending";
+          return !this.conversionError;
+        }
         const reviewControl = [
           "SetUserLocks",
           "SaveReview",

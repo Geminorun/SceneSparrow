@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -23,6 +24,7 @@ import {
 import { notifyFailure } from "../feedback/notifications";
 import { trapDialogFocus } from "../ui/dialog-focus";
 import { WorkspaceRibbon } from "../workbench/WorkspaceRibbon";
+import { localLockEvents } from "../review/local-lock-events";
 import { Workbench } from "../workbench/Workbench";
 import { WorkspaceSkeleton } from "../workbench/WorkspaceSkeleton";
 import {
@@ -55,7 +57,7 @@ export function App({ client }: { client: PlatformClient }) {
 }
 
 function LegacyApp({
-  client,
+  client: platformClient,
   ready,
 }: {
   client: PlatformClient;
@@ -81,6 +83,22 @@ function LegacyApp({
   const t = catalogs[locale];
   const initialTitle = useRef(t.untitledProject);
   const [project, setProject] = useState<Project | null>(null);
+  const { client, track: trackLock } = useMemo(
+    () =>
+      localLockEvents(platformClient, (projectId, state) => {
+        setProject((current) =>
+          current?.id === projectId &&
+          state.workingRevision >= current.workingRevision
+            ? {
+                ...current,
+                workingRevision: state.workingRevision,
+                approvedBaseline: state.baseline?.sequence ?? null,
+              }
+            : current,
+        );
+      }),
+    [platformClient],
+  );
   const [loading, setLoading] = useState(true);
   const startupNotice = useNoticeOwner();
   useEffect(
@@ -534,6 +552,7 @@ function LegacyApp({
                 projectId={project.id}
                 t={t}
                 onRevision={onRevision}
+                trackLock={trackLock}
                 approvedBaseline={project.approvedBaseline}
                 onBeforeClose={dismissDialogs}
               />

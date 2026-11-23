@@ -501,6 +501,7 @@ dialog::backdrop {
 .protected-block {
   background: var(--rail);
   border-radius: 3px;
+  box-shadow: -3px 0 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .review-floating-selection {
   max-width: calc(100vw - 8px);
@@ -916,6 +917,24 @@ select:focus {
   font-size: 12px;
   border-color: transparent;
   background: transparent;
+  color: var(--muted);
+}
+.lock-controls button[aria-pressed="true"],
+.lock-controls button[aria-busy="true"] {
+  color: var(--accent);
+}
+.lock-pending-icon {
+  animation: lock-spin 0.9s linear infinite;
+}
+@keyframes lock-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lock-pending-icon {
+    animation: none;
+  }
 }
 .auxiliary-resizer {
   width: 5px;

@@ -957,36 +957,41 @@ test("uncertain cancellation blocks other controllers until the exact identity r
   assert.equal(save.hasUnresolvedBusiness, false);
   save.dispose();
 });
-test("IME beginning after a business dispatch prevents canonical replacement on late acknowledgment", async () => {
+test("a confirmed lock updates its revision and undo state without replacing newer IME input", async () => {
   const { save, client } = setup();
   let release;
-  let firstRead = true;
-  client.readManuscript = () => {
-    if (!firstRead)
-      return Promise.resolve({ ...save.state, workingRevision: 2 });
-    firstRead = false;
-    return new Promise(
-      (r) => (release = () => r({ ...save.state, workingRevision: 2 })),
-    );
+  client.executeManuscript = (command) =>
+    new Promise((resolve) => {
+      release = () => resolve({ ...receipt(command), undoCount: 1 });
+    });
+  let reads = 0;
+  client.readManuscript = async () => {
+    reads++;
+    return { ...save.state, workingRevision: 2 };
   };
-  client.readHistory = async () => ({ ...save.history, workingRevision: 2 });
-  const before = save.canonicalVersion,
-    pending = save.businessCore((revision) => ({
-      type: "SetUserLocks",
-      requestId: id(),
-      projectId: id(),
-      expectedWorkingRevision: revision,
-      payload: {
-        blockIds: [save.state.blocks[0].id],
-        locked: true,
-        all: false,
-      },
-    }));
+  client.readHistory = async () => {
+    reads++;
+    return { ...save.history, workingRevision: 2, undoCount: 1 };
+  };
+  const before = save.canonicalVersion;
+  const pending = save.businessCore((revision) => ({
+    type: "SetUserLocks",
+    requestId: id(),
+    projectId: id(),
+    expectedWorkingRevision: revision,
+    payload: { blockIds: [save.state.blocks[0].id], locked: true, all: false },
+  }));
   await settle();
   save.composition(true);
+  save.update(local(save, "Newer composition"));
   release();
   assert.equal(await pending, true);
+  assert.equal(reads, 0);
+  assert.equal(save.state.workingRevision, 2);
+  assert.equal(save.history.undoCount, 1);
   assert.equal(save.canonicalVersion, before);
+  assert.equal(save.state.blocks[0].runs[0].text, "Text");
+  assert.equal(save.local[0].runs[0].text, "Newer composition");
   assert.equal(save.composing, true);
   save.dispose();
 });

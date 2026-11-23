@@ -330,6 +330,7 @@
   "lockAll": "锁定全文",
   "finalized": "已定稿",
   "notFinalized": "编辑中",
+  "lockUpdating": "正在更新锁定状态…",
   "lockPending": "请先处理候选修改或等待任务结束，再锁定内容。",
   "reviewUnsent": "请先保存或清空未发送的审阅内容，再离开正文。",
   "lockUnavailable": "无法获取锁定状态。请刷新后继续编辑。",
