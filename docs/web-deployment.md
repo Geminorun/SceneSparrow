@@ -131,9 +131,10 @@ preview/staging environment or second port. Back up and assess candidate changes
 accordingly. Keep operator credentials in the compatible `web-production` GitHub
 Environment, which represents this single shared instance.
 
-The checks job calls the same Foundation workflow used by PRs: contracts,
-formatting, types, unit/Rust tests, Clippy, builds, integration tests and browser
-tests. Failed browser runs upload `test-results/` (including traces and error
+The checks job calls the Foundation workflow with full browser regression enabled.
+PRs run the same contracts, formatting, types, unit/Rust tests, Clippy, builds
+and integration tests alongside the Web smoke suite. Failed browser runs upload
+`test-results/` (including traces and error
 contexts) for seven days. PR checks use read-only permissions and no deployment
 secrets. The image job builds once for AMD64, exercises
 that loaded image, then only on an eligible deployment event tags/pushes that

@@ -62,7 +62,7 @@ async function closeSource(page: Page) {
     .click();
 }
 
-test("MAW-AC01–02: restored chrome, panes, visual editing, local history and same-ID reopen", async ({
+test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local history and same-ID reopen", async ({
   page,
 }) => {
   await page.goto("/");
@@ -373,7 +373,7 @@ async function savedFile(page: Page) {
   });
 }
 
-test("WFW-AC03: edit outline, preview without writing, close or explicitly adopt, and reload only the manuscript", async ({
+test("@web-smoke WFW-AC03: edit outline, preview without writing, close or explicitly adopt, and reload only the manuscript", async ({
   page,
 }) => {
   const submitted = await mockWriting(page, (kind) =>
@@ -659,7 +659,7 @@ async function importPackage(page: Page, bytes: Buffer) {
   });
 }
 
-test("WFW-AC05–06: byte-preserving package review, guarded apply and independent returned project", async ({
+test("@web-smoke WFW-AC05–06: byte-preserving package review, guarded apply and independent returned project", async ({
   page,
 }) => {
   await page.goto("/");
