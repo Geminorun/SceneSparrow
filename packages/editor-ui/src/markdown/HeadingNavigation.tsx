@@ -17,12 +17,13 @@ function textContent(node: {
   );
 }
 function readHeadings(text: string): Heading[] {
-  return fromMarkdown(text).children.flatMap((node) =>
+  const bom = text.startsWith("\ufeff") ? 1 : 0;
+  return fromMarkdown(text.slice(bom)).children.flatMap((node) =>
     node.type === "heading"
       ? [
           {
             text: textContent(node),
-            offset: node.position?.start.offset ?? 0,
+            offset: (node.position?.start.offset ?? 0) + bom,
             depth: node.depth,
           },
         ]
@@ -61,28 +62,25 @@ export function HeadingNavigation({
     if (target) onSelect(target.offset);
   }
   return (
-    <details className="markdown-contents" open>
-      <summary>{label}</summary>
-      <nav aria-label={label}>
-        {outline.headings.length ? (
-          <ul>
-            {outline.headings.map((heading, index) => (
-              <li
-                key={index}
-                style={{
-                  paddingInlineStart: `${(heading.depth - 1) * 0.75}rem`,
-                }}
-              >
-                <button onClick={() => select(heading)}>
-                  {heading.text || label}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>{empty}</p>
-        )}
-      </nav>
-    </details>
+    <nav aria-label={label}>
+      {outline.headings.length ? (
+        <ul>
+          {outline.headings.map((heading, index) => (
+            <li
+              key={index}
+              style={{
+                paddingInlineStart: `${(heading.depth - 1) * 0.75}rem`,
+              }}
+            >
+              <button onClick={() => select(heading)}>
+                {heading.text || label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>{empty}</p>
+      )}
+    </nav>
   );
 }

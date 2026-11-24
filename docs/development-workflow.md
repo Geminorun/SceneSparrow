@@ -168,6 +168,8 @@ deploy to the same instance as formal `v1.0.0`; candidates have the same access 
 real shared data. Full checks run once in the Web deployment workflow before each
 deployment. A task PR merged into a release branch triggers this deployment via
 the resulting release push. Before merge, Foundation checks test the PR merge
-commit without publishing or deploying; main pushes run the same checks. Manual
-dispatch defaults to checks/build/smoke, including on main, with explicit
-deployment restricted to valid version refs.
+commit without publishing or deploying. PRs and main pushes run all build, unit
+and integration checks plus `pnpm test:e2e:smoke` for file-backed Web writing. Use
+**Run workflow** on **Foundation checks** for the full browser suite without
+deployment. A manual run of **Private Web deployment** defaults to verification,
+with explicit deployment restricted to valid version refs.

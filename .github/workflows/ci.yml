@@ -5,7 +5,12 @@ on:
     branches: [main, "release/**"]
   push:
     branches: [main]
+  workflow_dispatch:
   workflow_call:
+    inputs:
+      full_browser:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,13 +48,13 @@ jobs:
       - run: pnpm test:integration
 
   browser:
-    name: Browser (${{ matrix.shard }}/3)
+    name: ${{ matrix.suite == 'smoke' && 'Browser smoke' || format('Browser ({0}/3)', matrix.suite) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        suite: ${{ fromJSON((inputs.full_browser || github.event_name == 'workflow_dispatch') && '["1","2","3"]' || '["smoke"]') }}
     steps:
       - *checkout
       - *setup-node
@@ -57,17 +62,24 @@ jobs:
       - *install-rust
       - *install-packages
       - run: cargo build --locked -p scenesparrow-service
+      - name: Install Chromium
+        run: pnpm exec playwright install chromium
+      - if: matrix.suite == 'smoke'
+        run: pnpm test:e2e:smoke
       # Diagnostics exercises the Web gateway with its production static files.
-      - run: pnpm --filter @scenesparrow/web build
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e --shard=${{ matrix.shard }}/3
-      - if: matrix.shard == 3
-        run: pnpm test:e2e:markdown
+      - if: matrix.suite != 'smoke'
+        run: pnpm --filter @scenesparrow/web build
+      - if: matrix.suite != 'smoke'
+        env:
+          BROWSER_SHARD: ${{ matrix.suite }}
+        run: pnpm test:e2e --shard="$BROWSER_SHARD/3" --reporter=list
+      - if: matrix.suite == '3'
+        run: pnpm test:e2e:markdown --reporter=list
       - name: Preserve browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          name: playwright-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.suite }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7

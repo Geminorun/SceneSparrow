@@ -52,3 +52,7 @@ Web validation slice for file-backed manuscript creation, clean Markdown import,
 save, reopen, and export. The [file-first Web writing workspace](web-file-workspace.md)
 spec covers the next release slice for the default editor, session-only AI
 writing, and external agent handoff.
+
+The [Markdown workspace and protected agent handoff](markdown-agent-workspace.md)
+spec covers restoring the established workbench over the file APIs and proposes
+block-level protection as a follow-up.

@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { flushSync } from "react-dom";
 import type {
   MarkdownExchangeReview,
   MarkdownProject,
@@ -18,7 +25,12 @@ import {
 import { CompositionActions } from "../project-session/composition-actions";
 import { WorkspaceRibbon } from "../workbench/WorkspaceRibbon";
 import { AiSettings } from "../ai-settings/AiSettings";
-import { SettingsModal } from "../ai-settings/SettingsModal";
+import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
+import { WorkspaceIcon } from "../ui/WorkspaceIcon";
+import { trapDialogFocus } from "../ui/dialog-focus";
+import type { Editor } from "@tiptap/core";
+import { MarkdownEditor } from "./MarkdownEditor";
+import { projectSource } from "./source-projection";
 import {
   MarkdownWriting,
   type WritingCapture,
@@ -62,7 +74,18 @@ export function MarkdownWorkspace({
   const buffer = useRef<Buffer | null>(null);
   const [, render] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [writingOpen, setWritingOpen] = useState(false);
+  const pane = useAuxiliaryPane();
+  const [view, setView] = useState<
+    "manuscript" | "outline" | "draft" | "exchange"
+  >("manuscript");
+  const [outlineTarget, setOutlineTarget] = useState<HTMLDivElement | null>(
+    null,
+  );
+  const settings = useRef<HTMLDialogElement>(null);
+  const sourceDialog = useRef<HTMLDialogElement>(null);
+  const sourceInput = useRef<HTMLTextAreaElement>(null);
+  const documentMenu = useRef<HTMLDetailsElement>(null);
+  const [source, setSource] = useState("");
   const [draft, setDraft] = useState<WritingDraft | null>(null);
   const draftRef = useRef<WritingDraft | null>(null);
   const [exchange, setExchange] = useState<ExchangeCandidate | null>(null);
@@ -82,7 +105,10 @@ export function MarkdownWorkspace({
   const [saveFailed, setSaveFailed] = useState(false);
   const [autosavePaused, setAutosavePaused] = useState(false);
   const pendingSave = useRef<Promise<void> | null>(null);
-  const editor = useRef<HTMLTextAreaElement>(null);
+  const editor = useRef<Editor | null>(null);
+  const outlineEditor = useRef<Editor | null>(null);
+  const sourceBase = useRef("");
+  const sourceOpen = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const projectMenu = useRef<HTMLDetailsElement>(null);
   const composition = useRef(new CompositionActions()).current;
@@ -103,7 +129,7 @@ export function MarkdownWorkspace({
     exchangeRef.current = null;
     setExchange(null);
     setSeparateProject(null);
-    setWritingOpen(false);
+    setView("manuscript");
     setSaveFailed(false);
     setAutosavePaused(false);
     redraw();
@@ -227,6 +253,7 @@ export function MarkdownWorkspace({
         if (draftRef.current === candidate) {
           draftRef.current = null;
           setDraft(null);
+          setView("manuscript");
         }
       });
     } catch (failure) {
@@ -240,6 +267,62 @@ export function MarkdownWorkspace({
     if (projectMenu.current) projectMenu.current.open = false;
   }
   const current = buffer.current;
+  const projection = useMemo(
+    () => (current ? projectSource(current.text) : null),
+    [current?.project.projectId, editorSession],
+  );
+  const [outlineText, setOutlineText] = useState("");
+  useEffect(() => {
+    if (settingsSection) settings.current?.showModal();
+  }, [settingsSection]);
+  function openSource(offset = 0) {
+    if (documentMenu.current) documentMenu.current.open = false;
+    sourceBase.current = buffer.current?.text ?? "";
+    sourceOpen.current = true;
+    flushSync(() =>
+      setSource(withoutBom(sourceBase.current).replace(/\r\n?/g, "\n")),
+    );
+    sourceDialog.current?.showModal();
+    sourceInput.current?.focus();
+    sourceInput.current?.setSelectionRange(offset, offset);
+  }
+  function closeSource() {
+    sourceDialog.current?.close();
+    sourceOpen.current = false;
+    if (buffer.current?.text !== sourceBase.current)
+      setEditorSession((value) => value + 1);
+    else editor.current?.commands.focus();
+  }
+  function sourceChanged(value: string) {
+    const raw = buffer.current?.text ?? "";
+    const visible = withoutBom(raw).replace(/\r\n?/g, "\n");
+    if (value === visible) return;
+    let start = 0,
+      end = 0;
+    while (
+      start < visible.length &&
+      start < value.length &&
+      visible[start] === value[start]
+    )
+      start++;
+    while (
+      end < visible.length - start &&
+      end < value.length - start &&
+      visible[visible.length - 1 - end] === value[value.length - 1 - end]
+    )
+      end++;
+    const offsets = [raw.startsWith("\ufeff") ? 1 : 0];
+    for (let index = offsets[0]!; index < raw.length; index++) {
+      if (raw[index] === "\r" && raw[index + 1] === "\n") index++;
+      offsets.push(index + 1);
+    }
+    const newline = /\r\n|\r|\n/.exec(raw)?.[0] ?? "\n";
+    changed(
+      raw.slice(0, offsets[start]) +
+        value.slice(start, value.length - end).replace(/\n/g, newline) +
+        raw.slice(offsets[visible.length - end]),
+    );
+  }
   const dirty = !!current && current.text !== current.project.text;
   useEffect(() => {
     if (
@@ -283,10 +366,8 @@ export function MarkdownWorkspace({
   }, [preferences, saveFailed, autosavePaused]);
   function changed(value: string) {
     const current = buffer.current;
-    if (!current || value === withoutBom(current.text).replace(/\r\n?/g, "\n"))
-      return;
-    // Textarea editing uses LF. Keep an imported BOM outside the visible editor.
-    current.text = (current.text.startsWith("\ufeff") ? "\ufeff" : "") + value;
+    if (!current || value === current.text) return;
+    current.text = value;
     current.epoch++;
     redraw();
   }
@@ -394,6 +475,7 @@ export function MarkdownWorkspace({
         };
         exchangeRef.current = candidate;
         setExchange(candidate);
+        setView("exchange");
         setSeparateProject(null);
       });
     } catch (failure) {
@@ -431,6 +513,7 @@ export function MarkdownWorkspace({
         if (exchangeRef.current === candidate) {
           exchangeRef.current = null;
           setExchange(null);
+          setView("manuscript");
         }
       });
     } catch (failure) {
@@ -469,13 +552,16 @@ export function MarkdownWorkspace({
         <a className="skip-link" href="#markdown-editor">
           {t.skipToWorkbench}
         </a>
-        <WorkspaceRibbon t={t} onWrite={() => editor.current?.focus()} />
+        <WorkspaceRibbon
+          t={t}
+          onWrite={() => editor.current?.commands.focus()}
+        />
         <header className="workspace-header">
           <div className="workspace-brand">{t.appName}</div>
           <div className="workspace-actions">
             <details className="project-menu" ref={projectMenu}>
-              <summary>{t.markdownProjectMenu}</summary>
-              <nav aria-label={t.markdownProjectMenu}>
+              <summary>{t.applicationMenu}</summary>
+              <nav aria-label={t.applicationMenu}>
                 <button
                   disabled={loading || busy}
                   onClick={() => {
@@ -576,250 +662,543 @@ export function MarkdownWorkspace({
                 });
               }}
             />
-            <button disabled={!current} onClick={() => setWritingOpen(true)}>
-              {t.markdownAiWriting}
-            </button>
-            <button onClick={() => setSettingsSection("services")}>
-              {t.settings}
-            </button>
-            <select
-              aria-label={t.language}
-              value={locale}
-              onChange={(event) => setLocale(event.target.value)}
-            >
-              <option value="en">English</option>
-              <option value="zh-CN">简体中文</option>
-            </select>
-          </div>
-        </header>
-        <main className="markdown-main">
-          <div className="markdown-toolbar">
-            <strong>{t.markdownWorkspace}</strong>
-            <span role="status">
-              {saving
-                ? t.save_saving
-                : saveFailed
-                  ? t.save_error
-                  : dirty
-                    ? t.save_pending
-                    : current
-                      ? t.save_saved
-                      : loading
-                        ? t.workspaceLoading
-                        : ""}
-            </span>
-            <label>
-              {t.autosaveMode}
+            <label className="language">
+              <span>{t.language}</span>
               <select
-                value={preferences.saveMode}
-                onChange={(event) =>
-                  applicationPreferences.update({
-                    saveMode: event.target.value as SaveMode,
-                  })
-                }
+                aria-label={t.language}
+                value={locale}
+                onChange={(event) => setLocale(event.target.value)}
               >
-                <option value="after_delay">{t.autosaveAfterDelay}</option>
-                <option value="on_window_change">
-                  {t.autosaveOnWindowChange}
-                </option>
-                <option value="off">{t.autosaveOff}</option>
+                <option value="en">English</option>
+                <option value="zh-CN">简体中文</option>
               </select>
             </label>
-            {preferences.saveMode === "after_delay" && (
-              <label>
-                {t.autosaveDelay}
-                <select
-                  value={preferences.saveDelaySeconds}
-                  onChange={(event) =>
-                    applicationPreferences.update({
-                      saveDelaySeconds: Number(event.target.value) as SaveDelay,
-                    })
-                  }
-                >
-                  {([5, 10, 30] as const).map((seconds) => (
-                    <option key={seconds} value={seconds}>
-                      {t.autosaveSeconds.replace("{seconds}", String(seconds))}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
-          {autosavePaused && (
-            <p className="markdown-conflict">{t.MARKDOWN_DRAFT_NEWER_INPUT}</p>
-          )}
-          {!current && !loading && <p>{t.markdownOpenFailed}</p>}
-          {current && (
-            <div className="markdown-document">
-              <HeadingNavigation
-                key={`contents-${current.project.projectId}`}
-                text={withoutBom(current.text).replace(/\r\n?/g, "\n")}
-                label={t.workspaceTab_structure}
-                empty={t.noHeadings}
-                onSelect={(offset) => {
-                  editor.current?.setSelectionRange(offset, offset);
-                  editor.current?.focus();
-                }}
-              />
-              <textarea
-                key={`${current.project.projectId}:${editorSession}`}
-                ref={editor}
-                id="markdown-editor"
-                aria-label={t.markdownText}
-                autoFocus
-                defaultValue={withoutBom(current.text)}
-                onChange={(event) => changed(event.currentTarget.value)}
-                onCompositionStart={() =>
-                  composition.composition("markdown", true)
-                }
-                onCompositionEnd={() =>
-                  composition.composition("markdown", false)
-                }
-                onBlur={() =>
-                  composition.blur("markdown", () => {
-                    if (editor.current) changed(editor.current.value);
-                    composition.composition("markdown", false);
-                  })
-                }
-                onKeyDown={(event) => {
-                  if (
-                    (event.ctrlKey || event.metaKey) &&
-                    event.key.toLowerCase() === "s"
-                  ) {
-                    event.preventDefault();
-                    runSave();
-                  }
-                }}
-              />
-              {exchange && (
-                <section
-                  className="markdown-draft markdown-exchange"
-                  aria-label={t.markdownExchangePreview}
-                >
-                  <div className="dialog-heading">
-                    <h2>{t.markdownExchangePreview}</h2>
-                    <button
-                      disabled={applying}
-                      onClick={() => {
-                        exchangeRef.current = null;
-                        setExchange(null);
-                      }}
-                    >
-                      {t.markdownKeepCurrent}
-                    </button>
-                  </div>
-                  <p>{t.markdownExchangeHelp}</p>
-                  {exchangeChanged(exchange) && (
-                    <p className="markdown-conflict">
-                      {t.MARKDOWN_EXCHANGE_CONFLICT}
-                    </p>
-                  )}
-                  {current.text === exchange.text ? (
-                    <p>{t.markdownExchangeUnchanged}</p>
-                  ) : (
-                    <ExchangeComparison
-                      current={current.text}
-                      returned={exchange.text}
-                      t={t}
-                    />
-                  )}
-                  <button
-                    disabled={
-                      applying ||
-                      exchangeChanged(exchange) ||
-                      current.text === exchange.text
-                    }
-                    onClick={() => void applyChanges()}
-                  >
-                    {t.markdownApplyChanges}
-                  </button>
-                  <button
-                    disabled={exchangeBusy || !!separateProject}
-                    onClick={() => void saveReturnedSeparately()}
-                  >
-                    {t.markdownSaveReturned}
-                  </button>
-                  {separateProject && (
-                    <a
-                      href={separateProject}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {t.markdownOpenReturned}
-                    </a>
-                  )}
-                </section>
-              )}
-              {draft && (
-                <section
-                  className="markdown-draft"
-                  aria-label={t.markdownDraftPreview}
-                >
-                  <div className="dialog-heading">
-                    <h2>{t.markdownDraftPreview}</h2>
-                    <button
-                      disabled={applying}
-                      onClick={() => {
-                        draftRef.current = null;
-                        setDraft(null);
-                      }}
-                    >
-                      {t.close}
-                    </button>
-                  </div>
-                  <p>{t.markdownDraftHelp}</p>
-                  {draftChanged(draft) && (
-                    <p className="markdown-conflict">
-                      {t.MARKDOWN_DRAFT_CONFLICT}
-                    </p>
-                  )}
-                  <MarkdownPreview text={draft.text} />
-                  <button disabled={applying} onClick={() => void useDraft()}>
-                    {t.markdownUseDraft}
-                  </button>
-                </section>
-              )}
-              {writingOpen && (
-                <MarkdownWriting
-                  key={current.project.projectId}
-                  client={platformClient}
-                  t={t}
-                  composition={composition}
-                  capture={capture}
-                  onClose={() => setWritingOpen(false)}
-                  onDraft={(candidate) => {
-                    if (buffer.current !== candidate.capture.session) return;
-                    draftRef.current = candidate;
-                    setDraft(candidate);
-                  }}
+            <button
+              className="quiet-button settings-trigger"
+              aria-label={t.settings}
+              title={t.settings}
+              onClick={() => setSettingsSection("general")}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+              >
+                <path
+                  d="m9 3-.6 2.3-2 .9-2.1-.6L2.8 8.2l1.5 1.7-.2 2.3-1.4 1.9L4.4 17l2.4-.4 1.9 1.3.5 2.4h3.5l.7-2.4 2-1.1 2.3.5 1.8-3-1.5-1.8.1-2.3 1.5-1.8-1.7-2.8-2.3.4-1.9-1.2L12.5 3H9Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
                 />
-              )}
+                <circle
+                  cx="10.8"
+                  cy="11.5"
+                  r="3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <main id="workbench" aria-label={t.workbench}>
+          <section className="project-workbench">
+            <div className="manuscript-workspace">
+              <WorkspacePane
+                pane={pane}
+                t={t}
+                availableTabs={{ left: ["structure"], right: ["planning"] }}
+                panels={{
+                  structure: current ? (
+                    <HeadingNavigation
+                      text={view === "outline" ? outlineText : current.text}
+                      label={t.workspaceTab_structure}
+                      empty={t.noHeadings}
+                      onSelect={(offset) => {
+                        if (view === "outline") {
+                          const outline = outlineEditor.current;
+                          const projection = projectSource(outlineText);
+                          const index = projection?.ranges.findIndex(
+                            (range) => range.start === offset,
+                          );
+                          if (outline && index !== undefined && index >= 0) {
+                            let position = 1;
+                            for (let i = 0; i < index; i++)
+                              position += outline.state.doc.child(i).nodeSize;
+                            outline
+                              .chain()
+                              .focus()
+                              .setTextSelection(position)
+                              .scrollIntoView()
+                              .run();
+                          }
+                          return;
+                        }
+                        const projection = projectSource(current.text);
+                        const index = projection?.ranges.findIndex(
+                          (range) => range.start === offset,
+                        );
+                        if (
+                          index !== undefined &&
+                          index >= 0 &&
+                          editor.current
+                        ) {
+                          let position = 1;
+                          for (let i = 0; i < index; i++)
+                            position +=
+                              editor.current.state.doc.child(i).nodeSize;
+                          editor.current
+                            .chain()
+                            .focus()
+                            .setTextSelection(position)
+                            .scrollIntoView()
+                            .run();
+                        } else openSource(offset);
+                      }}
+                    />
+                  ) : null,
+                  planning: null,
+                  review: null,
+                  sources: null,
+                }}
+                rightContent={
+                  current ? (
+                    <MarkdownWriting
+                      key={current.project.projectId}
+                      client={platformClient}
+                      t={t}
+                      composition={composition}
+                      capture={capture}
+                      outlineTarget={outlineTarget}
+                      onOutline={(text, activate = true) => {
+                        setOutlineText(text);
+                        if (activate) setView("outline");
+                      }}
+                      onOutlineReady={(value) => {
+                        outlineEditor.current = value;
+                      }}
+                      onDraft={(candidate) => {
+                        if (buffer.current !== candidate.capture.session)
+                          return;
+                        draftRef.current = candidate;
+                        setDraft(candidate);
+                        setView("draft");
+                      }}
+                    />
+                  ) : null
+                }
+              >
+                <div className="manuscript-header">
+                  <div
+                    className="writing-view-switch"
+                    role="group"
+                    aria-label={t.writingView}
+                  >
+                    <button
+                      aria-pressed={view === "manuscript"}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setView("manuscript")}
+                    >
+                      {t.manuscript}
+                    </button>
+                    <button
+                      aria-pressed={view === "outline"}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setView("outline")}
+                    >
+                      {t.writingOutline}
+                    </button>
+                    {draft && (
+                      <button
+                        aria-pressed={view === "draft"}
+                        onClick={() => setView("draft")}
+                      >
+                        {t.markdownDraftPreview}
+                      </button>
+                    )}
+                    {exchange && (
+                      <button
+                        aria-pressed={view === "exchange"}
+                        onClick={() => setView("exchange")}
+                      >
+                        {t.markdownExchangePreview}
+                      </button>
+                    )}
+                  </div>
+                  <div className="manuscript-context">
+                    <h3>
+                      {(view === "outline"
+                        ? outlineText
+                        : (current?.text ?? "")
+                      )
+                        .replace(/^\ufeff/, "")
+                        .match(/^#{1,6} +(.+)/m)?.[1] ||
+                        (view === "outline" ? t.writingOutline : t.manuscript)}
+                    </h3>
+                    <div className="save-feedback">
+                      <span role="status" data-testid="save-status">
+                        {saving
+                          ? t.save_saving
+                          : saveFailed
+                            ? t.save_error
+                            : dirty
+                              ? t.save_pending
+                              : current
+                                ? t.save_saved
+                                : loading
+                                  ? t.workspaceLoading
+                                  : ""}
+                      </span>
+                      {(saveFailed || autosavePaused) && (
+                        <button onClick={runSave}>{t.markdownSave}</button>
+                      )}
+                    </div>
+                  </div>
+                  <details className="document-menu" ref={documentMenu}>
+                    <summary
+                      aria-label={t.documentMenu}
+                      title={t.documentMenu}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      <WorkspaceIcon name="menu" />
+                    </summary>
+                    <div className="document-menu-content">
+                      <button
+                        disabled={!current}
+                        onClick={() => {
+                          if (documentMenu.current)
+                            documentMenu.current.open = false;
+                          fileInput.current?.click();
+                        }}
+                      >
+                        {t.importManuscript}
+                      </button>
+                      <button disabled={!current} onClick={() => openSource()}>
+                        {t.viewMarkdownSource}
+                      </button>
+                      <button
+                        onMouseDown={(event) => event.preventDefault()}
+                        disabled={!editor.current?.can().undo()}
+                        onClick={() => {
+                          editor.current?.chain().focus().undo().run();
+                          if (documentMenu.current)
+                            documentMenu.current.open = false;
+                        }}
+                      >
+                        {t.undo}
+                        <kbd>Ctrl/⌘ Z</kbd>
+                      </button>
+                      <button
+                        onMouseDown={(event) => event.preventDefault()}
+                        disabled={!editor.current?.can().redo()}
+                        onClick={() => {
+                          editor.current?.chain().focus().redo().run();
+                          if (documentMenu.current)
+                            documentMenu.current.open = false;
+                        }}
+                      >
+                        {t.redo}
+                        <kbd>Ctrl/⌘ ⇧ Z</kbd>
+                      </button>
+                    </div>
+                  </details>
+                </div>
+                {autosavePaused && (
+                  <p className="markdown-conflict">
+                    {t.MARKDOWN_DRAFT_NEWER_INPUT}
+                  </p>
+                )}
+                {!current && !loading && <p>{t.markdownOpenFailed}</p>}
+                <div
+                  ref={setOutlineTarget}
+                  className="outline-surface"
+                  hidden={view !== "outline"}
+                  inert={view !== "outline"}
+                />
+                <div
+                  className="document-layout"
+                  hidden={view !== "manuscript"}
+                  inert={view !== "manuscript"}
+                >
+                  {current &&
+                    (projection ? (
+                      <MarkdownEditor
+                        key={`${current.project.projectId}:${editorSession}`}
+                        projection={projection}
+                        t={t}
+                        composition={composition}
+                        changed={(text) => {
+                          if (!sourceOpen.current) changed(text);
+                        }}
+                        save={runSave}
+                        ready={(value) => {
+                          editor.current = value;
+                        }}
+                      />
+                    ) : (
+                      <div className="source-fallback">
+                        <p className="muted">{t.markdownVisualUnsupported}</p>
+                        <button onClick={() => openSource()}>
+                          {t.viewMarkdownSource}
+                        </button>
+                        <MarkdownPreview text={current.text} />
+                      </div>
+                    ))}
+                </div>
+                {current && exchange && (
+                  <section
+                    className="markdown-draft markdown-exchange"
+                    hidden={view !== "exchange"}
+                    inert={view !== "exchange"}
+                    aria-label={t.markdownExchangePreview}
+                  >
+                    <div className="dialog-heading">
+                      <h2>{t.markdownExchangePreview}</h2>
+                      <button
+                        disabled={applying}
+                        onClick={() => {
+                          exchangeRef.current = null;
+                          setExchange(null);
+                          setView("manuscript");
+                        }}
+                      >
+                        {t.markdownKeepCurrent}
+                      </button>
+                    </div>
+                    <p>{t.markdownExchangeHelp}</p>
+                    {exchangeChanged(exchange) && (
+                      <p className="markdown-conflict">
+                        {t.MARKDOWN_EXCHANGE_CONFLICT}
+                      </p>
+                    )}
+                    {current.text === exchange.text ? (
+                      <p>{t.markdownExchangeUnchanged}</p>
+                    ) : (
+                      <ExchangeComparison
+                        current={current.text}
+                        returned={exchange.text}
+                        t={t}
+                      />
+                    )}
+                    <button
+                      disabled={
+                        applying ||
+                        exchangeChanged(exchange) ||
+                        current.text === exchange.text
+                      }
+                      onClick={() => void applyChanges()}
+                    >
+                      {t.markdownApplyChanges}
+                    </button>
+                    <button
+                      disabled={exchangeBusy || !!separateProject}
+                      onClick={() => void saveReturnedSeparately()}
+                    >
+                      {t.markdownSaveReturned}
+                    </button>
+                    {separateProject && (
+                      <a
+                        href={separateProject}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {t.markdownOpenReturned}
+                      </a>
+                    )}
+                  </section>
+                )}
+                {draft && (
+                  <section
+                    className="markdown-draft"
+                    hidden={view !== "draft"}
+                    inert={view !== "draft"}
+                    aria-label={t.markdownDraftPreview}
+                  >
+                    <div className="dialog-heading">
+                      <h2>{t.markdownDraftPreview}</h2>
+                      <button
+                        disabled={applying}
+                        onClick={() => {
+                          draftRef.current = null;
+                          setDraft(null);
+                          setView("manuscript");
+                        }}
+                      >
+                        {t.close}
+                      </button>
+                    </div>
+                    <p>{t.markdownDraftHelp}</p>
+                    {draftChanged(draft) && (
+                      <p className="markdown-conflict">
+                        {t.MARKDOWN_DRAFT_CONFLICT}
+                      </p>
+                    )}
+                    <MarkdownPreview text={draft.text} />
+                    <button disabled={applying} onClick={() => void useDraft()}>
+                      {t.markdownUseDraft}
+                    </button>
+                  </section>
+                )}
+              </WorkspacePane>
             </div>
-          )}
+          </section>
         </main>
-        {settingsSection && (
-          <SettingsModal
-            title={t.settings}
-            t={t}
-            onClose={() => setSettingsSection(null)}
-          >
-            <nav className="settings-tabs" aria-label={t.settings}>
-              <button onClick={() => setSettingsSection("services")}>
-                {t.aiModels}
-              </button>
-              <button onClick={() => setSettingsSection("defaults")}>
-                {t.aiDefaultModels}
-              </button>
+        <dialog
+          ref={sourceDialog}
+          className="markdown-source-dialog"
+          aria-labelledby="markdown-source-title"
+          onKeyDown={(event) => trapDialogFocus(event, event.currentTarget)}
+          onCancel={(event) => {
+            event.preventDefault();
+            closeSource();
+          }}
+        >
+          <div className="dialog-heading">
+            <h2 id="markdown-source-title">{t.markdownRawSourceTitle}</h2>
+            <button
+              className="quiet-button"
+              aria-label={t.closeMarkdownSource}
+              onClick={closeSource}
+            >
+              <WorkspaceIcon name="close" />
+            </button>
+          </div>
+          <p className="muted">{t.markdownRawSourceHelp}</p>
+          <textarea
+            ref={sourceInput}
+            aria-label={t.markdownRawSourceTitle}
+            value={source}
+            spellCheck={false}
+            onChange={(event) => {
+              setSource(event.currentTarget.value);
+              sourceChanged(event.currentTarget.value);
+            }}
+            onCompositionStart={() => composition.composition("source", true)}
+            onCompositionEnd={() => composition.composition("source", false)}
+            onBlur={() =>
+              composition.blur("source", () =>
+                composition.composition("source", false),
+              )
+            }
+            onKeyDown={(event) => {
+              if (
+                (event.ctrlKey || event.metaKey) &&
+                event.key.toLowerCase() === "s"
+              ) {
+                event.preventDefault();
+                runSave();
+              }
+            }}
+          />
+        </dialog>
+        <dialog
+          ref={settings}
+          className="settings-dialog"
+          aria-label={t.settings}
+          onClose={() => setSettingsSection(null)}
+          onKeyDown={(event) => trapDialogFocus(event, event.currentTarget)}
+        >
+          <div className="dialog-heading">
+            <h2>{t.settings}</h2>
+            <button
+              className="quiet-button"
+              onClick={() => settings.current?.close()}
+            >
+              {t.close}
+            </button>
+          </div>
+          <div className="settings-layout">
+            <nav aria-label={t.settingsSections}>
+              {(["general", "services", "defaults"] as const).map((section) => (
+                <button
+                  key={section}
+                  aria-current={
+                    settingsSection === section ? "page" : undefined
+                  }
+                  onClick={() => setSettingsSection(section)}
+                >
+                  {section === "general"
+                    ? t.generalSettings
+                    : section === "services"
+                      ? t.aiModels
+                      : t.aiDefaultModels}
+                </button>
+              ))}
             </nav>
-            <AiSettings
-              client={platformClient}
-              t={t}
-              active
-              open
-              section={settingsSection === "defaults" ? "defaults" : "services"}
-            />
-          </SettingsModal>
-        )}
+            <div className="settings-content">
+              <section hidden={settingsSection !== "general"}>
+                <h3>{t.generalSettings}</h3>
+                <p>{t.applicationPreferencesHelp}</p>
+                <label>
+                  {t.interfaceLanguage}
+                  <select
+                    value={locale}
+                    onChange={(event) => setLocale(event.target.value)}
+                  >
+                    <option value="en">English</option>
+                    <option value="zh-CN">简体中文</option>
+                  </select>
+                </label>
+                <label>
+                  {t.autosaveMode}
+                  <select
+                    value={preferences.saveMode}
+                    onChange={(event) =>
+                      applicationPreferences.update({
+                        saveMode: event.target.value as SaveMode,
+                      })
+                    }
+                  >
+                    <option value="after_delay">{t.autosaveAfterDelay}</option>
+                    <option value="on_window_change">
+                      {t.autosaveOnWindowChange}
+                    </option>
+                    <option value="off">{t.autosaveOff}</option>
+                  </select>
+                </label>
+                {preferences.saveMode === "after_delay" && (
+                  <label>
+                    {t.autosaveDelay}
+                    <select
+                      value={preferences.saveDelaySeconds}
+                      onChange={(event) =>
+                        applicationPreferences.update({
+                          saveDelaySeconds: Number(
+                            event.target.value,
+                          ) as SaveDelay,
+                        })
+                      }
+                    >
+                      {([5, 10, 30] as const).map((seconds) => (
+                        <option key={seconds} value={seconds}>
+                          {t.autosaveSeconds.replace(
+                            "{seconds}",
+                            String(seconds),
+                          )}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <p className="muted">{t.manualSaveHelp}</p>
+              </section>
+              <AiSettings
+                client={platformClient}
+                t={t}
+                active={
+                  settingsSection === "services" ||
+                  settingsSection === "defaults"
+                }
+                open={settingsSection !== null}
+                section={
+                  settingsSection === "defaults" ? "defaults" : "services"
+                }
+              />
+            </div>
+          </div>
+        </dialog>
       </div>
     </SettingsActions.Provider>
   );

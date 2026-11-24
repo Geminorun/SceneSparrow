@@ -45,6 +45,8 @@ jobs:
   checks:
     needs: policy
     uses: ./.github/workflows/ci.yml
+    with:
+      full_browser: true
 
   image:
     needs: [policy, checks]

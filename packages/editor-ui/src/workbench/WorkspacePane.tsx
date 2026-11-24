@@ -108,12 +108,14 @@ export function WorkspacePane({
   children,
   panels,
   rightContent,
+  availableTabs = groups,
 }: {
   pane: ReturnType<typeof useAuxiliaryPane>;
   t: typeof en;
   children: ReactNode;
   panels: Record<AuxiliaryTab, ReactNode>;
   rightContent?: ReactNode;
+  availableTabs?: Record<Side, AuxiliaryTab[]>;
 }) {
   const buttons = useRef<
     Partial<Record<AuxiliaryTab, HTMLButtonElement | null>>
@@ -133,8 +135,11 @@ export function WorkspacePane({
   };
   const open = (side: Side) => {
     previousFocus.current = document.activeElement as HTMLElement;
-    pane.open(pane[side].tab);
-    requestAnimationFrame(() => buttons.current[pane[side].tab]?.focus());
+    const tab = availableTabs[side].includes(pane[side].tab)
+      ? pane[side].tab
+      : availableTabs[side][0]!;
+    pane.open(tab);
+    requestAnimationFrame(() => buttons.current[tab]?.focus());
   };
   useEffect(() => {
     if (!pane.narrow || !pane.drawer) return;
@@ -147,8 +152,8 @@ export function WorkspacePane({
   }, [pane.narrow, pane.drawer]);
   const renderPane = (side: Side) => {
     const visible = pane.visible(side),
-      tabs = groups[side],
-      selected = pane[side].tab;
+      tabs = availableTabs[side],
+      selected = tabs.includes(pane[side].tab) ? pane[side].tab : tabs[0]!;
     return (
       <aside
         ref={(node) => {

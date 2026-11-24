@@ -19,6 +19,7 @@
     "format:check": "prettier --check . && cargo fmt --all -- --check",
     "test": "node --import tsx --test tests/unit/*.test.mjs && cargo test --workspace --locked",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "pnpm test:e2e:markdown --grep @web-smoke --reporter=list",
     "render:smoke": "pnpm --filter @scenesparrow/render smoke",
     "check": "pnpm contracts:check && pnpm format:check && pnpm typecheck && pnpm test && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "test:integration": "cargo build --locked -p scenesparrow-service && node --test tests/integration/*.test.mjs",
