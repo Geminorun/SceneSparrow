@@ -48,8 +48,26 @@ jobs:
     with:
       full_browser: true
 
-  image:
+  release_gate:
+    name: Release gate
     needs: [policy, checks]
+    if: ${{ !cancelled() && github.event.deleted != true }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require successful release prerequisites
+        env:
+          POLICY_RESULT: ${{ needs.policy.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: |
+          if [[ "$POLICY_RESULT" != success || "$CHECKS_RESULT" != success ]]; then
+            echo "::error title=Web release blocked::Release policy: $POLICY_RESULT. Foundation checks: $CHECKS_RESULT. Image build and deployment blocked."
+            exit 1
+          fi
+
+  image:
+    needs: [policy, release_gate]
+    if: needs.release_gate.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -108,8 +126,11 @@ jobs:
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
 
   deploy:
-    needs: [policy, image]
-    if: needs.policy.outputs.should_deploy == 'true'
+    needs: [policy, release_gate, image]
+    if: >-
+      needs.release_gate.result == 'success' &&
+      needs.image.result == 'success' &&
+      needs.policy.outputs.should_deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: web-production
