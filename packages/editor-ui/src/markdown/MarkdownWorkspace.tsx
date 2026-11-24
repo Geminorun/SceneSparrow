@@ -5,6 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { flushSync } from "react-dom";
 import type {
   MarkdownExchangeReview,
   MarkdownProject,
@@ -278,12 +279,12 @@ export function MarkdownWorkspace({
     if (documentMenu.current) documentMenu.current.open = false;
     sourceBase.current = buffer.current?.text ?? "";
     sourceOpen.current = true;
-    setSource(withoutBom(sourceBase.current).replace(/\r\n?/g, "\n"));
+    flushSync(() =>
+      setSource(withoutBom(sourceBase.current).replace(/\r\n?/g, "\n")),
+    );
     sourceDialog.current?.showModal();
-    requestAnimationFrame(() => {
-      sourceInput.current?.focus();
-      sourceInput.current?.setSelectionRange(offset, offset);
-    });
+    sourceInput.current?.focus();
+    sourceInput.current?.setSelectionRange(offset, offset);
   }
   function closeSource() {
     sourceDialog.current?.close();

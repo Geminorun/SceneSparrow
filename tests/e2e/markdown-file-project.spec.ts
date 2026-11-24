@@ -151,7 +151,7 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   expect(projectId(page)).toBe(importedId);
 });
 
-test("MAW-AC02: source fallback preserves unsupported Markdown bytes and source edits retain untouched mixed endings", async ({
+test("@web-smoke MAW-AC02: source fallback preserves unsupported Markdown bytes and source edits retain untouched mixed endings", async ({
   page,
 }) => {
   await page.goto("/");
@@ -172,7 +172,18 @@ test("MAW-AC02: source fallback preserves unsupported Markdown bytes and source 
   await page.reload();
   await expect(page.locator(".source-fallback")).toBeVisible();
   expect(await exported(page)).toEqual(raw);
-  const edit = await source(page);
+  const dialog = page.getByRole("dialog", { name: "Markdown source" });
+  const edit = dialog.getByRole("textbox", { name: "Markdown source" });
+  const openSource = page
+    .locator(".source-fallback")
+    .getByRole("button", { name: "View Markdown source" });
+  expect(
+    await openSource.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      const input = document.activeElement;
+      return input instanceof HTMLTextAreaElement && input.selectionStart === 0;
+    }),
+  ).toBe(true);
   await edit.fill("# 中文\n<!-- untouched -->\n[link](../changed.md)\n");
   await closeSource(page);
   await save(page);
