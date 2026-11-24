@@ -650,5 +650,9 @@
   "markdownExchangeUnchanged": "There are no changes to apply.",
   "MARKDOWN_EXCHANGE_INVALID": "Choose a valid project ZIP containing exchange.json, project/project.json and a UTF-8 project/manuscript.md (up to 2 MiB).",
   "MARKDOWN_EXCHANGE_PROJECT_MISMATCH": "This ZIP belongs to another project. Your current draft is unchanged.",
-  "MARKDOWN_EXCHANGE_CONFLICT": "The current manuscript changed since export. Keep your current draft or save the returned text as a new project."
+  "MARKDOWN_EXCHANGE_CONFLICT": "The current manuscript changed since export. Keep your current draft or save the returned text as a new project.",
+  "markdownVisualUnsupported": "Edit this manuscript through Markdown source to preserve its syntax.",
+  "MARKDOWN_VISUAL_EDIT_UNSUPPORTED": "This format needs Markdown source. Your current text is intact.",
+  "markdownRawSourceHelp": "Edit the original Markdown. Unchanged source retains its original formatting.",
+  "markdownRawSourceTitle": "Markdown source"
 }

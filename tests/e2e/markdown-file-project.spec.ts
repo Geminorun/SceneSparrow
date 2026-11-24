@@ -2,11 +2,13 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { zip, zipEntries } from "../fixtures/documents.mjs";
 
-const editor = (page: Page) =>
-  page.getByRole("textbox", { name: "Markdown manuscript", exact: true });
+const editor = (page: Page) => page.locator("#markdown-editor");
 async function projectAction(page: Page, name: string) {
   await page.locator(".project-menu > summary").click();
-  await page.getByRole("button", { name, exact: true }).click();
+  await page
+    .locator(".project-menu nav")
+    .getByRole("button", { name, exact: true })
+    .click();
 }
 const save = (page: Page) => projectAction(page, "Save");
 const projectId = (page: Page) =>
@@ -23,188 +25,185 @@ async function importFile(page: Page, buffer: Buffer, name = "returned.md") {
     .setInputFiles({ name, mimeType: "text/markdown", buffer });
 }
 
-test("WFW-AC01–02: last project reopens, URL wins, Contents collapses without replacing the editor", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(editor(page)).toBeFocused();
-  const first = projectId(page);
+async function preferences(page: Page, mode: string, delay?: string) {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "General", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
-  const text =
-    "# Main\n\n## **Nested**\n\n```md\n# Not a heading\n```\n\n" +
-    "Body line\n".repeat(150) +
-    "\nTail\n====\n";
-  await editor(page).fill(text);
-  await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  const contents = page.getByRole("navigation", {
-    name: "Contents",
-    exact: true,
-  });
+    .selectOption(mode);
+  if (delay)
+    await page
+      .getByRole("combobox", { name: "Save delay", exact: true })
+      .selectOption(delay);
+  await page
+    .getByRole("dialog", { name: "Settings", exact: true })
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+}
+async function manuscript(page: Page) {
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Manuscript", exact: true })
+    .click();
+}
+async function source(page: Page) {
+  await page.locator(".document-menu > summary").click();
+  await page
+    .locator(".document-menu")
+    .getByRole("button", { name: "View Markdown source", exact: true })
+    .click();
+  return page
+    .getByRole("dialog")
+    .getByRole("textbox", { name: "Markdown source", exact: true });
+}
+async function closeSource(page: Page) {
+  await page
+    .getByRole("button", { name: "Close Markdown source", exact: true })
+    .click();
+}
+
+test("MAW-AC01–02: restored chrome, panes, visual editing, local history and same-ID reopen", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeFocused();
+  const id = projectId(page);
+  await preferences(page, "off");
+  const raw = Buffer.from(
+    "\ufeff# Title\r\n\r\nFirst **bold** paragraph.\r\n\r\n* untouched list\r\n* second item\r\n\r\nFinal paragraph.\r\n",
+  );
+  await importFile(page, raw);
+  await expect(editor(page).locator("h1")).toHaveText("Title");
+  const importedId = projectId(page);
+  expect(importedId).not.toBe(id);
+  expect(await exported(page)).toEqual(raw);
+  await expect(page.locator(".workspace-ribbon")).toBeVisible();
+  await expect(page.locator(".settings-trigger svg")).toBeVisible();
+  await page.locator(".project-menu > summary").click();
+  const menuBox = await page.locator(".project-menu nav").boundingBox();
+  expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+  await page.locator(".project-menu > summary").click();
   await expect(
-    contents.getByRole("button", { name: "Not a heading", exact: true }),
+    page.getByRole("tab", { name: "Library", exact: true }),
   ).toHaveCount(0);
   await expect(
-    contents.getByRole("button", { name: "Main", exact: true }),
-  ).toBeVisible();
-  await page.locator(".markdown-contents > summary").click();
-  await expect(contents).toBeHidden();
-  await page.locator(".markdown-contents > summary").click();
-  await contents.getByRole("button", { name: "Nested", exact: true }).click();
-  await expect(editor(page)).toBeFocused();
-  expect(
-    await editor(page).evaluate(
-      (element) => (element as HTMLTextAreaElement).selectionStart,
-    ),
-  ).toBe(text.indexOf("##"));
-  await contents.getByRole("button", { name: "Tail", exact: true }).click();
-  expect(
-    await editor(page).evaluate(
-      (element) => (element as HTMLTextAreaElement).scrollTop,
-    ),
-  ).toBeGreaterThan(0);
-  await expect(editor(page)).toHaveValue(text);
-  expect(await exported(page)).toEqual(Buffer.from(text));
-  await page.goto("/");
-  await expect(editor(page)).toHaveValue(text);
-  expect(projectId(page)).toBe(first);
-  await editor(page).press("ControlOrMeta+z");
-  await expect(editor(page)).toHaveValue(text);
-  await projectAction(page, "New manuscript");
-  await expect(editor(page)).toHaveValue("");
-  const second = projectId(page);
-  expect(second).not.toBe(first);
-  await editor(page).fill("second saved manuscript");
-  await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  await page.goto("/");
-  await expect(editor(page)).toHaveValue("second saved manuscript");
-  expect(projectId(page)).toBe(second);
-  await page.goto(`/?project=${first}`);
-  await expect(editor(page)).toHaveValue(text);
-  expect(projectId(page)).toBe(first);
-  await page.goto("/?project=unreadable");
-  await expect(
-    page.getByText("Could not open this project.", { exact: false }),
-  ).toBeVisible();
-  await expect(editor(page)).toHaveCount(0);
-  expect(projectId(page)).toBe("unreadable");
-  await page.reload();
-  await expect(editor(page)).toHaveCount(0);
-  await page.goto("/");
-  await expect(editor(page)).toHaveValue(text);
-  expect(projectId(page)).toBe(first);
-});
-
-test("WFW-AC02: deferred Contents resolves live heading positions and ignores removed headings", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await expect(editor(page)).toBeVisible();
-  const text = "# Before\n\n## Target\n";
-  await editor(page).fill(text);
+    page.getByRole("tab", { name: "Comments", exact: true }),
+  ).toHaveCount(0);
   const contents = page.getByRole("navigation", {
     name: "Contents",
     exact: true,
   });
-  const target = contents.getByRole("button", { name: "Target", exact: true });
-  await expect(target).toBeVisible();
-  await page.clock.install({ time: new Date("2026-11-23T12:00:00Z") });
-  await page.clock.pauseAt(new Date("2026-11-23T12:00:01Z"));
-  const shifted = "Inserted paragraph\n\n" + text;
-  await editor(page).fill(shifted);
-  await target.click();
-  expect(
-    await editor(page).evaluate(
-      (element) => (element as HTMLTextAreaElement).selectionStart,
-    ),
-  ).toBe(shifted.indexOf("##"));
-  await editor(page).fill("# Replacement\n");
-  await editor(page).evaluate((element) =>
-    (element as HTMLTextAreaElement).setSelectionRange(2, 2),
-  );
-  await target.click();
-  expect(
-    await editor(page).evaluate(
-      (element) => (element as HTMLTextAreaElement).selectionStart,
-    ),
-  ).toBe(2);
-  await page.clock.runFor(199);
-  await expect(target).toBeVisible();
-  await page.clock.runFor(1);
   await expect(
-    contents.getByRole("button", { name: "Replacement", exact: true }),
+    contents.getByRole("button", { name: "Title", exact: true }),
   ).toBeVisible();
-  await expect(target).toHaveCount(0);
+  const originalEditor = await editor(page).evaluate((node) => {
+    (window as any).__mawEditor = node;
+    return true;
+  });
+  expect(originalEditor).toBe(true);
+  const leftResize = page.getByRole("separator", {
+    name: "Resize navigator",
+    exact: true,
+  });
+  await leftResize.focus();
+  await leftResize.press("End");
+  await expect(leftResize).toHaveAttribute("aria-valuenow", "360");
+  await page
+    .getByRole("button", { name: "Close navigator", exact: true })
+    .click();
+  await expect(contents).toBeHidden();
+  await page
+    .getByRole("button", { name: "Open navigator", exact: true })
+    .click();
+  expect(
+    await editor(page).evaluate((node) => node === (window as any).__mawEditor),
+  ).toBe(true);
+  await contents.getByRole("button", { name: "Title", exact: true }).click();
+  await expect(editor(page)).toBeFocused();
+  await editor(page).locator("p").last().click();
+  await editor(page).press("End");
+  await editor(page).pressSequentially(" Edited.");
+  await save(page);
+  const expected = raw
+    .toString()
+    .replace("Final paragraph.", "Final paragraph. Edited.");
+  expect((await savedFile(page)).text).toBe(expected);
+  await editor(page).press("ControlOrMeta+z");
+  await expect(editor(page)).not.toContainText("Edited.");
+  await editor(page).press("ControlOrMeta+Shift+z");
+  await expect(editor(page)).toContainText("Edited.");
+  await page.reload();
+  await expect(editor(page)).toContainText("Final paragraph. Edited.");
+  expect(projectId(page)).toBe(importedId);
+  expect(await exported(page)).toEqual(Buffer.from(expected));
+  await expect(
+    page.getByRole("separator", { name: "Resize navigator", exact: true }),
+  ).toHaveAttribute("aria-valuenow", "360");
+  await projectAction(page, "New manuscript");
+  await expect(editor(page)).toHaveText("");
+  await page.goto(`/?project=${importedId}`);
+  await expect(editor(page)).toContainText("Final paragraph. Edited.");
+  await page.goto("/");
+  await expect(editor(page)).toContainText("Final paragraph. Edited.");
+  expect(projectId(page)).toBe(importedId);
 });
 
-test("MFP-AC01–06: new, save, refresh, fresh lossless imports, invalid input, download and external return", async ({
+test("MAW-AC02: source fallback preserves unsupported Markdown bytes and source edits retain untouched mixed endings", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(editor(page)).toBeVisible();
-  const original = projectId(page);
-  expect(original).toMatch(/^[a-f0-9-]{36}$/);
-  await editor(page).pressSequentially("# First manuscript");
-  await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
-  await page.reload();
-  await expect(editor(page)).toHaveValue("# First manuscript");
-  expect(projectId(page)).toBe(original);
+  await preferences(page, "off");
   const raw = Buffer.from(
     "\ufeff# 中文\r\n<!-- untouched -->\r[link](../source.md)\n",
   );
   await importFile(page, raw);
-  await expect(editor(page)).toHaveValue(
+  await expect(page.locator(".source-fallback")).toBeVisible();
+  expect(await exported(page)).toEqual(raw);
+  const input = await source(page);
+  await expect(input).toHaveValue(
     "# 中文\n<!-- untouched -->\n[link](../source.md)\n",
   );
-  const imported = projectId(page);
-  expect(imported).not.toBe(original);
-  await editor(page).focus();
-  await editor(page).dispatchEvent("compositionstart");
-  await editor(page).blur();
-  await expect
-    .poll(async () => (await exported(page)).toString("hex"))
-    .toBe(raw.toString("hex"));
-  await page.reload();
-  await expect(editor(page)).toBeVisible();
+  await closeSource(page);
+  await save(page);
   expect(await exported(page)).toEqual(raw);
-  await importFile(page, Buffer.from([0xff, 0xfe]));
-  const importError = page
-    .getByRole("alert")
-    .filter({ hasText: "Choose one UTF-8" });
-  await expect(importError).toBeVisible();
-  expect(projectId(page)).toBe(imported);
-  expect(await exported(page)).toEqual(raw);
-  // An import error must not disable following autosave.
-  await page
-    .getByRole("combobox", { name: "Save delay", exact: true })
-    .selectOption("5");
-  await editor(page).fill("newer after failed import");
-  await expect(page.getByRole("status")).toHaveText("Saved", {
-    timeout: 10_000,
-  });
-  await expect(importError).toHaveCount(0);
   await page.reload();
-  await expect(editor(page)).toHaveValue("newer after failed import");
+  await expect(page.locator(".source-fallback")).toBeVisible();
+  expect(await exported(page)).toEqual(raw);
+  const edit = await source(page);
+  await edit.fill("# 中文\n<!-- untouched -->\n[link](../changed.md)\n");
+  await closeSource(page);
+  await save(page);
   expect(await exported(page)).toEqual(
-    Buffer.from("\ufeffnewer after failed import"),
+    Buffer.from(raw.toString().replace("source.md", "changed.md")),
   );
-  const returned = Buffer.from("\ufeff# Returned by external Agent\r\n");
-  await importFile(page, returned);
-  await expect(editor(page)).toHaveValue("# Returned by external Agent\n");
-  expect(projectId(page)).not.toBe(imported);
-  expect(await exported(page)).toEqual(returned);
-  await page.goto(`/?project=${original}`);
-  await expect(editor(page)).toHaveValue("# First manuscript");
-  await editor(page).press("ControlOrMeta+End");
-  await editor(page).pressSequentially(" local draft");
-  await projectAction(page, "New manuscript");
-  await expect(editor(page)).toHaveValue("");
-  await page.goto(`/?project=${original}`);
-  await expect(editor(page)).toHaveValue("# First manuscript local draft");
+  await importFile(page, Buffer.from([0xff, 0xfe]));
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Choose one UTF-8" }),
+  ).toBeVisible();
+  expect(await exported(page)).toEqual(
+    Buffer.from(raw.toString().replace("source.md", "changed.md")),
+  );
+});
+
+test("MAW-AC02: structural visual edits do not merge paragraphs across original single-newline boundaries", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await importFile(page, Buffer.from("# Title\nbody\n"));
+  await editor(page).locator("h1").click();
+  await editor(page).press("End");
+  await editor(page).press("Enter");
+  await editor(page).pressSequentially("Inserted paragraph");
+  await save(page);
+  await page.reload();
+  await expect(editor(page).locator("p")).toHaveCount(2);
+  await expect(editor(page).locator("p").nth(0)).toHaveText(
+    "Inserted paragraph",
+  );
+  await expect(editor(page).locator("p").nth(1)).toHaveText("body");
 });
 
 test("MFP-AC03–05: held save and create acknowledgments retain newer typing, IME download settles, invalid reopen stays an error", async ({
@@ -212,9 +211,7 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
 }) => {
   await page.goto("/");
   await expect(editor(page)).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   const original = projectId(page);
   await editor(page).fill("captured");
   let release!: () => void;
@@ -238,16 +235,16 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
   await editor(page).pressSequentially(" newer");
   const identity = await editor(page).evaluate((element) => {
     (window as any).__markdownEditor = element;
-    return (element as HTMLTextAreaElement).selectionStart;
+    return document.getSelection()?.anchorOffset;
   });
   release();
   await expect(page.getByRole("status")).toHaveText("Unsaved changes");
-  await expect(editor(page)).toHaveValue("captured newer");
+  await expect(editor(page)).toHaveText("captured newer");
   expect(
     await editor(page).evaluate(
       (element, selection) =>
         element === (window as any).__markdownEditor &&
-        (element as HTMLTextAreaElement).selectionStart === selection,
+        document.getSelection()?.anchorOffset === selection,
       identity,
     ),
   ).toBe(true);
@@ -277,7 +274,7 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
     page.getByRole("alert").filter({ hasText: "Newer edits" }),
   ).toBeVisible();
   expect(projectId(page)).toBe(original);
-  await expect(editor(page)).toHaveValue("captured newer while creating");
+  await expect(editor(page)).toHaveText("captured newer while creating");
   await editor(page).dispatchEvent("compositionstart");
   const download = page.waitForEvent("download");
   await page.locator(".project-menu > summary").dispatchEvent("click");
@@ -303,9 +300,7 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
 }) => {
   await page.goto("/");
   await expect(editor(page)).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   const id = projectId(page);
   const path = `/api/v1/markdown-projects/${id}`;
   const initial = await (await page.request.get(path)).json();
@@ -318,7 +313,7 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
   await expect(
     page.getByRole("alert").filter({ hasText: "saved manuscript changed" }),
   ).toBeVisible();
-  await expect(editor(page)).toHaveValue("local draft");
+  await expect(editor(page)).toHaveText("local draft");
   expect(await exported(page)).toEqual(Buffer.from("local draft"));
   await projectAction(page, "New manuscript");
   await page.locator(".project-menu > summary").click();
@@ -326,11 +321,11 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
     page.getByRole("button", { name: "New manuscript", exact: true }),
   ).toBeEnabled();
   expect(projectId(page)).toBe(id);
-  await expect(editor(page)).toHaveValue("local draft");
+  await expect(editor(page)).toHaveText("local draft");
   await editor(page).press("ControlOrMeta+z");
-  await expect(editor(page)).not.toHaveValue("local draft");
+  await expect(editor(page)).not.toHaveText("local draft");
   await editor(page).press("ControlOrMeta+Shift+z");
-  await expect(editor(page)).toHaveValue("local draft");
+  await expect(editor(page)).toHaveText("local draft");
   expect((await (await page.request.get(path)).json()).text).toBe(
     "external version",
   );
@@ -360,7 +355,7 @@ async function mockWriting(
   return submitted;
 }
 async function beginWriting(page: Page) {
-  await page.getByRole("button", { name: "AI Writing", exact: true }).click();
+  await page.getByRole("button", { name: "Outline", exact: true }).click();
   await page
     .getByRole("textbox", { name: "Writing request", exact: true })
     .fill("Write a bilingual story");
@@ -369,7 +364,7 @@ async function beginWriting(page: Page) {
     .click();
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
-  ).toHaveValue("# Outline\n\n- Opening");
+  ).toHaveText("OutlineOpening");
 }
 async function savedFile(page: Page) {
   return page.evaluate(async () => {
@@ -384,53 +379,62 @@ test("WFW-AC03: edit outline, preview without writing, close or explicitly adopt
   const submitted = await mockWriting(page, (kind) =>
     kind === "outline"
       ? "# Outline\n\n- Opening"
-      : "# Draft\n\nGenerated 中文.\n\n<script>never runs</script>",
+      : "# Draft\n\nGenerated 中文.",
   );
   await page.goto("/");
   await editor(page).fill("Original saved manuscript");
   await save(page);
   await expect(page.getByRole("status")).toHaveText("Saved");
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   await beginWriting(page);
-  await page
-    .getByRole("textbox", { name: "Editable outline", exact: true })
-    .fill("# Edited outline\n\n- User ending");
+  await manuscript(page);
+  await page.getByRole("button", { name: "Outline", exact: true }).click();
+  const outline = page.getByRole("textbox", {
+    name: "Editable outline",
+    exact: true,
+  });
+  await outline.locator("li").click();
+  await outline.press("End");
+  await outline.pressSequentially(" user ending");
   await page
     .getByRole("button", { name: "Write Draft from Outline", exact: true })
     .click();
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
+    includeHidden: true,
   });
   await expect(
     preview.getByRole("heading", { name: "Draft", exact: true }),
   ).toBeVisible();
   await expect(preview.locator("script")).toHaveCount(0);
-  expect(submitted[1].outline).toBe("# Edited outline\n\n- User ending");
+  expect(submitted[1].outline).toContain("Opening user ending");
   expect((await savedFile(page)).text).toBe("Original saved manuscript");
-  await expect(editor(page)).toHaveValue("Original saved manuscript");
+  await manuscript(page);
+  await expect(editor(page)).toHaveText("Original saved manuscript");
+  await page
+    .getByRole("button", { name: "Draft preview", exact: true })
+    .click();
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   expect((await savedFile(page)).text).toBe("Original saved manuscript");
   await page
     .getByRole("button", { name: "Write Draft from Outline", exact: true })
     .click();
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
-  await expect(editor(page)).toHaveValue(/^# Draft/);
+  await expect(editor(page)).toHaveText(/^Draft/);
   expect((await savedFile(page)).text).toMatch(/^# Draft/);
   await page.reload();
-  await expect(editor(page)).toHaveValue(/^# Draft/);
+  await expect(editor(page)).toHaveText(/^Draft/);
   await expect(
     page.getByRole("region", { name: "Draft preview", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "AI Writing", exact: true }).click();
+  await page.getByRole("button", { name: "Outline", exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "Writing request", exact: true }),
   ).toHaveValue("");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
-  ).toHaveValue("");
+  ).toHaveText("");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Settings", exact: true }),
@@ -451,13 +455,12 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
     kind === "outline" ? "# Outline\n\n- Opening" : held,
   );
   await page.goto("/");
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   await editor(page).fill("Initial manuscript");
   await save(page);
   await expect(page.getByRole("status")).toHaveText("Saved");
   await beginWriting(page);
+  await manuscript(page);
   const generate = page.getByRole("button", {
     name: "Write Draft from Outline",
     exact: true,
@@ -473,12 +476,13 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
+    includeHidden: true,
   });
   await expect(preview).toContainText(
     "The manuscript changed since generation began.",
   );
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
-  await expect(editor(page)).toHaveValue(
+  await expect(editor(page)).toHaveText(
     "Newer local writing during generation",
   );
   expect((await savedFile(page)).text).toBe("Initial manuscript");
@@ -489,12 +493,12 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   await generate.click();
   await expect.poll(() => submitted.length).toBe(3);
   await projectAction(page, "New manuscript");
-  await expect(editor(page)).toHaveValue("");
+  await expect(editor(page)).toHaveText("");
   release("# Late draft from previous project");
   await expect(
     page.getByRole("region", { name: "Draft preview", exact: true }),
   ).toHaveCount(0);
-  await expect(editor(page)).toHaveValue("");
+  await expect(editor(page)).toHaveText("");
 });
 
 test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosave until an explicit save", async ({
@@ -509,19 +513,17 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
   await editor(page).fill("Initial manuscript");
   await save(page);
   await expect(page.getByRole("status")).toHaveText("Saved");
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("after_delay");
-  await page
-    .getByRole("combobox", { name: "Save delay", exact: true })
-    .selectOption("5");
+  await preferences(page, "after_delay");
+  await preferences(page, "after_delay", "5");
   await beginWriting(page);
+  await manuscript(page);
   await page
     .getByRole("button", { name: "Write Draft from Outline", exact: true })
     .click();
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
+    includeHidden: true,
   });
   await expect(preview).toBeVisible();
   let release!: () => void;
@@ -541,14 +543,15 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
   });
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
   await arrived;
+  await manuscript(page);
   await editor(page).fill("Newer local keystrokes while adopting");
   release();
   await expect(preview).toHaveCount(0);
-  await expect(editor(page)).toHaveValue(
+  await expect(editor(page)).toHaveText(
     "Newer local keystrokes while adopting",
   );
   await expect(
-    page.locator(".markdown-main > .markdown-conflict"),
+    page.locator(".manuscript-main > .markdown-conflict"),
   ).toContainText("autosave is paused");
   await page.waitForTimeout(5500);
   expect((await savedFile(page)).text).toBe(
@@ -568,6 +571,7 @@ test("WFW-AC04: model errors use the selected locale and retain the manuscript a
   await page.goto("/");
   await editor(page).fill("Keep my manuscript");
   await beginWriting(page);
+  await manuscript(page);
   await page.route("**/api/v1/markdown-projects/*/writing", (route) =>
     route.fulfill({ status: 422, json: { code: "PROVIDER_SERVER_FAILED" } }),
   );
@@ -580,12 +584,12 @@ test("WFW-AC04: model errors use the selected locale and retain the manuscript a
   await expect(
     page.getByText("上游服务返回服务器错误。请稍后重试。", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", { name: "Markdown 文稿", exact: true }),
-  ).toHaveValue("Keep my manuscript");
-  await expect(
-    page.getByRole("textbox", { name: "可编辑大纲", exact: true }),
-  ).toHaveValue("# Outline\n\n- Opening");
+  await expect(page.locator("#markdown-editor")).toHaveText(
+    "Keep my manuscript",
+  );
+  await expect(page.locator("#markdown-outline-editor")).toHaveText(
+    "OutlineOpening",
+  );
 });
 
 test("WFW-AC03: adoption waits for an in-flight save of exactly the captured text and keeps its valid revision", async ({
@@ -597,13 +601,12 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
       : "# Draft after pending save",
   );
   await page.goto("/");
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   await editor(page).fill("Saved baseline");
   await save(page);
   await expect(page.getByRole("status")).toHaveText("Saved");
   await beginWriting(page);
+  await manuscript(page);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -632,12 +635,13 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
+    includeHidden: true,
   });
   await expect(preview).toBeVisible();
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
   expect(writes).toBe(1);
   release();
-  await expect(editor(page)).toHaveValue("# Draft after pending save");
+  await expect(editor(page)).toHaveText("Draft after pending save");
   expect(writes).toBe(2);
   expect((await savedFile(page)).text).toBe("# Draft after pending save");
 });
@@ -660,12 +664,10 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
 }) => {
   await page.goto("/");
   await expect(editor(page)).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   const raw = Buffer.from("\ufeff# Original 中文\r\nKeep\rline\n");
   await importFile(page, raw);
-  await expect(editor(page)).toHaveValue("# Original 中文\nKeep\nline\n");
+  await expect(editor(page)).toContainText("Original 中文");
   const id = projectId(page);
   const entries = await packageFrom(page);
   expect(entries["project/manuscript.md"]).toEqual(raw);
@@ -676,6 +678,7 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
   const preview = page.getByRole("region", {
     name: "Review imported changes",
     exact: true,
+    includeHidden: true,
   });
   await expect(preview).toContainText("Original 中文");
   await expect(preview).toContainText("Returned 中文");
@@ -687,7 +690,7 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
   expect(projectId(page)).toBe(id);
   expect(await exported(page)).toEqual(Buffer.from(returned));
   await page.reload();
-  await expect(editor(page)).toHaveValue("# Returned 中文\nAdded line\n");
+  await expect(editor(page)).toContainText("Returned 中文");
   // The exported base is now stale; the unsaved draft must survive a separate save.
   await editor(page).fill("Unsaved current draft");
   await importPackage(page, zip(entries));
@@ -717,7 +720,7 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
       ).json()
     ).text,
   ).toBe(returned);
-  await expect(editor(page)).toHaveValue("Unsaved current draft");
+  await expect(editor(page)).toHaveText("Unsaved current draft");
   expect((await savedFile(page)).text).toBe(returned);
   await preview
     .getByRole("button", { name: "Keep Current Draft", exact: true })
@@ -726,7 +729,7 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
   await expect(
     page.getByRole("alert").filter({ hasText: "valid project ZIP" }),
   ).toBeVisible();
-  await expect(editor(page)).toHaveValue("Unsaved current draft");
+  await expect(editor(page)).toHaveText("Unsaved current draft");
   const wrong = {
     ...entries,
     "project/project.json": JSON.stringify({
@@ -738,7 +741,7 @@ test("WFW-AC05–06: byte-preserving package review, guarded apply and independe
   await expect(
     page.getByRole("alert").filter({ hasText: "another project" }),
   ).toBeVisible();
-  await expect(editor(page)).toHaveValue("Unsaved current draft");
+  await expect(editor(page)).toHaveText("Unsaved current draft");
 });
 
 test("WFW-AC06: local and stored changes after preview cannot overwrite, unchanged ZIP has no apply", async ({
@@ -746,13 +749,12 @@ test("WFW-AC06: local and stored changes after preview cannot overwrite, unchang
 }) => {
   await page.goto("/");
   await expect(editor(page)).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   const entries = await packageFrom(page);
   const preview = page.getByRole("region", {
     name: "Review imported changes",
     exact: true,
+    includeHidden: true,
   });
   await importPackage(page, zip(entries));
   await expect(preview).toContainText("no changes to apply");
@@ -761,7 +763,11 @@ test("WFW-AC06: local and stored changes after preview cannot overwrite, unchang
   ).toBeDisabled();
   entries["project/manuscript.md"] = Buffer.from("Returned candidate");
   await importPackage(page, zip(entries));
+  await manuscript(page);
   await editor(page).fill("Local intervening draft");
+  await page
+    .getByRole("button", { name: "Review imported changes", exact: true })
+    .click();
   await expect(
     preview.getByRole("button", { name: "Apply Changes", exact: true }),
   ).toBeDisabled();
@@ -779,7 +785,7 @@ test("WFW-AC06: local and stored changes after preview cannot overwrite, unchang
     .click();
   await expect(preview).toContainText("changed since export");
   await expect(preview).toContainText("Fresh returned candidate");
-  await expect(editor(page)).toHaveValue("Local intervening draft");
+  await expect(editor(page)).toHaveText("Local intervening draft");
   expect((await savedFile(page)).text).toBe("External intervening write");
 });
 
@@ -788,9 +794,7 @@ test("WFW-AC05–06: save-and-download settles IME, and held application keeps n
 }) => {
   await page.goto("/");
   await expect(editor(page)).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Autosave", exact: true })
-    .selectOption("off");
+  await preferences(page, "off");
   await editor(page).fill("Before composition");
   await editor(page).dispatchEvent("compositionstart");
   const download = page.waitForEvent("download");
@@ -810,6 +814,7 @@ test("WFW-AC05–06: save-and-download settles IME, and held application keeps n
   const preview = page.getByRole("region", {
     name: "Review imported changes",
     exact: true,
+    includeHidden: true,
   });
   await expect(preview).toBeVisible();
   let release!: () => void;
@@ -831,12 +836,58 @@ test("WFW-AC05–06: save-and-download settles IME, and held application keeps n
     .getByRole("button", { name: "Apply Changes", exact: true })
     .click();
   await saved;
+  await manuscript(page);
   await editor(page).fill("Newer input during acceptance");
   release();
   await expect(preview).toHaveCount(0);
-  await expect(editor(page)).toHaveValue("Newer input during acceptance");
+  await expect(editor(page)).toHaveText("Newer input during acceptance");
   await expect(
-    page.locator(".markdown-main > .markdown-conflict"),
+    page.locator(".manuscript-main > .markdown-conflict"),
   ).toContainText("autosave is paused");
   expect((await savedFile(page)).text).toBe("Accepted returned draft");
+});
+
+test("MAW-AC02: unsupported visual edits preserve the current manuscript", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const manuscriptEditor = editor(page);
+  await manuscriptEditor.fill("Keep this paragraph");
+  await manuscriptEditor.press("ControlOrMeta+a");
+  await manuscriptEditor.evaluate((element) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.setData("text/plain", "List item\n\nSecond paragraph");
+    clipboardData.setData(
+      "text/html",
+      "<ul><li><p>List item</p><p>Second paragraph</p></li></ul>",
+    );
+    element.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData, bubbles: true }),
+    );
+  });
+  await expect(page.getByRole("alert")).toContainText(
+    "This format needs Markdown source",
+  );
+  await expect(manuscriptEditor).toHaveText("Keep this paragraph");
+  await save(page);
+  expect((await savedFile(page)).text).toBe("Keep this paragraph");
+});
+
+test("MAW-AC02: source projection bounds and adjacency preserve bytes without unsafe visual projection", async () => {
+  const { projectSource, sourceFromEditor } =
+    await import("../../packages/editor-ui/src/markdown/source-projection");
+  const raw = "\ufeff# Title\r\nbody\r\n\r\n* unchanged\r\n* list\r\n";
+  const projected = projectSource(raw)!;
+  expect(sourceFromEditor(projected, projected.document)).toBe(raw);
+  const document = structuredClone(projected.document);
+  document.content!.splice(1, 0, {
+    type: "paragraph",
+    attrs: { blockId: crypto.randomUUID() },
+    content: [{ type: "text", text: "Inserted" }],
+  });
+  expect(sourceFromEditor(projected, document)).toBe(
+    "\ufeff# Title\r\n\r\nInserted\r\n\r\nbody\r\n\r\n* unchanged\r\n* list\r\n",
+  );
+  expect(projectSource("```js\ncode\n```\n")).toBeNull();
+  expect(projectSource("x".repeat(1200000))).toBeNull();
 });

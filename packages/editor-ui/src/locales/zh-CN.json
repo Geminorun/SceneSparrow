@@ -650,5 +650,9 @@
   "markdownExchangeUnchanged": "没有可应用的修改。",
   "MARKDOWN_EXCHANGE_INVALID": "请选择有效的项目 ZIP，包含 exchange.json、project/project.json 和 UTF-8 编码的 project/manuscript.md（不超过 2 MiB）。",
   "MARKDOWN_EXCHANGE_PROJECT_MISMATCH": "此 ZIP 属于另一个项目。当前草稿未更改。",
-  "MARKDOWN_EXCHANGE_CONFLICT": "当前文稿自导出后已更改。请保留当前草稿，或将返回文本另存为新项目。"
+  "MARKDOWN_EXCHANGE_CONFLICT": "当前文稿自导出后已更改。请保留当前草稿，或将返回文本另存为新项目。",
+  "markdownVisualUnsupported": "请通过 Markdown 源码编辑此文稿，以保留原有语法。",
+  "MARKDOWN_VISUAL_EDIT_UNSUPPORTED": "这种格式需要通过 Markdown 源码编辑。当前内容已保留。",
+  "markdownRawSourceHelp": "编辑原始 Markdown。未修改的源码会保留原有格式。",
+  "markdownRawSourceTitle": "Markdown 源码"
 }
