@@ -2511,8 +2511,96 @@ body > .notifications {
   font-size: 0.85rem;
 }
 
-.markdown-workspace .project-menu nav {
+.file-menu {
+  position: relative;
+  font-size: 13px;
+}
+
+.file-menu .file-menu-trigger {
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.file-menu .file-menu-trigger:hover,
+.file-menu .file-menu-trigger[aria-expanded="true"] {
+  background: var(--hover);
+}
+
+.file-menu-popup {
+  position: absolute;
   inset-inline-start: 0;
-  inset-inline-end: auto;
-  max-width: calc(100vw - 72px);
+  inset-block-start: calc(100% + 4px);
+  z-index: 30;
+  width: min(224px, calc(100vw - 68px));
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 6px 18px #37352f1f;
+}
+
+.file-menu-popup button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+}
+
+.file-menu-popup
+  button:enabled:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--hover);
+}
+
+.file-menu-popup [role="separator"] {
+  margin: 4px 5px;
+  border-top: 1px solid var(--border);
+}
+
+.file-menu-popup kbd {
+  font: inherit;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.file-menu-export {
+  position: relative;
+}
+
+.file-menu-chevron {
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 3px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.file-menu-formats {
+  inset-block-start: -5px;
+  inset-inline-start: calc(100% + 5px);
+  width: min(168px, 100%);
+}
+
+@media (max-width: 480px) {
+  .file-menu-formats {
+    position: static;
+    width: auto;
+    margin-inline-start: 8px;
+    padding: 0 0 0 4px;
+    border: 0;
+    border-inline-start: 1px solid var(--border);
+    border-radius: 0;
+    box-shadow: none;
+  }
 }

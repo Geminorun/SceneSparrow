@@ -3,26 +3,40 @@ import { readFile } from "node:fs/promises";
 import { zip, zipEntries } from "../fixtures/documents.mjs";
 
 const editor = (page: Page) => page.locator("#markdown-editor");
+const fileMenuButton = (page: Page) =>
+  page.getByRole("button", { name: "File", exact: true });
+const fileMenu = (page: Page) =>
+  page.getByRole("menu", { name: "File", exact: true });
 async function projectAction(page: Page, name: string) {
-  await page.locator(".project-menu > summary").click();
-  await page
-    .locator(".project-menu nav")
-    .getByRole("button", { name, exact: true })
-    .click();
+  await fileMenuButton(page).click();
+  await fileMenu(page).getByRole("menuitem", { name, exact: true }).click();
+}
+async function openExportMenu(page: Page) {
+  await projectAction(page, "Export");
+  return page.getByRole("menu", { name: "Export", exact: true });
 }
 const save = (page: Page) => projectAction(page, "Save");
 const projectId = (page: Page) =>
   new URL(page.url()).searchParams.get("project");
 async function exported(page: Page) {
   const download = page.waitForEvent("download");
-  await projectAction(page, "Download .md");
+  const formats = await openExportMenu(page);
+  await formats
+    .getByRole("menuitem", { name: "Markdown", exact: true })
+    .click();
   const file = await download;
   return readFile((await file.path())!);
 }
 async function importFile(page: Page, buffer: Buffer, name = "returned.md") {
-  await page
-    .locator('input[accept=".md,text/markdown"]')
-    .setInputFiles({ name, mimeType: "text/markdown", buffer });
+  const selected = page.waitForEvent("filechooser");
+  await projectAction(page, "Import file…");
+  await (
+    await selected
+  ).setFiles({
+    name,
+    mimeType: name.endsWith(".zip") ? "application/zip" : "text/markdown",
+    buffer,
+  });
 }
 
 async function preferences(page: Page, mode: string, delay?: string) {
@@ -79,13 +93,37 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   expect(await exported(page)).toEqual(raw);
   await expect(page.locator(".workspace-ribbon")).toBeVisible();
   await expect(page.locator(".settings-trigger svg")).toBeVisible();
-  await page.locator(".project-menu > summary").click();
-  const menuBox = await page.locator(".project-menu nav").boundingBox();
+  await fileMenuButton(page).press("ArrowDown");
+  await expect(fileMenu(page).getByRole("menuitem")).toHaveCount(4);
+  await expect(
+    fileMenu(page).getByRole("menuitem", { name: "New manuscript" }),
+  ).toBeFocused();
+  const menuBox = await fileMenu(page).boundingBox();
   expect(menuBox!.x).toBeGreaterThanOrEqual(0);
   expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(
     page.viewportSize()!.width,
   );
-  await page.locator(".project-menu > summary").click();
+  await page.keyboard.press("End");
+  await expect(
+    fileMenu(page).getByRole("menuitem", { name: "Export" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const formats = page.getByRole("menu", { name: "Export", exact: true });
+  await expect(
+    formats.getByRole("menuitem", { name: "Markdown" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    formats.getByRole("menuitem", { name: "Project ZIP" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await expect(formats).toBeHidden();
+  await expect(
+    fileMenu(page).getByRole("menuitem", { name: "Export" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(fileMenuButton(page)).toBeFocused();
+  await expect(fileMenu(page)).toBeHidden();
   await expect(
     page.getByRole("tab", { name: "Library", exact: true }),
   ).toHaveCount(0);
@@ -126,7 +164,9 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   await editor(page).locator("p").last().click();
   await editor(page).press("End");
   await editor(page).pressSequentially(" Edited.");
-  await save(page);
+  await fileMenuButton(page).press("ArrowDown");
+  await page.keyboard.press("ControlOrMeta+s");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   const expected = raw
     .toString()
     .replace("Final paragraph.", "Final paragraph. Edited.");
@@ -149,6 +189,19 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   await page.goto("/");
   await expect(editor(page)).toContainText("Final paragraph. Edited.");
   expect(projectId(page)).toBe(importedId);
+  await importFile(page, Buffer.from("unsupported"), "other.txt");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Choose one Markdown" }),
+  ).toBeVisible();
+  expect(projectId(page)).toBe(importedId);
+  await page.setViewportSize({ width: 390, height: 700 });
+  const narrowFormats = await openExportMenu(page);
+  await expect(narrowFormats).toBeVisible();
+  const narrowBox = (await narrowFormats.boundingBox())!;
+  expect(narrowBox.x).toBeGreaterThanOrEqual(0);
+  expect(narrowBox.x + narrowBox.width).toBeLessThanOrEqual(390);
+  await page.getByRole("combobox", { name: "Language" }).click();
+  await expect(fileMenu(page)).toBeHidden();
 });
 
 test("@web-smoke MAW-AC02: source fallback preserves unsupported Markdown bytes and source edits retain untouched mixed endings", async ({
@@ -249,7 +302,7 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
     return document.getSelection()?.anchorOffset;
   });
   release();
-  await expect(page.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(page.getByTestId("save-status")).toHaveText("Unsaved changes");
   await expect(editor(page)).toHaveText("captured newer");
   expect(
     await editor(page).evaluate(
@@ -261,7 +314,7 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
   ).toBe(true);
   await page.unroute("**/api/v1/markdown-projects/*");
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   let releaseCreate!: () => void;
   let creating!: () => void;
   const createSeen = new Promise<void>((resolve) => {
@@ -286,11 +339,11 @@ test("MFP-AC03–05: held save and create acknowledgments retain newer typing, I
   ).toBeVisible();
   expect(projectId(page)).toBe(original);
   await expect(editor(page)).toHaveText("captured newer while creating");
+  const formats = await openExportMenu(page);
   await editor(page).dispatchEvent("compositionstart");
   const download = page.waitForEvent("download");
-  await page.locator(".project-menu > summary").dispatchEvent("click");
-  await page
-    .getByRole("button", { name: "Download .md", exact: true })
+  await formats
+    .getByRole("menuitem", { name: "Markdown", exact: true })
     .dispatchEvent("click");
   await editor(page).fill("settled IME 中文");
   await editor(page).dispatchEvent("compositionend");
@@ -327,9 +380,12 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
   await expect(editor(page)).toHaveText("local draft");
   expect(await exported(page)).toEqual(Buffer.from("local draft"));
   await projectAction(page, "New manuscript");
-  await page.locator(".project-menu > summary").click();
+  await fileMenuButton(page).click();
   await expect(
-    page.getByRole("button", { name: "New manuscript", exact: true }),
+    fileMenu(page).getByRole("menuitem", {
+      name: "New manuscript",
+      exact: true,
+    }),
   ).toBeEnabled();
   expect(projectId(page)).toBe(id);
   await expect(editor(page)).toHaveText("local draft");
@@ -395,7 +451,7 @@ test("@web-smoke WFW-AC03: edit outline, preview without writing, close or expli
   await page.goto("/");
   await editor(page).fill("Original saved manuscript");
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await preferences(page, "off");
   await beginWriting(page);
   await manuscript(page);
@@ -469,7 +525,7 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   await preferences(page, "off");
   await editor(page).fill("Initial manuscript");
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await beginWriting(page);
   await manuscript(page);
   const generate = page.getByRole("button", {
@@ -523,7 +579,7 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
   await page.goto("/");
   await editor(page).fill("Initial manuscript");
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await preferences(page, "after_delay");
   await preferences(page, "after_delay", "5");
   await beginWriting(page);
@@ -569,7 +625,7 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
     "# Adopted draft\n\nSaved generation",
   );
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   expect((await savedFile(page)).text).toBe(
     "Newer local keystrokes while adopting",
   );
@@ -615,7 +671,7 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
   await preferences(page, "off");
   await editor(page).fill("Saved baseline");
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await beginWriting(page);
   await manuscript(page);
   let release!: () => void;
@@ -659,15 +715,12 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
 
 async function packageFrom(page: Page) {
   const downloaded = page.waitForEvent("download");
-  await projectAction(page, "Download Project");
+  const formats = await openExportMenu(page);
+  await formats.getByRole("menuitem", { name: /^Project ZIP/ }).click();
   return zipEntries(await readFile((await (await downloaded).path())!));
 }
 async function importPackage(page: Page, bytes: Buffer) {
-  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({
-    name: "returned.zip",
-    mimeType: "application/zip",
-    buffer: bytes,
-  });
+  await importFile(page, bytes, "returned.zip");
 }
 
 test("@web-smoke WFW-AC05–06: byte-preserving package review, guarded apply and independent returned project", async ({
@@ -681,6 +734,9 @@ test("@web-smoke WFW-AC05–06: byte-preserving package review, guarded apply an
   await expect(editor(page)).toContainText("Original 中文");
   const id = projectId(page);
   const entries = await packageFrom(page);
+  await expect(
+    page.getByText("Project ZIP ready for your agent.", { exact: false }),
+  ).toBeVisible();
   expect(entries["project/manuscript.md"]).toEqual(raw);
   expect(JSON.parse(entries["project/project.json"]).projectId).toBe(id);
   const returned = "\ufeff# Returned 中文\r\nAdded line\r\n";
@@ -795,7 +851,7 @@ test("WFW-AC06: local and stored changes after preview cannot overwrite, unchang
     preview.getByRole("button", { name: "Apply Changes", exact: true }),
   ).toBeDisabled();
   await save(page);
-  await expect(page.getByRole("status")).toHaveText("Saved");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
   const fresh = await packageFrom(page);
   fresh["project/manuscript.md"] = Buffer.from("Fresh returned candidate");
   await importPackage(page, zip(fresh));
@@ -819,11 +875,11 @@ test("WFW-AC05–06: save-and-download settles IME, and held application keeps n
   await expect(editor(page)).toBeVisible();
   await preferences(page, "off");
   await editor(page).fill("Before composition");
+  const formats = await openExportMenu(page);
   await editor(page).dispatchEvent("compositionstart");
   const download = page.waitForEvent("download");
-  await page.locator(".project-menu > summary").dispatchEvent("click");
-  await page
-    .getByRole("button", { name: "Save and Download", exact: true })
+  await formats
+    .getByRole("menuitem", { name: "Project ZIP (save first)", exact: true })
     .dispatchEvent("click");
   await editor(page).fill("Settled 中文");
   await editor(page).dispatchEvent("compositionend");
