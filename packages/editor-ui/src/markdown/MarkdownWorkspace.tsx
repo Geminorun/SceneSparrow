@@ -30,6 +30,7 @@ import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { trapDialogFocus } from "../ui/dialog-focus";
 import type { Editor } from "@tiptap/core";
 import { MarkdownEditor } from "./MarkdownEditor";
+import { FileMenu } from "./FileMenu";
 import { projectSource } from "./source-projection";
 import {
   MarkdownWriting,
@@ -93,7 +94,6 @@ export function MarkdownWorkspace({
   const [separateProject, setSeparateProject] = useState<string | null>(null);
   const [exchangeBusy, setExchangeBusy] = useState(false);
   const exchangeRunning = useRef(false);
-  const exchangeInput = useRef<HTMLInputElement>(null);
   const [applying, setApplying] = useState(false);
   const applyingRef = useRef(false);
   const [editorSession, setEditorSession] = useState(0);
@@ -110,7 +110,6 @@ export function MarkdownWorkspace({
   const sourceBase = useRef("");
   const sourceOpen = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
-  const projectMenu = useRef<HTMLDetailsElement>(null);
   const composition = useRef(new CompositionActions()).current;
   const notice = useNoticeOwner();
   const redraw = () => render((value) => value + 1);
@@ -263,9 +262,6 @@ export function MarkdownWorkspace({
       setApplying(false);
     }
   }
-  function closeMenu() {
-    if (projectMenu.current) projectMenu.current.open = false;
-  }
   const current = buffer.current;
   const projection = useMemo(
     () => (current ? projectSource(current.text) : null),
@@ -400,6 +396,29 @@ export function MarkdownWorkspace({
       setBusy(false);
     }
   }
+  function importFile(file: File, count: number) {
+    if (count !== 1 || !/\.(md|zip)$/i.test(file.name)) {
+      notice.report("MARKDOWN_IMPORT_INVALID");
+      return;
+    }
+    if (/\.zip$/i.test(file.name)) {
+      if (!buffer.current) notice.report("MARKDOWN_IMPORT_NO_PROJECT");
+      else void importChanges(file);
+      return;
+    }
+    void open(async () => {
+      if (file.size > 2 * 1024 * 1024)
+        throw new ApiError("MARKDOWN_TEXT_INVALID");
+      try {
+        return new TextDecoder("utf-8", {
+          fatal: true,
+          ignoreBOM: true,
+        }).decode(await file.arrayBuffer());
+      } catch {
+        throw new ApiError("MARKDOWN_TEXT_INVALID");
+      }
+    });
+  }
   function download() {
     void composition
       .run("download", () => {
@@ -442,6 +461,7 @@ export function MarkdownWorkspace({
           "scenesparrow-project.zip",
           "application/zip",
         );
+        notice.report("MARKDOWN_PROJECT_EXPORTED", { tone: "success" });
       });
     } catch (failure) {
       notice.report(failure);
@@ -450,18 +470,14 @@ export function MarkdownWorkspace({
       setExchangeBusy(false);
     }
   }
-  async function importChanges(file: File, count: number) {
+  async function importChanges(file: File) {
     if (exchangeRunning.current) return;
     exchangeRunning.current = true;
     setExchangeBusy(true);
     try {
       await composition.run("import-changes", async () => {
         const base = capture();
-        if (
-          count !== 1 ||
-          !/\.zip$/i.test(file.name) ||
-          file.size > 2 * 1024 * 1024 + 65536
-        )
+        if (file.size > 2 * 1024 * 1024 + 65536)
           throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
         const bytes = new Uint8Array(await file.arrayBuffer());
         if (buffer.current !== base.session) return;
@@ -559,107 +575,35 @@ export function MarkdownWorkspace({
         <header className="workspace-header">
           <div className="workspace-brand">{t.appName}</div>
           <div className="workspace-actions">
-            <details className="project-menu" ref={projectMenu}>
-              <summary>{t.applicationMenu}</summary>
-              <nav aria-label={t.applicationMenu}>
-                <button
-                  disabled={loading || busy}
-                  onClick={() => {
-                    closeMenu();
-                    void open(async () => "");
-                  }}
-                >
-                  {t.markdownNew}
-                </button>
-                <button
-                  disabled={loading || busy}
-                  onClick={() => {
-                    closeMenu();
-                    fileInput.current?.click();
-                  }}
-                >
-                  {t.markdownImport}
-                </button>
-                <button
-                  disabled={!current || saving}
-                  onClick={() => {
-                    closeMenu();
-                    runSave();
-                  }}
-                >
-                  {t.markdownSave}
-                </button>
-                <button
-                  disabled={!current}
-                  onClick={() => {
-                    closeMenu();
-                    download();
-                  }}
-                >
-                  {t.markdownDownload}
-                </button>
-                <p>{t.markdownExchangeHelp}</p>
-                <button
-                  disabled={!current || exchangeBusy}
-                  onClick={() => {
-                    closeMenu();
-                    void downloadProject();
-                  }}
-                >
-                  {dirty || saving
-                    ? t.markdownSaveDownload
-                    : t.markdownDownloadProject}
-                </button>
-                <button
-                  disabled={!current || exchangeBusy}
-                  onClick={() => {
-                    closeMenu();
-                    exchangeInput.current?.click();
-                  }}
-                >
-                  {t.markdownImportChanges}
-                </button>
-              </nav>
-            </details>
-            <input
-              ref={exchangeInput}
-              hidden
-              type="file"
-              accept=".zip,application/zip"
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                const count = event.currentTarget.files?.length ?? 0;
-                event.currentTarget.value = "";
-                if (file) void importChanges(file, count);
+            <FileMenu
+              t={t}
+              create={{
+                disabled: loading || busy,
+                run: () => void open(async () => ""),
+              }}
+              importFile={{
+                disabled: loading || busy || exchangeBusy,
+                run: () => fileInput.current?.click(),
+              }}
+              save={{ disabled: !current || saving, run: runSave }}
+              exportMarkdown={{ disabled: !current, run: download }}
+              exportProject={{
+                disabled: !current || exchangeBusy,
+                savesFirst: dirty || saving,
+                run: () => void downloadProject(),
               }}
             />
             <input
               ref={fileInput}
               hidden
               type="file"
-              accept=".md,text/markdown"
+              accept=".md,text/markdown,.zip,application/zip"
               onChange={(event) => {
                 const files = event.currentTarget.files;
                 const file = files?.[0];
-                const count = files?.length;
+                const count = files?.length ?? 0;
                 event.currentTarget.value = "";
-                if (!file) return;
-                void open(async () => {
-                  if (
-                    count !== 1 ||
-                    !/\.md$/i.test(file.name) ||
-                    file.size > 2 * 1024 * 1024
-                  )
-                    throw new ApiError("MARKDOWN_TEXT_INVALID");
-                  try {
-                    return new TextDecoder("utf-8", {
-                      fatal: true,
-                      ignoreBOM: true,
-                    }).decode(await file.arrayBuffer());
-                  } catch {
-                    throw new ApiError("MARKDOWN_TEXT_INVALID");
-                  }
-                });
+                if (file) importFile(file, count);
               }}
             />
             <label className="language">
@@ -865,16 +809,6 @@ export function MarkdownWorkspace({
                       <WorkspaceIcon name="menu" />
                     </summary>
                     <div className="document-menu-content">
-                      <button
-                        disabled={!current}
-                        onClick={() => {
-                          if (documentMenu.current)
-                            documentMenu.current.open = false;
-                          fileInput.current?.click();
-                        }}
-                      >
-                        {t.importManuscript}
-                      </button>
                       <button disabled={!current} onClick={() => openSource()}>
                         {t.viewMarkdownSource}
                       </button>
