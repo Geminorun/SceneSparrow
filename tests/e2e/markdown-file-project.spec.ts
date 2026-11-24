@@ -700,8 +700,20 @@ test("@web-smoke WFW-AC05–06: byte-preserving package review, guarded apply an
   await expect(preview).toHaveCount(0);
   expect(projectId(page)).toBe(id);
   expect(await exported(page)).toEqual(Buffer.from(returned));
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      const manuscript = document.getElementById("markdown-editor");
+      if (!manuscript) return;
+      manuscript.dataset.focusedOnMount = String(
+        document.activeElement === manuscript,
+      );
+      observer.disconnect();
+    });
+    observer.observe(document, { childList: true, subtree: true });
+  });
   await page.reload();
   await expect(editor(page)).toContainText("Returned 中文");
+  expect(await editor(page).getAttribute("data-focused-on-mount")).toBe("true");
   // The exported base is now stale; the unsaved draft must survive a separate save.
   await editor(page).fill("Unsaved current draft");
   await importPackage(page, zip(entries));
