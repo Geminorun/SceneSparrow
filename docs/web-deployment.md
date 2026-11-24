@@ -136,9 +136,11 @@ PRs run the same contracts, formatting, types, unit/Rust tests, Clippy, builds
 and integration tests alongside the Web smoke suite. Failed browser runs upload
 `test-results/` (including traces and error
 contexts) for seven days. PR checks use read-only permissions and no deployment
-secrets. The image job builds once for AMD64, exercises
-that loaded image, then only on an eligible deployment event tags/pushes that
-same image to `ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
+secrets. The **Release gate** requires the release policy and full Foundation
+checks to succeed. It reports their results as an error when blocked. The image
+job then builds and exercises an AMD64 image. On an eligible deployment event,
+it tags and pushes the verified image to
+`ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
 Deployment uses its exact `@sha256:...` digest; there is no arbitrary image input
 or separate rebuild. Build-only manual runs do not log in or publish.
 Actions permissions are contents-read, packages-write only in the image job and

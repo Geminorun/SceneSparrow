@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Extension, type Editor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -82,7 +82,6 @@ export function MarkdownEditor({
       }),
     ],
     content: projection.document,
-    autofocus: autofocus ? "start" : false,
     editorProps: {
       attributes: {
         id:
@@ -129,6 +128,11 @@ export function MarkdownEditor({
   function sync() {
     if (editor) callbacks.current.changed(serialize(editor.state.doc));
   }
+  useLayoutEffect(() => {
+    const view = editor?.view;
+    // Focus the mounted view before an edit can change its selection.
+    if (autofocus && view?.dom.isConnected) view.focus();
+  }, [editor, autofocus]);
   useEffect(() => {
     ready(editor);
     return () => {
