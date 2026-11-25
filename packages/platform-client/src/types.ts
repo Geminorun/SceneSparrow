@@ -1,3 +1,6 @@
+export const MARKDOWN_EXCHANGE_MAX_BYTES =
+  10 * 1024 * 1024 + 256 * 1024 + 65536;
+
 import type {
   MarkdownProject,
   MarkdownDocument,
@@ -70,7 +73,11 @@ export interface RecentProject {
 export interface PlatformClient {
   markdownProjects?: {
     create(text: string): Promise<MarkdownProject>;
-    download(id: string, revision: string): Promise<Uint8Array>;
+    download(
+      id: string,
+      revision: string,
+      outlineRevision: string | null,
+    ): Promise<Uint8Array>;
     review(id: string, bytes: Uint8Array): Promise<MarkdownExchangeReview>;
     write(
       id: string,

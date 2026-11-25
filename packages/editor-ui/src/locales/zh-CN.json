@@ -640,8 +640,8 @@
   "ACTION_IN_PROGRESS": "此 AI 操作正在运行，请等待结果。",
   "ACTION_SESSION_FULL": "此服务会话已达到 AI 操作数量上限。请重启服务后再生成。",
   "ACTION_RESULT_EXPIRED": "此 AI 结果已从内存中清除。请重新生成以开始新操作。",
-  "markdownExchangeHelp": "核对下方差异。点击“应用修改”后，返回的文字将写入当前文稿。",
-  "MARKDOWN_PROJECT_EXPORTED": "已开始导出工程 ZIP。交给 Agent 修改时，请只编辑 project/manuscript.md。",
+  "markdownExchangeHelp": "请分别核对并应用每个文档的修改。返回的锁定和批注仅供参考。",
+  "MARKDOWN_PROJECT_EXPORTED": "项目 ZIP 已准备好。可修改 project/manuscript.md 或 project/outline.md，请保留元数据。",
   "markdownExchangePreview": "审阅导入的修改",
   "markdownKeepCurrent": "保留当前草稿",
   "markdownApplyChanges": "应用修改",
@@ -650,9 +650,9 @@
   "markdownCurrentText": "当前编辑器草稿 — 删除的文本",
   "markdownReturnedText": "返回草稿 — 新增的文本",
   "markdownExchangeUnchanged": "没有可应用的修改。",
-  "MARKDOWN_EXCHANGE_INVALID": "请选择有效的项目 ZIP，包含 exchange.json、project/project.json 和 UTF-8 编码的 project/manuscript.md（不超过 2 MiB）。",
+  "MARKDOWN_EXCHANGE_INVALID": "请选择包含交换元数据、项目清单和 UTF-8 Markdown 文件的有效项目 ZIP（文稿不超过 2 MiB，大纲不超过 256 KiB）。",
   "MARKDOWN_EXCHANGE_PROJECT_MISMATCH": "此 ZIP 属于另一个项目。当前草稿未更改。",
-  "MARKDOWN_EXCHANGE_CONFLICT": "当前文稿自导出后已更改。请保留当前草稿，或将返回文本另存为新项目。",
+  "MARKDOWN_EXCHANGE_CONFLICT": "此文档自导出后已有更改，或仍有未保存的编辑。请保留当前文字，或重新审阅最新返回内容。",
   "markdownVisualUnsupported": "请通过 Markdown 源码编辑此文稿，以保留原有语法。",
   "MARKDOWN_VISUAL_EDIT_UNSUPPORTED": "这种格式需要通过 Markdown 源码编辑。当前内容已保留。",
   "markdownRawSourceHelp": "编辑原始 Markdown。未修改的源码会保留原有格式。",
@@ -677,5 +677,6 @@
   "MARKDOWN_LOCK_CONFLICT": "锁定块需要检查。保护已保留；请明确解锁后继续。",
   "MARKDOWN_ANNOTATIONS_UNAVAILABLE": "无法读取项目锁定或批注。请恢复对应的元数据文件后再编辑。",
   "MARKDOWN_ANCHOR_INVALID": "请选择已保存的块或文本范围后重试。",
-  "MARKDOWN_ANCHOR_DETACHED": "需要重新定位。原文引用与批注已保留。"
+  "MARKDOWN_ANCHOR_DETACHED": "需要重新定位。原文引用与批注已保留。",
+  "MARKDOWN_EXCHANGE_EXPORT_CHANGED": "准备 ZIP 时文档发生了更改。文字已保留，请准备好后重新导出。"
 }

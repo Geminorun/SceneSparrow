@@ -480,15 +480,17 @@ packaged desktop behavior and real-provider interoperability remain open.
 Run `pnpm dev` to create or reopen a file project under
 `.local/markdown-projects`. Set `SCENESPARROW_MARKDOWN_PROJECTS_DIR` to choose a
 separate persistent root. Each project folder contains `project.json` and
-`manuscript.md`, and can be opened through `?project=<id>`. Electron continues
+`manuscript.md`. Saving an outline creates `outline.md`, and document locks and
+comments are recorded in optional `locks.json` and `comments.json`. Open the
+project through `?project=<id>`. Electron continues
 to use the SQLite workbench. Its existing browser fixtures select that core
 mode with an explicit `SCENESPARROW_PROJECT_DIR`.
 
 The file-backed editor supports a single UTF-8 `.md` import up to 2 MiB.
 Untouched file import and download preserve the BOM and line endings. A plain
-Markdown download captures the local editor text. Project ZIP download uses a
-saved snapshot, and a returned ZIP goes through a revision-checked review
-before being applied. Global model settings and credentials use the existing
+Markdown download captures the active editor text. Project ZIP download uses a
+saved snapshot of both documents. A returned ZIP has a separate revision- and
+lock-checked review for each changed Markdown file. Global model settings and credentials use the existing
 application store.
 
 Run `pnpm test:e2e:markdown` for the file-backed browser flow. The storage and

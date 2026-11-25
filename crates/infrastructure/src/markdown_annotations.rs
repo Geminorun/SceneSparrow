@@ -8,7 +8,7 @@ use std::io::Write;
 use std::ops::Range;
 use uuid::Uuid;
 
-const SIDECAR_LIMIT: usize = 4 * 1024 * 1024;
+pub(super) const SIDECAR_LIMIT: usize = 4 * 1024 * 1024;
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Locks {

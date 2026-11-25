@@ -7,14 +7,18 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import type {
-  MarkdownExchangeReview,
+  MarkdownExchangeDocument,
   MarkdownProject,
   MarkdownDocument,
   MarkdownDocumentKind,
   MarkdownAnnotations,
   MarkdownRange,
 } from "@scenesparrow/contracts";
-import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
+import {
+  ApiError,
+  MARKDOWN_EXCHANGE_MAX_BYTES,
+  type PlatformClient,
+} from "@scenesparrow/platform-client";
 import {
   applicationPreferences,
   type SaveMode,
@@ -45,15 +49,20 @@ import {
   type WritingDraft,
 } from "./MarkdownWriting";
 import { MarkdownPreview } from "./MarkdownPreview";
-import { ExchangeComparison } from "./ExchangeComparison";
+import { ExchangeReview } from "./ExchangeReview";
 import { HeadingNavigation } from "./HeadingNavigation";
 import en from "../locales/en.json";
 import zhCN from "../locales/zh-CN.json";
 
-type ExchangeCandidate = WritingDraft & {
-  review: MarkdownExchangeReview;
-  conflict: boolean;
+type ExchangeDocumentCandidate = MarkdownExchangeDocument & {
+  capture: {
+    session: Buffer | null;
+    epoch: number | undefined;
+    text: string | undefined;
+    revision: string | null | undefined;
+  };
 };
+type ExchangeCandidate = { documents: ExchangeDocumentCandidate[] };
 type Buffer = {
   project: MarkdownDocument;
   text: string;
@@ -260,7 +269,7 @@ export function MarkdownWorkspace({
     return view === "outline" ? "outline" : "manuscript";
   }
   function save(
-    adoption?: WritingDraft,
+    adoption?: { text: string; outlineRevision?: string },
     kind: MarkdownDocumentKind = "manuscript",
   ): Promise<void> {
     const current = documentBufferFor(kind);
@@ -282,8 +291,8 @@ export function MarkdownWorkspace({
             .save(project.projectId, {
               text,
               revision: project.revision!,
-              ...(adoption?.kind === "manuscript"
-                ? { outlineRevision: adoption.capture.outline!.revision! }
+              ...(adoption?.outlineRevision !== undefined
+                ? { outlineRevision: adoption.outlineRevision }
                 : {}),
             })
             .then((saved) => ({ ...saved, kind }))
@@ -395,7 +404,15 @@ export function MarkdownWorkspace({
         )?.pending;
         if (pending) await pending;
         assertDraft(candidate);
-        await save(candidate, candidate.kind ?? "manuscript");
+        await save(
+          {
+            text: candidate.text,
+            ...(candidate.kind === "manuscript"
+              ? { outlineRevision: candidate.capture.outline!.revision! }
+              : {}),
+          },
+          candidate.kind ?? "manuscript",
+        );
         if (draftRef.current === candidate) {
           draftRef.current = null;
           setDraft(null);
@@ -764,15 +781,34 @@ export function MarkdownWorkspace({
     setExchangeBusy(true);
     try {
       await composition.run("download-project", async () => {
-        const base = capture();
-        const captured = buffer.current;
-        const assert = () => same(captured, base.epoch);
-        if (buffer.current?.pending) await buffer.current.pending;
-        assert();
-        await save();
-        assert();
+        const captured = (["manuscript", "outline"] as const).map((kind) => {
+          const session = documentBufferFor(kind);
+          return { kind, session, epoch: session?.epoch, text: session?.text };
+        });
+        const assert = () => {
+          for (const { kind, session, epoch, text } of captured) {
+            if (
+              !session ||
+              documentBufferFor(kind) !== session ||
+              session.epoch !== epoch ||
+              session.text !== text
+            )
+              throw new ApiError("MARKDOWN_EXCHANGE_EXPORT_CHANGED");
+          }
+        };
+        for (const { kind, session } of captured) {
+          if (session?.pending) await session.pending;
+          assert();
+          if (session && session.text !== session.project.text)
+            await save(undefined, kind);
+          assert();
+        }
         const saved = buffer.current!.project;
-        const bytes = await client.download(saved.projectId, saved.revision!);
+        const bytes = await client.download(
+          saved.projectId,
+          saved.revision!,
+          outlineBuffer.current!.project.revision,
+        );
         assert();
         deliver(
           bytes as Uint8Array<ArrayBuffer>,
@@ -794,18 +830,32 @@ export function MarkdownWorkspace({
     setExchangeBusy(true);
     try {
       await composition.run("import-changes", async () => {
-        const base = capture();
-        if (file.size > 2 * 1024 * 1024 + 65536)
+        const projectId = buffer.current!.project.projectId;
+        const captures = Object.fromEntries(
+          (["manuscript", "outline"] as const).map((kind) => {
+            const session = documentBufferFor(kind);
+            return [
+              kind,
+              {
+                session,
+                epoch: session?.epoch,
+                text: session?.text,
+                revision: session?.project.revision,
+              },
+            ];
+          }),
+        ) as Record<MarkdownDocumentKind, ExchangeDocumentCandidate["capture"]>;
+        if (file.size > MARKDOWN_EXCHANGE_MAX_BYTES)
           throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
         const bytes = new Uint8Array(await file.arrayBuffer());
-        if (buffer.current !== base.session) return;
-        const review = await client.review(base.projectId, bytes);
-        if (buffer.current !== base.session) return;
+        if (buffer.current !== captures.manuscript.session) return;
+        const review = await client.review(projectId, bytes);
+        if (buffer.current !== captures.manuscript.session) return;
         const candidate = {
-          capture: base,
-          text: review.text,
-          review,
-          conflict: false,
+          documents: review.documents.map((document) => ({
+            ...document,
+            capture: captures[document.kind],
+          })),
         };
         exchangeRef.current = candidate;
         setExchange(candidate);
@@ -819,40 +869,62 @@ export function MarkdownWorkspace({
       setExchangeBusy(false);
     }
   }
-  function exchangeChanged(candidate: ExchangeCandidate) {
-    const value = buffer.current;
+  function exchangeChanged(candidate: ExchangeDocumentCandidate) {
+    const value = documentBufferFor(candidate.kind);
+    const base = candidate.capture;
     return (
-      candidate.conflict ||
-      draftChanged(candidate) ||
-      candidate.review.currentRevision !== candidate.review.baseRevision ||
-      value?.project.revision !== candidate.review.baseRevision ||
-      value.text !== value.project.text
+      !!candidate.conflict ||
+      value !== base.session ||
+      value?.epoch !== base.epoch ||
+      value?.text !== base.text ||
+      value?.project.revision !== base.revision ||
+      candidate.currentRevision !== candidate.baseRevision ||
+      value?.project.revision !== candidate.baseRevision ||
+      value?.text !== value?.project.text
     );
   }
-  async function applyChanges() {
-    const candidate = exchangeRef.current;
-    if (!candidate || applyingRef.current) return;
+  async function applyChanges(candidate: ExchangeDocumentCandidate) {
+    const review = exchangeRef.current;
+    if (!review || applyingRef.current) return;
     applyingRef.current = true;
     setApplying(true);
     const assert = () => {
-      if (exchangeRef.current !== candidate || exchangeChanged(candidate))
+      if (exchangeRef.current !== review || exchangeChanged(candidate))
         throw new ApiError("MARKDOWN_EXCHANGE_CONFLICT");
     };
     try {
-      await composition.run("apply-changes", async () => {
+      await composition.run(`apply-changes:${candidate.kind}`, async () => {
         assert();
-        if (buffer.current?.pending) await buffer.current.pending;
+        const pending = documentBufferFor(candidate.kind)?.pending;
+        if (pending) await pending;
         assert();
-        await save(candidate);
-        if (exchangeRef.current === candidate) {
+        await save({ text: candidate.text }, candidate.kind);
+        if (exchangeRef.current !== review) return;
+        const value = documentBufferFor(candidate.kind);
+        if (
+          value !== candidate.capture.session ||
+          value?.text !== candidate.text ||
+          value?.paused
+        ) {
+          candidate.conflict = "MARKDOWN_EXCHANGE_CONFLICT";
+          redraw();
+          return;
+        }
+        const documents = review.documents.filter(
+          (document) => document !== candidate,
+        );
+        if (documents.length) {
+          exchangeRef.current = { documents };
+          setExchange(exchangeRef.current);
+        } else {
           exchangeRef.current = null;
           setExchange(null);
-          setView("manuscript");
+          setView(candidate.kind);
         }
       });
     } catch (failure) {
-      if (failure instanceof ApiError && failure.code === "MARKDOWN_CONFLICT") {
-        candidate.conflict = true;
+      if (failure instanceof ApiError) {
+        candidate.conflict = failure.code;
         redraw();
       }
       notice.report(failure);
@@ -862,13 +934,16 @@ export function MarkdownWorkspace({
     }
   }
   async function saveReturnedSeparately() {
-    const candidate = exchangeRef.current;
+    const review = exchangeRef.current;
+    const candidate = review?.documents.find(
+      (document) => document.kind === "manuscript",
+    );
     if (!candidate || exchangeRunning.current) return;
     exchangeRunning.current = true;
     setExchangeBusy(true);
     try {
       const project = await client.create(candidate.text);
-      if (exchangeRef.current !== candidate) return;
+      if (exchangeRef.current !== review) return;
       const url = new URL(window.location.href);
       url.searchParams.set("project", project.projectId);
       setSeparateProject(url.href);
@@ -912,7 +987,12 @@ export function MarkdownWorkspace({
               exportMarkdown={{ disabled: !activeBuffer, run: download }}
               exportProject={{
                 disabled: !current || exchangeBusy,
-                savesFirst: dirty || saving,
+                savesFirst: [buffer.current, outlineBuffer.current].some(
+                  (value) =>
+                    value &&
+                    (value.text !== value.project.text ||
+                      value.saving === true),
+                ),
                 run: () => void downloadProject(),
               }}
             />
@@ -1398,45 +1478,28 @@ export function MarkdownWorkspace({
                       </button>
                     </div>
                     <p>{t.markdownExchangeHelp}</p>
-                    {exchangeChanged(exchange) && (
-                      <p className="markdown-conflict">
-                        {t.MARKDOWN_EXCHANGE_CONFLICT}
-                      </p>
-                    )}
-                    {current.text === exchange.text ? (
-                      <p>{t.markdownExchangeUnchanged}</p>
-                    ) : (
-                      <ExchangeComparison
-                        current={current.text}
-                        returned={exchange.text}
-                        t={t}
-                      />
-                    )}
-                    <button
-                      disabled={
-                        applying ||
-                        exchangeChanged(exchange) ||
-                        current.text === exchange.text
+                    <ExchangeReview
+                      documents={exchange.documents.map((candidate) => ({
+                        kind: candidate.kind,
+                        text: candidate.text,
+                        current: documentBufferFor(candidate.kind)?.text ?? "",
+                        conflict: exchangeChanged(candidate)
+                          ? (candidate.conflict ?? "MARKDOWN_EXCHANGE_CONFLICT")
+                          : null,
+                      }))}
+                      t={t}
+                      applying={applying}
+                      apply={(kind) =>
+                        void applyChanges(
+                          exchange.documents.find(
+                            (candidate) => candidate.kind === kind,
+                          )!,
+                        )
                       }
-                      onClick={() => void applyChanges()}
-                    >
-                      {t.markdownApplyChanges}
-                    </button>
-                    <button
-                      disabled={exchangeBusy || !!separateProject}
-                      onClick={() => void saveReturnedSeparately()}
-                    >
-                      {t.markdownSaveReturned}
-                    </button>
-                    {separateProject && (
-                      <a
-                        href={separateProject}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {t.markdownOpenReturned}
-                      </a>
-                    )}
+                      saveSeparate={saveReturnedSeparately}
+                      separateBusy={exchangeBusy || !!separateProject}
+                      separateProject={separateProject}
+                    />
                   </section>
                 )}
                 {draft && (

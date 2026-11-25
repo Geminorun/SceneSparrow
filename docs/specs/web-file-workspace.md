@@ -2,6 +2,9 @@
 
 Status — approved and implemented in the default Web workspace.
 
+The [Markdown outline and shared document review follow-up](markdown-outline-review.md)
+extends the file format, AI actions, and external handoff described below.
+
 ## Scope
 
 Make the file-backed editor the default Web workspace for one operator. A user

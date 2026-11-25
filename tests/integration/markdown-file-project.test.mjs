@@ -145,12 +145,16 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
     await writeFile(join(dir, "outline.md"), "Independent");
     // WFW-AC05–06: ZIP review is read-only; application uses the same revision-checked save.
     const exchangePath = `/markdown-projects/${p.projectId}/exchange`;
-    const exported = await send(`${exchangePath}?revision=${p.revision}`);
+    const exportedOutline = await (await send(outlinePath)).json();
+    const exported = await send(
+      `${exchangePath}?revision=${p.revision}&outlineRevision=${exportedOutline.revision}`,
+    );
     assert.equal(exported.headers.get("content-type"), "application/zip");
     const entries = zipEntries(Buffer.from(await exported.arrayBuffer()));
     assert.deepEqual(Object.keys(entries).sort(), [
       "exchange.json",
       "project/manuscript.md",
+      "project/outline.md",
       "project/project.json",
     ]);
     assert.equal(JSON.parse(entries["exchange.json"]).baseRevision, p.revision);
@@ -164,15 +168,26 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
         },
         body: bytes,
       });
+    assert.equal(
+      (await review(Buffer.alloc(10 * 1024 * 1024 + 256 * 1024 + 65536 + 1)))
+        .status,
+      422,
+    );
     const unchanged = await (await review(zip(entries))).json();
-    assert.equal(unchanged.text, text);
-    assert.equal(unchanged.currentRevision, p.revision);
-    assert.equal(unchanged.baseRevision, p.revision);
+    assert.deepEqual(unchanged.documents, []);
+    assert.equal(
+      JSON.parse(entries["exchange.json"]).outlineBaseRevision,
+      exportedOutline.revision,
+    );
+    assert.equal(
+      entries["project/outline.md"].toString(),
+      exportedOutline.text,
+    );
     const returnedText = "\ufeff# Returned 中文\r\nlast\rline\n";
     entries["project/manuscript.md"] = Buffer.from(returnedText);
-    const reviewed = await (
-      await review(zip({ "project/": "", ...entries }))
-    ).json();
+    const reviewed = (
+      await (await review(zip({ "project/": "", ...entries }))).json()
+    ).documents[0];
     assert.equal(reviewed.text, returnedText);
     assert.equal(reviewed.currentRevision, p.revision);
     assert.equal(await readFile(join(dir, "manuscript.md"), "utf8"), text);
@@ -223,10 +238,14 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
       returnedText,
     );
     assert.equal(
-      (await send(`${exchangePath}?revision=${p.revision}`)).status,
+      (
+        await send(
+          `${exchangePath}?revision=${p.revision}&outlineRevision=${exportedOutline.revision}`,
+        )
+      ).status,
       409,
     );
-    const conflicted = await (await review(zip(entries))).json();
+    const conflicted = (await (await review(zip(entries))).json()).documents[0];
     assert.equal(conflicted.currentRevision, accepted.revision);
     assert.equal(conflicted.baseRevision, p.revision);
     assert.equal(
@@ -243,6 +262,213 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
     ).json();
     assert.notEqual(forked.projectId, p.projectId);
     assert.equal(forked.text, returnedText);
+    // MOR-AC07–09: document review is independent; returned sidecars never authorize a write.
+    const handoff = await (
+      await send("/markdown-projects", { text: "Protected manuscript" })
+    ).json();
+    const handoffPath = `/markdown-projects/${handoff.projectId}`;
+    const handoffDir = join(root, handoff.projectId);
+    const plan = await (
+      await send(`${handoffPath}/documents/outline`, {
+        revision: null,
+        text: "\ufeff# Outline 中文\r\n",
+      })
+    ).json();
+    const lockManuscript = () =>
+      send(`${handoffPath}/documents/manuscript/annotations`, {
+        action: "lock",
+        revision: handoff.revision,
+        ranges: [{ start: 0, end: Buffer.byteLength(handoff.text) }],
+      });
+    const lockResponse = await lockManuscript();
+    assert.equal(lockResponse.status, 200);
+    const locksBefore = await readFile(join(handoffDir, "locks.json"));
+    const commentsBefore = Buffer.from('{ "comments": [] }\n');
+    await writeFile(join(handoffDir, "comments.json"), commentsBefore);
+    const manifestBefore = await readFile(join(handoffDir, "project.json"));
+    const handoffEntries = zipEntries(
+      Buffer.from(
+        await (
+          await send(
+            `${handoffPath}/exchange?revision=${handoff.revision}&outlineRevision=${plan.revision}`,
+          )
+        ).arrayBuffer(),
+      ),
+    );
+    assert.deepEqual(handoffEntries["project/locks.json"], locksBefore);
+    assert.deepEqual(handoffEntries["project/comments.json"], commentsBefore);
+    assert.deepEqual(handoffEntries["project/project.json"], manifestBefore);
+    assert.equal(handoffEntries["project/outline.md"].toString(), plan.text);
+    const returnFor = (path, entries) =>
+      fetch(url + path + "/exchange", {
+        method: "POST",
+        headers: {
+          Authorization: headers.Authorization,
+          "content-type": "application/zip",
+        },
+        body: zip(entries),
+      });
+    const both = {
+      ...handoffEntries,
+      "project/manuscript.md": "Agent manuscript",
+      "project/outline.md": "",
+      "project/locks.json": '{"locks":[]}',
+      "project/comments.json": '{"comments":["untrusted"]}',
+    };
+    const bothReview = await (await returnFor(handoffPath, both)).json();
+    assert.deepEqual(
+      bothReview.documents.map((v) => [v.kind, v.conflict]),
+      [
+        ["manuscript", "MARKDOWN_LOCKED"],
+        ["outline", null],
+      ],
+    );
+    const cleared = await (
+      await send(`${handoffPath}/documents/outline`, {
+        revision: plan.revision,
+        text: bothReview.documents[1].text,
+      })
+    ).json();
+    assert.equal(cleared.text, "");
+    assert.match(cleared.revision, /^[a-f0-9]{64}$/);
+    assert.equal(
+      (
+        await send(`${handoffPath}/documents/manuscript`, {
+          revision: handoff.revision,
+          text: bothReview.documents[0].text,
+        })
+      ).status,
+      422,
+    );
+    assert.deepEqual(
+      await readFile(join(handoffDir, "locks.json")),
+      locksBefore,
+    );
+    assert.deepEqual(
+      await readFile(join(handoffDir, "comments.json")),
+      commentsBefore,
+    );
+    // An unchanged manuscript is not inspected, even when its live file is unreadable.
+    await writeFile(join(handoffDir, "manuscript.md"), Buffer.from([255]));
+    const onlyOutline = await (
+      await returnFor(handoffPath, {
+        ...handoffEntries,
+        "project/outline.md": "Agent outline",
+      })
+    ).json();
+    assert.deepEqual(
+      onlyOutline.documents.map((v) => [v.kind, v.conflict]),
+      [["outline", "MARKDOWN_CONFLICT"]],
+    );
+    await writeFile(join(handoffDir, "manuscript.md"), handoff.text);
+    // Old archives retain the current outline; an added live lock still blocks save after preview.
+    const lockId = (
+      await (
+        await send(`${handoffPath}/documents/manuscript/annotations`)
+      ).json()
+    ).locks[0].id;
+    await send(`${handoffPath}/documents/manuscript/annotations`, {
+      action: "unlock",
+      id: lockId,
+    });
+    const old = {
+      "exchange.json": JSON.stringify({ baseRevision: handoff.revision }),
+      "project/project.json": handoffEntries["project/project.json"],
+      "project/manuscript.md": "Legacy return",
+    };
+    const oldReview = await (await returnFor(handoffPath, old)).json();
+    assert.deepEqual(
+      oldReview.documents.map((v) => [v.kind, v.conflict]),
+      [["manuscript", null]],
+    );
+    assert.equal((await lockManuscript()).status, 200);
+    assert.equal(
+      (
+        await send(`${handoffPath}/documents/manuscript`, {
+          revision: handoff.revision,
+          text: oldReview.documents[0].text,
+        })
+      ).status,
+      422,
+    );
+    assert.equal(
+      (await (await send(`${handoffPath}/documents/outline`)).json()).revision,
+      cleared.revision,
+    );
+    assert.equal(
+      (
+        await returnFor(handoffPath, {
+          ...old,
+          "project/outline.md": "must not broaden legacy scope",
+        })
+      ).status,
+      422,
+    );
+    const withoutOutline = { ...handoffEntries };
+    delete withoutOutline["project/outline.md"];
+    assert.equal((await returnFor(handoffPath, withoutOutline)).status, 422);
+    assert.equal(
+      (
+        await returnFor(handoffPath, {
+          ...handoffEntries,
+          "project/comments.json": Buffer.alloc(4 * 1024 * 1024),
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await returnFor(handoffPath, {
+          ...handoffEntries,
+          "project/comments.json": Buffer.alloc(4 * 1024 * 1024 + 1),
+        })
+      ).status,
+      422,
+    );
+    const absent = await (
+      await send("/markdown-projects", { text: "No outline yet" })
+    ).json();
+    const absentPath = `/markdown-projects/${absent.projectId}`;
+    const absentEntries = zipEntries(
+      Buffer.from(
+        await (
+          await send(
+            `${absentPath}/exchange?revision=${absent.revision}&outlineRevision=absent`,
+          )
+        ).arrayBuffer(),
+      ),
+    );
+    assert.equal(
+      JSON.parse(absentEntries["exchange.json"]).outlineBaseRevision,
+      null,
+    );
+    assert.equal(absentEntries["project/outline.md"], undefined);
+    await assert.rejects(access(join(root, absent.projectId, "outline.md")));
+    const added = await (
+      await returnFor(absentPath, {
+        ...absentEntries,
+        "project/outline.md": "",
+      })
+    ).json();
+    assert.deepEqual(
+      added.documents.map((v) => [v.kind, v.baseRevision, v.conflict]),
+      [["outline", null, null]],
+    );
+    const explicitEmpty = await (
+      await send(`${absentPath}/documents/outline`, {
+        revision: null,
+        text: added.documents[0].text,
+      })
+    ).json();
+    assert.match(explicitEmpty.revision, /^[a-f0-9]{64}$/);
+    assert.equal(
+      (
+        await send(
+          `${absentPath}/exchange?revision=${absent.revision}&outlineRevision=absent`,
+        )
+      ).status,
+      409,
+    );
     // Restore the initial snapshot for the original stale-write checks below.
     await send(`/markdown-projects/${p.projectId}`, {
       text,

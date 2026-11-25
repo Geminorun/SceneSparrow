@@ -153,11 +153,19 @@ try {
     outline: "",
   });
   assert.match(outline.text, /Opening/);
+  assert.deepEqual(await api(path), project);
+  const savedOutline = await api(path + "/documents/outline", {
+    revision: null,
+    text: outline.text,
+  });
+  assert.equal(savedOutline.text, outline.text);
+  assert.deepEqual(await api(path), project);
   const draft = await api(path + "/writing", {
     ...common,
     actionId: randomUUID(),
     kind: "draft",
-    outline: outline.text,
+    outline: savedOutline.text,
+    outlineRevision: savedOutline.revision,
   });
   assert.match(draft.text, /Packaged Rust agent SDK text/);
   assert.equal(calls, 2);
@@ -165,6 +173,7 @@ try {
   const adopted = await api(path, {
     text: draft.text,
     revision: project.revision,
+    outlineRevision: savedOutline.revision,
   });
   assert.equal(adopted.text, draft.text);
 } finally {

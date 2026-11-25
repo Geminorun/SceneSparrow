@@ -1947,12 +1947,8 @@ pub struct MarkdownWritingResult {
 pub struct MarkdownExchangeReview {
     #[serde(rename = "projectId")]
     pub project_id: String,
-    #[serde(rename = "baseRevision")]
-    pub base_revision: String,
-    #[serde(rename = "currentRevision")]
-    pub current_revision: String,
-    #[serde(rename = "text")]
-    pub text: String,
+    #[serde(rename = "documents")]
+    pub documents: Vec<MarkdownExchangeDocument>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarkdownDocumentKind {
@@ -2130,6 +2126,20 @@ pub struct MarkdownScopedResult {
     pub range: MarkdownRange,
     #[serde(rename = "fingerprint")]
     pub fingerprint: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownExchangeDocument {
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "baseRevision", deserialize_with = "required_nullable")]
+    pub base_revision: Option<String>,
+    #[serde(rename = "currentRevision", deserialize_with = "required_nullable")]
+    pub current_revision: Option<String>,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "conflict", deserialize_with = "required_nullable")]
+    pub conflict: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

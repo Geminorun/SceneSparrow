@@ -1,7 +1,10 @@
 //! File-backed Web project storage.
 use atomic_write_file::AtomicWriteFile;
 use scenesparrow_domain::{
-    contracts::{MarkdownDocument, MarkdownDocumentKind, MarkdownExchangeReview, MarkdownProject},
+    contracts::{
+        MarkdownDocument, MarkdownDocumentKind, MarkdownExchangeDocument, MarkdownExchangeReview,
+        MarkdownProject,
+    },
     manuscript::MAX_TEXT_BYTES,
 };
 use serde::{Deserialize, Serialize};
@@ -28,11 +31,24 @@ struct Manifest {
     manuscript: String,
 }
 pub const MAX_OUTLINE_BYTES: usize = 256 * 1024;
-pub const MAX_EXCHANGE_BYTES: usize = MAX_TEXT_BYTES + 64 * 1024;
+pub const MAX_EXCHANGE_BYTES: usize =
+    MAX_TEXT_BYTES + MAX_OUTLINE_BYTES + 2 * super::markdown_annotations::SIDECAR_LIMIT + 64 * 1024;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Exchange {
     base_revision: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "outline_base"
+    )]
+    outline_base_revision: Option<Option<String>>,
+}
+// Preserve the distinction between an older package and an explicitly absent outline.
+fn outline_base<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 pub struct MarkdownProjects {
     root: PathBuf,
@@ -153,7 +169,12 @@ impl MarkdownProjects {
         self.read_inner(&id)
     }
 
-    pub fn exchange(&self, id: &str, revision: &str) -> Result<Vec<u8>> {
+    pub fn exchange(
+        &self,
+        id: &str,
+        revision: &str,
+        outline_revision: Option<&str>,
+    ) -> Result<Vec<u8>> {
         let _guard = self
             .writer
             .lock()
@@ -162,24 +183,48 @@ impl MarkdownProjects {
         if saved.revision != revision {
             return Err("MARKDOWN_CONFLICT");
         }
-        let manifest = read(&self.directory(id)?.join("project.json"), 1024)?;
+        let outline = self.read_document_inner(id, MarkdownDocumentKind::Outline)?;
+        if outline.revision.as_deref() != outline_revision {
+            return Err("MARKDOWN_CONFLICT");
+        }
+        let dir = self.directory(id)?;
+        let manifest = read(&dir.join("project.json"), 1024)?;
         let metadata = serde_json::to_vec(&Exchange {
             base_revision: saved.revision,
+            outline_base_revision: Some(outline.revision.clone()),
         })
         .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
         let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
-        for (name, bytes) in [
-            ("exchange.json", metadata.as_slice()),
-            ("project/project.json", manifest.as_slice()),
-            ("project/manuscript.md", saved.text.as_bytes()),
-        ] {
+        let mut entries = vec![
+            ("exchange.json", metadata),
+            ("project/project.json", manifest),
+            ("project/manuscript.md", saved.text.into_bytes()),
+        ];
+        if outline.revision.is_some() {
+            entries.push(("project/outline.md", outline.text.into_bytes()));
+        }
+        for name in ["locks.json", "comments.json"] {
+            match fs::symlink_metadata(dir.join(name)) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => return Err("MARKDOWN_STORAGE_UNAVAILABLE"),
+                Ok(_) => entries.push((
+                    if name == "locks.json" {
+                        "project/locks.json"
+                    } else {
+                        "project/comments.json"
+                    },
+                    read(&dir.join(name), super::markdown_annotations::SIDECAR_LIMIT)?,
+                )),
+            }
+        }
+        for (name, bytes) in entries {
             archive
                 .start_file(name, options)
                 .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
             archive
-                .write_all(bytes)
+                .write_all(&bytes)
                 .map_err(|_| "MARKDOWN_EXCHANGE_INVALID")?;
         }
         Ok(archive
@@ -214,7 +259,7 @@ impl MarkdownProjects {
         {
             return Err(invalid);
         }
-        if !(3..=4).contains(&archive.len()) {
+        if !(3..=7).contains(&archive.len()) {
             return Err(invalid);
         }
         let mut entries = std::collections::HashMap::new();
@@ -232,6 +277,10 @@ impl MarkdownProjects {
             let limit = match entry.name() {
                 "exchange.json" | "project/project.json" => 1024,
                 "project/manuscript.md" => MAX_TEXT_BYTES,
+                "project/outline.md" => MAX_OUTLINE_BYTES,
+                "project/locks.json" | "project/comments.json" => {
+                    super::markdown_annotations::SIDECAR_LIMIT
+                }
                 _ => return Err(invalid),
             };
             let kind = entry.unix_mode().unwrap_or(0) & 0o170000;
@@ -264,22 +313,71 @@ impl MarkdownProjects {
         let exchange: Exchange =
             serde_json::from_slice(entries.get("exchange.json").ok_or(invalid)?)
                 .map_err(|_| invalid)?;
-        if exchange.base_revision.len() != 64
-            || !exchange
-                .base_revision
-                .bytes()
-                .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+        let valid_revision = |revision: &str| {
+            revision.len() == 64
+                && revision
+                    .bytes()
+                    .all(|v| v.is_ascii_digit() || (b'a'..=b'f').contains(&v))
+        };
+        if !valid_revision(&exchange.base_revision)
+            || exchange
+                .outline_base_revision
+                .as_ref()
+                .and_then(|v| v.as_deref())
+                .is_some_and(|v| !valid_revision(v))
         {
             return Err(invalid);
         }
-        let text = String::from_utf8(entries.remove("project/manuscript.md").ok_or(invalid)?)
-            .map_err(|_| invalid)?;
-        let current = self.read(id)?;
+        if exchange.outline_base_revision.is_none()
+            && (entries.len() != 3 || entries.contains_key("project/outline.md"))
+        {
+            return Err(invalid);
+        }
+        let mut returned = vec![(
+            MarkdownDocumentKind::Manuscript,
+            Some(exchange.base_revision),
+            entries.remove("project/manuscript.md").ok_or(invalid)?,
+        )];
+        if let Some(base) = exchange.outline_base_revision {
+            if let Some(bytes) = entries.remove("project/outline.md") {
+                returned.push((MarkdownDocumentKind::Outline, base, bytes));
+            } else if base.is_some() {
+                return Err(invalid);
+            }
+        }
+        let _guard = self
+            .writer
+            .lock()
+            .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
+        self.validated_directory(id)?;
+        let mut documents = vec![];
+        for (kind, base_revision, bytes) in returned {
+            let text = String::from_utf8(bytes).map_err(|_| invalid)?;
+            if base_revision.as_deref() == Some(digest(&text).as_str()) {
+                continue;
+            }
+            let current = self.read_document_inner(id, kind.clone());
+            let current_revision = current.as_ref().ok().and_then(|v| v.revision.clone());
+            let conflict = current
+                .and_then(|current| {
+                    if current.revision != base_revision {
+                        return Err("MARKDOWN_CONFLICT");
+                    }
+                    self.protect(id, &current, &text)
+                })
+                .err()
+                .map(str::to_owned);
+            documents.push(MarkdownExchangeDocument {
+                kind,
+                base_revision,
+                current_revision,
+                text,
+                conflict,
+            });
+        }
         Ok(MarkdownExchangeReview {
             project_id: id.into(),
-            base_revision: exchange.base_revision,
-            current_revision: current.revision,
-            text,
+            documents,
         })
     }
 

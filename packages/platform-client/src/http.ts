@@ -1,3 +1,4 @@
+import { MARKDOWN_EXCHANGE_MAX_BYTES } from "./types";
 import type {
   CreateMarkdownProject,
   MarkdownAnnotationAction,
@@ -155,14 +156,14 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
           `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
           body,
         ),
-      download: async (id, revision) => {
-        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}`;
+      download: async (id, revision, outlineRevision) => {
+        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}&outlineRevision=${encodeURIComponent(outlineRevision ?? "absent")}`;
         const signal = AbortSignal.timeout(10000);
         try {
           const response = await fetchResponse(`${baseUrl}${path}`, { signal });
           if (!response.ok) await decodeJson(response, "GET", false, signal);
           const bytes = new Uint8Array(await response.arrayBuffer());
-          if (bytes.length > 2 * 1024 * 1024 + 65536)
+          if (bytes.length > MARKDOWN_EXCHANGE_MAX_BYTES)
             throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
           return bytes;
         } catch (error) {

@@ -223,15 +223,27 @@ async fn writing(
 #[derive(serde::Deserialize)]
 struct DownloadQuery {
     revision: String,
+    #[serde(rename = "outlineRevision")]
+    outline_revision: String,
 }
 async fn download(
     State(state): State<FileState>,
     Path(id): Path<String>,
     Query(query): Query<DownloadQuery>,
 ) -> Response {
-    match tokio::task::spawn_blocking(move || state.store.exchange(&id, &query.revision))
-        .await
-        .unwrap_or(Err("MARKDOWN_STORAGE_UNAVAILABLE"))
+    match tokio::task::spawn_blocking(move || {
+        state.store.exchange(
+            &id,
+            &query.revision,
+            if query.outline_revision == "absent" {
+                None
+            } else {
+                Some(&query.outline_revision)
+            },
+        )
+    })
+    .await
+    .unwrap_or(Err("MARKDOWN_STORAGE_UNAVAILABLE"))
     {
         Ok(bytes) => (
             [

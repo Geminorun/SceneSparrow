@@ -18,7 +18,10 @@ manuscript save.
 Root review applied Ponytail Review to storage, API and editor paths. Independent
 contract, type, formatting, focused integration, and full Markdown browser
 checks passed. The implementation checks also passed the Web build, workspace
-Clippy, and the full integration suite. The AI checks used a local fixture.
+Clippy, and the full integration suite. The AI checks used a local fixture. The
+initial hosted browser smoke found an empty heading retained after clearing the
+outline. MOR-T02 fixed that behavior and passed
+[Foundation checks](https://github.com/Geminorun/SceneSparrow/actions/runs/45597953308).
 
 ## MOR-T02 — Block protection and comments
 
@@ -39,3 +42,31 @@ independently reran the annotation Rust cases, the file/worker integration
 tests, and browser smoke on the reviewed tree. This stage uses the existing
 visual editor's supported Markdown blocks. Native UI and live providers were
 outside the validation scope.
+
+## MOR-T03 — Project ZIP handoff
+
+The exporter verifies both saved revisions and reads both Markdown files and the
+optional annotation sidecars under the core writer lock. Return review computes
+the changed files from the exported revisions. Each apply uses the existing
+document save guard and the project's live locks.
+
+| Acceptance | Evidence                                                                                                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| MOR-AC07   | Browser coverage verified both captured buffers are saved before export, failed and intervening saves keep local input, and an outline-only return can be applied alongside unsaved and stored manuscript changes. |
+| MOR-AC08   | Both changed files appeared in separate comparisons. Applying one kept the other pending. A later lock blocked only its document. Returned sidecar bytes had no effect on the live annotations.                    |
+| MOR-AC09   | A legacy ZIP applied only to its manuscript. A new ZIP with a null outline base could add an empty outline. The real core rejected malformed, oversized, and wrong-project packages.                               |
+
+Root review applied Ponytail Review and independently checked contracts, formatting,
+the real file and worker integrations, and the production container smoke path.
+
+The workspace check passed 285 JavaScript tests and 213 Rust tests, including
+contract, type, format and Clippy checks. All 14 integration tests passed.
+The 29-case Markdown suite passed before the final test synchronization and
+copy refinements. The final run passed 28 cases and hit disk exhaustion while
+starting one project. That case passed on the final source after reclaiming
+temporary build caches. The final Web production build passed.
+
+The production container smoke passed authenticated startup, ZIP roundtrip,
+saved-outline drafting, encrypted credential storage, restart and backup restore.
+The image tested the final core and smoke scripts. The final standalone Web build
+also included the two copy refinements made after that image was prepared.

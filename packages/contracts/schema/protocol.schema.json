@@ -3502,19 +3502,16 @@
     "MarkdownExchangeReview": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["projectId", "baseRevision", "currentRevision", "text"],
+      "required": ["projectId", "documents"],
       "properties": {
         "projectId": {
           "type": "string"
         },
-        "baseRevision": {
-          "type": "string"
-        },
-        "currentRevision": {
-          "type": "string"
-        },
-        "text": {
-          "type": "string"
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownExchangeDocument"
+          }
         }
       }
     },
@@ -3844,6 +3841,34 @@
         },
         "fingerprint": {
           "type": "string"
+        }
+      }
+    },
+    "MarkdownExchangeDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "baseRevision",
+        "currentRevision",
+        "text",
+        "conflict"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "baseRevision": {
+          "type": ["string", "null"]
+        },
+        "currentRevision": {
+          "type": ["string", "null"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "conflict": {
+          "type": ["string", "null"]
         }
       }
     }

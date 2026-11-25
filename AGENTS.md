@@ -39,9 +39,10 @@
   and stop writes during review/checks/staging. Track platform/provider gaps
   separately; this workflow does not authorize automatic merge/release.
 - The [file-first Web spec](docs/specs/web-file-workspace.md) owns the default
-  Web writing workflow. Its two-file format, session-only history and AI
-  previews, and guarded external handoff take precedence over the legacy
-  project's database, history, and approval rules in this document.
+  Web writing workflow. [Markdown outline and shared document review](docs/specs/markdown-outline-review.md)
+  extends its file format with saved outlines, locks, comments, and ZIP review
+  by document. These specs take precedence over the legacy project's database,
+  history, and approval rules in this document.
 - The foundation implements project creation/reopen, a shared bilingual UI,
   authenticated local API, SQLite storage, and a procedural render sample. Read
   `docs/development.md` for setup and limitations. Step 1 adds canonical manuscript

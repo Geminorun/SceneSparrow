@@ -423,7 +423,7 @@ async function mockWriting(
   return submitted;
 }
 async function beginWriting(page: Page) {
-  await page.getByRole("button", { name: "Outline", exact: true }).click();
+  await outlineTab(page);
   await page
     .getByRole("textbox", { name: "Writing request", exact: true })
     .fill("Write a bilingual story");
@@ -464,7 +464,7 @@ test("@web-smoke WFW-AC03: edit outline, preview without writing, close or expli
   await preferences(page, "off");
   await beginWriting(page);
   await manuscript(page);
-  await page.getByRole("button", { name: "Outline", exact: true }).click();
+  await outlineTab(page);
   const outline = page.getByRole("textbox", {
     name: "Editable outline",
     exact: true,
@@ -504,7 +504,7 @@ test("@web-smoke WFW-AC03: edit outline, preview without writing, close or expli
   await expect(
     page.getByRole("region", { name: "Draft preview", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Outline", exact: true }).click();
+  await outlineTab(page);
   await expect(
     page.getByRole("textbox", { name: "Writing request", exact: true }),
   ).toHaveValue("");
@@ -850,7 +850,7 @@ test("WFW-AC06: local and stored changes after preview cannot overwrite, unchang
   await expect(preview).toContainText("no changes to apply");
   await expect(
     preview.getByRole("button", { name: "Apply Changes", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   entries["project/manuscript.md"] = Buffer.from("Returned candidate");
   await importPackage(page, zip(entries));
   await manuscript(page);
@@ -929,7 +929,14 @@ test("WFW-AC05–06: save-and-download settles IME, and held application keeps n
   await manuscript(page);
   await editor(page).fill("Newer input during acceptance");
   release();
-  await expect(preview).toHaveCount(0);
+  await expect(preview).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Review imported changes", exact: true })
+    .click();
+  await expect(preview).toContainText("Accepted returned draft");
+  await expect(
+    preview.getByRole("button", { name: "Apply Changes", exact: true }),
+  ).toBeDisabled();
   await expect(editor(page)).toHaveText("Newer input during acceptance");
   await expect(
     page.locator(".manuscript-main > .markdown-conflict"),
@@ -1562,4 +1569,264 @@ test("@web-smoke MOR-AC06: comment proposal previews only its scope and a hidden
     .poll(async () => (await outlineFile(page)).text)
     .toBe(raw.replace("Target paragraph 中文", "Revised selected paragraph"));
   await expect(outlineEditor(page)).toContainText("Revised selected paragraph");
+});
+
+test("MOR-AC07: export flushes both captured buffers through an outstanding save", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Earlier outline");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrived!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  let first = true;
+  await page.route(/\/documents\/outline$/, async (route) => {
+    if (route.request().method() !== "POST" || !first) return route.continue();
+    first = false;
+    const response = await route.fetch();
+    arrived();
+    await held;
+    await route.fulfill({ response });
+  });
+  await save(page);
+  await pending;
+  await outlineEditor(page).fill("Captured outline 中文");
+  await manuscript(page);
+  await editor(page).fill("Captured manuscript");
+  const formats = await openExportMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await formats.getByRole("menuitem", { name: /^Project ZIP/ }).click();
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  expect((await outlineFile(page)).text).toBe("Earlier outline");
+  release();
+  const entries = zipEntries(
+    await readFile((await (await downloaded).path())!),
+  );
+  expect(entries["project/outline.md"].toString()).toBe(
+    "Captured outline 中文",
+  );
+  expect(entries["project/manuscript.md"].toString()).toBe(
+    "Captured manuscript",
+  );
+  expect(JSON.parse(entries["exchange.json"]).outlineBaseRevision).toBe(
+    (await outlineFile(page)).revision,
+  );
+  await expect(editor(page)).toHaveText("Captured manuscript");
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toHaveText("Captured outline 中文");
+});
+
+test("@web-smoke MOR-AC07–08: independent document review, separate confirmations and live locks", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  await editor(page).fill("Original manuscript");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Original outline");
+  const entries = await packageFrom(page);
+  entries["project/outline.md"] = Buffer.from("Returned outline");
+  await manuscript(page);
+  await editor(page).fill("Local manuscript draft");
+  const exportedManuscript = await savedFile(page);
+  await page.request.post(`/api/v1/markdown-projects/${projectId(page)}`, {
+    data: {
+      revision: exportedManuscript.revision,
+      text: "Stored concurrent manuscript",
+    },
+  });
+  await importPackage(page, zip(entries));
+  const preview = page.getByRole("region", {
+    name: "Review imported changes",
+    exact: true,
+  });
+  const outlineReview = preview.getByRole("region", {
+    name: "Outline",
+    exact: true,
+  });
+  await expect(
+    preview.getByRole("region", { name: "Manuscript", exact: true }),
+  ).toHaveCount(0);
+  await outlineReview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(outlineEditor(page)).toBeVisible();
+  expect((await outlineFile(page)).text).toBe("Returned outline");
+  expect((await savedFile(page)).text).toBe("Stored concurrent manuscript");
+  await manuscript(page);
+  await expect(editor(page)).toHaveText("Local manuscript draft");
+  // Reopen the stored snapshots for two independently confirmed returns.
+  await page.reload();
+  const both = await packageFrom(page);
+  both["project/manuscript.md"] = Buffer.from("Returned manuscript");
+  both["project/outline.md"] = Buffer.from("Second returned outline");
+  both["project/locks.json"] = Buffer.from('{"locks":["untrusted"]}');
+  both["project/comments.json"] = Buffer.from('{"comments":["untrusted"]}');
+  await importPackage(page, zip(both));
+  await preview
+    .getByRole("region", { name: "Outline", exact: true })
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(
+    preview.getByRole("region", { name: "Outline", exact: true }),
+  ).toHaveCount(0);
+  await expect(preview).toBeVisible();
+  expect((await outlineFile(page)).text).toBe("Second returned outline");
+  expect((await savedFile(page)).text).toBe("Stored concurrent manuscript");
+  await preview
+    .getByRole("region", { name: "Manuscript", exact: true })
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(preview).toHaveCount(0);
+  expect((await savedFile(page)).text).toBe("Returned manuscript");
+  expect((await annotationsFile(page, "manuscript")).locks).toEqual([]);
+  expect((await annotationsFile(page)).comments).toEqual([]);
+  // A lock added after preview blocks only its document and keeps both candidates.
+  const locked = await packageFrom(page);
+  locked["project/manuscript.md"] = Buffer.from("Blocked return");
+  locked["project/outline.md"] = Buffer.from("Independent third outline");
+  await importPackage(page, zip(locked));
+  const manuscriptSnapshot = await savedFile(page);
+  const lock = await page.request.post(
+    `/api/v1/markdown-projects/${projectId(page)}/documents/manuscript/annotations`,
+    {
+      data: {
+        action: "lock",
+        revision: manuscriptSnapshot.revision,
+        ranges: [{ start: 0, end: Buffer.byteLength(manuscriptSnapshot.text) }],
+      },
+    },
+  );
+  expect(lock.ok()).toBe(true);
+  const manuscriptReview = preview.getByRole("region", {
+    name: "Manuscript",
+    exact: true,
+  });
+  await manuscriptReview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(manuscriptReview).toContainText("locked");
+  await expect(manuscriptReview).toContainText("Blocked return");
+  await preview
+    .getByRole("region", { name: "Outline", exact: true })
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(
+    preview.getByRole("region", { name: "Outline", exact: true }),
+  ).toHaveCount(0);
+  expect((await outlineFile(page)).text).toBe("Independent third outline");
+  expect((await savedFile(page)).text).toBe("Returned manuscript");
+  await expect(
+    manuscriptReview.getByRole("button", {
+      name: "Apply Changes",
+      exact: true,
+    }),
+  ).toBeDisabled();
+});
+
+test("MOR-AC07: export aborts on a failed save or intervening edit and retains both buffers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  await editor(page).fill("Retained manuscript");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Retained outline");
+  let downloads = 0;
+  page.on("download", () => downloads++);
+  await page.route(/\/documents\/outline$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ status: 409, json: { code: "MARKDOWN_CONFLICT" } });
+  });
+  let formats = await openExportMenu(page);
+  await formats.getByRole("menuitem", { name: /^Project ZIP/ }).click();
+  await expect(
+    page.locator('[data-error-code="MARKDOWN_CONFLICT"]'),
+  ).toBeVisible();
+  expect(downloads).toBe(0);
+  await expect(outlineEditor(page)).toHaveText("Retained outline");
+  await manuscript(page);
+  await expect(editor(page)).toHaveText("Retained manuscript");
+  await page.unroute(/\/documents\/outline$/);
+  await editor(page).fill("Captured before wait");
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrived!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  await page.route(/\/api\/v1\/markdown-projects\/[^/]+$/, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    arrived();
+    await held;
+    await route.fulfill({ response });
+  });
+  formats = await openExportMenu(page);
+  await formats.getByRole("menuitem", { name: /^Project ZIP/ }).click();
+  await pending;
+  await outlineTab(page);
+  await outlineEditor(page).fill("Newer outline while exporting");
+  release();
+  await expect(
+    page.locator('[data-error-code="MARKDOWN_EXCHANGE_EXPORT_CHANGED"]'),
+  ).toBeVisible();
+  await expect(outlineEditor(page)).toHaveText("Newer outline while exporting");
+  await manuscript(page);
+  await expect(editor(page)).toHaveText("Captured before wait");
+  expect(downloads).toBe(0);
+});
+
+test("@web-smoke MOR-AC09: null outline base adds a saved empty file and legacy return preserves it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  const entries = await packageFrom(page);
+  expect(JSON.parse(entries["exchange.json"]).outlineBaseRevision).toBeNull();
+  expect(entries["project/outline.md"]).toBeUndefined();
+  expect((await outlineFile(page)).revision).toBeNull();
+  entries["project/outline.md"] = Buffer.from("");
+  await importPackage(page, zip(entries));
+  const preview = page.getByRole("region", {
+    name: "Review imported changes",
+    exact: true,
+  });
+  await preview
+    .getByRole("region", { name: "Outline", exact: true })
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(outlineEditor(page)).toBeVisible();
+  const empty = await outlineFile(page);
+  expect(empty.revision).toMatch(/^[a-f0-9]{64}$/);
+  expect(empty.text).toBe("");
+  const legacy = {
+    "exchange.json": Buffer.from(
+      JSON.stringify({
+        baseRevision: JSON.parse(entries["exchange.json"]).baseRevision,
+      }),
+    ),
+    "project/project.json": entries["project/project.json"],
+    "project/manuscript.md": Buffer.from("Legacy manuscript return"),
+  };
+  await importPackage(page, zip(legacy));
+  await expect(
+    preview.getByRole("region", { name: "Outline", exact: true }),
+  ).toHaveCount(0);
+  await preview
+    .getByRole("region", { name: "Manuscript", exact: true })
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(preview).toHaveCount(0);
+  expect((await savedFile(page)).text).toBe("Legacy manuscript return");
+  expect(await outlineFile(page)).toEqual(empty);
 });

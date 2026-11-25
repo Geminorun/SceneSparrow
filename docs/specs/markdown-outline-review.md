@@ -1,12 +1,11 @@
 # Markdown outline and shared document review
 
-Status — proposed Web workspace follow-up for review.
+Status — implemented in the file-backed Web workspace. [Validation](../validation/markdown-outline-review.md)
 
 ## Scope
 
-The Web workspace currently persists `manuscript.md` and keeps the editable
-outline in the writing session. This proposal persists the outline and makes
-block locks and anchored comments available in both documents. It extends the
+The Web workspace persists the manuscript and outline as separate Markdown
+files. Both documents support block locks and anchored comments. This extends the
 [file-first workspace](web-file-workspace.md) and the protection rules in the
 [Markdown workspace spec](markdown-agent-workspace.md).
 
