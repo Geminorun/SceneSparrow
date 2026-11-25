@@ -6,15 +6,19 @@ use scenesparrow_domain::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::{
     fs,
-    io::{Cursor, Read, Write},
+    io::{Cursor, Read},
     path::{Path, PathBuf},
     sync::Mutex,
 };
 use uuid::Uuid;
+pub(super) fn digest(text: &str) -> String {
+    format!("{:x}", Sha256::digest(text.as_bytes()))
+}
 
-type Result<T> = std::result::Result<T, &'static str>;
+pub(super) type Result<T> = std::result::Result<T, &'static str>;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Manifest {
@@ -32,15 +36,15 @@ struct Exchange {
 }
 pub struct MarkdownProjects {
     root: PathBuf,
-    writer: Mutex<()>,
+    pub(super) writer: Mutex<()>,
     #[cfg(test)]
     fail_before_commit: std::sync::atomic::AtomicBool,
 }
-fn io<T>(result: std::io::Result<T>) -> Result<T> {
+pub(super) fn io<T>(result: std::io::Result<T>) -> Result<T> {
     result.map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")
 }
 // shortcut: named-file checks assume a trusted local volume; use OS handles if hostile local writers enter scope.
-fn regular(path: &Path, directory: bool) -> Result<()> {
+pub(super) fn regular(path: &Path, directory: bool) -> Result<()> {
     let meta = io(fs::symlink_metadata(path))?;
     if meta.file_type().is_symlink()
         || (if directory {
@@ -53,7 +57,7 @@ fn regular(path: &Path, directory: bool) -> Result<()> {
     }
     Ok(())
 }
-fn read(path: &Path, limit: usize) -> Result<Vec<u8>> {
+pub(super) fn read(path: &Path, limit: usize) -> Result<Vec<u8>> {
     regular(path, false)?;
     let file = io(fs::File::open(path))?;
     let mut bytes = Vec::new();
@@ -99,7 +103,7 @@ impl MarkdownProjects {
         regular(&dir, true)?;
         Ok(dir)
     }
-    fn validated_directory(&self, id: &str) -> Result<PathBuf> {
+    pub(super) fn validated_directory(&self, id: &str) -> Result<PathBuf> {
         let dir = self.directory(id)?;
         let manifest: Manifest = serde_json::from_slice(&read(&dir.join("project.json"), 1024)?)
             .map_err(|_| "MARKDOWN_PROJECT_INVALID")?;
@@ -286,7 +290,7 @@ impl MarkdownProjects {
             .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
         self.read_document_inner(id, kind)
     }
-    fn read_document_inner(
+    pub(super) fn read_document_inner(
         &self,
         id: &str,
         kind: MarkdownDocumentKind,
@@ -397,6 +401,23 @@ impl MarkdownProjects {
             .writer
             .lock()
             .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
+        self.save_document_inner(id, kind, revision, text, outline_revision)
+    }
+    pub(super) fn save_document_inner(
+        &self,
+        id: &str,
+        kind: MarkdownDocumentKind,
+        revision: Option<&str>,
+        text: String,
+        outline_revision: Option<&str>,
+    ) -> Result<MarkdownDocument> {
+        let limit = match kind {
+            MarkdownDocumentKind::Manuscript => MAX_TEXT_BYTES,
+            MarkdownDocumentKind::Outline => MAX_OUTLINE_BYTES,
+        };
+        if text.len() > limit {
+            return Err("MARKDOWN_TEXT_INVALID");
+        }
         if let Some(expected) = outline_revision
             && self
                 .read_document_inner(id, MarkdownDocumentKind::Outline)?
@@ -410,6 +431,7 @@ impl MarkdownProjects {
         if current.revision.as_deref() != revision {
             return Err("MARKDOWN_CONFLICT");
         }
+        self.protect(id, &current, &text)?;
         let name = match kind {
             MarkdownDocumentKind::Manuscript => "manuscript.md",
             MarkdownDocumentKind::Outline => "outline.md",

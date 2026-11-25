@@ -275,6 +275,81 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
       "MARKDOWN_CONFLICT",
     );
     assert.equal(await readFile(manuscript, "utf8"), output);
+    // MOR-AC06: shared worker previews a saved comment scope; live sidecars guard adoption.
+    const annotationsPath = `/markdown-projects/${project.projectId}/documents/manuscript/annotations`;
+    const scopedPath = `/markdown-projects/${project.projectId}/documents/manuscript/scoped`;
+    const selected = "A complete bilingual manuscript. 中文。";
+    const start = Buffer.byteLength(
+      current.text.slice(0, current.text.indexOf(selected)),
+    );
+    const range = { start, end: start + Buffer.byteLength(selected) };
+    const comments = (
+      await req(annotationsPath, {
+        action: "comment",
+        revision: current.revision,
+        range,
+        text: "Make this paragraph concise",
+      })
+    ).data;
+    const commentId = comments.comments[0].id;
+    output = "Revised paragraph. 中文。";
+    const scopedRequest = {
+      actionId: randomUUID(),
+      sessionId: view.sessionId,
+      fingerprint: ready.configuration.fingerprint,
+      revision: current.revision,
+      commentId,
+    };
+    const scoped = await req(scopedPath, scopedRequest);
+    assert.equal(scoped.status, 200);
+    assert.deepEqual(scoped.data.range, range);
+    assert.equal(await readFile(manuscript, "utf8"), current.text);
+    const headingRange = { start: 0, end: Buffer.byteLength("# Draft") };
+    await req(annotationsPath, {
+      action: "reposition",
+      id: commentId,
+      revision: current.revision,
+      range: headingRange,
+    });
+    assert.equal(
+      (await req(scopedPath, scopedRequest)).data.code,
+      "REQUEST_ID_REUSED",
+    );
+    await req(annotationsPath, {
+      action: "reposition",
+      id: commentId,
+      revision: current.revision,
+      range,
+    });
+    const locked = (
+      await req(annotationsPath, {
+        action: "lock",
+        revision: current.revision,
+        ranges: [range],
+      })
+    ).data;
+    const adoption = {
+      revision: current.revision,
+      commentId,
+      text: scoped.data.text,
+      range: scoped.data.range,
+      fingerprint: scoped.data.fingerprint,
+    };
+    assert.equal(
+      (await req(`${scopedPath}/apply`, adoption)).data.code,
+      "MARKDOWN_LOCKED",
+    );
+    assert.equal(await readFile(manuscript, "utf8"), current.text);
+    await req(annotationsPath, { action: "unlock", id: locked.locks[0].id });
+    const adopted = await req(`${scopedPath}/apply`, adoption);
+    assert.equal(adopted.status, 200);
+    assert.equal(adopted.data.text, current.text.replace(selected, output));
+    assert.equal(
+      (await req(`${scopedPath}/apply`, adoption)).data.code,
+      "MARKDOWN_CONFLICT",
+    );
+    current.revision = adopted.data.revision;
+    current.text = adopted.data.text;
     providerStatus = 500;
     const failedAction = {
       ...action,
@@ -286,7 +361,7 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
     assert.equal(failed.data.code, "PROVIDER_SERVER_FAILED");
     assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_PROVIDER_BODY/);
     assert.deepEqual(await req(path, failedAction), failed);
-    assert.equal(calls, 3);
+    assert.equal(calls, 4);
     await writeFile(manuscript, "External newer input");
     assert.equal(
       (await req(path, { ...failedAction, actionId: randomUUID() })).data.code,
@@ -310,7 +385,7 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
       (await req(path, { ...action, revision: reopened.revision })).data.code,
       "ACTION_SESSION_ENDED",
     );
-    assert.equal(calls, 3);
+    assert.equal(calls, 4);
     await assert.rejects(access(unused));
   } finally {
     release();

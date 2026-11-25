@@ -871,3 +871,5 @@ impl SqliteProjectRepository {
 
 mod storage;
 mod worker_process;
+
+mod markdown_annotations;

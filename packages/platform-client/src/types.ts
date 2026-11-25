@@ -1,6 +1,11 @@
 import type {
   MarkdownProject,
   MarkdownDocument,
+  MarkdownAnnotations,
+  MarkdownAnnotationAction,
+  MarkdownScopedAction,
+  MarkdownScopedApply,
+  MarkdownScopedResult,
   MarkdownDocumentKind,
   SaveMarkdownDocument,
   MarkdownExchangeReview,
@@ -71,6 +76,25 @@ export interface PlatformClient {
       id: string,
       action: MarkdownWritingAction,
     ): Promise<MarkdownWritingResult>;
+    annotations(
+      id: string,
+      kind: MarkdownDocumentKind,
+    ): Promise<MarkdownAnnotations>;
+    annotate(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownAnnotationAction,
+    ): Promise<MarkdownAnnotations>;
+    scoped(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownScopedAction,
+    ): Promise<MarkdownScopedResult>;
+    applyScoped(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownScopedApply,
+    ): Promise<MarkdownDocument>;
     readDocument(
       id: string,
       kind: MarkdownDocumentKind,

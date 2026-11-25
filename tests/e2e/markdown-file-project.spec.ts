@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { zip, zipEntries } from "../fixtures/documents.mjs";
 
 const editor = (page: Page) => page.locator("#markdown-editor");
@@ -129,7 +130,7 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   ).toHaveCount(0);
   await expect(
     page.getByRole("tab", { name: "Comments", exact: true }),
-  ).toHaveCount(0);
+  ).toHaveCount(1);
   const contents = page.getByRole("navigation", {
     name: "Contents",
     exact: true,
@@ -1025,7 +1026,9 @@ test("@web-smoke MOR-AC01: optional outline, exact bytes, independent saves, reo
   expect(await exported(page)).toEqual(Buffer.from(raw));
   const saved = await outlineFile(page);
   expect(saved.revision).toMatch(/^[a-f0-9]{64}$/);
-  await outlineEditor(page).fill("");
+  await outlineEditor(page).click();
+  await outlineEditor(page).press("ControlOrMeta+a");
+  await outlineEditor(page).press("Backspace");
   await outlineEditor(page).press("ControlOrMeta+s");
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   const empty = await outlineFile(page);
@@ -1275,4 +1278,288 @@ test("MOR-AC03: outline generation stays a candidate and preserves edits made du
   expect((await outlineFile(page)).text).toBe("Keep this accepted outline");
   await outlineTab(page);
   await expect(outlineEditor(page)).toHaveText("Newer local outline");
+});
+
+async function selectBlocks(
+  target: ReturnType<typeof editor>,
+  selector: string,
+  first: number,
+  last: number,
+) {
+  await target.evaluate(
+    (node, { selector, first, last }) => {
+      const blocks = node.querySelectorAll(selector);
+      const range = document.createRange();
+      range.setStart(blocks[first]!, 0);
+      range.setEnd(blocks[last]!, blocks[last]!.childNodes.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      (node as HTMLElement).focus();
+      document.dispatchEvent(new Event("selectionchange"));
+    },
+    { selector, first, last },
+  );
+}
+async function annotationsFile(page: Page, kind = "outline") {
+  return (
+    await page.request.get(
+      `/api/v1/markdown-projects/${projectId(page)}/documents/${kind}/annotations`,
+    )
+  ).json();
+}
+
+test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and visual edits, preserve unlocked list siblings", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  await editor(page).fill("Protected manuscript paragraph");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await editor(page).locator("p").click();
+  await page
+    .locator(".markdown-editor-shell")
+    .filter({ has: editor(page) })
+    .getByRole("button", { name: "Lock selected blocks", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await annotationsFile(page, "manuscript")).locks.length)
+    .toBe(1);
+  const raw =
+    "\ufeff# Plan 中文\r\n\r\n* first **locked**\r\n* second locked\r\n* editable sibling\r\n";
+  await page.request.post(
+    `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+    { data: { revision: null, text: raw } },
+  );
+  await page.reload();
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toContainText("Plan 中文");
+  await selectBlocks(outlineEditor(page), "h1, li", 0, 2);
+  await page
+    .locator(".outline-surface")
+    .getByRole("button", { name: "Lock selected blocks", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await annotationsFile(page)).locks[0]?.anchors.length)
+    .toBe(3);
+  await page.reload();
+  await outlineTab(page);
+  await expect(
+    page.locator(".outline-surface .markdown-lock-marker"),
+  ).toHaveCount(3);
+  await expect
+    .poll(async () =>
+      page
+        .locator(".outline-surface .markdown-lock-marker")
+        .evaluateAll(
+          (nodes) =>
+            new Set(nodes.map((node) => (node as HTMLElement).style.top)).size,
+        ),
+    )
+    .toBe(3);
+  await outlineEditor(page).locator("li").last().click();
+  await outlineEditor(page).press("End");
+  await outlineEditor(page).pressSequentially(" edited");
+  await save(page);
+  await expect
+    .poll(async () => (await outlineFile(page)).text)
+    .toBe(raw.replace("* editable sibling", "- editable sibling edited"));
+  await outlineEditor(page).locator("li").first().click();
+  await outlineEditor(page).press("End");
+  await outlineEditor(page).pressSequentially(" forbidden");
+  await expect(outlineEditor(page)).not.toContainText("forbidden");
+  const input = await source(page);
+  await input.fill("Deleted protected source");
+  await expect(input).not.toHaveValue("Deleted protected source");
+  await closeSource(page);
+  await manuscript(page);
+  await expect(
+    page.locator(".document-layout .markdown-lock-marker"),
+  ).toHaveCount(1);
+  await editor(page).fill("forbidden manuscript rewrite");
+  await expect(editor(page)).toHaveText("Protected manuscript paragraph");
+});
+
+test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits and keep detached quote for resolution", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  const raw =
+    "# Comment span\n\n- First target\n- Second target\n\nUnrelated tail";
+  await page.request.post(
+    `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+    { data: { revision: null, text: raw } },
+  );
+  await page.reload();
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toContainText("Comment span");
+  await selectBlocks(outlineEditor(page), "h1, li", 0, 2);
+  await page
+    .locator(".outline-surface")
+    .getByRole("button", { name: "Comment on selection", exact: true })
+    .click();
+  await expect(page.locator("#markdown-comment-composer")).toBeFocused();
+  await page.locator("#markdown-comment-composer").fill("Clarify these beats");
+  await page
+    .locator(".markdown-review")
+    .getByRole("button", { name: "Comment on selection", exact: true })
+    .click();
+  await expect(page.locator(".markdown-comment")).toContainText(
+    "Clarify these beats",
+  );
+  const state = await annotationsFile(page);
+  expect(state.comments[0].anchor.quote).toBe(
+    "# Comment span\n\n- First target\n- Second target",
+  );
+  await manuscript(page);
+  await expect(page.locator(".markdown-comment")).toHaveCount(0);
+  await page.reload();
+  await outlineTab(page);
+  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await expect(page.locator(".markdown-comment")).toContainText(
+    "Clarify these beats",
+  );
+  await outlineEditor(page).locator("p").last().click();
+  await outlineEditor(page).press("End");
+  await outlineEditor(page).pressSequentially(" changed");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await page
+    .locator(".markdown-comment")
+    .getByRole("button", { name: "Show anchor", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("textbox")).toHaveValue(
+    raw + " changed",
+  );
+  await closeSource(page);
+  const input = await source(page);
+  await input.fill("Only unrelated tail remains");
+  await closeSource(page);
+  await save(page);
+  await expect(page.locator(".markdown-comment")).toContainText(
+    "Anchor needs repositioning",
+  );
+  await expect(page.locator(".markdown-comment blockquote")).toHaveText(
+    "# Comment span\n\n- First target\n- Second target",
+  );
+  await page.reload();
+  await outlineTab(page);
+  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await page
+    .locator(".markdown-comment")
+    .getByRole("button", { name: "Resolve", exact: true })
+    .click();
+  await expect(page.locator(".markdown-comment")).toHaveAttribute(
+    "data-comment-status",
+    "resolved",
+  );
+});
+
+test("@web-smoke MOR-AC06: comment proposal previews only its scope and a hidden live lock blocks adoption", async ({
+  page,
+}) => {
+  await mockWriting(page, () => "unused");
+  await page.goto("/");
+  await preferences(page, "off");
+  const raw = "# Scope\n\nTarget paragraph 中文\n\nUntouched tail";
+  await page.request.post(
+    `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+    { data: { revision: null, text: raw } },
+  );
+  await page.reload();
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toContainText("Target paragraph 中文");
+  await selectBlocks(outlineEditor(page), "p", 0, 0);
+  await page
+    .locator(".outline-surface")
+    .getByRole("button", { name: "Comment on selection", exact: true })
+    .click();
+  await page
+    .locator("#markdown-comment-composer")
+    .fill("Improve this paragraph");
+  await page
+    .locator(".markdown-review")
+    .getByRole("button", { name: "Comment on selection", exact: true })
+    .click();
+  await expect(page.locator(".markdown-comment")).toContainText(
+    "Improve this paragraph",
+  );
+  const before = await outlineFile(page);
+  const comment = (await annotationsFile(page)).comments[0];
+  let calls = 0;
+  const actionIds: string[] = [];
+  await page.route(
+    "**/api/v1/markdown-projects/*/documents/outline/scoped",
+    (route) => {
+      calls++;
+      const body = route.request().postDataJSON();
+      actionIds.push(body.actionId);
+      if (calls === 1) return route.abort("failed");
+      return route.fulfill({
+        json: {
+          actionId: body.actionId,
+          text: "Revised selected paragraph",
+          range: {
+            start: comment.anchor.resolvedStart,
+            end: comment.anchor.resolvedEnd,
+          },
+          fingerprint: createHash("sha256")
+            .update(comment.anchor.quote)
+            .digest("hex"),
+        },
+      });
+    },
+  );
+  await page
+    .locator(".markdown-comment")
+    .getByRole("button", { name: "Propose AI revision", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page
+    .locator(".markdown-comment")
+    .getByRole("button", { name: "Propose AI revision", exact: true })
+    .click();
+  const preview = page.getByRole("region", {
+    name: "Selected scope preview",
+    exact: true,
+  });
+  await expect(preview).toContainText("Revised selected paragraph");
+  expect(await outlineFile(page)).toEqual(before);
+  expect(calls).toBe(2);
+  expect(actionIds[0]).toBe(actionIds[1]);
+  const annotationPath = `/api/v1/markdown-projects/${projectId(page)}/documents/outline/annotations`;
+  const locked = await (
+    await page.request.post(annotationPath, {
+      data: {
+        action: "lock",
+        revision: before.revision,
+        ranges: [
+          {
+            start: comment.anchor.resolvedStart,
+            end: comment.anchor.resolvedEnd,
+          },
+        ],
+      },
+    })
+  ).json();
+  await preview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect(
+    page.locator('[data-error-code="MARKDOWN_LOCKED"]'),
+  ).toContainText("Unlock protected blocks");
+  await expect(preview).toContainText("Revised selected paragraph");
+  expect(await outlineFile(page)).toEqual(before);
+  await page.request.post(annotationPath, {
+    data: { action: "unlock", id: locked.locks[0].id },
+  });
+  await preview
+    .getByRole("button", { name: "Apply Changes", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await outlineFile(page)).text)
+    .toBe(raw.replace("Target paragraph 中文", "Revised selected paragraph"));
+  await expect(outlineEditor(page)).toContainText("Revised selected paragraph");
 });

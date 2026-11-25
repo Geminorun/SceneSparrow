@@ -1,5 +1,8 @@
 import type {
   CreateMarkdownProject,
+  MarkdownAnnotationAction,
+  MarkdownScopedAction,
+  MarkdownScopedApply,
   MarkdownWritingAction,
   SaveMarkdownProject,
   SaveMarkdownDocument,
@@ -38,6 +41,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     path: string,
     body?:
       | MarkdownWritingAction
+      | MarkdownAnnotationAction
+      | MarkdownScopedAction
+      | MarkdownScopedApply
       | CreateMarkdownProject
       | SaveMarkdownProject
       | SaveMarkdownDocument
@@ -121,6 +127,25 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   };
   return {
     markdownProjects: {
+      annotations: (id, kind) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/annotations`,
+        ),
+      annotate: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/annotations`,
+          body,
+        ),
+      scoped: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/scoped`,
+          body,
+        ),
+      applyScoped: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/scoped/apply`,
+          body,
+        ),
       readDocument: (id, kind) =>
         request(
           `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
