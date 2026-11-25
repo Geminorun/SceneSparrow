@@ -56,3 +56,7 @@ writing, and external agent handoff.
 The [Markdown workspace and protected agent handoff](markdown-agent-workspace.md)
 spec covers restoring the established workbench over the file APIs and proposes
 block-level protection as a follow-up.
+
+The proposed [Markdown outline and shared document review](markdown-outline-review.md)
+spec adds a saved outline, shared locks and comments, and document-level Agent ZIP
+review to the Web workspace.
