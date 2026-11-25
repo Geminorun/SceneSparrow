@@ -76,7 +76,15 @@ export interface RecentProject {
   title: string;
 }
 
+export type AgentEngine = {
+  id: string;
+  label: string;
+  available: boolean;
+  models: { id: string; label: string }[];
+};
+
 export interface ExternalWritingClient {
+  catalog?(): Promise<AgentEngine[]>;
   create(projectId: string, request: AgentCreateSession): Promise<AgentSession>;
   read(projectId: string, sessionId: string): Promise<AgentSession>;
   close(projectId: string, sessionId: string): Promise<void>;

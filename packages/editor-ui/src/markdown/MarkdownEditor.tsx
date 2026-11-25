@@ -45,6 +45,7 @@ export function MarkdownEditor({
     ranges: { start: number; end: number }[],
     range: { start: number; end: number },
     source: string,
+    explicit: boolean,
   ) => void;
   scope?: string;
   autofocus?: boolean;
@@ -238,7 +239,7 @@ export function MarkdownEditor({
             };
         }
       }
-      callbacks.current.selection(chosen, range, source);
+      callbacks.current.selection(chosen, range, source, !empty);
       if (shell.current)
         setLockTop(
           Math.max(
@@ -247,6 +248,9 @@ export function MarkdownEditor({
               shell.current.getBoundingClientRect().top,
           ),
         );
+    } else {
+      callbacks.current.selection([], { start: 0, end: 0 }, source, !empty);
+      setLockTop(0);
     }
   }
   function sync() {

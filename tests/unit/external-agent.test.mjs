@@ -179,3 +179,62 @@ test("EWA complete stream delivers one final and a bounded partial frame fails",
     globalThis.fetch = original;
   }
 });
+
+test("EWA-AC01 exact captured UTF-8 patch preserves BOM, CRLF and Unicode outside the range", async () => {
+  const { agentAttachment, proposalText } =
+    await import("../../packages/editor-ui/src/agent/context.ts");
+  const text = "\ufeff# 标题\r\n\r\nOriginal 中文.\r\n\r\nTail 😀\r\n";
+  const start = new TextEncoder().encode(
+    text.slice(0, text.indexOf("Original")),
+  ).length;
+  const quote = "Original 中文.";
+  const capture = {
+    projectId: "project",
+    kind: "manuscript",
+    revision: "revision",
+    session: {},
+    epoch: 1,
+    text,
+    selection: {
+      range: { start, end: start + new TextEncoder().encode(quote).length },
+      quote,
+    },
+  };
+  const attachment = await agentAttachment(capture);
+  assert.equal(attachment.buffer, null);
+  assert.match(attachment.sourceDigest, /^[a-f0-9]{64}$/);
+  const context = {
+    projectId: capture.projectId,
+    kind: capture.kind,
+    revision: capture.revision,
+    sourceDigest: attachment.sourceDigest,
+    selection: capture.selection,
+  };
+  assert.equal(
+    proposalText(capture, { id: "proposal", text: "Changed 你好", context }),
+    text.replace(quote, "Changed 你好"),
+  );
+  for (const wrong of [
+    { kind: "outline" },
+    { revision: "new" },
+    { projectId: "other" },
+    { selection: { ...capture.selection, quote: "wrong" } },
+  ])
+    assert.throws(
+      () =>
+        proposalText(capture, {
+          id: "proposal",
+          text: "Changed",
+          context: { ...context, ...wrong },
+        }),
+      /AGENT_PROPOSAL_STALE/,
+    );
+  assert.throws(
+    () =>
+      proposalText(
+        { ...capture, text: text.replace(quote, "different") },
+        { id: "proposal", text: "Changed", context },
+      ),
+    /AGENT_SELECTION_INVALID/,
+  );
+});

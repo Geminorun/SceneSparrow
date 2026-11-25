@@ -18,7 +18,7 @@ import {
 } from "./notifications";
 import { trapDialogFocus } from "../ui/dialog-focus";
 
-export type SettingsSection = "general" | "services" | "defaults";
+export type SettingsSection = "general" | "services" | "defaults" | "agent";
 export const SettingsActions = createContext<
   (section: SettingsSection) => void
 >(() => {});
