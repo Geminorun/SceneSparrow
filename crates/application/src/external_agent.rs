@@ -29,7 +29,13 @@ pub trait AgentDocuments: Send + Sync {
     fn apply(&self, proposal: &AgentProposal) -> Result<MarkdownDocument>;
 }
 
+pub struct AgentHistory {
+    pub instruction: String,
+    pub reply: String,
+    pub replacement: Option<String>,
+}
 pub struct AgentInput {
+    pub history: Vec<AgentHistory>,
     pub engine_id: String,
     pub model_id: String,
     pub session_id: String,
@@ -52,6 +58,15 @@ pub struct AgentOutput {
 pub trait WritingAgent: Send + Sync {
     /// Read cached availability only. Discovery and authentication I/O happen outside this call.
     fn check(&self, engine: &str, model: &str) -> Result<()>;
+    fn catalog(&self) -> Result<Vec<AgentEngine>> {
+        Ok(vec![AgentEngine {
+            id: "codex".into(),
+            label: "Codex".into(),
+            available: false,
+            status: Some(AgentEngineStatus::Notconfigured),
+            models: vec![],
+        }])
+    }
     /// Enqueue native conversation cleanup without blocking; called on close, expiry and shutdown.
     fn close_session(&self, _session_id: &str) {}
     fn run(
@@ -60,20 +75,6 @@ pub trait WritingAgent: Send + Sync {
         cancelled: Arc<AtomicBool>,
         emit: &mut dyn FnMut(AgentDelta) -> Result<()>,
     ) -> Result<AgentOutput>;
-}
-pub struct UnavailableAgent;
-impl WritingAgent for UnavailableAgent {
-    fn check(&self, _: &str, _: &str) -> Result<()> {
-        Err("AGENT_UNAVAILABLE")
-    }
-    fn run(
-        &self,
-        _: AgentInput,
-        _: Arc<AtomicBool>,
-        _: &mut dyn FnMut(AgentDelta) -> Result<()>,
-    ) -> Result<AgentOutput> {
-        Err("AGENT_UNAVAILABLE")
-    }
 }
 
 struct Turn {
@@ -195,6 +196,9 @@ impl AgentSessions {
             adapter,
             sessions: Mutex::new(HashMap::new()),
         }
+    }
+    pub fn catalog(&self) -> Result<Vec<AgentEngine>> {
+        self.adapter.catalog()
     }
     pub fn create(&self, project: &str, request: AgentCreateSession) -> Result<AgentSession> {
         if !identifier(&request.request_id)
@@ -366,6 +370,28 @@ impl AgentSessions {
         let cancelled = Arc::new(AtomicBool::new(false));
         let dispatch = AgentDispatch {
             input: AgentInput {
+                history: s
+                    .turns
+                    .iter()
+                    .rev()
+                    .filter(|t| t.view.status == AgentTurnStatus::Completed)
+                    .take(8)
+                    .map(|t| AgentHistory {
+                        instruction: t.request.instruction.clone(),
+                        reply: t
+                            .events
+                            .iter()
+                            .find_map(|e| match e {
+                                AgentEvent::Final { reply, .. } => Some(reply.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_default(),
+                        replacement: t.view.proposal.as_ref().map(|p| p.text.clone()),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect(),
                 engine_id: s.view.engine_id.clone(),
                 model_id: s.view.model_id.clone(),
                 session_id: id.into(),
@@ -702,6 +728,46 @@ mod tests {
                 buffer: None,
             },
         }
+    }
+    #[test]
+    fn ewa_followup_uses_only_completed_history_from_its_own_session() {
+        let s = AgentSessions::new(Arc::new(Documents), Arc::new(Adapter::default()));
+        let view = create(&s, 0);
+        for n in 0..10 {
+            let mut request = request();
+            request.request_id = format!("history-{n}");
+            let (turn, dispatch) = s.start("project", &view.id, request).unwrap();
+            let history = dispatch.unwrap().input.history;
+            assert_eq!(history.len(), n.min(8));
+            if n > 0 {
+                assert_eq!(history.last().unwrap().reply, format!("Reply {}", n - 1));
+            }
+            s.release_dispatch("project", &view.id, &turn.id).unwrap();
+            s.finish(
+                "project",
+                &view.id,
+                &turn.id,
+                Ok(AgentOutput {
+                    reply: format!("Reply {n}"),
+                    replacement: None,
+                }),
+            )
+            .unwrap();
+        }
+        let other = create(&s, 1);
+        let (_, dispatch) = s.start("project", &other.id, request()).unwrap();
+        assert!(dispatch.unwrap().input.history.is_empty());
+        let mut request = request();
+        request.request_id = "cancelled".into();
+        let (turn, _) = s.start("project", &view.id, request.clone()).unwrap();
+        s.cancel("project", &view.id, &turn.id).unwrap();
+        s.release_dispatch("project", &view.id, &turn.id).unwrap();
+        request.request_id = "after-cancel".into();
+        let (_, dispatch) = s.start("project", &view.id, request).unwrap();
+        assert_eq!(
+            dispatch.unwrap().input.history.last().unwrap().reply,
+            "Reply 9"
+        );
     }
     #[test]
     fn ewa_timeout_expiry_shutdown_and_capacity_cleanup_are_fenced() {

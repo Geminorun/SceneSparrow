@@ -1,6 +1,6 @@
 # External writing Agent and Claudian port
 
-Status — proposed for review.
+Status — Web implementation in PR #30. Hosted-provider validation is pending.
 
 ## Scope and references
 
@@ -84,11 +84,12 @@ per conversation. A cancelled or failed turn settles once. Ignore late results
 after cancellation or a project switch. Retrying is an explicit user action.
 
 The first adapter uses [Codex App Server](https://developers.openai.com/codex/app-server)
-over server-side stdio. Use native lifecycle, model discovery and cancellation.
-For selection turns, verify the runtime's structured output support and map
+over server-side stdio. The optional Linux runner exposes a private socket to
+the Web core and supervises the native process. The adapter uses native model
+discovery and cancellation. For selection turns, verify the runtime's structured output support and map
 the final response to a reply and an optional replacement. Validate the
 replacement before emitting a proposal event. Surface a localized setup error
-if the runtime or authentication is unavailable.
+if the runtime or authentication is unavailable. [Runner setup](../codex-writing-runner.md)
 
 Pass the captured text as input and run in a separate scratch directory. Limit
 the engine to the writing workflow's capabilities. Keep arbitrary shell and

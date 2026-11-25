@@ -23,10 +23,10 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
         root,
         token,
         origin,
-        Arc::new(scenesparrow_application::external_agent::UnavailableAgent),
+        Arc::new(scenesparrow_infrastructure::codex_agent::CodexAgent::configured()),
     )
 }
-/// Explicit dependency injection; the executable always uses the unavailable adapter until T03.
+/// Explicit dependency injection for ordinary deterministic fixtures.
 pub fn router_with_agent(
     root: &std::path::Path,
     token: &str,

@@ -550,3 +550,30 @@ async fn ewa_budgets_and_shipped_adapter_unavailable() {
         "AGENT_UNAVAILABLE"
     );
 }
+
+#[tokio::test]
+async fn ewa_global_catalog_is_authenticated_and_never_generates() {
+    let (_root, app, fixture, _, _) = setup().await;
+    assert_eq!(
+        raw(&app, "/v1/agent/catalog", None, false, ORIGIN)
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        raw(
+            &app,
+            "/v1/agent/catalog",
+            None,
+            true,
+            "https://wrong.example"
+        )
+        .await
+        .status(),
+        403
+    );
+    let (status, catalog) = call(&app, "/v1/agent/catalog", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(catalog[0]["status"], "not_configured");
+    assert_eq!(fixture.calls.load(Ordering::Acquire), 0);
+}

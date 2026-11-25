@@ -238,3 +238,29 @@ test("EWA-AC01 exact captured UTF-8 patch preserves BOM, CRLF and Unicode outsid
     /AGENT_SELECTION_INVALID/,
   );
 });
+
+test("EWA-AC06 HTTP catalog uses authenticated global transport without a writing request", async () => {
+  const original = globalThis.fetch;
+  const paths = [];
+  globalThis.fetch = async (url, options) => {
+    paths.push([url, options.method]);
+    return Response.json([
+      {
+        id: "codex",
+        label: "Codex",
+        available: false,
+        status: "not_authenticated",
+        models: [],
+      },
+    ]);
+  };
+  try {
+    assert.equal(
+      (await createHttpClient("http://local").agent.catalog())[0].status,
+      "not_authenticated",
+    );
+    assert.deepEqual(paths, [["http://local/v1/agent/catalog", "GET"]]);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

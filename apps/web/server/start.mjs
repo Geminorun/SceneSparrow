@@ -20,6 +20,7 @@ export async function startRuntime({
   markdownProjectsDir,
   appDataDir = "/data/app",
   masterKeyFile,
+  codexSocket,
   signals = process,
   onExit = (code) => {
     process.exitCode = code;
@@ -47,6 +48,9 @@ export async function startRuntime({
       ? { SCENESPARROW_MARKDOWN_PROJECTS_DIR: markdownProjectsDir }
       : {}),
     SCENESPARROW_APP_DATA_DIR: appDataDir,
+    ...(codexSocket !== undefined
+      ? { SCENESPARROW_CODEX_SOCKET: codexSocket }
+      : {}),
     ...(masterKeyFile !== undefined
       ? { SCENESPARROW_AI_MASTER_KEY_FILE: masterKeyFile }
       : {}),
@@ -223,6 +227,7 @@ if (
       masterKeyFile:
         process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
         "/run/secrets/ai_master_key",
+      codexSocket: process.env.SCENESPARROW_CODEX_SOCKET,
       version,
       buildSha: process.env.SCENESPARROW_BUILD_SHA ?? "unknown",
     });

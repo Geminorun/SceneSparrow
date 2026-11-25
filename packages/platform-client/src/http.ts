@@ -137,6 +137,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     `/v1/markdown-projects/${encodeURIComponent(projectId)}/agent/sessions${sessionId ? `/${encodeURIComponent(sessionId)}` : ""}${turnId ? `/turns/${encodeURIComponent(turnId)}` : ""}`;
   return {
     agent: {
+      catalog: () => request("/v1/agent/catalog"),
       create: (project, body) => request(agentPath(project), body),
       read: (project, session) => request(agentPath(project, session)),
       close: (project, session) =>

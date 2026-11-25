@@ -86,6 +86,11 @@ test("@web-smoke EWA-AC04–05 unavailable catalog, bilingual settings and built
     dialog.getByRole("heading", { name: "Agent", exact: true }),
   ).toBeVisible();
   await dialog.getByRole("button", { name: "Check connection" }).click();
+  await expect(
+    dialog.getByText(
+      "Codex is not configured. Ask the server operator to connect an isolated writing runner, then check again.",
+    ),
+  ).toBeVisible();
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await page
     .getByRole("combobox", { name: "Language", exact: true })

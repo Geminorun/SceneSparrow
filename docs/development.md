@@ -498,3 +498,7 @@ interactive writing checks live in the file-store unit tests and
 `tests/integration/markdown-*.test.mjs`. Production container restart and
 backup recovery are covered by the release smoke script.
 [Production Web runbook](web-deployment.md)
+
+The external writing Agent uses an optional isolated Codex App Server. The
+standard test suite uses a protocol fixture. For native testing, follow the
+[runner guide](codex-writing-runner.md).

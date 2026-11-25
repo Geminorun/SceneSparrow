@@ -305,7 +305,13 @@ export function AgentConversation({
           >
             <p className="agent-instruction">{turn.instruction}</p>
             <p className="agent-reply">{turn.reply}</p>
-            {turn.progress && <p className="muted">{turn.progress}</p>}
+            {turn.progress && (
+              <p className="muted">
+                {turn.progress === "agentWorking"
+                  ? t.agentWorking
+                  : turn.progress}
+              </p>
+            )}
             <p role="status">
               {turn.error
                 ? errorMessage(turn.error, t)

@@ -37,6 +37,7 @@ where
     Arc<AgentState>: FromRef<S>,
 {
     Router::new()
+        .route("/v1/agent/catalog", get(catalog))
         .route(
             "/v1/markdown-projects/{project}/agent/sessions",
             post(create),
@@ -102,6 +103,9 @@ async fn execute<T: serde::Serialize + Send + 'static>(
         Ok(value) => Json(value).into_response(),
         Err(code) => error(code),
     }
+}
+async fn catalog(State(state): State<Arc<AgentState>>) -> Response {
+    execute(state, |s| s.catalog()).await
 }
 async fn create(
     State(state): State<Arc<AgentState>>,

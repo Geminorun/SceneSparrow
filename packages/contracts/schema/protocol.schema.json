@@ -4244,6 +4244,50 @@
           "type": "string"
         }
       }
+    },
+    "AgentModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentEngine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "available", "models"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready",
+            "not_configured",
+            "not_authenticated",
+            "unavailable"
+          ]
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentModel"
+          }
+        }
+      }
     }
   }
 }

@@ -2327,6 +2327,44 @@ pub struct AgentApplyResult {
     pub proposal_id: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentModel {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "label")]
+    pub label: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentEngineStatus {
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "not_configured")]
+    Notconfigured,
+    #[serde(rename = "not_authenticated")]
+    Notauthenticated,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEngine {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "label")]
+    pub label: String,
+    #[serde(rename = "available")]
+    pub available: bool,
+    #[serde(
+        rename = "status",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub status: Option<AgentEngineStatus>,
+    #[serde(rename = "models")]
+    pub models: Vec<AgentModel>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,

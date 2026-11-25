@@ -48,3 +48,31 @@ cases passed, along with formatting, typecheck and the Web build. Root review
 checked the selection, save, Apply, stream and settings boundaries and reran
 focused browser and unit checks. Browser adapters are injected from tests.
 Native runtime availability is covered in EWA-T03.
+
+## EWA-T03 — Native Codex protocol and isolated runner
+
+The opt-in Linux runner starts Codex App Server in a restricted container.
+The authenticated catalog checks the dedicated account and models. Turns
+use ephemeral native threads and bounded conversation history. Questions
+stream text. Selection turns show progress and validate a complete reply
+and replacement before creating a proposal. [Runner setup](../codex-writing-runner.md)
+
+| Acceptance | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EWA-AC06   | Native fixtures exercise discovery, missing authentication, streaming, follow-ups, exact structured output, cancellation and disconnect cleanup. Root passed the full Chromium selection-edit flow through the authenticated Web gateway and actual Codex App Server `0.167.0-alpha.4` with a simulated Responses provider. The saved document changed only after Apply, and the replacement preserved surrounding Chinese text byte-for-byte. |
+| EWA-AC07   | Fixtures reject out-of-scope IDs, native tool requests, unsafe auth paths and oversized frames. The Docker smoke confirmed the read-only root, dropped capabilities, no new privileges, private mounts, an inaccessible host marker, absent app credentials and writable scratch. The existing document writer retains sole authority over Apply.                                                                                              |
+
+Actual runtime tests exposed startup notifications and user-message events that
+can arrive before the native turn acknowledgment. The adapter discards benign
+metadata, requires disabled remote-control status and validates bounded early
+events against the acknowledged thread and turn. The protocol fixture reproduces
+this ordering.
+
+`pnpm check`, `pnpm build` and all 14 integration cases passed. All 17 Agent
+browser cases passed. Root independently replayed the focused native, service
+and client tests and verified the real-runtime browser edit again after the
+last protocol change. Ponytail Review checked the adapter, launcher, event
+bounds and write path.
+
+Hosted-provider credentials and production installation remain pending. The
+Linux test host accepted Docker resource-limit flags without cgroup enforcement.

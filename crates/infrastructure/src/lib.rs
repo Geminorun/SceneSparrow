@@ -1,3 +1,4 @@
+pub mod codex_agent;
 pub mod diagnostics;
 pub mod external_agent;
 pub mod markdown_projects;

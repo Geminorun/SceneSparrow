@@ -206,3 +206,11 @@ current merge commit. Linux/browser/mock-provider results do not certify real
 Windows/macOS, native credential stores, live providers or unmet large-document
 performance budgets. Rendering remains a separate sample, and arbitrary generated
 code execution remains disabled until platform isolation is implemented and tested.
+
+## Optional external writing runtime
+
+The Web application owns the Agent session and guarded Markdown writer.
+`crates/infrastructure/src/codex_agent.rs` connects to a private Unix socket.
+The isolated Linux runner launches Codex App Server over stdio with separate
+credentials and scratch space. The authenticated catalog checks the account
+and models. [Runner guide](codex-writing-runner.md)

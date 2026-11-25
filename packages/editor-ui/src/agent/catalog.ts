@@ -5,7 +5,7 @@ import type {
 } from "@scenesparrow/platform-client";
 import { useNoticeOwner } from "../feedback/NotificationPresenter";
 
-// T03 supplies runtime discovery through the client; T02 never starts a process.
+// Missing platform support remains recoverable without touching built-in model services.
 export const unavailableCatalog: AgentEngine[] = [
   { id: "codex", label: "Codex", available: false, models: [] },
 ];

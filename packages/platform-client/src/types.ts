@@ -76,12 +76,8 @@ export interface RecentProject {
   title: string;
 }
 
-export type AgentEngine = {
-  id: string;
-  label: string;
-  available: boolean;
-  models: { id: string; label: string }[];
-};
+export type { AgentEngine } from "@scenesparrow/contracts";
+import type { AgentEngine } from "@scenesparrow/contracts";
 
 export interface ExternalWritingClient {
   catalog?(): Promise<AgentEngine[]>;

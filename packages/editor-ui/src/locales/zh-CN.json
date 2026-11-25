@@ -735,5 +735,15 @@
   "AGENT_TURN_SETTLED": "本轮已经结束。",
   "AGENT_PROPOSAL_NOT_FOUND": "此建议已不可用。",
   "agentChecking": "正在检查连接…",
-  "AGENT_NEWER_INPUT": "Agent 修改已保存。已保留较新的本地编辑；请确认后再保存。"
+  "AGENT_NEWER_INPUT": "Agent 修改已保存。已保留较新的本地编辑；请确认后再保存。",
+  "AGENT_NOT_CONFIGURED": "尚未配置 Codex。请让服务器管理员连接隔离的写作运行器，然后重新检查。",
+  "AGENT_NOT_AUTHENTICATED": "Codex 需要登录。请在专用写作运行器中登录后重新检查。",
+  "AGENT_PROTOCOL_INVALID": "写作运行器返回了不支持的响应。请检查连接并重新发送。",
+  "AGENT_CAPABILITY_DENIED": "写作运行器请求了不支持的工具，未应用修改。",
+  "AGENT_RUNTIME_FAILED": "写作运行器无法完成本轮对话。请检查连接后重试。",
+  "AGENT_CONTEXT_LIMIT": "附加文本或对话过长。请选择更短的文本，或开始新对话。",
+  "agentWorking": "正在处理附加的选区…",
+  "AGENT_INTERRUPTED": "写作运行器已断开。请检查连接后手动重试。",
+  "AGENT_MODEL_UNAVAILABLE": "该 Agent 模型不可用。请检查连接并选择可用模型。",
+  "AGENT_BUSY": "Agent 正忙。请等待当前操作完成后重试。"
 }

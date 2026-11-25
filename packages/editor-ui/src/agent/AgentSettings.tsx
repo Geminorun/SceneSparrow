@@ -77,7 +77,13 @@ export function AgentSettings({
         <article key={e.id}>
           <strong>{e.label}</strong>
           <p role="status">
-            {e.available ? t.agentAvailable : t.AGENT_UNAVAILABLE}
+            {e.available
+              ? t.agentAvailable
+              : e.status === "not_configured"
+                ? t.AGENT_NOT_CONFIGURED
+                : e.status === "not_authenticated"
+                  ? t.AGENT_NOT_AUTHENTICATED
+                  : t.AGENT_UNAVAILABLE}
           </p>
           <ul>
             {e.models.map((m) => (

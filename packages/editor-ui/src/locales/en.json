@@ -735,5 +735,15 @@
   "AGENT_TURN_SETTLED": "This turn has already finished.",
   "AGENT_PROPOSAL_NOT_FOUND": "This proposal is no longer available.",
   "agentChecking": "Checking connection…",
-  "AGENT_NEWER_INPUT": "The Agent change was saved. Newer local edits are preserved; review them before saving."
+  "AGENT_NEWER_INPUT": "The Agent change was saved. Newer local edits are preserved; review them before saving.",
+  "AGENT_NOT_CONFIGURED": "Codex is not configured. Ask the server operator to connect an isolated writing runner, then check again.",
+  "AGENT_NOT_AUTHENTICATED": "Codex needs authentication. Sign in using the dedicated writing runner, then check again.",
+  "AGENT_PROTOCOL_INVALID": "The writing runtime returned an unsupported response. Check the connection and try a new turn.",
+  "AGENT_CAPABILITY_DENIED": "The writing runtime requested an unsupported tool. No edit was applied.",
+  "AGENT_RUNTIME_FAILED": "The writing runtime could not complete this turn. Check its connection and try again.",
+  "AGENT_CONTEXT_LIMIT": "The attached text or conversation is too large. Select a shorter passage or start a new conversation.",
+  "agentWorking": "Working on the attached selection…",
+  "AGENT_INTERRUPTED": "The writing runtime disconnected. Check the connection, then explicitly retry.",
+  "AGENT_MODEL_UNAVAILABLE": "This Agent model is unavailable. Check the connection and select an available model.",
+  "AGENT_BUSY": "The Agent is busy. Wait for the current operation, then try again."
 }
