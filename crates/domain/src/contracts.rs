@@ -2142,6 +2142,191 @@ pub struct MarkdownExchangeDocument {
     pub conflict: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSelection {
+    #[serde(rename = "range")]
+    pub range: MarkdownRange,
+    #[serde(rename = "quote")]
+    pub quote: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentAttachment {
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
+    #[serde(rename = "sourceDigest")]
+    pub source_digest: String,
+    #[serde(rename = "selection", deserialize_with = "required_nullable")]
+    pub selection: Option<AgentSelection>,
+    #[serde(rename = "buffer", deserialize_with = "required_nullable")]
+    pub buffer: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentContext {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
+    #[serde(rename = "sourceDigest")]
+    pub source_digest: String,
+    #[serde(rename = "selection", deserialize_with = "required_nullable")]
+    pub selection: Option<AgentSelection>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentCreateSession {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSendTurn {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "attachment")]
+    pub attachment: AgentAttachment,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentProposal {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "context")]
+    pub context: AgentContext,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentTurnStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "completed")]
+    Completed,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentTurn {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "context")]
+    pub context: AgentContext,
+    #[serde(rename = "status")]
+    pub status: AgentTurnStatus,
+    #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+    pub error_code: Option<String>,
+    #[serde(rename = "proposal", deserialize_with = "required_nullable")]
+    pub proposal: Option<AgentProposal>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentSession {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "turns")]
+    pub turns: Vec<AgentTurn>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentApply {
+    #[serde(rename = "proposalId")]
+    pub proposal_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", deny_unknown_fields)]
+pub enum AgentEvent {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(rename = "sequence")]
+        sequence: i64,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "turnId")]
+        turn_id: String,
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "progress")]
+    Progress {
+        #[serde(rename = "sequence")]
+        sequence: i64,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "turnId")]
+        turn_id: String,
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "proposal")]
+    Proposal {
+        #[serde(rename = "sequence")]
+        sequence: i64,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "turnId")]
+        turn_id: String,
+        #[serde(rename = "proposal")]
+        proposal: AgentProposal,
+    },
+    #[serde(rename = "final")]
+    Final {
+        #[serde(rename = "sequence")]
+        sequence: i64,
+        #[serde(rename = "projectId")]
+        project_id: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(rename = "turnId")]
+        turn_id: String,
+        #[serde(rename = "status")]
+        status: AgentTurnStatus,
+        #[serde(rename = "reply")]
+        reply: String,
+        #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+        error_code: Option<String>,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentApplyResult {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "proposalId")]
+    pub proposal_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,

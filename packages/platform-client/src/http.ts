@@ -1,5 +1,9 @@
+import { streamAgentEvents } from "./agent-events";
 import { MARKDOWN_EXCHANGE_MAX_BYTES } from "./types";
 import type {
+  AgentCreateSession,
+  AgentSendTurn,
+  AgentApply,
   CreateMarkdownProject,
   MarkdownAnnotationAction,
   MarkdownScopedAction,
@@ -41,6 +45,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | AgentCreateSession
+      | AgentSendTurn
+      | AgentApply
       | MarkdownWritingAction
       | MarkdownAnnotationAction
       | MarkdownScopedAction
@@ -126,7 +133,33 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       }
     };
   };
+  const agentPath = (projectId: string, sessionId?: string, turnId?: string) =>
+    `/v1/markdown-projects/${encodeURIComponent(projectId)}/agent/sessions${sessionId ? `/${encodeURIComponent(sessionId)}` : ""}${turnId ? `/turns/${encodeURIComponent(turnId)}` : ""}`;
   return {
+    agent: {
+      create: (project, body) => request(agentPath(project), body),
+      read: (project, session) => request(agentPath(project, session)),
+      close: (project, session) =>
+        request(`${agentPath(project, session)}/close`, undefined, "POST"),
+      send: (project, session, body) =>
+        request(`${agentPath(project, session)}/turns`, body),
+      cancel: (project, session, turn) =>
+        request(
+          `${agentPath(project, session, turn)}/cancel`,
+          undefined,
+          "POST",
+        ),
+      apply: (project, session, turn, proposalId) =>
+        request(`${agentPath(project, session, turn)}/apply`, { proposalId }),
+      stream: (projectId, sessionId, turnId, after, handler, signal) =>
+        streamAgentEvents(
+          `${baseUrl}${agentPath(projectId, sessionId, turnId)}/events`,
+          { projectId, sessionId, turnId },
+          after,
+          handler,
+          signal,
+        ),
+    },
     markdownProjects: {
       annotations: (id, kind) =>
         request(

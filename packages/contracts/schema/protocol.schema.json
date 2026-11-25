@@ -3871,6 +3871,379 @@
           "type": ["string", "null"]
         }
       }
+    },
+    "AgentSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range", "quote"],
+      "properties": {
+        "range": {
+          "$ref": "#/definitions/MarkdownRange"
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "AgentAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "revision", "sourceDigest", "selection", "buffer"],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "revision": {
+          "type": ["string", "null"]
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "selection": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "buffer": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "AgentContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "kind",
+        "revision",
+        "sourceDigest",
+        "selection"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "revision": {
+          "type": ["string", "null"]
+        },
+        "sourceDigest": {
+          "type": "string"
+        },
+        "selection": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AgentCreateSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "engineId", "modelId"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentSendTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "instruction", "attachment"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "attachment": {
+          "$ref": "#/definitions/AgentAttachment"
+        }
+      }
+    },
+    "AgentProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "context", "text"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/definitions/AgentContext"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "AgentTurnStatus": {
+      "type": "string",
+      "enum": ["running", "completed", "failed", "cancelled"]
+    },
+    "AgentTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "requestId",
+        "context",
+        "status",
+        "errorCode",
+        "proposal"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/definitions/AgentContext"
+        },
+        "status": {
+          "$ref": "#/definitions/AgentTurnStatus"
+        },
+        "errorCode": {
+          "type": ["string", "null"]
+        },
+        "proposal": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentProposal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "AgentSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "projectId", "engineId", "modelId", "turns"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "turns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentTurn"
+          }
+        }
+      }
+    },
+    "AgentApply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proposalId"],
+      "properties": {
+        "proposalId": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence",
+            "projectId",
+            "sessionId",
+            "turnId",
+            "type",
+            "text"
+          ],
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["text"]
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence",
+            "projectId",
+            "sessionId",
+            "turnId",
+            "type",
+            "text"
+          ],
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["progress"]
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence",
+            "projectId",
+            "sessionId",
+            "turnId",
+            "type",
+            "proposal"
+          ],
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["proposal"]
+            },
+            "proposal": {
+              "$ref": "#/definitions/AgentProposal"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sequence",
+            "projectId",
+            "sessionId",
+            "turnId",
+            "type",
+            "status",
+            "reply",
+            "errorCode"
+          ],
+          "properties": {
+            "sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "projectId": {
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "turnId": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["final"]
+            },
+            "status": {
+              "$ref": "#/definitions/AgentTurnStatus"
+            },
+            "reply": {
+              "type": "string"
+            },
+            "errorCode": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      ]
+    },
+    "AgentApplyResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "kind", "revision", "proposalId"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "proposalId": {
+          "type": "string"
+        }
+      }
     }
   }
 }

@@ -433,6 +433,10 @@ export async function createGateway({
         ])
           if (typeof req.headers[name] === "string")
             headers[name] = req.headers[name];
+        const agentStream =
+          /^\/v1\/markdown-projects\/[^/]+\/agent\/sessions\/[^/]+\/turns\/[^/]+\/events$/.test(
+            target,
+          );
         const upstream = httpRequest({
           host: "127.0.0.1",
           port: corePort,
@@ -474,7 +478,10 @@ export async function createGateway({
           if (isEvents) event("SSE_OPEN");
           incoming.on("data", (chunk) => {
             received += chunk.length;
-            if (!isEvents && received > DOWNLOAD_LIMIT) {
+            if (
+              (!isEvents && received > DOWNLOAD_LIMIT) ||
+              (agentStream && received > 8 * 1024 * 1024)
+            ) {
               completion = "truncated";
               incoming.destroy();
               res.destroy();

@@ -99,3 +99,5 @@ pub mod planning;
 pub mod review;
 
 pub mod markdown_writing;
+
+pub mod external_agent;

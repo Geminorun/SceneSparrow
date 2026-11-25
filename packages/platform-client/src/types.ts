@@ -2,6 +2,12 @@ export const MARKDOWN_EXCHANGE_MAX_BYTES =
   10 * 1024 * 1024 + 256 * 1024 + 65536;
 
 import type {
+  AgentCreateSession,
+  AgentSendTurn,
+  AgentSession,
+  AgentTurn,
+  AgentApplyResult,
+  AgentEvent,
   MarkdownProject,
   MarkdownDocument,
   MarkdownAnnotations,
@@ -70,7 +76,38 @@ export interface RecentProject {
   title: string;
 }
 
+export interface ExternalWritingClient {
+  create(projectId: string, request: AgentCreateSession): Promise<AgentSession>;
+  read(projectId: string, sessionId: string): Promise<AgentSession>;
+  close(projectId: string, sessionId: string): Promise<void>;
+  send(
+    projectId: string,
+    sessionId: string,
+    request: AgentSendTurn,
+  ): Promise<AgentTurn>;
+  cancel(
+    projectId: string,
+    sessionId: string,
+    turnId: string,
+  ): Promise<AgentTurn>;
+  apply(
+    projectId: string,
+    sessionId: string,
+    turnId: string,
+    proposalId: string,
+  ): Promise<AgentApplyResult>;
+  stream(
+    projectId: string,
+    sessionId: string,
+    turnId: string,
+    after: number,
+    handler: (event: AgentEvent) => void,
+    signal: AbortSignal,
+  ): Promise<void>;
+}
+
 export interface PlatformClient {
+  agent?: ExternalWritingClient;
   markdownProjects?: {
     create(text: string): Promise<MarkdownProject>;
     download(

@@ -1,4 +1,5 @@
 export type {
+  ExternalWritingClient,
   BridgeResult,
   DesktopBridge,
   PlatformClient,

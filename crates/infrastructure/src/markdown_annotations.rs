@@ -267,7 +267,7 @@ impl MarkdownProjects {
         io(file.write_all(&bytes))?;
         io(file.commit())
     }
-    fn annotations_inner(
+    pub(super) fn annotations_inner(
         &self,
         id: &str,
         kind: MarkdownDocumentKind,
