@@ -44,6 +44,12 @@ document. **File → Export → Markdown** downloads the active document. Late
 responses acknowledge only the captured write. Switching tabs retains each
 buffer and the normal save behavior for that buffer.
 
+The document header's copy action copies the active buffer as Markdown,
+including unsaved text. Keep the explicit source editor in the document menu.
+When Markdown falls outside the visual editor's supported syntax, use an
+editable source field in the document tab with the same lock and comment
+actions for recognized headings, paragraphs, and list items.
+
 ## Shared locks and comments
 
 - Put the block lock at the right edge of the editor, with the same placement
@@ -84,9 +90,11 @@ sidecar update must preserve enough anchor evidence to retry resolution. If
 
 ## AI outline and draft actions
 
-- Generate or revise an outline as a proposed change. The user previews and
-  adopts it through the same outline save path as a manual edit. Existing locked
-  blocks restrict modifications to editable ranges.
+- **Generate Outline** saves the result through the revision-checked outline
+  write path and opens the editable Outline tab. Confirm replacement before
+  generating over an existing outline. If edits or current locks prevent
+  applying the result, keep the editor text and retain the generated Markdown
+  in the AI assistant for reference.
 - The user can request an AI revision from a comment. Capture the selected scope
   and its document revision. Show the proposed replacement in a preview and
   apply it only after explicit adoption and validation of the current scope and

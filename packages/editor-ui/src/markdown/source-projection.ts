@@ -187,6 +187,7 @@ export function sourceFromEditor(
 export type SourceBlock = {
   start: number;
   end: number;
+  contentEnd: number;
   type: string;
   structure: string[];
   identity: string;
@@ -201,6 +202,10 @@ export function sourceBlocks(source: string): SourceBlock[] {
       while (headings.at(-1) && headings.at(-1)!.depth >= node.depth)
         headings.pop();
     }
+    const itemLead = node.type === "listItem" ? node.children[0] : undefined;
+    const itemIdentity = itemLead
+      ? `item:${source.slice(itemLead.position.start.offset + bom, itemLead.position.end.offset + bom)}`
+      : "item:";
     if (
       node.type === "heading" ||
       node.type === "listItem" ||
@@ -209,13 +214,19 @@ export function sourceBlocks(source: string): SourceBlock[] {
       result.push({
         start: node.position.start.offset + bom,
         end: node.position.end.offset + bom,
+        contentEnd:
+          (node.type === "listItem"
+            ? (node.children.find(
+                (child: MarkdownNode) => child.type === "list",
+              )?.position.start.offset ?? node.position.end.offset)
+            : node.position.end.offset) + bom,
         type: node.type,
         structure: [...headings.map((h) => h.identity), ...parents],
         identity:
           node.type === "heading"
             ? `h${node.depth}:${source.slice(node.position.start.offset + bom, node.position.end.offset + bom)}`
             : node.type === "listItem"
-              ? `item:${source.slice(node.children[0].position.start.offset + bom, node.children[0].position.end.offset + bom)}`
+              ? itemIdentity
               : "",
       });
     }
@@ -227,11 +238,7 @@ export function sourceBlocks(source: string): SourceBlock[] {
     let context = parents;
     if (node.type === "list")
       context = [...parents, node.ordered ? "list:ordered" : "list:bullet"];
-    if (node.type === "listItem")
-      context = [
-        ...parents,
-        `item:${source.slice(node.children[0].position.start.offset + bom, node.children[0].position.end.offset + bom)}`,
-      ];
+    if (node.type === "listItem") context = [...parents, itemIdentity];
     for (const child of node.children ?? []) walk(child, context);
   }
   walk(fromMarkdown(source.slice(bom)));

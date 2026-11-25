@@ -41,8 +41,12 @@ import { MarkdownEditor } from "./MarkdownEditor";
 import { FileMenu } from "./FileMenu";
 import { MarkdownReview, type ReviewCapture } from "./MarkdownReview";
 import { protectsSource, emptyAnnotations } from "./annotations";
-import { utf16Offset } from "./source-projection";
-import { projectSource } from "./source-projection";
+import {
+  projectSource,
+  sourceBlocks,
+  utf16Offset,
+  utf8Offset,
+} from "./source-projection";
 import {
   MarkdownWriting,
   type WritingCapture,
@@ -83,8 +87,16 @@ function documentBuffer(project: MarkdownDocument): Buffer {
     editorSession: 0,
   };
 }
-const withoutBom = (text: string) =>
-  text.startsWith("\ufeff") ? text.slice(1) : text;
+const visibleSource = (text: string) =>
+  text.replace(/^\ufeff/, "").replace(/\r\n?/g, "\n");
+function sourceOffsets(text: string) {
+  const offsets = [text.startsWith("\ufeff") ? 1 : 0];
+  for (let index = offsets[0]!; index < text.length; index++) {
+    if (text[index] === "\r" && text[index + 1] === "\n") index++;
+    offsets.push(index + 1);
+  }
+  return offsets;
+}
 const lastProjectKey = "scenesparrow.markdown-project";
 export function MarkdownWorkspace({
   platformClient,
@@ -151,7 +163,6 @@ export function MarkdownWorkspace({
   const sourceDialog = useRef<HTMLDialogElement>(null);
   const sourceInput = useRef<HTMLTextAreaElement>(null);
   const documentMenu = useRef<HTMLDetailsElement>(null);
-  const [source, setSource] = useState("");
   const [draft, setDraft] = useState<WritingDraft | null>(null);
   const draftRef = useRef<WritingDraft | null>(null);
   const [exchange, setExchange] = useState<ExchangeCandidate | null>(null);
@@ -204,6 +215,7 @@ export function MarkdownWorkspace({
     setExchange(null);
     setSeparateProject(null);
     setView("manuscript");
+    setSelections({ manuscript: null, outline: null });
     setAnnotations({
       manuscript: emptyAnnotations(),
       outline: emptyAnnotations(),
@@ -373,8 +385,7 @@ export function MarkdownWorkspace({
     const base = candidate.capture;
     return (
       candidate.conflict === true ||
-      (candidate.kind !== undefined &&
-        base.outline !== undefined &&
+      (base.outline !== undefined &&
         (outlineBuffer.current !== base.outline.session ||
           outlineBuffer.current?.epoch !== base.outline.epoch ||
           outlineBuffer.current?.text !== base.outline.text ||
@@ -391,6 +402,23 @@ export function MarkdownWorkspace({
     if (draftRef.current !== candidate || draftChanged(candidate))
       throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
   }
+  async function useOutline(candidate: WritingDraft) {
+    await composition.run("use-outline", async () => {
+      if (buffer.current !== candidate.capture.session) return;
+      const outline = outlineBuffer.current;
+      if (!outline || !candidate.capture.outline || draftChanged(candidate))
+        throw new ApiError("MARKDOWN_OUTLINE_CHANGED");
+      if (outline.pending) await outline.pending;
+      if (buffer.current !== candidate.capture.session) return;
+      if (draftChanged(candidate))
+        throw new ApiError("MARKDOWN_OUTLINE_CHANGED");
+      await save({ text: candidate.text }, "outline");
+      if (outlineBuffer.current !== outline) return;
+      if (outline.paused) throw new ApiError("MARKDOWN_DRAFT_NEWER_INPUT");
+      if (sourceOpen.current) closeSource();
+      setView("outline");
+    });
+  }
   async function useDraft() {
     const candidate = draftRef.current;
     if (!candidate || applyingRef.current) return;
@@ -399,24 +427,17 @@ export function MarkdownWorkspace({
     try {
       await composition.run("use-draft", async () => {
         assertDraft(candidate);
-        const pending = documentBufferFor(
-          candidate.kind ?? "manuscript",
-        )?.pending;
+        const pending = buffer.current?.pending;
         if (pending) await pending;
         assertDraft(candidate);
-        await save(
-          {
-            text: candidate.text,
-            ...(candidate.kind === "manuscript"
-              ? { outlineRevision: candidate.capture.outline!.revision! }
-              : {}),
-          },
-          candidate.kind ?? "manuscript",
-        );
+        await save({
+          text: candidate.text,
+          outlineRevision: candidate.capture.outline!.revision!,
+        });
         if (draftRef.current === candidate) {
           draftRef.current = null;
           setDraft(null);
-          setView(candidate.kind ?? "manuscript");
+          setView("manuscript");
         }
       });
     } catch (failure) {
@@ -450,32 +471,38 @@ export function MarkdownWorkspace({
   }, [settingsSection]);
   function openSource(offset = 0) {
     if (documentMenu.current) documentMenu.current.open = false;
-    sourceKind.current = activeKind();
-    sourceBase.current = documentBufferFor(sourceKind.current)?.text ?? "";
+    const kind = activeKind();
+    const raw = documentBufferFor(kind)?.text ?? "";
+    sourceBase.current = raw;
     sourceOpen.current = true;
-    flushSync(() =>
-      setSource(withoutBom(sourceBase.current).replace(/\r\n?/g, "\n")),
-    );
+    flushSync(() => {
+      sourceKind.current = kind;
+      redraw();
+    });
     sourceDialog.current?.showModal();
-    sourceInput.current?.focus();
-    sourceInput.current?.setSelectionRange(offset, offset);
+    const input = sourceInput.current;
+    if (!input) return;
+    input.focus();
+    const position = visibleSource(raw.slice(0, offset)).length;
+    input.setSelectionRange(position, position);
+    selectSource(input, kind);
   }
-  function closeSource() {
+  function closeSource(restoreFocus = true) {
     sourceDialog.current?.close();
     sourceOpen.current = false;
     const current = documentBufferFor(sourceKind.current);
     if (current?.text !== sourceBase.current) {
       if (current) current.editorSession++;
       redraw();
-    } else
+    } else if (restoreFocus)
       (sourceKind.current === "outline"
         ? outlineEditor
         : editor
       ).current?.commands.focus();
   }
-  function sourceChanged(value: string) {
-    const raw = documentBufferFor(sourceKind.current)?.text ?? "";
-    const visible = withoutBom(raw).replace(/\r\n?/g, "\n");
+  function sourceChanged(value: string, kind: MarkdownDocumentKind) {
+    const raw = documentBufferFor(kind)?.text ?? "";
+    const visible = visibleSource(raw);
     if (value === visible) return;
     let start = 0,
       end = 0;
@@ -491,18 +518,147 @@ export function MarkdownWorkspace({
       visible[visible.length - 1 - end] === value[value.length - 1 - end]
     )
       end++;
-    const offsets = [raw.startsWith("\ufeff") ? 1 : 0];
-    for (let index = offsets[0]!; index < raw.length; index++) {
-      if (raw[index] === "\r" && raw[index + 1] === "\n") index++;
-      offsets.push(index + 1);
-    }
+    const offsets = sourceOffsets(raw);
     const newline = /\r\n|\r|\n/.exec(raw)?.[0] ?? "\n";
     changed(
       raw.slice(0, offsets[start]) +
         value.slice(start, value.length - end).replace(/\n/g, newline) +
         raw.slice(offsets[visible.length - end]),
-      sourceKind.current,
+      kind,
     );
+  }
+  function selectSource(
+    input: HTMLTextAreaElement,
+    kind: MarkdownDocumentKind,
+  ) {
+    const raw = documentBufferFor(kind)?.text ?? "";
+    if (input.value !== visibleSource(raw)) return;
+    const offsets = sourceOffsets(raw);
+    const start = offsets[input.selectionStart]!;
+    const end = offsets[input.selectionEnd]!;
+    const collapsed = start === end;
+    const selected = sourceBlocks(raw).filter((block) =>
+      collapsed
+        ? block.start <= start && start <= block.contentEnd
+        : block.start < end && block.contentEnd > start,
+    );
+    const ranges = (collapsed ? selected.slice(-1) : selected).map((block) => ({
+      start: utf8Offset(raw, block.start),
+      end: utf8Offset(raw, block.end),
+    }));
+    const selection = ranges.length
+      ? {
+          ranges,
+          range: collapsed
+            ? ranges[0]!
+            : { start: utf8Offset(raw, start), end: utf8Offset(raw, end) },
+          source: raw,
+        }
+      : null;
+    setSelections((previous) => ({ ...previous, [kind]: selection }));
+  }
+  function showComments() {
+    if (sourceOpen.current) {
+      const kind = sourceKind.current;
+      const selection = selections[kind];
+      flushSync(() => closeSource(false));
+      setSelections((previous) => ({ ...previous, [kind]: selection }));
+    }
+    pane.open("review");
+    requestAnimationFrame(() =>
+      document.getElementById("markdown-comment-composer")?.focus(),
+    );
+  }
+  function sourceField(kind: MarkdownDocumentKind, dialog = false) {
+    const scope = dialog ? "source" : `source:${kind}`;
+    return (
+      <textarea
+        ref={dialog ? sourceInput : undefined}
+        id={
+          dialog
+            ? undefined
+            : kind === "outline"
+              ? "markdown-outline-editor"
+              : "markdown-editor"
+        }
+        aria-label={
+          dialog
+            ? t.markdownRawSourceTitle
+            : kind === "outline"
+              ? t.markdownWritingOutline
+              : t.markdownText
+        }
+        value={visibleSource(documentBufferFor(kind)?.text ?? "")}
+        spellCheck={false}
+        onFocus={(event) => selectSource(event.currentTarget, kind)}
+        onSelect={(event) => selectSource(event.currentTarget, kind)}
+        onChange={(event) => {
+          const input = event.currentTarget;
+          sourceChanged(input.value, kind);
+          selectSource(input, kind);
+        }}
+        onCompositionStart={() => composition.composition(scope, true)}
+        onCompositionEnd={() => composition.composition(scope, false)}
+        onBlur={() =>
+          composition.blur(scope, () => composition.composition(scope, false))
+        }
+        onKeyDown={(event) => {
+          if (
+            (event.ctrlKey || event.metaKey) &&
+            event.key.toLowerCase() === "s"
+          ) {
+            event.preventDefault();
+            runDocumentSave(kind);
+          }
+        }}
+      />
+    );
+  }
+  function sourceActions(kind: MarkdownDocumentKind) {
+    const locked = selectionLocked(kind);
+    const selected = selections[kind];
+    const hasSelection =
+      !!selected && selected.source === documentBufferFor(kind)?.text;
+    const label = locked ? t.markdownUnlock : t.markdownLockSelection;
+    return (
+      <div className="markdown-source-actions">
+        <button
+          type="button"
+          className="markdown-icon-button"
+          aria-label={label}
+          title={label}
+          disabled={!hasSelection}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (sourceOpen.current) closeSource(false);
+            toggleLock(kind);
+          }}
+        >
+          <WorkspaceIcon name={locked ? "lock" : "unlock"} />
+        </button>
+        <button
+          type="button"
+          className="markdown-icon-button"
+          title={t.markdownAddComment}
+          aria-label={t.markdownAddComment}
+          disabled={!hasSelection}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={showComments}
+        >
+          <WorkspaceIcon name="comment" />
+        </button>
+      </div>
+    );
+  }
+  async function copyMarkdown() {
+    const current = documentBufferFor(activeKind());
+    if (!current) return;
+    try {
+      await navigator.clipboard.writeText(current.text);
+      notice.report("MARKDOWN_SOURCE_COPIED", { tone: "success" });
+    } catch {
+      notice.report("MARKDOWN_SOURCE_COPY_FAILED");
+    }
   }
   const dirty =
     !!activeBuffer && activeBuffer.text !== activeBuffer.project.text;
@@ -578,37 +734,52 @@ export function MarkdownWorkspace({
     current.editedAt = Date.now();
     redraw();
   }
-  function selectionLocked(kind: MarkdownDocumentKind) {
+  function selectedLocks(kind: MarkdownDocumentKind) {
     const selection = selections[kind];
-    return (
-      !!selection &&
-      annotations[kind].locks.some((lock) =>
-        lock.anchors.some(
-          (a) =>
-            a.resolvedStart !== null &&
-            selection.ranges.some(
-              (range) =>
-                range.start < a.resolvedEnd! && range.end > a.resolvedStart!,
-            ),
-        ),
-      )
+    const locks = annotationsRef.current[kind].locks;
+    if (
+      !locks.length ||
+      !selection ||
+      selection.source !== documentBufferFor(kind)?.text
+    )
+      return [];
+    const { source, ranges } = selection;
+    const bytes = new TextEncoder().encode(source);
+    const decoder = new TextDecoder();
+    let blocks: ReturnType<typeof sourceBlocks> | undefined;
+    return locks.filter((lock) =>
+      lock.anchors.some((anchor) => {
+        let start = anchor.resolvedStart;
+        let end = anchor.resolvedEnd;
+        if (start === null || end === null) return false;
+        // Saved offsets can shift while adjacent text is still unsaved.
+        if (decoder.decode(bytes.subarray(start, end)) !== anchor.quote) {
+          const matches = (blocks ??= sourceBlocks(source)).filter(
+            (block) => source.slice(block.start, block.end) === anchor.quote,
+          );
+          if (matches.length !== 1) return false;
+          start = utf8Offset(source, matches[0]!.start);
+          end = utf8Offset(source, matches[0]!.end);
+        }
+        return ranges.some((range) => range.start < end && range.end > start);
+      }),
     );
+  }
+  function selectionLocked(kind: MarkdownDocumentKind) {
+    return selectedLocks(kind).length > 0;
   }
   function toggleLock(kind: MarkdownDocumentKind) {
     const selected = selections[kind];
-    if (!selected) return;
+    const initial = documentBufferFor(kind);
+    if (!selected || !initial) return;
     void composition
       .run(`lock:${kind}`, async () => {
-        const existing = annotationsRef.current[kind].locks.filter((lock) =>
-          lock.anchors.some(
-            (a) =>
-              a.resolvedStart !== null &&
-              selected.ranges.some(
-                (range) =>
-                  range.start < a.resolvedEnd! && range.end > a.resolvedStart!,
-              ),
-          ),
-        );
+        if (
+          documentBufferFor(kind) !== initial ||
+          selected.source !== initial.text
+        )
+          throw new ApiError("MARKDOWN_CONFLICT");
+        const existing = selectedLocks(kind);
         if (existing.some((lock) => lock.anchors.length > 1)) {
           pane.open("review");
           return;
@@ -676,10 +847,10 @@ export function MarkdownWorkspace({
       const outline = outlineBuffer.current;
       if (!outline) throw new ApiError("MARKDOWN_WRITING_INVALID");
       if (outline.pending) await outline.pending;
-      if (draftChanged({ capture: captured, text: "", kind: "manuscript" }))
+      if (draftChanged({ capture: captured, text: "" }))
         throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
       await save(undefined, "outline");
-      if (draftChanged({ capture: captured, text: "", kind: "manuscript" }))
+      if (draftChanged({ capture: captured, text: "" }))
         throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
     }
     return capture();
@@ -1194,12 +1365,12 @@ export function MarkdownWorkspace({
                               draftChanged({
                                 capture,
                                 text: "",
-                                kind: "manuscript",
                               })
                             )
                               throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
                           }}
                           outline={outlineCurrent ? outlineText : null}
+                          onOutline={useOutline}
                           onDraft={(candidate) => {
                             if (buffer.current !== candidate.capture.session)
                               return;
@@ -1238,9 +1409,7 @@ export function MarkdownWorkspace({
                         aria-pressed={view === "draft"}
                         onClick={() => setView("draft")}
                       >
-                        {draft.kind === "outline"
-                          ? t.markdownOutlinePreview
-                          : t.markdownDraftPreview}
+                        {t.markdownDraftPreview}
                       </button>
                     )}
                     {exchange && (
@@ -1281,6 +1450,19 @@ export function MarkdownWorkspace({
                       )}
                     </div>
                   </div>
+                  {(view === "outline" || view === "manuscript") && (
+                    <button
+                      type="button"
+                      className="markdown-icon-button"
+                      title={t.markdownCopySource}
+                      aria-label={t.markdownCopySource}
+                      disabled={!activeBuffer}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => void copyMarkdown()}
+                    >
+                      <WorkspaceIcon name="copy" />
+                    </button>
+                  )}
                   <details className="document-menu" ref={documentMenu}>
                     <summary
                       aria-label={t.documentMenu}
@@ -1294,7 +1476,7 @@ export function MarkdownWorkspace({
                         disabled={!activeBuffer}
                         onClick={() => openSource()}
                       >
-                        {t.viewMarkdownSource}
+                        {t.markdownEditSource}
                       </button>
                       <button
                         onMouseDown={(event) => event.preventDefault()}
@@ -1372,14 +1554,7 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.outline}
-                        comment={() => {
-                          pane.open("review");
-                          requestAnimationFrame(() =>
-                            document
-                              .getElementById("markdown-comment-composer")
-                              ?.focus(),
-                          );
-                        }}
+                        comment={showComments}
                         lock={() => toggleLock("outline")}
                         locked={selectionLocked("outline")}
                         scope="outline"
@@ -1396,10 +1571,8 @@ export function MarkdownWorkspace({
                       />
                     ) : (
                       <div className="source-fallback">
-                        <button onClick={() => openSource()}>
-                          {t.viewMarkdownSource}
-                        </button>
-                        <MarkdownPreview text={outlineText} />
+                        {sourceActions("outline")}
+                        {sourceField("outline")}
                       </div>
                     ))}
                 </div>
@@ -1427,14 +1600,7 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.manuscript}
-                        comment={() => {
-                          pane.open("review");
-                          requestAnimationFrame(() =>
-                            document
-                              .getElementById("markdown-comment-composer")
-                              ?.focus(),
-                          );
-                        }}
+                        comment={showComments}
                         lock={() => toggleLock("manuscript")}
                         locked={selectionLocked("manuscript")}
                         t={t}
@@ -1449,11 +1615,8 @@ export function MarkdownWorkspace({
                       />
                     ) : (
                       <div className="source-fallback">
-                        <p className="muted">{t.markdownVisualUnsupported}</p>
-                        <button onClick={() => openSource()}>
-                          {t.viewMarkdownSource}
-                        </button>
-                        <MarkdownPreview text={current.text} />
+                        {sourceActions("manuscript")}
+                        {sourceField("manuscript")}
                       </div>
                     ))}
                 </div>
@@ -1507,18 +1670,10 @@ export function MarkdownWorkspace({
                     className="markdown-draft"
                     hidden={view !== "draft"}
                     inert={view !== "draft"}
-                    aria-label={
-                      draft.kind === "outline"
-                        ? t.markdownOutlinePreview
-                        : t.markdownDraftPreview
-                    }
+                    aria-label={t.markdownDraftPreview}
                   >
                     <div className="dialog-heading">
-                      <h2>
-                        {draft.kind === "outline"
-                          ? t.markdownOutlinePreview
-                          : t.markdownDraftPreview}
-                      </h2>
+                      <h2>{t.markdownDraftPreview}</h2>
                       <button
                         disabled={applying}
                         onClick={() => {
@@ -1541,9 +1696,7 @@ export function MarkdownWorkspace({
                       disabled={applying || draftChanged(draft)}
                       onClick={() => void useDraft()}
                     >
-                      {draft.kind === "outline"
-                        ? t.markdownUseOutline
-                        : t.markdownUseDraft}
+                      {t.markdownUseDraft}
                     </button>
                   </section>
                 )}
@@ -1566,42 +1719,14 @@ export function MarkdownWorkspace({
             <button
               className="quiet-button"
               aria-label={t.closeMarkdownSource}
-              onClick={closeSource}
+              onClick={() => closeSource()}
             >
               <WorkspaceIcon name="close" />
             </button>
           </div>
           <p className="muted">{t.markdownRawSourceHelp}</p>
-          <textarea
-            ref={sourceInput}
-            aria-label={t.markdownRawSourceTitle}
-            value={source}
-            spellCheck={false}
-            onChange={(event) => {
-              sourceChanged(event.currentTarget.value);
-              setSource(
-                withoutBom(
-                  documentBufferFor(sourceKind.current)?.text ?? "",
-                ).replace(/\r\n?/g, "\n"),
-              );
-            }}
-            onCompositionStart={() => composition.composition("source", true)}
-            onCompositionEnd={() => composition.composition("source", false)}
-            onBlur={() =>
-              composition.blur("source", () =>
-                composition.composition("source", false),
-              )
-            }
-            onKeyDown={(event) => {
-              if (
-                (event.ctrlKey || event.metaKey) &&
-                event.key.toLowerCase() === "s"
-              ) {
-                event.preventDefault();
-                runSave();
-              }
-            }}
-          />
+          {sourceActions(sourceKind.current)}
+          {sourceField(sourceKind.current, true)}
         </dialog>
         <dialog
           ref={settings}
