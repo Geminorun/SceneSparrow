@@ -84,6 +84,65 @@ test("MFP-AC01–05: real file core authenticates, saves exact bytes, rejects st
       await (await send(`/markdown-projects/${p.projectId}`)).json(),
       p,
     );
+    // MOR-AC01: fixed documents use independent exact-byte revisions and CAS.
+    const outlinePath = `/markdown-projects/${p.projectId}/documents/outline`;
+    assert.deepEqual(await (await send(outlinePath)).json(), {
+      projectId: p.projectId,
+      kind: "outline",
+      text: "",
+      revision: null,
+    });
+    const outlineText = "\ufeff# Outline 中文\r\n\r\n* Exact bytes\r\n";
+    const outline = await (
+      await send(outlinePath, { revision: null, text: outlineText })
+    ).json();
+    assert.match(outline.revision, /^[a-f0-9]{64}$/);
+    assert.equal(await readFile(join(dir, "outline.md"), "utf8"), outlineText);
+    assert.deepEqual(
+      await (await send(`/markdown-projects/${p.projectId}`)).json(),
+      p,
+    );
+    assert.equal(
+      (await send(outlinePath, { revision: null, text: "stale" })).status,
+      409,
+    );
+    assert.equal(
+      (
+        await send(outlinePath, {
+          revision: outline.revision,
+          text: "x".repeat(256 * 1024 + 1),
+        })
+      ).status,
+      422,
+    );
+    const concurrent = await Promise.all([
+      send(outlinePath, { revision: outline.revision, text: "First" }),
+      send(outlinePath, { revision: outline.revision, text: "Second" }),
+    ]);
+    assert.deepEqual(concurrent.map((v) => v.status).sort(), [200, 409]);
+    const currentOutline = await (await send(outlinePath)).json();
+    const empty = await (
+      await send(outlinePath, { revision: currentOutline.revision, text: "" })
+    ).json();
+    assert.match(empty.revision, /^[a-f0-9]{64}$/);
+    assert.notEqual(empty.revision, null);
+    // A damaged other document cannot stop independent read/save.
+    await writeFile(join(dir, "manuscript.md"), Buffer.from([255]));
+    assert.equal((await send(outlinePath)).status, 200);
+    assert.equal(
+      (
+        await send(outlinePath, {
+          revision: empty.revision,
+          text: "Independent",
+        })
+      ).status,
+      200,
+    );
+    await writeFile(join(dir, "manuscript.md"), text);
+    await writeFile(join(dir, "outline.md"), Buffer.from([255]));
+    assert.equal((await send(`/markdown-projects/${p.projectId}`)).status, 200);
+    assert.equal((await send(outlinePath)).status, 422);
+    await writeFile(join(dir, "outline.md"), "Independent");
     // WFW-AC05–06: ZIP review is read-only; application uses the same revision-checked save.
     const exchangePath = `/markdown-projects/${p.projectId}/exchange`;
     const exported = await send(`${exchangePath}?revision=${p.revision}`);

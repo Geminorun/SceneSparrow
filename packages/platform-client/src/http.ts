@@ -2,6 +2,7 @@ import type {
   CreateMarkdownProject,
   MarkdownWritingAction,
   SaveMarkdownProject,
+  SaveMarkdownDocument,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -39,6 +40,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
       | MarkdownWritingAction
       | CreateMarkdownProject
       | SaveMarkdownProject
+      | SaveMarkdownDocument
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -119,6 +121,15 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   };
   return {
     markdownProjects: {
+      readDocument: (id, kind) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
+        ),
+      saveDocument: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
+          body,
+        ),
       download: async (id, revision) => {
         const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}`;
         const signal = AbortSignal.timeout(10000);

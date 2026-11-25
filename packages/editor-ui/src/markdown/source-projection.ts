@@ -123,8 +123,8 @@ export function sourceFromEditor(
   const byId = new Map(
     ranges.map((range, index) => [range.id, { range, index }]),
   );
-  if (!ranges.length && content.length === 1 && !signature(content[0]!))
-    return source;
+  if (content.length === 1 && !signature(content[0]!))
+    return ranges.length ? "" : source;
   let output = projection.prefix;
   content.forEach((node, index) => {
     const match = byId.get(node.attrs?.blockId);

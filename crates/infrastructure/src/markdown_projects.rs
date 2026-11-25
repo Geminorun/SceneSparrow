@@ -1,7 +1,7 @@
 //! File-backed Web project storage.
 use atomic_write_file::AtomicWriteFile;
 use scenesparrow_domain::{
-    contracts::{MarkdownExchangeReview, MarkdownProject},
+    contracts::{MarkdownDocument, MarkdownDocumentKind, MarkdownExchangeReview, MarkdownProject},
     manuscript::MAX_TEXT_BYTES,
 };
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ struct Manifest {
     project_id: String,
     manuscript: String,
 }
+pub const MAX_OUTLINE_BYTES: usize = 256 * 1024;
 pub const MAX_EXCHANGE_BYTES: usize = MAX_TEXT_BYTES + 64 * 1024;
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -98,7 +99,7 @@ impl MarkdownProjects {
         regular(&dir, true)?;
         Ok(dir)
     }
-    fn read_inner(&self, id: &str) -> Result<MarkdownProject> {
+    fn validated_directory(&self, id: &str) -> Result<PathBuf> {
         let dir = self.directory(id)?;
         let manifest: Manifest = serde_json::from_slice(&read(&dir.join("project.json"), 1024)?)
             .map_err(|_| "MARKDOWN_PROJECT_INVALID")?;
@@ -109,6 +110,10 @@ impl MarkdownProjects {
         {
             return Err("MARKDOWN_PROJECT_INVALID");
         }
+        Ok(dir)
+    }
+    fn read_inner(&self, id: &str) -> Result<MarkdownProject> {
+        let dir = self.validated_directory(id)?;
         let text = String::from_utf8(read(&dir.join("manuscript.md"), MAX_TEXT_BYTES)?)
             .map_err(|_| "MARKDOWN_TEXT_INVALID")?;
         Ok(snapshot(id, text))
@@ -274,8 +279,55 @@ impl MarkdownProjects {
         })
     }
 
-    pub fn save(&self, id: &str, revision: &str, text: String) -> Result<MarkdownProject> {
-        validate(&text)?;
+    pub fn read_document(&self, id: &str, kind: MarkdownDocumentKind) -> Result<MarkdownDocument> {
+        let _guard = self
+            .writer
+            .lock()
+            .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
+        self.read_document_inner(id, kind)
+    }
+    fn read_document_inner(
+        &self,
+        id: &str,
+        kind: MarkdownDocumentKind,
+    ) -> Result<MarkdownDocument> {
+        let dir = self.validated_directory(id)?;
+        let (text, revision) = match kind {
+            MarkdownDocumentKind::Manuscript => {
+                let text = String::from_utf8(read(&dir.join("manuscript.md"), MAX_TEXT_BYTES)?)
+                    .map_err(|_| "MARKDOWN_TEXT_INVALID")?;
+                let revision = snapshot(id, text.clone()).revision;
+                (text, Some(revision))
+            }
+            MarkdownDocumentKind::Outline => {
+                let path = dir.join("outline.md");
+                match fs::symlink_metadata(&path) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        (String::new(), None)
+                    }
+                    Err(_) => return Err("MARKDOWN_STORAGE_UNAVAILABLE"),
+                    Ok(_) => {
+                        let text = String::from_utf8(read(&path, MAX_OUTLINE_BYTES)?)
+                            .map_err(|_| "MARKDOWN_TEXT_INVALID")?;
+                        let revision = snapshot(id, text.clone()).revision;
+                        (text, Some(revision))
+                    }
+                }
+            }
+        };
+        Ok(MarkdownDocument {
+            project_id: id.into(),
+            kind,
+            text,
+            revision,
+        })
+    }
+    pub fn writing_snapshot(
+        &self,
+        id: &str,
+        revision: &str,
+        outline_revision: Option<&str>,
+    ) -> Result<Option<MarkdownDocument>> {
         let _guard = self
             .writer
             .lock()
@@ -283,8 +335,89 @@ impl MarkdownProjects {
         if self.read_inner(id)?.revision != revision {
             return Err("MARKDOWN_CONFLICT");
         }
-        let path = self.directory(id)?.join("manuscript.md");
-        regular(&path, false)?;
+        match outline_revision {
+            None => Ok(None),
+            Some(revision) => {
+                let outline = self.read_document_inner(id, MarkdownDocumentKind::Outline)?;
+                if outline.revision.as_deref() != Some(revision) {
+                    return Err("MARKDOWN_CONFLICT");
+                }
+                Ok(Some(outline))
+            }
+        }
+    }
+    pub fn save(&self, id: &str, revision: &str, text: String) -> Result<MarkdownProject> {
+        self.save_with_outline(id, revision, text, None)
+    }
+    pub fn save_with_outline(
+        &self,
+        id: &str,
+        revision: &str,
+        text: String,
+        outline_revision: Option<&str>,
+    ) -> Result<MarkdownProject> {
+        let saved = self.save_document_guarded(
+            id,
+            MarkdownDocumentKind::Manuscript,
+            Some(revision),
+            text,
+            outline_revision,
+        )?;
+        Ok(MarkdownProject {
+            project_id: saved.project_id,
+            revision: saved.revision.unwrap(),
+            text: saved.text,
+        })
+    }
+    pub fn save_document(
+        &self,
+        id: &str,
+        kind: MarkdownDocumentKind,
+        revision: Option<&str>,
+        text: String,
+    ) -> Result<MarkdownDocument> {
+        self.save_document_guarded(id, kind, revision, text, None)
+    }
+    fn save_document_guarded(
+        &self,
+        id: &str,
+        kind: MarkdownDocumentKind,
+        revision: Option<&str>,
+        text: String,
+        outline_revision: Option<&str>,
+    ) -> Result<MarkdownDocument> {
+        let limit = match kind {
+            MarkdownDocumentKind::Manuscript => MAX_TEXT_BYTES,
+            MarkdownDocumentKind::Outline => MAX_OUTLINE_BYTES,
+        };
+        if text.len() > limit {
+            return Err("MARKDOWN_TEXT_INVALID");
+        }
+        let _guard = self
+            .writer
+            .lock()
+            .map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")?;
+        if let Some(expected) = outline_revision
+            && self
+                .read_document_inner(id, MarkdownDocumentKind::Outline)?
+                .revision
+                .as_deref()
+                != Some(expected)
+        {
+            return Err("MARKDOWN_CONFLICT");
+        }
+        let current = self.read_document_inner(id, kind.clone())?;
+        if current.revision.as_deref() != revision {
+            return Err("MARKDOWN_CONFLICT");
+        }
+        let name = match kind {
+            MarkdownDocumentKind::Manuscript => "manuscript.md",
+            MarkdownDocumentKind::Outline => "outline.md",
+        };
+        let path = self.directory(id)?.join(name);
+        if current.revision.is_some() {
+            regular(&path, false)?;
+        }
         let mut file = io(AtomicWriteFile::open(&path))?;
         io(file.write_all(text.as_bytes()))?;
         #[cfg(test)]
@@ -295,7 +428,12 @@ impl MarkdownProjects {
             return Err("MARKDOWN_STORAGE_UNAVAILABLE");
         }
         io(file.commit())?;
-        Ok(snapshot(id, text))
+        Ok(MarkdownDocument {
+            project_id: id.into(),
+            kind,
+            revision: Some(snapshot(id, text.clone()).revision),
+            text,
+        })
     }
 }
 

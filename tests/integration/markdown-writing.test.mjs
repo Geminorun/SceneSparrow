@@ -207,15 +207,40 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
     arrival = new Promise((resolve) => {
       observed = resolve;
     });
+    const outlinePath = `/markdown-projects/${project.projectId}/documents/outline`;
+    assert.equal((await req(outlinePath)).data.revision, null);
+    const savedOutline = (
+      await req(outlinePath, {
+        revision: null,
+        text: "# User-edited outline\n\n- A different ending",
+      })
+    ).data;
     const draftAction = {
       ...action,
       actionId: randomUUID(),
       kind: "draft",
-      outline: "# User-edited outline\n\n- A different ending",
+      brief: "",
+      outline: "Untrusted caller outline",
+      outlineRevision: savedOutline.revision,
     };
+    assert.equal(
+      (
+        await req(path, {
+          ...draftAction,
+          actionId: randomUUID(),
+          outlineRevision: "0".repeat(64),
+        })
+      ).data.code,
+      "MARKDOWN_CONFLICT",
+    );
+    assert.equal(calls, 1);
     const drafted = req(path, draftAction);
     const dispatched = await arrival;
     assert.match(JSON.stringify(dispatched.messages), /User-edited outline/);
+    assert.doesNotMatch(
+      JSON.stringify(dispatched.messages),
+      /Untrusted caller/,
+    );
     const draft = (await drafted).data.text;
     const manuscript = join(root, project.projectId, "manuscript.md");
     assert.equal(await readFile(manuscript, "utf8"), project.text);
@@ -231,9 +256,25 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
     assert.equal(await readFile(manuscript, "utf8"), output);
     assert.deepEqual((await readdir(join(root, project.projectId))).sort(), [
       "manuscript.md",
+      "outline.md",
       "project.json",
     ]);
     const current = (await req(`/markdown-projects/${project.projectId}`)).data;
+    await req(outlinePath, {
+      revision: savedOutline.revision,
+      text: "Changed elsewhere",
+    });
+    assert.equal(
+      (
+        await req(`/markdown-projects/${project.projectId}`, {
+          revision: current.revision,
+          text: "Stale adoption",
+          outlineRevision: savedOutline.revision,
+        })
+      ).data.code,
+      "MARKDOWN_CONFLICT",
+    );
+    assert.equal(await readFile(manuscript, "utf8"), output);
     providerStatus = 500;
     const failedAction = {
       ...action,

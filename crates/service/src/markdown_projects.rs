@@ -39,6 +39,10 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
         .route("/v1/markdown-projects/{id}", get(read).post(save))
         .route("/v1/markdown-projects/{id}/writing", post(writing))
         .route(
+            "/v1/markdown-projects/{id}/documents/{kind}",
+            get(read_document).post(save_document),
+        )
+        .route(
             "/v1/markdown-projects/{id}/exchange",
             get(download).post(review).layer(DefaultBodyLimit::max(
                 scenesparrow_infrastructure::markdown_projects::MAX_EXCHANGE_BYTES,
@@ -100,7 +104,32 @@ async fn save(
         return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_TEXT_INVALID");
     };
     execute(state, move |store| {
-        store.save(&id, &body.revision, body.text)
+        store.save_with_outline(
+            &id,
+            &body.revision,
+            body.text,
+            body.outline_revision.as_deref(),
+        )
+    })
+    .await
+}
+
+async fn read_document(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+) -> Response {
+    execute(state, move |store| store.read_document(&id, kind)).await
+}
+async fn save_document(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+    body: Result<Json<contracts::SaveMarkdownDocument>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_TEXT_INVALID");
+    };
+    execute(state, move |store| {
+        store.save_document(&id, kind, body.revision.as_deref(), body.text)
     })
     .await
 }
@@ -120,7 +149,7 @@ async fn writing(
         ai::{AiError, ensure},
         contracts::MarkdownWritingResult,
     };
-    let Ok(Json(body)) = body else {
+    let Ok(Json(mut body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
     let Ok(slot) = state.ai.blocking_slots.clone().try_acquire_owned() else {
@@ -129,8 +158,19 @@ async fn writing(
     crate::ai::result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            let saved = state.store.read(&id).map_err(AiError)?;
-            ensure(saved.revision == body.revision, "MARKDOWN_CONFLICT")?;
+            let outline_revision = if body.kind == contracts::MarkdownWritingActionKind::Draft {
+                ensure(body.outline_revision.is_some(), "MARKDOWN_WRITING_INVALID")?;
+                body.outline_revision.as_deref()
+            } else {
+                None
+            };
+            let outline = state
+                .store
+                .writing_snapshot(&id, &body.revision, outline_revision)
+                .map_err(AiError)?;
+            if let Some(outline) = outline {
+                body.outline = outline.text;
+            }
             let input = markdown_writing::input(&body)?;
             let context =
                 serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;

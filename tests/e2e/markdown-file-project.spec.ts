@@ -375,7 +375,7 @@ test("MFP-AC04: a real stale save retains local text and prevents project switch
   await editor(page).pressSequentially("local draft");
   await save(page);
   await expect(
-    page.getByRole("alert").filter({ hasText: "saved manuscript changed" }),
+    page.getByRole("alert").filter({ hasText: "saved document changed" }),
   ).toBeVisible();
   await expect(editor(page)).toHaveText("local draft");
   expect(await exported(page)).toEqual(Buffer.from("local draft"));
@@ -428,6 +428,14 @@ async function beginWriting(page: Page) {
     .fill("Write a bilingual story");
   await page
     .getByRole("button", { name: "Generate Outline", exact: true })
+    .click();
+  const candidate = page.getByRole("region", {
+    name: "Outline preview",
+    exact: true,
+  });
+  await expect(candidate).toBeVisible();
+  await candidate
+    .getByRole("button", { name: "Use generated outline", exact: true })
     .click();
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
@@ -501,7 +509,7 @@ test("@web-smoke WFW-AC03: edit outline, preview without writing, close or expli
   ).toHaveValue("");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
-  ).toHaveText("");
+  ).toContainText("Opening user ending");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Settings", exact: true }),
@@ -546,9 +554,11 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
     includeHidden: true,
   });
   await expect(preview).toContainText(
-    "The manuscript changed since generation began.",
+    "The manuscript or outline changed since generation began.",
   );
-  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  await expect(
+    preview.getByRole("button", { name: "Use Draft", exact: true }),
+  ).toBeDisabled();
   await expect(editor(page)).toHaveText(
     "Newer local writing during generation",
   );
@@ -958,6 +968,12 @@ test("MAW-AC02: source projection bounds and adjacency preserve bytes without un
   const raw = "\ufeff# Title\r\nbody\r\n\r\n* unchanged\r\n* list\r\n";
   const projected = projectSource(raw)!;
   expect(sourceFromEditor(projected, projected.document)).toBe(raw);
+  expect(
+    sourceFromEditor(projected, {
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    }),
+  ).toBe("");
   const document = structuredClone(projected.document);
   document.content!.splice(1, 0, {
     type: "paragraph",
@@ -969,4 +985,294 @@ test("MAW-AC02: source projection bounds and adjacency preserve bytes without un
   );
   expect(projectSource("```js\ncode\n```\n")).toBeNull();
   expect(projectSource("x".repeat(1200000))).toBeNull();
+});
+
+async function outlineFile(page: Page) {
+  return (
+    await page.request.get(
+      `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+    )
+  ).json();
+}
+const outlineEditor = (page: Page) => page.locator("#markdown-outline-editor");
+async function outlineTab(page: Page) {
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
+}
+
+test("@web-smoke MOR-AC01: optional outline, exact bytes, independent saves, reopen and empty outline", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  expect((await outlineFile(page)).revision).toBeNull();
+  await editor(page).fill("Manuscript stays independent");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  const manuscriptSaved = await savedFile(page);
+  const raw = "\ufeff# Saved outline 中文\r\n\r\n* Untouched\r\n";
+  const response = await page.request.post(
+    `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+    { data: { revision: null, text: raw } },
+  );
+  expect(response.ok()).toBe(true);
+  await page.reload();
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toContainText("Saved outline 中文");
+  expect(await exported(page)).toEqual(Buffer.from(raw));
+  const saved = await outlineFile(page);
+  expect(saved.revision).toMatch(/^[a-f0-9]{64}$/);
+  await outlineEditor(page).fill("");
+  await outlineEditor(page).press("ControlOrMeta+s");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  const empty = await outlineFile(page);
+  expect(empty.text).toBe("");
+  expect(empty.revision).toMatch(/^[a-f0-9]{64}$/);
+  expect(empty.revision).not.toBe(saved.revision);
+  expect(await savedFile(page)).toEqual(manuscriptSaved);
+  await page.reload();
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toHaveText("");
+  expect((await outlineFile(page)).revision).toBe(empty.revision);
+  await manuscript(page);
+  expect(await exported(page)).toEqual(Buffer.from(manuscriptSaved.text));
+});
+
+test("MOR-AC02: held outline save, active manuscript save and settled IME preserve independent buffers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Captured outline");
+  let release!: () => void;
+  let arrived!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const seen = new Promise<void>((resolve) => {
+    arrived = resolve;
+  });
+  await page.route(
+    "**/api/v1/markdown-projects/*/documents/outline",
+    async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      const response = await route.fetch();
+      arrived();
+      await held;
+      await route.fulfill({ response });
+    },
+  );
+  await save(page);
+  await seen;
+  await outlineEditor(page).dispatchEvent("compositionstart");
+  await outlineEditor(page).fill("Captured outline 中文 newer");
+  await outlineEditor(page).dispatchEvent("compositionend");
+  await manuscript(page);
+  await editor(page).fill("Independent active manuscript");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  expect((await savedFile(page)).text).toBe("Independent active manuscript");
+  expect((await outlineFile(page)).text).toBe("Captured outline");
+  await editor(page).click();
+  release();
+  await expect(editor(page)).toBeFocused();
+  await outlineTab(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Unsaved changes");
+  await expect(outlineEditor(page)).toHaveText("Captured outline 中文 newer");
+  await fileMenuButton(page).click();
+  await outlineEditor(page).dispatchEvent("compositionstart");
+  await fileMenu(page)
+    .getByRole("menuitem", { name: "Save", exact: true })
+    .dispatchEvent("click");
+  await outlineEditor(page).fill("Settled final 中文");
+  await outlineEditor(page).dispatchEvent("compositionend");
+  await expect
+    .poll(async () => (await outlineFile(page)).text)
+    .toBe("Settled final 中文");
+  expect((await savedFile(page)).text).toBe("Independent active manuscript");
+});
+
+test("MOR-AC02: delayed autosave retains its document across a tab switch", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "after_delay", "5");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Delayed outline");
+  await manuscript(page);
+  await editor(page).fill("Independent delayed manuscript");
+  await expect
+    .poll(async () => (await outlineFile(page)).text, { timeout: 10000 })
+    .toBe("Delayed outline");
+  await expect
+    .poll(async () => (await savedFile(page)).text, { timeout: 10000 })
+    .toBe("Independent delayed manuscript");
+});
+
+test("MOR-AC03: blank brief, failed outline save prevents dispatch, stale draft remains for review", async ({
+  page,
+}) => {
+  let release!: (text: string) => void;
+  const held = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const submitted = await mockWriting(page, () => held);
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  await outlineTab(page);
+  await outlineEditor(page).fill("# Saved outline\n\nUser plan");
+  await page.route(
+    "**/api/v1/markdown-projects/*/documents/outline",
+    (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ status: 409, json: { code: "MARKDOWN_CONFLICT" } })
+        : route.continue(),
+  );
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect(submitted).toHaveLength(0);
+  await expect(outlineEditor(page)).toContainText("User plan");
+  await page.unroute("**/api/v1/markdown-projects/*/documents/outline");
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0].brief).toBe("");
+  expect(submitted[0].outlineRevision).toBe((await outlineFile(page)).revision);
+  await outlineEditor(page).fill("Newer outline while generating");
+  release("# Earlier draft\n\nKeep for review");
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(preview).toContainText("changed since generation began");
+  await expect(
+    preview.getByRole("button", { name: "Use Draft", exact: true }),
+  ).toBeDisabled();
+  await expect(preview).toContainText("Keep for review");
+  expect((await savedFile(page)).text).toBe("");
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toHaveText(
+    "Newer outline while generating",
+  );
+});
+
+test("MOR-AC03: an outline saved in another browser atomically rejects draft adoption and retains preview", async ({
+  page,
+}) => {
+  await mockWriting(page, () => "# Retained draft\n\nEarlier saved outline");
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Original outline");
+  await page
+    .getByRole("button", { name: "Write Draft from Outline", exact: true })
+    .click();
+  const preview = page.getByRole("region", {
+    name: "Draft preview",
+    exact: true,
+  });
+  await expect(preview).toBeVisible();
+  const outline = await outlineFile(page);
+  expect(
+    (
+      await page.request.post(
+        `/api/v1/markdown-projects/${projectId(page)}/documents/outline`,
+        {
+          data: {
+            revision: outline.revision,
+            text: "Outline changed in another browser",
+          },
+        },
+      )
+    ).ok(),
+  ).toBe(true);
+  await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
+  await expect(preview).toContainText("changed since generation began");
+  await expect(
+    preview.getByRole("button", { name: "Use Draft", exact: true }),
+  ).toBeDisabled();
+  await expect(preview).toContainText("Retained draft");
+  expect((await savedFile(page)).text).toBe("");
+  expect((await outlineFile(page)).text).toBe(
+    "Outline changed in another browser",
+  );
+});
+
+test("MOR-AC01: unavailable outline retains independent manuscript access without becoming an absent outline", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  await editor(page).fill("Readable manuscript");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await page.route("**/api/v1/markdown-projects/*/documents/outline", (route) =>
+    route.fulfill({ status: 422, json: { code: "MARKDOWN_TEXT_INVALID" } }),
+  );
+  await page.reload();
+  await expect(editor(page)).toHaveText("Readable manuscript");
+  await editor(page).fill("Manuscript remains writable");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  expect(await exported(page)).toEqual(
+    Buffer.from("Manuscript remains writable"),
+  );
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toHaveCount(0);
+  await expect(page.locator(".outline-surface")).toContainText(
+    "Could not open the saved outline",
+  );
+  await fileMenuButton(page).click();
+  await expect(
+    fileMenu(page).getByRole("menuitem", { name: "Save", exact: true }),
+  ).toBeDisabled();
+});
+
+test("MOR-AC03: outline generation stays a candidate and preserves edits made during generation", async ({
+  page,
+}) => {
+  let release!: (text: string) => void;
+  const held = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const submitted = await mockWriting(page, () => held);
+  await page.goto("/");
+  await expect(editor(page)).toBeVisible();
+  await preferences(page, "off");
+  await outlineTab(page);
+  await outlineEditor(page).fill("Keep this accepted outline");
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await page
+    .getByRole("textbox", { name: "Writing request", exact: true })
+    .fill("Revise the outline");
+  await page
+    .getByRole("button", { name: "Generate Outline", exact: true })
+    .click();
+  await expect.poll(() => submitted.length).toBe(1);
+  await outlineEditor(page).fill("Newer local outline");
+  release("# Proposed earlier outline");
+  const preview = page.getByRole("region", {
+    name: "Outline preview",
+    exact: true,
+  });
+  await expect(preview).toContainText("Proposed earlier outline");
+  await expect(
+    preview.getByRole("button", { name: "Use generated outline", exact: true }),
+  ).toBeDisabled();
+  expect((await outlineFile(page)).text).toBe("Keep this accepted outline");
+  await outlineTab(page);
+  await expect(outlineEditor(page)).toHaveText("Newer local outline");
 });

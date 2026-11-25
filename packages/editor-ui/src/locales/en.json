@@ -618,11 +618,11 @@
   "MARKDOWN_IMPORT_NO_PROJECT": "Open the original project before importing its returned ZIP.",
   "MARKDOWN_TEXT_INVALID": "Choose one UTF-8 .md file up to 2 MiB.",
   "MARKDOWN_STORAGE_UNAVAILABLE": "The project could not be read or written. Your local text is still available.",
-  "MARKDOWN_CONFLICT": "The saved manuscript changed. Download your local text before refreshing.",
+  "MARKDOWN_CONFLICT": "The saved document changed. Download your local text before refreshing.",
   "MARKDOWN_SWITCH_PENDING": "Newer edits are still here. Finish editing and try opening again.",
   "markdownSave": "Save",
   "markdownAiWriting": "AI Writing",
-  "markdownWritingSession": "This brief, outline and unapplied draft stay in this session only.",
+  "markdownWritingSession": "Writing requests and unapplied AI results stay in this session.",
   "markdownWritingBrief": "Writing request",
   "markdownWritingOutline": "Editable outline",
   "markdownGenerateOutline": "Generate Outline",
@@ -632,8 +632,8 @@
   "markdownDraftPreview": "Draft preview",
   "markdownDraftHelp": "Review this draft before saving it. Closing this preview keeps your manuscript.",
   "markdownUseDraft": "Use Draft",
-  "MARKDOWN_WRITING_INVALID": "Enter a writing request and an outline before drafting. Keep the request under 16 KiB and the outline under 256 KiB.",
-  "MARKDOWN_DRAFT_CONFLICT": "The manuscript changed since generation began. Your current text and the draft are kept here for review. Generate a new draft from the current manuscript to apply it.",
+  "MARKDOWN_WRITING_INVALID": "Enter a writing request to generate an outline, or use a nonempty saved outline to write a draft. Keep the request under 16 KiB and the outline under 256 KiB.",
+  "MARKDOWN_DRAFT_CONFLICT": "The manuscript or outline changed since generation began. Generate again before applying this result.",
   "MARKDOWN_DRAFT_NEWER_INPUT": "The draft was saved. Your newer local edits are kept in the editor and autosave is paused. Review them and choose Save when ready to replace the saved draft.",
   "MARKDOWN_OUTLINE_CHANGED": "Your outline changed during generation. Review the generated outline before choosing to use it.",
   "ACTION_SESSION_ENDED": "This AI action belongs to an earlier service session. Generate again to start a new action.",
@@ -656,5 +656,7 @@
   "markdownVisualUnsupported": "Edit this manuscript through Markdown source to preserve its syntax.",
   "MARKDOWN_VISUAL_EDIT_UNSUPPORTED": "This format needs Markdown source. Your current text is intact.",
   "markdownRawSourceHelp": "Edit the original Markdown. Unchanged source retains its original formatting.",
-  "markdownRawSourceTitle": "Markdown source"
+  "markdownRawSourceTitle": "Markdown source",
+  "markdownOutlinePreview": "Outline preview",
+  "markdownOutlineOpenFailed": "Could not open the saved outline. The manuscript is still available."
 }

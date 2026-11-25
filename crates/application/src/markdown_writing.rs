@@ -5,7 +5,7 @@ pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
 pub fn input(action: &MarkdownWritingAction) -> Result<AiInput> {
     ensure(
-        !action.brief.trim().is_empty()
+        (action.kind == MarkdownWritingActionKind::Draft || !action.brief.trim().is_empty())
             && action.brief.len() <= 16 * 1024
             && action.outline.len() <= MAX_OUTPUT_BYTES
             && action.text.len() <= MAX_TEXT_BYTES
@@ -63,7 +63,7 @@ pub fn validate_output(text: &str) -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn writing_requires_a_brief_and_an_edited_outline_for_drafts() {
+    fn drafts_require_an_outline_and_allow_an_empty_brief() {
         let mut action = MarkdownWritingAction {
             action_id: String::new(),
             session_id: String::new(),
@@ -73,9 +73,11 @@ mod tests {
             outline: String::new(),
             text: String::new(),
             revision: String::new(),
+            outline_revision: None,
         };
         assert!(input(&action).is_err());
         action.outline = "# 开场".into();
+        action.brief.clear();
         let prepared = input(&action).unwrap();
         assert_eq!(prepared.output_spec.mime, AiOutputSpecMime::Textplain);
         assert!(validate_output("# 草稿\n\n正文").is_ok());

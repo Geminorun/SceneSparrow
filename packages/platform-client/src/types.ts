@@ -1,5 +1,8 @@
 import type {
   MarkdownProject,
+  MarkdownDocument,
+  MarkdownDocumentKind,
+  SaveMarkdownDocument,
   MarkdownExchangeReview,
   MarkdownWritingAction,
   MarkdownWritingResult,
@@ -68,6 +71,15 @@ export interface PlatformClient {
       id: string,
       action: MarkdownWritingAction,
     ): Promise<MarkdownWritingResult>;
+    readDocument(
+      id: string,
+      kind: MarkdownDocumentKind,
+    ): Promise<MarkdownDocument>;
+    saveDocument(
+      id: string,
+      kind: MarkdownDocumentKind,
+      request: SaveMarkdownDocument,
+    ): Promise<MarkdownDocument>;
     read(id: string): Promise<MarkdownProject>;
     save(id: string, request: SaveMarkdownProject): Promise<MarkdownProject>;
   };

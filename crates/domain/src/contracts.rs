@@ -1892,6 +1892,13 @@ pub struct SaveMarkdownProject {
     pub text: String,
     #[serde(rename = "revision")]
     pub revision: String,
+    #[serde(
+        rename = "outlineRevision",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub outline_revision: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarkdownWritingActionKind {
@@ -1919,6 +1926,13 @@ pub struct MarkdownWritingAction {
     pub text: String,
     #[serde(rename = "revision")]
     pub revision: String,
+    #[serde(
+        rename = "outlineRevision",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub outline_revision: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1939,6 +1953,33 @@ pub struct MarkdownExchangeReview {
     pub current_revision: String,
     #[serde(rename = "text")]
     pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarkdownDocumentKind {
+    #[serde(rename = "manuscript")]
+    Manuscript,
+    #[serde(rename = "outline")]
+    Outline,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownDocument {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveMarkdownDocument {
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

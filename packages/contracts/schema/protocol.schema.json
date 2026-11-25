@@ -3433,6 +3433,9 @@
         },
         "revision": {
           "type": "string"
+        },
+        "outlineRevision": {
+          "type": "string"
         }
       }
     },
@@ -3476,6 +3479,9 @@
         },
         "revision": {
           "type": "string"
+        },
+        "outlineRevision": {
+          "type": "string"
         }
       }
     },
@@ -3509,6 +3515,42 @@
         },
         "text": {
           "type": "string"
+        }
+      }
+    },
+    "MarkdownDocumentKind": {
+      "type": "string",
+      "enum": ["manuscript", "outline"]
+    },
+    "MarkdownDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "kind", "text", "revision"],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "SaveMarkdownDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "revision"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": ["string", "null"]
         }
       }
     }

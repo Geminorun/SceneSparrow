@@ -9,6 +9,8 @@ import { flushSync } from "react-dom";
 import type {
   MarkdownExchangeReview,
   MarkdownProject,
+  MarkdownDocument,
+  MarkdownDocumentKind,
 } from "@scenesparrow/contracts";
 import { ApiError, type PlatformClient } from "@scenesparrow/platform-client";
 import {
@@ -47,7 +49,26 @@ type ExchangeCandidate = WritingDraft & {
   review: MarkdownExchangeReview;
   conflict: boolean;
 };
-type Buffer = { project: MarkdownProject; text: string; epoch: number };
+type Buffer = {
+  project: MarkdownDocument;
+  text: string;
+  epoch: number;
+  saving?: boolean;
+  failed?: boolean;
+  paused?: boolean;
+  pending?: Promise<void>;
+  editedAt: number;
+  editorSession: number;
+};
+function documentBuffer(project: MarkdownDocument): Buffer {
+  return {
+    project,
+    text: project.text,
+    epoch: 0,
+    editedAt: 0,
+    editorSession: 0,
+  };
+}
 const withoutBom = (text: string) =>
   text.startsWith("\ufeff") ? text.slice(1) : text;
 const lastProjectKey = "scenesparrow.markdown-project";
@@ -73,15 +94,13 @@ export function MarkdownWorkspace({
   });
   const t = locale === "zh-CN" ? zhCN : en;
   const buffer = useRef<Buffer | null>(null);
+  const outlineBuffer = useRef<Buffer | null>(null);
   const [, render] = useState(0);
   const [loading, setLoading] = useState(true);
   const pane = useAuxiliaryPane();
   const [view, setView] = useState<
     "manuscript" | "outline" | "draft" | "exchange"
   >("manuscript");
-  const [outlineTarget, setOutlineTarget] = useState<HTMLDivElement | null>(
-    null,
-  );
   const settings = useRef<HTMLDialogElement>(null);
   const sourceDialog = useRef<HTMLDialogElement>(null);
   const sourceInput = useRef<HTMLTextAreaElement>(null);
@@ -96,24 +115,23 @@ export function MarkdownWorkspace({
   const exchangeRunning = useRef(false);
   const [applying, setApplying] = useState(false);
   const applyingRef = useRef(false);
-  const [editorSession, setEditorSession] = useState(0);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection | null>(null);
   const [busy, setBusy] = useState(false);
   const switching = useRef(false);
-  const [saving, setSaving] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const [autosavePaused, setAutosavePaused] = useState(false);
-  const pendingSave = useRef<Promise<void> | null>(null);
   const editor = useRef<Editor | null>(null);
   const outlineEditor = useRef<Editor | null>(null);
   const sourceBase = useRef("");
+  const sourceKind = useRef<MarkdownDocumentKind>("manuscript");
   const sourceOpen = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const composition = useRef(new CompositionActions()).current;
   const notice = useNoticeOwner();
   const redraw = () => render((value) => value + 1);
-  function install(project: MarkdownProject) {
+  function install(
+    project: MarkdownProject,
+    outline?: MarkdownDocument | null,
+  ) {
     const url = new URL(window.location.href);
     url.searchParams.set("project", project.projectId);
     window.history.replaceState(null, "", url);
@@ -122,15 +140,24 @@ export function MarkdownWorkspace({
     } catch {
       // The explicit URL remains usable when browser storage is unavailable.
     }
-    buffer.current = { project, text: project.text, epoch: 0 };
+    buffer.current = documentBuffer({ ...project, kind: "manuscript" });
+    outlineBuffer.current =
+      outline === null
+        ? null
+        : documentBuffer(
+            outline ?? {
+              projectId: project.projectId,
+              kind: "outline",
+              text: "",
+              revision: null,
+            },
+          );
     draftRef.current = null;
     setDraft(null);
     exchangeRef.current = null;
     setExchange(null);
     setSeparateProject(null);
     setView("manuscript");
-    setSaveFailed(false);
-    setAutosavePaused(false);
     redraw();
   }
   useEffect(() => {
@@ -145,13 +172,27 @@ export function MarkdownWorkspace({
     }
     void (id === null ? client.create("") : client.read(id))
       .then(
-        (project) => {
-          if (active) install(project);
+        async (project) => {
+          try {
+            const outline = await client.readDocument(
+              project.projectId,
+              "outline",
+            );
+            if (active) install(project, outline);
+          } catch (failure) {
+            if (active) {
+              install(project, null);
+              notice.report(failure);
+            }
+          }
         },
         (failure) => {
           if (active) notice.report(failure);
         },
       )
+      .catch((failure) => {
+        if (active) notice.report(failure);
+      })
       .finally(() => {
         if (active) setLoading(false);
       });
@@ -169,48 +210,91 @@ export function MarkdownWorkspace({
       /* Session preference remains available. */
     }
   }, [locale, t]);
-  function save(adoption?: WritingDraft): Promise<void> {
-    if (pendingSave.current) return pendingSave.current;
-    const current = buffer.current;
-    if (!current || (!adoption && current.text === current.project.text))
+  function documentBufferFor(kind: MarkdownDocumentKind) {
+    return kind === "outline" ? outlineBuffer.current : buffer.current;
+  }
+  function activeKind(): MarkdownDocumentKind {
+    return view === "outline" ? "outline" : "manuscript";
+  }
+  function save(
+    adoption?: WritingDraft,
+    kind: MarkdownDocumentKind = "manuscript",
+  ): Promise<void> {
+    const current = documentBufferFor(kind);
+    if (!current) return Promise.resolve();
+    if (current.pending) return current.pending;
+    if (
+      !adoption &&
+      current.text === current.project.text &&
+      current.project.revision !== null
+    )
       return Promise.resolve();
     const { project, epoch } = current;
     const text = adoption?.text ?? current.text;
-    setSaving(true);
-    const promise = client
-      .save(project.projectId, { text, revision: project.revision })
+    current.saving = true;
+    redraw();
+    const request =
+      kind === "manuscript"
+        ? client
+            .save(project.projectId, {
+              text,
+              revision: project.revision!,
+              ...(adoption?.kind === "manuscript"
+                ? { outlineRevision: adoption.capture.outline!.revision! }
+                : {}),
+            })
+            .then((saved) => ({ ...saved, kind }))
+        : client.saveDocument(project.projectId, kind, {
+            text,
+            revision: project.revision,
+          });
+    const promise = request
       .then((saved) => {
-        if (buffer.current === current) {
+        if (documentBufferFor(kind) === current) {
           current.project = saved;
           const retainedNewerInput = !!adoption && current.epoch !== epoch;
           if (adoption) {
             if (current.epoch === epoch) {
               current.text = saved.text;
               current.epoch++;
-              setEditorSession((value) => value + 1);
+              current.editorSession++;
             } else {
-              setAutosavePaused(true);
+              current.paused = true;
               notice.report("MARKDOWN_DRAFT_NEWER_INPUT");
             }
           }
-          if (!retainedNewerInput) setAutosavePaused(false);
-          setSaveFailed(false);
+          if (!retainedNewerInput) current.paused = false;
+          current.failed = false;
           redraw();
         }
       })
       .catch((failure) => {
-        setSaveFailed(true);
+        current.failed = true;
         throw failure;
       })
       .finally(() => {
-        if (pendingSave.current === promise) pendingSave.current = null;
-        setSaving(false);
+        if (current.pending === promise) delete current.pending;
+        current.saving = false;
+        redraw();
       });
-    pendingSave.current = promise;
+    current.pending = promise;
     return promise;
   }
+  function runDocumentSave(kind: MarkdownDocumentKind) {
+    const captured = documentBufferFor(kind);
+    void composition
+      .run(`save:${kind}`, async () => {
+        if (documentBufferFor(kind) !== captured) return;
+        const epoch = captured?.epoch;
+        if (captured?.pending) await captured.pending;
+        if (documentBufferFor(kind) !== captured || captured?.epoch !== epoch)
+          return;
+        await save(undefined, kind);
+      })
+      .catch(notice.report);
+  }
   function runSave() {
-    void composition.run("save", () => save()).catch(notice.report);
+    runDocumentSave(sourceOpen.current ? sourceKind.current : activeKind());
   }
   function capture(): WritingCapture {
     const current = buffer.current;
@@ -218,15 +302,31 @@ export function MarkdownWorkspace({
     return {
       session: current,
       projectId: current.project.projectId,
-      revision: current.project.revision,
+      revision: current.project.revision!,
       text: current.text,
       epoch: current.epoch,
+      outline: outlineBuffer.current
+        ? {
+            session: outlineBuffer.current,
+            text: outlineBuffer.current.text,
+            revision: outlineBuffer.current.project.revision,
+            epoch: outlineBuffer.current.epoch,
+          }
+        : undefined,
     };
   }
   function draftChanged(candidate: WritingDraft) {
     const current = buffer.current;
     const base = candidate.capture;
     return (
+      candidate.conflict === true ||
+      (candidate.kind !== undefined &&
+        base.outline !== undefined &&
+        (outlineBuffer.current !== base.outline.session ||
+          outlineBuffer.current?.epoch !== base.outline.epoch ||
+          outlineBuffer.current?.text !== base.outline.text ||
+          (outlineBuffer.current?.project.revision !== base.outline.revision &&
+            outlineBuffer.current?.project.text !== base.outline.text))) ||
       current !== base.session ||
       current?.epoch !== base.epoch ||
       current.text !== base.text ||
@@ -246,16 +346,23 @@ export function MarkdownWorkspace({
     try {
       await composition.run("use-draft", async () => {
         assertDraft(candidate);
-        if (pendingSave.current) await pendingSave.current;
+        const pending = documentBufferFor(
+          candidate.kind ?? "manuscript",
+        )?.pending;
+        if (pending) await pending;
         assertDraft(candidate);
-        await save(candidate);
+        await save(candidate, candidate.kind ?? "manuscript");
         if (draftRef.current === candidate) {
           draftRef.current = null;
           setDraft(null);
-          setView("manuscript");
+          setView(candidate.kind ?? "manuscript");
         }
       });
     } catch (failure) {
+      if (failure instanceof ApiError && failure.code === "MARKDOWN_CONFLICT") {
+        candidate.conflict = true;
+        redraw();
+      }
       notice.report(failure);
     } finally {
       applyingRef.current = false;
@@ -265,15 +372,25 @@ export function MarkdownWorkspace({
   const current = buffer.current;
   const projection = useMemo(
     () => (current ? projectSource(current.text) : null),
-    [current?.project.projectId, editorSession],
+    [current?.project.projectId, current?.editorSession],
   );
-  const [outlineText, setOutlineText] = useState("");
+  const outlineCurrent = outlineBuffer.current;
+  const outlineText = outlineCurrent?.text ?? "";
+  const outlineProjection = useMemo(
+    () => (outlineCurrent ? projectSource(outlineCurrent.text) : null),
+    [outlineCurrent?.project.projectId, outlineCurrent?.editorSession],
+  );
+  const activeBuffer = documentBufferFor(activeKind());
+  const saving = !!activeBuffer?.saving;
+  const saveFailed = !!activeBuffer?.failed;
+  const autosavePaused = !!activeBuffer?.paused;
   useEffect(() => {
     if (settingsSection) settings.current?.showModal();
   }, [settingsSection]);
   function openSource(offset = 0) {
     if (documentMenu.current) documentMenu.current.open = false;
-    sourceBase.current = buffer.current?.text ?? "";
+    sourceKind.current = activeKind();
+    sourceBase.current = documentBufferFor(sourceKind.current)?.text ?? "";
     sourceOpen.current = true;
     flushSync(() =>
       setSource(withoutBom(sourceBase.current).replace(/\r\n?/g, "\n")),
@@ -285,12 +402,18 @@ export function MarkdownWorkspace({
   function closeSource() {
     sourceDialog.current?.close();
     sourceOpen.current = false;
-    if (buffer.current?.text !== sourceBase.current)
-      setEditorSession((value) => value + 1);
-    else editor.current?.commands.focus();
+    const current = documentBufferFor(sourceKind.current);
+    if (current?.text !== sourceBase.current) {
+      if (current) current.editorSession++;
+      redraw();
+    } else
+      (sourceKind.current === "outline"
+        ? outlineEditor
+        : editor
+      ).current?.commands.focus();
   }
   function sourceChanged(value: string) {
-    const raw = buffer.current?.text ?? "";
+    const raw = documentBufferFor(sourceKind.current)?.text ?? "";
     const visible = withoutBom(raw).replace(/\r\n?/g, "\n");
     if (value === visible) return;
     let start = 0,
@@ -317,36 +440,58 @@ export function MarkdownWorkspace({
       raw.slice(0, offsets[start]) +
         value.slice(start, value.length - end).replace(/\n/g, newline) +
         raw.slice(offsets[visible.length - end]),
+      sourceKind.current,
     );
   }
-  const dirty = !!current && current.text !== current.project.text;
+  const dirty =
+    !!activeBuffer && activeBuffer.text !== activeBuffer.project.text;
   useEffect(() => {
-    if (
-      !dirty ||
-      saving ||
-      saveFailed ||
-      autosavePaused ||
-      preferences.saveMode !== "after_delay"
-    )
-      return;
-    const timer = setTimeout(runSave, preferences.saveDelaySeconds * 1000);
-    return () => clearTimeout(timer);
-  }, [current?.epoch, dirty, saving, saveFailed, autosavePaused, preferences]);
+    if (preferences.saveMode !== "after_delay") return;
+    const timers = (["manuscript", "outline"] as const).flatMap((kind) => {
+      const value = documentBufferFor(kind);
+      if (
+        !value ||
+        value.text === value.project.text ||
+        value.saving ||
+        value.failed ||
+        value.paused
+      )
+        return [];
+      return [
+        setTimeout(
+          () => runDocumentSave(kind),
+          Math.max(
+            0,
+            value.editedAt + preferences.saveDelaySeconds * 1000 - Date.now(),
+          ),
+        ),
+      ];
+    });
+    return () => timers.forEach(clearTimeout);
+  });
   useEffect(() => {
     const blur = () => {
-      if (
-        preferences.saveMode === "on_window_change" &&
-        !saveFailed &&
-        !autosavePaused
-      )
-        runSave();
+      if (preferences.saveMode === "on_window_change")
+        for (const kind of ["manuscript", "outline"] as const) {
+          const value = documentBufferFor(kind);
+          if (
+            value &&
+            !value.failed &&
+            !value.paused &&
+            value.text !== value.project.text
+          )
+            runDocumentSave(kind);
+        }
     };
     const visibility = () => {
       if (document.hidden) blur();
     };
     const unload = (event: BeforeUnloadEvent) => {
-      const value = buffer.current;
-      if (value && value.text !== value.project.text) {
+      if (
+        [buffer.current, outlineBuffer.current].some(
+          (value) => value && value.text !== value.project.text,
+        )
+      ) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -359,13 +504,30 @@ export function MarkdownWorkspace({
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("beforeunload", unload);
     };
-  }, [preferences, saveFailed, autosavePaused]);
-  function changed(value: string) {
-    const current = buffer.current;
+  });
+  function changed(value: string, kind: MarkdownDocumentKind = "manuscript") {
+    const current = documentBufferFor(kind);
     if (!current || value === current.text) return;
     current.text = value;
     current.epoch++;
+    current.editedAt = Date.now();
     redraw();
+  }
+  async function prepareWriting(
+    kind: "outline" | "draft",
+  ): Promise<WritingCapture> {
+    const captured = capture();
+    if (kind === "draft") {
+      const outline = outlineBuffer.current;
+      if (!outline) throw new ApiError("MARKDOWN_WRITING_INVALID");
+      if (outline.pending) await outline.pending;
+      if (draftChanged({ capture: captured, text: "", kind: "manuscript" }))
+        throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+      await save(undefined, "outline");
+      if (draftChanged({ capture: captured, text: "", kind: "manuscript" }))
+        throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+    }
+    return capture();
   }
   function same(captured: Buffer | null, epoch: number | undefined) {
     if (buffer.current !== captured || captured?.epoch !== epoch)
@@ -379,14 +541,30 @@ export function MarkdownWorkspace({
       await composition.run("open", async () => {
         const captured = buffer.current;
         const epoch = captured?.epoch;
+        const outline = outlineBuffer.current;
+        const outlineEpoch = outline?.epoch;
+        const assertOutline = () => {
+          if (
+            outlineBuffer.current !== outline ||
+            outline?.epoch !== outlineEpoch
+          )
+            throw new ApiError("MARKDOWN_SWITCH_PENDING");
+        };
         const nextText = await text();
         same(captured, epoch);
-        if (pendingSave.current) await pendingSave.current;
+        if (buffer.current?.pending) await buffer.current.pending;
         same(captured, epoch);
         if (captured) await save();
         same(captured, epoch);
+        if (outline?.pending) await outline.pending;
+        assertOutline();
+        if (outline && outline.text !== outline.project.text)
+          await save(undefined, "outline");
+        same(captured, epoch);
+        assertOutline();
         const project = await client.create(nextText);
         same(captured, epoch);
+        assertOutline();
         install(project);
       });
     } catch (failure) {
@@ -420,13 +598,15 @@ export function MarkdownWorkspace({
     });
   }
   function download() {
+    const kind = activeKind();
+    const captured = documentBufferFor(kind);
     void composition
       .run("download", () => {
-        const current = buffer.current;
-        if (!current) return;
+        const current = documentBufferFor(kind);
+        if (!current || current !== captured) return;
         deliver(
           new TextEncoder().encode(current.text),
-          "manuscript.md",
+          `${kind}.md`,
           "text/markdown;charset=utf-8",
         );
       })
@@ -449,12 +629,12 @@ export function MarkdownWorkspace({
         const base = capture();
         const captured = buffer.current;
         const assert = () => same(captured, base.epoch);
-        if (pendingSave.current) await pendingSave.current;
+        if (buffer.current?.pending) await buffer.current.pending;
         assert();
         await save();
         assert();
         const saved = buffer.current!.project;
-        const bytes = await client.download(saved.projectId, saved.revision);
+        const bytes = await client.download(saved.projectId, saved.revision!);
         assert();
         deliver(
           bytes as Uint8Array<ArrayBuffer>,
@@ -523,7 +703,7 @@ export function MarkdownWorkspace({
     try {
       await composition.run("apply-changes", async () => {
         assert();
-        if (pendingSave.current) await pendingSave.current;
+        if (buffer.current?.pending) await buffer.current.pending;
         assert();
         await save(candidate);
         if (exchangeRef.current === candidate) {
@@ -570,7 +750,12 @@ export function MarkdownWorkspace({
         </a>
         <WorkspaceRibbon
           t={t}
-          onWrite={() => editor.current?.commands.focus()}
+          onWrite={() =>
+            (activeKind() === "outline"
+              ? outlineEditor
+              : editor
+            ).current?.commands.focus()
+          }
         />
         <header className="workspace-header">
           <div className="workspace-brand">{t.appName}</div>
@@ -585,8 +770,8 @@ export function MarkdownWorkspace({
                 disabled: loading || busy || exchangeBusy,
                 run: () => fileInput.current?.click(),
               }}
-              save={{ disabled: !current || saving, run: runSave }}
-              exportMarkdown={{ disabled: !current, run: download }}
+              save={{ disabled: !activeBuffer || saving, run: runSave }}
+              exportMarkdown={{ disabled: !activeBuffer, run: download }}
               exportProject={{
                 disabled: !current || exchangeBusy,
                 savesFirst: dirty || saving,
@@ -714,15 +899,18 @@ export function MarkdownWorkspace({
                       client={platformClient}
                       t={t}
                       composition={composition}
-                      capture={capture}
-                      outlineTarget={outlineTarget}
-                      onOutline={(text, activate = true) => {
-                        setOutlineText(text);
-                        if (activate) setView("outline");
+                      capture={prepareWriting}
+                      validate={(capture) => {
+                        if (
+                          draftChanged({
+                            capture,
+                            text: "",
+                            kind: "manuscript",
+                          })
+                        )
+                          throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
                       }}
-                      onOutlineReady={(value) => {
-                        outlineEditor.current = value;
-                      }}
+                      outline={outlineCurrent ? outlineText : null}
                       onDraft={(candidate) => {
                         if (buffer.current !== candidate.capture.session)
                           return;
@@ -759,7 +947,9 @@ export function MarkdownWorkspace({
                         aria-pressed={view === "draft"}
                         onClick={() => setView("draft")}
                       >
-                        {t.markdownDraftPreview}
+                        {draft.kind === "outline"
+                          ? t.markdownOutlinePreview
+                          : t.markdownDraftPreview}
                       </button>
                     )}
                     {exchange && (
@@ -809,14 +999,25 @@ export function MarkdownWorkspace({
                       <WorkspaceIcon name="menu" />
                     </summary>
                     <div className="document-menu-content">
-                      <button disabled={!current} onClick={() => openSource()}>
+                      <button
+                        disabled={!activeBuffer}
+                        onClick={() => openSource()}
+                      >
                         {t.viewMarkdownSource}
                       </button>
                       <button
                         onMouseDown={(event) => event.preventDefault()}
-                        disabled={!editor.current?.can().undo()}
+                        disabled={
+                          !(view === "outline" ? outlineEditor : editor).current
+                            ?.can()
+                            .undo()
+                        }
                         onClick={() => {
-                          editor.current?.chain().focus().undo().run();
+                          (view === "outline" ? outlineEditor : editor).current
+                            ?.chain()
+                            .focus()
+                            .undo()
+                            .run();
                           if (documentMenu.current)
                             documentMenu.current.open = false;
                         }}
@@ -826,9 +1027,17 @@ export function MarkdownWorkspace({
                       </button>
                       <button
                         onMouseDown={(event) => event.preventDefault()}
-                        disabled={!editor.current?.can().redo()}
+                        disabled={
+                          !(view === "outline" ? outlineEditor : editor).current
+                            ?.can()
+                            .redo()
+                        }
                         onClick={() => {
-                          editor.current?.chain().focus().redo().run();
+                          (view === "outline" ? outlineEditor : editor).current
+                            ?.chain()
+                            .focus()
+                            .redo()
+                            .run();
                           if (documentMenu.current)
                             documentMenu.current.open = false;
                         }}
@@ -846,11 +1055,39 @@ export function MarkdownWorkspace({
                 )}
                 {!current && !loading && <p>{t.markdownOpenFailed}</p>}
                 <div
-                  ref={setOutlineTarget}
                   className="outline-surface"
                   hidden={view !== "outline"}
                   inert={view !== "outline"}
-                />
+                >
+                  {!outlineCurrent && !loading && (
+                    <p>{t.markdownOutlineOpenFailed}</p>
+                  )}
+                  {outlineCurrent &&
+                    (outlineProjection ? (
+                      <MarkdownEditor
+                        key={`${outlineCurrent.project.projectId}:${outlineCurrent.editorSession}`}
+                        projection={outlineProjection}
+                        scope="outline"
+                        autofocus={false}
+                        t={{ ...t, markdownText: t.markdownWritingOutline }}
+                        composition={composition}
+                        changed={(text) => {
+                          if (!sourceOpen.current) changed(text, "outline");
+                        }}
+                        save={() => runDocumentSave("outline")}
+                        ready={(value) => {
+                          outlineEditor.current = value;
+                        }}
+                      />
+                    ) : (
+                      <div className="source-fallback">
+                        <button onClick={() => openSource()}>
+                          {t.viewMarkdownSource}
+                        </button>
+                        <MarkdownPreview text={outlineText} />
+                      </div>
+                    ))}
+                </div>
                 <div
                   className="document-layout"
                   hidden={view !== "manuscript"}
@@ -859,7 +1096,7 @@ export function MarkdownWorkspace({
                   {current &&
                     (projection ? (
                       <MarkdownEditor
-                        key={`${current.project.projectId}:${editorSession}`}
+                        key={`${current.project.projectId}:${current.editorSession}`}
                         projection={projection}
                         t={t}
                         composition={composition}
@@ -948,10 +1185,18 @@ export function MarkdownWorkspace({
                     className="markdown-draft"
                     hidden={view !== "draft"}
                     inert={view !== "draft"}
-                    aria-label={t.markdownDraftPreview}
+                    aria-label={
+                      draft.kind === "outline"
+                        ? t.markdownOutlinePreview
+                        : t.markdownDraftPreview
+                    }
                   >
                     <div className="dialog-heading">
-                      <h2>{t.markdownDraftPreview}</h2>
+                      <h2>
+                        {draft.kind === "outline"
+                          ? t.markdownOutlinePreview
+                          : t.markdownDraftPreview}
+                      </h2>
                       <button
                         disabled={applying}
                         onClick={() => {
@@ -970,8 +1215,13 @@ export function MarkdownWorkspace({
                       </p>
                     )}
                     <MarkdownPreview text={draft.text} />
-                    <button disabled={applying} onClick={() => void useDraft()}>
-                      {t.markdownUseDraft}
+                    <button
+                      disabled={applying || draftChanged(draft)}
+                      onClick={() => void useDraft()}
+                    >
+                      {draft.kind === "outline"
+                        ? t.markdownUseOutline
+                        : t.markdownUseDraft}
                     </button>
                   </section>
                 )}
