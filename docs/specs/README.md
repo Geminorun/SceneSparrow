@@ -60,3 +60,7 @@ block-level protection as a follow-up.
 The [Markdown outline and shared document review](markdown-outline-review.md)
 spec covers the saved outline, shared locks and comments, and per-document Agent ZIP
 review in the Web workspace.
+
+The proposed [external writing Agent and Claudian port](external-writing-agent.md)
+spec covers the Web conversation, Agent settings, a Codex adapter, and guarded
+selection edits.
