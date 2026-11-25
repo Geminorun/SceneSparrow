@@ -15,7 +15,7 @@ pub fn input(action: &MarkdownWritingAction, protected: &[String]) -> Result<AiI
     )?;
     let instruction = match action.kind {
         MarkdownWritingActionKind::Outline => {
-            "Prepare an editable outline for the user's writing request, considering the current manuscript. Return only the outline as plain Markdown, without enclosing code fences."
+            "Prepare an editable outline for the user's writing request, considering the current manuscript. Return only Markdown headings, short paragraphs, and simple lists. Keep bullet nesting to three levels. Leave out horizontal rules, links, tables, block quotes, HTML, and fenced code."
         }
         MarkdownWritingActionKind::Draft => {
             "Write a complete manuscript from the user's edited outline and writing request, considering the current manuscript. Return only the draft as plain Markdown, without enclosing code fences."

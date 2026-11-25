@@ -65,7 +65,7 @@ async function source(page: Page) {
   await page.locator(".document-menu > summary").click();
   await page
     .locator(".document-menu")
-    .getByRole("button", { name: "View Markdown source", exact: true })
+    .getByRole("button", { name: "Edit Markdown source", exact: true })
     .click();
   return page
     .getByRole("dialog")
@@ -224,22 +224,12 @@ test("@web-smoke MAW-AC02: source fallback preserves unsupported Markdown bytes 
   await save(page);
   expect(await exported(page)).toEqual(raw);
   await page.reload();
-  await expect(page.locator(".source-fallback")).toBeVisible();
+  const edit = page.locator(".source-fallback textarea");
+  await expect(edit).toHaveValue(
+    "# 中文\n<!-- untouched -->\n[link](../source.md)\n",
+  );
   expect(await exported(page)).toEqual(raw);
-  const dialog = page.getByRole("dialog", { name: "Markdown source" });
-  const edit = dialog.getByRole("textbox", { name: "Markdown source" });
-  const openSource = page
-    .locator(".source-fallback")
-    .getByRole("button", { name: "View Markdown source" });
-  expect(
-    await openSource.evaluate((button: HTMLButtonElement) => {
-      button.click();
-      const input = document.activeElement;
-      return input instanceof HTMLTextAreaElement && input.selectionStart === 0;
-    }),
-  ).toBe(true);
   await edit.fill("# 中文\n<!-- untouched -->\n[link](../changed.md)\n");
-  await closeSource(page);
   await save(page);
   expect(await exported(page)).toEqual(
     Buffer.from(raw.toString().replace("source.md", "changed.md")),
@@ -423,20 +413,11 @@ async function mockWriting(
   return submitted;
 }
 async function beginWriting(page: Page) {
-  await outlineTab(page);
   await page
     .getByRole("textbox", { name: "Writing request", exact: true })
     .fill("Write a bilingual story");
   await page
     .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
-  const candidate = page.getByRole("region", {
-    name: "Outline preview",
-    exact: true,
-  });
-  await expect(candidate).toBeVisible();
-  await candidate
-    .getByRole("button", { name: "Use generated outline", exact: true })
     .click();
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
@@ -449,7 +430,7 @@ async function savedFile(page: Page) {
   });
 }
 
-test("@web-smoke WFW-AC03: edit outline, preview without writing, close or explicitly adopt, and reload only the manuscript", async ({
+test("@web-smoke WFW-AC03: generate directly into the outline and review drafts separately", async ({
   page,
 }) => {
   const submitted = await mockWriting(page, (kind) =>
@@ -463,6 +444,10 @@ test("@web-smoke WFW-AC03: edit outline, preview without writing, close or expli
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await preferences(page, "off");
   await beginWriting(page);
+  await expect(
+    page.getByRole("button", { name: "Outline preview", exact: true }),
+  ).toHaveCount(0);
+  expect((await outlineFile(page)).text).toBe("# Outline\n\n- Opening");
   await manuscript(page);
   await outlineTab(page);
   const outline = page.getByRole("textbox", {
@@ -1250,7 +1235,7 @@ test("MOR-AC01: unavailable outline retains independent manuscript access withou
   ).toBeDisabled();
 });
 
-test("MOR-AC03: outline generation stays a candidate and preserves edits made during generation", async ({
+test("MOR-AC03: regeneration confirms replacement and retains a result if the outline changed", async ({
   page,
 }) => {
   let release!: (text: string) => void;
@@ -1268,22 +1253,27 @@ test("MOR-AC03: outline generation stays a candidate and preserves edits made du
   await page
     .getByRole("textbox", { name: "Writing request", exact: true })
     .fill("Revise the outline");
-  await page
-    .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
+  const regenerate = page.getByRole("button", {
+    name: "Regenerate Outline",
+    exact: true,
+  });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await regenerate.click();
+  await expect(regenerate).toBeEnabled();
+  expect(submitted).toHaveLength(0);
+  page.once("dialog", (dialog) => dialog.accept());
+  await regenerate.click();
   await expect.poll(() => submitted.length).toBe(1);
   await outlineEditor(page).fill("Newer local outline");
   release("# Proposed earlier outline");
-  const preview = page.getByRole("region", {
-    name: "Outline preview",
+  const retained = page.getByText("Generated outline kept for reference", {
     exact: true,
   });
-  await expect(preview).toContainText("Proposed earlier outline");
-  await expect(
-    preview.getByRole("button", { name: "Use generated outline", exact: true }),
-  ).toBeDisabled();
+  await retained.click();
+  await expect(page.locator(".markdown-retained-outline pre")).toHaveText(
+    "# Proposed earlier outline",
+  );
   expect((await outlineFile(page)).text).toBe("Keep this accepted outline");
-  await outlineTab(page);
   await expect(outlineEditor(page)).toHaveText("Newer local outline");
 });
 
@@ -1386,6 +1376,105 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
   ).toHaveCount(1);
   await editor(page).fill("forbidden manuscript rewrite");
   await expect(editor(page)).toHaveText("Protected manuscript paragraph");
+});
+
+test("@web-smoke MOR-AC04–05: a generated outline with unsupported syntax is editable, lockable, and commentable", async ({
+  page,
+}) => {
+  const raw = "\ufeff# 大纲\r\n\r\n---\r\n\r\n- 中文目标\r\n- Unlocked\r\n";
+  await mockWriting(page, () => raw);
+  await page.goto("/");
+  await preferences(page, "off");
+  await page.getByRole("textbox", { name: "Writing request" }).fill("Write");
+  await page
+    .getByRole("button", { name: "Generate Outline", exact: true })
+    .click();
+  const fallback = page.locator(".outline-surface .source-fallback");
+  const input = fallback.getByRole("textbox", { name: "Editable outline" });
+  const visible = "# 大纲\n\n---\n\n- 中文目标\n- Unlocked\n";
+  await expect(input).toHaveValue(visible);
+  expect((await outlineFile(page)).text).toBe(raw);
+  async function selectText(field: typeof input, quote: string) {
+    await field.focus();
+    await field.evaluate((node: HTMLTextAreaElement, text) => {
+      const start = node.value.indexOf(text);
+      node.setSelectionRange(start, start + text.length);
+      document.dispatchEvent(new Event("selectionchange"));
+    }, quote);
+  }
+  await selectText(input, "中文目标");
+  await fallback.getByRole("button", { name: "Lock selected blocks" }).click();
+  await expect(
+    fallback.getByRole("button", { name: "Unlock", exact: true }),
+  ).toBeVisible();
+  expect((await annotationsFile(page)).locks[0].anchors[0].quote).toBe(
+    "- 中文目标",
+  );
+  await fallback.getByRole("button", { name: "Comment on selection" }).click();
+  await page.locator("#markdown-comment-composer").fill("Clarify");
+  await page
+    .locator(".markdown-review")
+    .getByRole("button", { name: "Comment on selection" })
+    .click();
+  await expect(page.locator(".markdown-comment")).toContainText("Clarify");
+  expect((await annotationsFile(page)).comments[0].anchor.quote).toBe(
+    "中文目标",
+  );
+  await input.fill(visible.replace("中文目标", "Blocked"));
+  await expect(input).toHaveValue(visible);
+  const updated = visible
+    .replace("---", "---\n\nExtra paragraph before the locked block")
+    .replace("Unlocked", "Edited");
+  await input.fill(updated);
+  await selectText(input, "中文目标");
+  await expect(
+    fallback.getByRole("button", { name: "Unlock", exact: true }),
+  ).toBeEnabled();
+  await save(page);
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  expect((await outlineFile(page)).text).toBe(
+    `\ufeff${updated.replaceAll("\n", "\r\n")}`,
+  );
+  const modalSource = await source(page);
+  await modalSource.fill(updated.replace("---\n\n", ""));
+  await selectText(modalSource, "Edited");
+  await page
+    .getByRole("dialog", { name: "Markdown source" })
+    .getByRole("button", { name: "Comment on selection" })
+    .click();
+  await page.locator("#markdown-comment-composer").fill("Keep this word");
+  await page
+    .locator(".markdown-review")
+    .getByRole("button", { name: "Comment on selection" })
+    .click();
+  await expect(page.locator(".markdown-comment").last()).toContainText(
+    "Keep this word",
+  );
+  expect((await annotationsFile(page)).comments[1].anchor.quote).toBe("Edited");
+});
+
+test("MOR-AC01: the copy icon copies unsaved Markdown from the current document", async ({
+  page,
+}) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  await preferences(page, "off");
+  await importFile(page, Buffer.from("# 文稿\n\n[原始链接](./notes.md)\n"));
+  const manuscriptSource = page.locator(
+    ".document-layout .source-fallback textarea",
+  );
+  await expect(manuscriptSource).toBeVisible();
+  await manuscriptSource.fill("# 文稿\n\n[尚未保存](./notes.md)\n");
+  const copy = page.getByRole("button", { name: "Copy Markdown", exact: true });
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+  await copy.click();
+  await expect.poll(clipboard).toBe("# 文稿\n\n[尚未保存](./notes.md)\n");
+  expect((await savedFile(page)).text).toContain("[原始链接]");
+  await outlineTab(page);
+  await outlineEditor(page).fill("未保存的大纲");
+  await copy.click();
+  await expect.poll(clipboard).toBe("未保存的大纲");
+  expect((await outlineFile(page)).revision).toBeNull();
 });
 
 test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits and keep detached quote for resolution", async ({

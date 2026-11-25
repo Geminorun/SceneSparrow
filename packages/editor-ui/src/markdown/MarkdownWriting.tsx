@@ -22,13 +22,13 @@ export type WritingCapture = {
 export type WritingDraft = {
   capture: WritingCapture;
   text: string;
-  kind?: "outline" | "manuscript";
   conflict?: boolean;
 };
 export function MarkdownWriting({
   client,
   t,
   capture,
+  onOutline,
   onDraft,
   composition,
   outline,
@@ -37,6 +37,7 @@ export function MarkdownWriting({
   client: PlatformClient;
   t: typeof en;
   capture: (kind: "outline" | "draft") => Promise<WritingCapture>;
+  onOutline: (result: WritingDraft) => Promise<void>;
   onDraft: (draft: WritingDraft) => void;
   composition: CompositionActions;
   outline: string | null;
@@ -44,6 +45,7 @@ export function MarkdownWriting({
 }) {
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
+  const [retainedOutline, setRetainedOutline] = useState<string | null>(null);
   const actionKey = useRef(`writing:${crypto.randomUUID()}`).current;
   const active = useRef(true);
   const running = useRef(false);
@@ -67,6 +69,12 @@ export function MarkdownWriting({
         const input = briefInput.current;
         const context = await capture(kind);
         if (!active.current) return;
+        if (
+          kind === "outline" &&
+          context.outline?.text.trim() &&
+          !window.confirm(t.markdownReplaceOutlineConfirm)
+        )
+          return;
         const [settings, ready] = await Promise.all([
           client.readAiSettings(),
           client.resolveAiConfiguration(),
@@ -87,11 +95,17 @@ export function MarkdownWriting({
             : {}),
         });
         if (!active.current) return;
-        onDraft({
-          capture: context,
-          text: result.text,
-          kind: kind === "outline" ? "outline" : "manuscript",
-        });
+        const candidate = { capture: context, text: result.text };
+        if (kind === "draft") onDraft(candidate);
+        else {
+          try {
+            await onOutline(candidate);
+            if (active.current) setRetainedOutline(null);
+          } catch (failure) {
+            if (active.current) setRetainedOutline(result.text);
+            throw failure;
+          }
+        }
       });
     } catch (failure) {
       if (active.current) notice.report(failure);
@@ -132,7 +146,9 @@ export function MarkdownWriting({
         disabled={busy || outline === null || !brief.trim()}
         onClick={() => void generate("outline")}
       >
-        {t.markdownGenerateOutline}
+        {outline?.trim()
+          ? t.markdownRegenerateOutline
+          : t.markdownGenerateOutline}
       </button>
       <button
         disabled={busy || !outline?.trim()}
@@ -141,6 +157,12 @@ export function MarkdownWriting({
         {t.markdownGenerateDraft}
       </button>
       {busy && <p role="status">{t.markdownWritingProgress}</p>}
+      {retainedOutline !== null && (
+        <details className="markdown-retained-outline">
+          <summary>{t.markdownRetainedOutline}</summary>
+          <pre>{retainedOutline}</pre>
+        </details>
+      )}
     </section>
   );
 }

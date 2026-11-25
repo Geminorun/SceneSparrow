@@ -739,6 +739,17 @@ select:focus {
   background: var(--hover);
   color: var(--ink);
 }
+.markdown-icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
 .document-menu-content {
   position: absolute;
   inset: calc(100% + 4px) 0 auto auto;
@@ -2472,11 +2483,24 @@ body > .notifications {
   padding: 32px clamp(24px, 5vw, 72px);
   overflow: auto;
 }
-.outline-surface > textarea {
+.source-fallback textarea {
   width: 100%;
   min-height: 60vh;
-  border: 0;
   background: transparent;
+  font:
+    14px/1.7 ui-monospace,
+    Consolas,
+    monospace;
+  resize: vertical;
+}
+.markdown-source-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.markdown-retained-outline pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .markdown-preview {
