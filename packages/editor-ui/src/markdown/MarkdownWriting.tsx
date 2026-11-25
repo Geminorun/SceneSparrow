@@ -3,10 +3,6 @@ import type { PlatformClient } from "@scenesparrow/platform-client";
 import type en from "../locales/en.json";
 import { useNoticeOwner } from "../feedback/NotificationPresenter";
 import type { CompositionActions } from "../project-session/composition-actions";
-import { createPortal } from "react-dom";
-import { MarkdownEditor } from "./MarkdownEditor";
-import { projectSource } from "./source-projection";
-import { useMemo } from "react";
 
 export type WritingCapture = {
   projectId: string;
@@ -14,37 +10,44 @@ export type WritingCapture = {
   text: string;
   epoch: number;
   session: object;
+  outline?:
+    | {
+        session: object;
+        text: string;
+        revision: string | null;
+        epoch: number;
+      }
+    | undefined;
 };
-export type WritingDraft = { capture: WritingCapture; text: string };
+export type WritingDraft = {
+  capture: WritingCapture;
+  text: string;
+  kind?: "outline" | "manuscript";
+  conflict?: boolean;
+};
 export function MarkdownWriting({
   client,
   t,
   capture,
   onDraft,
   composition,
-  outlineTarget,
-  onOutline,
-  onOutlineReady,
+  outline,
+  validate,
 }: {
   client: PlatformClient;
   t: typeof en;
-  capture: () => WritingCapture;
+  capture: (kind: "outline" | "draft") => Promise<WritingCapture>;
   onDraft: (draft: WritingDraft) => void;
   composition: CompositionActions;
-  outlineTarget: HTMLElement | null;
-  onOutline: (text: string, activate?: boolean) => void;
-  onOutlineReady: (editor: import("@tiptap/core").Editor | null) => void;
+  outline: string | null;
+  validate: (capture: WritingCapture) => void;
 }) {
   const [brief, setBrief] = useState("");
-  const [outline, setOutline] = useState("");
-  const [generated, setGenerated] = useState("");
-  const [outlineSession, setOutlineSession] = useState(0);
-  const projection = useMemo(() => projectSource(outline), [outlineSession]);
   const [busy, setBusy] = useState(false);
   const actionKey = useRef(`writing:${crypto.randomUUID()}`).current;
   const active = useRef(true);
   const running = useRef(false);
-  const inputs = useRef({ brief, outline, outlineEpoch: 0 });
+  const briefInput = useRef(brief);
   const notice = useNoticeOwner();
   useEffect(() => {
     active.current = true;
@@ -52,7 +55,6 @@ export function MarkdownWriting({
       active.current = false;
       composition.cancel(actionKey);
       composition.composition(`${actionKey}:brief`, false);
-      composition.composition(`${actionKey}:outline`, false);
     };
   }, []);
   async function generate(kind: "outline" | "draft") {
@@ -62,34 +64,34 @@ export function MarkdownWriting({
     try {
       await composition.run(actionKey, async () => {
         if (!active.current) return;
-        const context = capture();
-        const input = { ...inputs.current };
+        const input = briefInput.current;
+        const context = await capture(kind);
+        if (!active.current) return;
         const [settings, ready] = await Promise.all([
           client.readAiSettings(),
           client.resolveAiConfiguration(),
         ]);
         if (!active.current) return;
+        validate(context);
         const result = await client.markdownProjects!.write(context.projectId, {
           actionId: crypto.randomUUID(),
           sessionId: settings.sessionId,
           fingerprint: ready.configuration.fingerprint,
           kind,
-          brief: input.brief,
-          outline: input.outline,
+          brief: input,
+          outline: context.outline?.text ?? "",
           text: context.text,
           revision: context.revision,
+          ...(kind === "draft"
+            ? { outlineRevision: context.outline!.revision! }
+            : {}),
         });
         if (!active.current) return;
-        if (kind === "draft") onDraft({ capture: context, text: result.text });
-        else {
-          setGenerated(result.text);
-          if (inputs.current.outlineEpoch === input.outlineEpoch) {
-            inputs.current.outline = result.text;
-            setOutline(result.text);
-            setOutlineSession((value) => value + 1);
-            onOutline(result.text);
-          } else notice.report("MARKDOWN_OUTLINE_CHANGED");
-        }
+        onDraft({
+          capture: context,
+          text: result.text,
+          kind: kind === "outline" ? "outline" : "manuscript",
+        });
       });
     } catch (failure) {
       if (active.current) notice.report(failure);
@@ -110,7 +112,7 @@ export function MarkdownWriting({
           value={brief}
           maxLength={16384}
           onChange={(event) => {
-            inputs.current.brief = event.currentTarget.value;
+            briefInput.current = event.currentTarget.value;
             setBrief(event.currentTarget.value);
           }}
           onCompositionStart={() =>
@@ -127,74 +129,13 @@ export function MarkdownWriting({
         />
       </label>
       <button
-        disabled={busy || !brief.trim()}
+        disabled={busy || outline === null || !brief.trim()}
         onClick={() => void generate("outline")}
       >
         {t.markdownGenerateOutline}
       </button>
-      {outlineTarget &&
-        createPortal(
-          <>
-            <p className="outline-help muted">{t.markdownWritingSession}</p>
-            {projection ? (
-              <MarkdownEditor
-                key={outlineSession}
-                projection={projection}
-                scope={`${actionKey}:outline`}
-                autofocus={false}
-                t={{ ...t, markdownText: t.markdownWritingOutline }}
-                composition={composition}
-                changed={(text) => {
-                  inputs.current.outline = text;
-                  inputs.current.outlineEpoch++;
-                  setOutline(text);
-                  onOutline(text, false);
-                }}
-                save={() => {}}
-                ready={onOutlineReady}
-              />
-            ) : (
-              <textarea
-                value={outline}
-                maxLength={262144}
-                aria-label={t.markdownWritingOutline}
-                onChange={(event) => {
-                  inputs.current.outline = event.currentTarget.value;
-                  inputs.current.outlineEpoch++;
-                  setOutline(event.currentTarget.value);
-                  onOutline(event.currentTarget.value, false);
-                }}
-                onCompositionStart={() =>
-                  composition.composition(`${actionKey}:outline`, true)
-                }
-                onCompositionEnd={() =>
-                  composition.composition(`${actionKey}:outline`, false)
-                }
-                onBlur={() =>
-                  composition.blur(`${actionKey}:outline`, () =>
-                    composition.composition(`${actionKey}:outline`, false),
-                  )
-                }
-              />
-            )}
-          </>,
-          outlineTarget,
-        )}
-      {generated && generated !== outline && (
-        <button
-          onClick={() => {
-            inputs.current.outline = generated;
-            inputs.current.outlineEpoch++;
-            setOutline(generated);
-            setOutlineSession((value) => value + 1);
-            onOutline(generated);
-          }}
-        >
-          {t.markdownUseOutline}
-        </button>
-      )}
       <button
-        disabled={busy || !brief.trim() || !outline.trim()}
+        disabled={busy || !outline?.trim()}
         onClick={() => void generate("draft")}
       >
         {t.markdownGenerateDraft}

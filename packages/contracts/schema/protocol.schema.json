@@ -3433,6 +3433,9 @@
         },
         "revision": {
           "type": "string"
+        },
+        "outlineRevision": {
+          "type": "string"
         }
       }
     },
@@ -3476,6 +3479,9 @@
         },
         "revision": {
           "type": "string"
+        },
+        "outlineRevision": {
+          "type": "string"
         }
       }
     },
@@ -3496,19 +3502,373 @@
     "MarkdownExchangeReview": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["projectId", "baseRevision", "currentRevision", "text"],
+      "required": ["projectId", "documents"],
       "properties": {
         "projectId": {
           "type": "string"
         },
-        "baseRevision": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownExchangeDocument"
+          }
+        }
+      }
+    },
+    "MarkdownDocumentKind": {
+      "type": "string",
+      "enum": ["manuscript", "outline"]
+    },
+    "MarkdownDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "kind", "text", "revision"],
+      "properties": {
+        "projectId": {
           "type": "string"
         },
-        "currentRevision": {
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "SaveMarkdownDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "revision"],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "revision": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "MarkdownRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "MarkdownAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceRevision",
+        "start",
+        "end",
+        "fingerprint",
+        "quote",
+        "structure",
+        "before",
+        "after",
+        "resolvedStart",
+        "resolvedEnd"
+      ],
+      "properties": {
+        "sourceRevision": {
+          "type": "string"
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "quote": {
+          "type": "string"
+        },
+        "structure": {
+          "type": "string"
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolvedStart": {
+          "type": ["integer", "null"]
+        },
+        "resolvedEnd": {
+          "type": ["integer", "null"]
+        }
+      }
+    },
+    "MarkdownLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "anchors"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "anchors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownAnchor"
+          }
+        }
+      }
+    },
+    "MarkdownComment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "anchor", "text", "status"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "anchor": {
+          "$ref": "#/definitions/MarkdownAnchor"
+        },
+        "text": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "resolved"]
+        }
+      }
+    },
+    "MarkdownAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locks", "comments"],
+      "properties": {
+        "locks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownLock"
+          }
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownComment"
+          }
+        }
+      }
+    },
+    "MarkdownAnnotationAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "revision", "ranges"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["lock"]
+            },
+            "revision": {
+              "type": "string"
+            },
+            "ranges": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/MarkdownRange"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "revision", "range", "text"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["comment"]
+            },
+            "revision": {
+              "type": "string"
+            },
+            "range": {
+              "$ref": "#/definitions/MarkdownRange"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "id"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["unlock"]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "id"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["resolve"]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "id", "revision", "range"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["reposition"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "range": {
+              "$ref": "#/definitions/MarkdownRange"
+            }
+          }
+        }
+      ]
+    },
+    "MarkdownScopedAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actionId",
+        "sessionId",
+        "fingerprint",
+        "revision",
+        "commentId"
+      ],
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "fingerprint": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "commentId": {
+          "type": "string"
+        }
+      }
+    },
+    "MarkdownScopedApply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "commentId", "text", "range", "fingerprint"],
+      "properties": {
+        "revision": {
+          "type": "string"
+        },
+        "commentId": {
           "type": "string"
         },
         "text": {
           "type": "string"
+        },
+        "range": {
+          "$ref": "#/definitions/MarkdownRange"
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "MarkdownScopedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actionId", "text", "range", "fingerprint"],
+      "properties": {
+        "actionId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/definitions/MarkdownRange"
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      }
+    },
+    "MarkdownExchangeDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "baseRevision",
+        "currentRevision",
+        "text",
+        "conflict"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/MarkdownDocumentKind"
+        },
+        "baseRevision": {
+          "type": ["string", "null"]
+        },
+        "currentRevision": {
+          "type": ["string", "null"]
+        },
+        "text": {
+          "type": "string"
+        },
+        "conflict": {
+          "type": ["string", "null"]
         }
       }
     }

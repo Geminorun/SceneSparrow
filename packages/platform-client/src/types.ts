@@ -1,5 +1,16 @@
+export const MARKDOWN_EXCHANGE_MAX_BYTES =
+  10 * 1024 * 1024 + 256 * 1024 + 65536;
+
 import type {
   MarkdownProject,
+  MarkdownDocument,
+  MarkdownAnnotations,
+  MarkdownAnnotationAction,
+  MarkdownScopedAction,
+  MarkdownScopedApply,
+  MarkdownScopedResult,
+  MarkdownDocumentKind,
+  SaveMarkdownDocument,
   MarkdownExchangeReview,
   MarkdownWritingAction,
   MarkdownWritingResult,
@@ -62,12 +73,44 @@ export interface RecentProject {
 export interface PlatformClient {
   markdownProjects?: {
     create(text: string): Promise<MarkdownProject>;
-    download(id: string, revision: string): Promise<Uint8Array>;
+    download(
+      id: string,
+      revision: string,
+      outlineRevision: string | null,
+    ): Promise<Uint8Array>;
     review(id: string, bytes: Uint8Array): Promise<MarkdownExchangeReview>;
     write(
       id: string,
       action: MarkdownWritingAction,
     ): Promise<MarkdownWritingResult>;
+    annotations(
+      id: string,
+      kind: MarkdownDocumentKind,
+    ): Promise<MarkdownAnnotations>;
+    annotate(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownAnnotationAction,
+    ): Promise<MarkdownAnnotations>;
+    scoped(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownScopedAction,
+    ): Promise<MarkdownScopedResult>;
+    applyScoped(
+      id: string,
+      kind: MarkdownDocumentKind,
+      action: MarkdownScopedApply,
+    ): Promise<MarkdownDocument>;
+    readDocument(
+      id: string,
+      kind: MarkdownDocumentKind,
+    ): Promise<MarkdownDocument>;
+    saveDocument(
+      id: string,
+      kind: MarkdownDocumentKind,
+      request: SaveMarkdownDocument,
+    ): Promise<MarkdownDocument>;
     read(id: string): Promise<MarkdownProject>;
     save(id: string, request: SaveMarkdownProject): Promise<MarkdownProject>;
   };

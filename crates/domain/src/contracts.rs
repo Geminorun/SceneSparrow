@@ -1892,6 +1892,13 @@ pub struct SaveMarkdownProject {
     pub text: String,
     #[serde(rename = "revision")]
     pub revision: String,
+    #[serde(
+        rename = "outlineRevision",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub outline_revision: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MarkdownWritingActionKind {
@@ -1919,6 +1926,13 @@ pub struct MarkdownWritingAction {
     pub text: String,
     #[serde(rename = "revision")]
     pub revision: String,
+    #[serde(
+        rename = "outlineRevision",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub outline_revision: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1933,12 +1947,199 @@ pub struct MarkdownWritingResult {
 pub struct MarkdownExchangeReview {
     #[serde(rename = "projectId")]
     pub project_id: String,
-    #[serde(rename = "baseRevision")]
-    pub base_revision: String,
-    #[serde(rename = "currentRevision")]
-    pub current_revision: String,
+    #[serde(rename = "documents")]
+    pub documents: Vec<MarkdownExchangeDocument>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarkdownDocumentKind {
+    #[serde(rename = "manuscript")]
+    Manuscript,
+    #[serde(rename = "outline")]
+    Outline,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownDocument {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
     #[serde(rename = "text")]
     pub text: String,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SaveMarkdownDocument {
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "revision", deserialize_with = "required_nullable")]
+    pub revision: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownRange {
+    #[serde(rename = "start")]
+    pub start: i64,
+    #[serde(rename = "end")]
+    pub end: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownAnchor {
+    #[serde(rename = "sourceRevision")]
+    pub source_revision: String,
+    #[serde(rename = "start")]
+    pub start: i64,
+    #[serde(rename = "end")]
+    pub end: i64,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "quote")]
+    pub quote: String,
+    #[serde(rename = "structure")]
+    pub structure: String,
+    #[serde(rename = "before")]
+    pub before: Vec<String>,
+    #[serde(rename = "after")]
+    pub after: Vec<String>,
+    #[serde(rename = "resolvedStart", deserialize_with = "required_nullable")]
+    pub resolved_start: Option<i64>,
+    #[serde(rename = "resolvedEnd", deserialize_with = "required_nullable")]
+    pub resolved_end: Option<i64>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownLock {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "anchors")]
+    pub anchors: Vec<MarkdownAnchor>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MarkdownCommentStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "resolved")]
+    Resolved,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownComment {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "anchor")]
+    pub anchor: MarkdownAnchor,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "status")]
+    pub status: MarkdownCommentStatus,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownAnnotations {
+    #[serde(rename = "locks")]
+    pub locks: Vec<MarkdownLock>,
+    #[serde(rename = "comments")]
+    pub comments: Vec<MarkdownComment>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", deny_unknown_fields)]
+pub enum MarkdownAnnotationAction {
+    #[serde(rename = "lock")]
+    Lock {
+        #[serde(rename = "revision")]
+        revision: String,
+        #[serde(rename = "ranges")]
+        ranges: Vec<MarkdownRange>,
+    },
+    #[serde(rename = "comment")]
+    Comment {
+        #[serde(rename = "revision")]
+        revision: String,
+        #[serde(rename = "range")]
+        range: MarkdownRange,
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "unlock")]
+    Unlock {
+        #[serde(rename = "id")]
+        id: String,
+    },
+    #[serde(rename = "resolve")]
+    Resolve {
+        #[serde(rename = "id")]
+        id: String,
+    },
+    #[serde(rename = "reposition")]
+    Reposition {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "revision")]
+        revision: String,
+        #[serde(rename = "range")]
+        range: MarkdownRange,
+    },
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownScopedAction {
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "commentId")]
+    pub comment_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownScopedApply {
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "commentId")]
+    pub comment_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "range")]
+    pub range: MarkdownRange,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownScopedResult {
+    #[serde(rename = "actionId")]
+    pub action_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "range")]
+    pub range: MarkdownRange,
+    #[serde(rename = "fingerprint")]
+    pub fingerprint: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownExchangeDocument {
+    #[serde(rename = "kind")]
+    pub kind: MarkdownDocumentKind,
+    #[serde(rename = "baseRevision", deserialize_with = "required_nullable")]
+    pub base_revision: Option<String>,
+    #[serde(rename = "currentRevision", deserialize_with = "required_nullable")]
+    pub current_revision: Option<String>,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "conflict", deserialize_with = "required_nullable")]
+    pub conflict: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

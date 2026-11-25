@@ -170,7 +170,7 @@ try {
     409,
   );
   const archive = await send(
-    `/api/v1${projectPath}/exchange?revision=${state.revision}`,
+    `/api/v1${projectPath}/exchange?revision=${state.revision}&outlineRevision=absent`,
   );
   assert.equal(archive.status, 200);
   assert.deepEqual(
@@ -179,9 +179,7 @@ try {
     }),
     {
       projectId: project.projectId,
-      baseRevision: state.revision,
-      currentRevision: state.revision,
-      text,
+      documents: [],
     },
   );
   const workerSmoke = await readFile(

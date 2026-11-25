@@ -2604,3 +2604,65 @@ body > .notifications {
     box-shadow: none;
   }
 }
+
+.markdown-editor-shell {
+  position: relative;
+}
+.markdown-editor-shell .tiptap {
+  padding-right: 2.5rem;
+}
+.markdown-review {
+  padding: 1rem;
+}
+.markdown-review textarea {
+  width: 100%;
+  min-height: 5rem;
+}
+.markdown-comment,
+.markdown-lock-record {
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 0;
+}
+.markdown-review blockquote {
+  margin: 0.5rem 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 12rem;
+  overflow: auto;
+}
+.markdown-review button {
+  margin: 0.25rem;
+}
+.markdown-comment[data-comment-status="resolved"] {
+  opacity: 0.7;
+}
+.markdown-block-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.markdown-block-controls {
+  position: absolute;
+  right: 0;
+  display: flex;
+  opacity: 0;
+  background: var(--canvas);
+}
+.markdown-block-controls button {
+  border: 0;
+  padding: 0.25rem;
+  background: transparent;
+}
+.markdown-editor-shell:hover .markdown-block-controls,
+.markdown-block-controls:focus-within {
+  opacity: 1;
+}
+.markdown-lock-marker {
+  position: absolute;
+  right: -0.25rem;
+  color: var(--accent);
+  pointer-events: none;
+}
+.markdown-editor-shell:hover .markdown-lock-marker {
+  opacity: 0.3;
+}

@@ -1,7 +1,12 @@
+import { MARKDOWN_EXCHANGE_MAX_BYTES } from "./types";
 import type {
   CreateMarkdownProject,
+  MarkdownAnnotationAction,
+  MarkdownScopedAction,
+  MarkdownScopedApply,
   MarkdownWritingAction,
   SaveMarkdownProject,
+  SaveMarkdownDocument,
   CopyRequest,
   ExportRequest,
   ExportControl,
@@ -37,8 +42,12 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     path: string,
     body?:
       | MarkdownWritingAction
+      | MarkdownAnnotationAction
+      | MarkdownScopedAction
+      | MarkdownScopedApply
       | CreateMarkdownProject
       | SaveMarkdownProject
+      | SaveMarkdownDocument
       | CopyRequest
       | ExportRequest
       | ExportControl
@@ -119,14 +128,42 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   };
   return {
     markdownProjects: {
-      download: async (id, revision) => {
-        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}`;
+      annotations: (id, kind) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/annotations`,
+        ),
+      annotate: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/annotations`,
+          body,
+        ),
+      scoped: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/scoped`,
+          body,
+        ),
+      applyScoped: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}/scoped/apply`,
+          body,
+        ),
+      readDocument: (id, kind) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
+        ),
+      saveDocument: (id, kind, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/documents/${kind}`,
+          body,
+        ),
+      download: async (id, revision, outlineRevision) => {
+        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/exchange?revision=${encodeURIComponent(revision)}&outlineRevision=${encodeURIComponent(outlineRevision ?? "absent")}`;
         const signal = AbortSignal.timeout(10000);
         try {
           const response = await fetchResponse(`${baseUrl}${path}`, { signal });
           if (!response.ok) await decodeJson(response, "GET", false, signal);
           const bytes = new Uint8Array(await response.arrayBuffer());
-          if (bytes.length > 2 * 1024 * 1024 + 65536)
+          if (bytes.length > MARKDOWN_EXCHANGE_MAX_BYTES)
             throw new ApiError("MARKDOWN_EXCHANGE_INVALID");
           return bytes;
         } catch (error) {

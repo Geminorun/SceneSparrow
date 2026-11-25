@@ -39,6 +39,22 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
         .route("/v1/markdown-projects/{id}", get(read).post(save))
         .route("/v1/markdown-projects/{id}/writing", post(writing))
         .route(
+            "/v1/markdown-projects/{id}/documents/{kind}",
+            get(read_document).post(save_document),
+        )
+        .route(
+            "/v1/markdown-projects/{id}/documents/{kind}/annotations",
+            get(annotations).post(annotate),
+        )
+        .route(
+            "/v1/markdown-projects/{id}/documents/{kind}/scoped",
+            post(scoped),
+        )
+        .route(
+            "/v1/markdown-projects/{id}/documents/{kind}/scoped/apply",
+            post(apply_scoped),
+        )
+        .route(
             "/v1/markdown-projects/{id}/exchange",
             get(download).post(review).layer(DefaultBodyLimit::max(
                 scenesparrow_infrastructure::markdown_projects::MAX_EXCHANGE_BYTES,
@@ -100,7 +116,32 @@ async fn save(
         return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_TEXT_INVALID");
     };
     execute(state, move |store| {
-        store.save(&id, &body.revision, body.text)
+        store.save_with_outline(
+            &id,
+            &body.revision,
+            body.text,
+            body.outline_revision.as_deref(),
+        )
+    })
+    .await
+}
+
+async fn read_document(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+) -> Response {
+    execute(state, move |store| store.read_document(&id, kind)).await
+}
+async fn save_document(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+    body: Result<Json<contracts::SaveMarkdownDocument>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_TEXT_INVALID");
+    };
+    execute(state, move |store| {
+        store.save_document(&id, kind, body.revision.as_deref(), body.text)
     })
     .await
 }
@@ -120,7 +161,7 @@ async fn writing(
         ai::{AiError, ensure},
         contracts::MarkdownWritingResult,
     };
-    let Ok(Json(body)) = body else {
+    let Ok(Json(mut body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
     let Ok(slot) = state.ai.blocking_slots.clone().try_acquire_owned() else {
@@ -129,9 +170,33 @@ async fn writing(
     crate::ai::result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            let saved = state.store.read(&id).map_err(AiError)?;
-            ensure(saved.revision == body.revision, "MARKDOWN_CONFLICT")?;
-            let input = markdown_writing::input(&body)?;
+            let outline_revision = if body.kind == contracts::MarkdownWritingActionKind::Draft {
+                ensure(body.outline_revision.is_some(), "MARKDOWN_WRITING_INVALID")?;
+                body.outline_revision.as_deref()
+            } else {
+                None
+            };
+            let outline = state
+                .store
+                .writing_snapshot(&id, &body.revision, outline_revision)
+                .map_err(AiError)?;
+            if let Some(outline) = outline {
+                body.outline = outline.text;
+            }
+            let target = if body.kind == contracts::MarkdownWritingActionKind::Outline {
+                contracts::MarkdownDocumentKind::Outline
+            } else {
+                contracts::MarkdownDocumentKind::Manuscript
+            };
+            let annotations = state.store.annotations(&id, target).map_err(AiError)?;
+            let mut protected = std::collections::BTreeSet::new();
+            for lock in annotations.locks {
+                for anchor in lock.anchors {
+                    ensure(anchor.resolved_start.is_some(), "MARKDOWN_LOCK_CONFLICT")?;
+                    protected.insert(anchor.quote);
+                }
+            }
+            let input = markdown_writing::input(&body, &protected.into_iter().collect::<Vec<_>>())?;
             let context =
                 serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;
             let text = state.ai.actions.text(
@@ -158,15 +223,27 @@ async fn writing(
 #[derive(serde::Deserialize)]
 struct DownloadQuery {
     revision: String,
+    #[serde(rename = "outlineRevision")]
+    outline_revision: String,
 }
 async fn download(
     State(state): State<FileState>,
     Path(id): Path<String>,
     Query(query): Query<DownloadQuery>,
 ) -> Response {
-    match tokio::task::spawn_blocking(move || state.store.exchange(&id, &query.revision))
-        .await
-        .unwrap_or(Err("MARKDOWN_STORAGE_UNAVAILABLE"))
+    match tokio::task::spawn_blocking(move || {
+        state.store.exchange(
+            &id,
+            &query.revision,
+            if query.outline_revision == "absent" {
+                None
+            } else {
+                Some(&query.outline_revision)
+            },
+        )
+    })
+    .await
+    .unwrap_or(Err("MARKDOWN_STORAGE_UNAVAILABLE"))
     {
         Ok(bytes) => (
             [
@@ -206,4 +283,84 @@ async fn review(
         store.review_exchange(&id, bytes.to_vec())
     })
     .await
+}
+
+async fn annotations(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+) -> Response {
+    execute(state, move |store| store.annotations(&id, kind)).await
+}
+async fn annotate(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+    body: Result<Json<contracts::MarkdownAnnotationAction>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_ANCHOR_INVALID");
+    };
+    execute(state, move |store| store.annotate(&id, kind, body)).await
+}
+async fn apply_scoped(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+    body: Result<Json<contracts::MarkdownScopedApply>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_ANCHOR_INVALID");
+    };
+    execute(state, move |store| store.apply_scoped(&id, kind, body)).await
+}
+async fn scoped(
+    State(state): State<FileState>,
+    Path((id, kind)): Path<(String, contracts::MarkdownDocumentKind)>,
+    body: Result<Json<contracts::MarkdownScopedAction>, JsonRejection>,
+) -> Response {
+    use scenesparrow_domain::ai::AiError;
+    let Ok(Json(body)) = body else {
+        return api_error(StatusCode::BAD_REQUEST, "MARKDOWN_ANCHOR_INVALID");
+    };
+    let Ok(slot) = state.ai.blocking_slots.clone().try_acquire_owned() else {
+        return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
+    };
+    crate::ai::result(
+        tokio::task::spawn_blocking(move || {
+            let _slot = slot;
+            let (scope, instruction, range, fingerprint) = state
+                .store
+                .scoped_snapshot(&id, kind.clone(), &body.revision, &body.comment_id)
+                .map_err(AiError)?;
+            let input =
+                scenesparrow_application::markdown_writing::scoped_input(&scope, &instruction)?;
+            let context = serde_json::to_string(&(
+                &id,
+                kind,
+                &body,
+                &scope,
+                &instruction,
+                &range,
+                &fingerprint,
+            ))
+            .map_err(|_| AiError("INVALID_REQUEST"))?;
+            let text = state.ai.actions.text(
+                state.ai.settings()?,
+                scenesparrow_infrastructure::ai::actions::TextAction {
+                    action_id: &body.action_id,
+                    session_id: &body.session_id,
+                    fingerprint: &body.fingerprint,
+                    context: &context,
+                    input: &input,
+                },
+            )?;
+            scenesparrow_application::markdown_writing::validate_output(&text)?;
+            Ok(contracts::MarkdownScopedResult {
+                action_id: body.action_id,
+                text,
+                range,
+                fingerprint,
+            })
+        })
+        .await
+        .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),
+    )
 }
