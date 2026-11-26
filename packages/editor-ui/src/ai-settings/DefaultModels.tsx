@@ -1,18 +1,25 @@
 import type en from "../locales/en.json";
-import { bindText, modelKey } from "./model";
+import { bindText, modelKey, isOfficialDeepseekProvider } from "./model";
 import { OperationStatus } from "./OperationStatus";
 import type { AiSettingsController } from "./useAiSettings";
 export function DefaultModels({
   controller: c,
   t,
+  directOnly = false,
 }: {
   controller: AiSettingsController;
   t: typeof en;
+  directOnly?: boolean;
 }) {
   const settings = c.view!.settings;
   const binding = settings.bindings.find(
     (binding) => binding.category === "text",
   );
+  const harnessBound =
+    directOnly &&
+    settings.providers.some(
+      (p) => p.id === binding?.providerId && isOfficialDeepseekProvider(p),
+    );
   return (
     <section className="ai-default-models" aria-label={t.aiDefaultModels}>
       <h3>{t.aiDefaultModels}</h3>
@@ -21,7 +28,13 @@ export function DefaultModels({
         {t.aiManuscriptModel}
         <select
           aria-label={t.aiManuscriptModel}
-          value={binding ? modelKey(binding.providerId, binding.modelId) : ""}
+          value={
+            harnessBound
+              ? "harness"
+              : binding
+                ? modelKey(binding.providerId, binding.modelId)
+                : ""
+          }
           disabled={c.operations.defaults?.busy}
           onChange={(event) => {
             const value = event.target.value;
@@ -35,10 +48,19 @@ export function DefaultModels({
             );
           }}
         >
+          {harnessBound && (
+            <option value="harness" disabled>
+              {t.deepseekWritingActive}
+            </option>
+          )}
           <option value="">{t.aiNoDefault}</option>
           {settings.providers
-            .filter((provider) =>
-              settings.models.some((model) => model.providerId === provider.id),
+            .filter(
+              (provider) =>
+                (!directOnly || !isOfficialDeepseekProvider(provider)) &&
+                settings.models.some(
+                  (model) => model.providerId === provider.id,
+                ),
             )
             .map((provider) => (
               <optgroup key={provider.id} label={provider.label}>

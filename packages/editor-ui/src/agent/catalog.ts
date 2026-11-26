@@ -78,3 +78,12 @@ export function defaultAgentChoice(
     modelId: configured ? (binding?.modelId ?? "") : "",
   };
 }
+
+export function conversationDefaults(
+  saved: { engineId: string; modelId: string } | undefined,
+  fallback: { engineId: string; modelId: string },
+) {
+  return saved?.engineId === "deepseek" && !saved.modelId
+    ? { ...saved, modelId: fallback.modelId }
+    : (saved ?? fallback);
+}

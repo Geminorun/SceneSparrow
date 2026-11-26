@@ -228,14 +228,21 @@ and receives no other volume or application secret. See the
 
 In Settings → Agent, a fresh configured Web installation selects DeepSeek.
 Existing explicit Codex preferences remain. Save an official DeepSeek API key and
-choose an offered model. The card uses the existing encrypted credential store;
+choose an offered **Harness model for writing actions**. This configures outline,
+draft and saved-comment rewrites and supplies the default conversation model when
+there is no explicit conversation preference. Selecting Codex for conversations
+leaves that writing model unchanged. The card uses the existing encrypted credential store;
 connection checks read the native catalog without paid inference. **Test model**
 is the explicit inference action. Saved key status is masked and does not claim
 provider authentication. Reuse follows the current exact official bearer profile:
 an official text binding wins, then an explicitly assigned official DeepSeek
 profile, then a single unambiguous official profile. A matching saved model stays
 exact; an unavailable ID requires a new selection. Proxy credentials never reach
-the native runner, and direct API text bindings remain unchanged.
+the native runner. Existing direct API text bindings remain until the user explicitly
+selects a Harness writing model. Manage their services and defaults under
+**Settings → Agent → Advanced: direct API compatibility**. An unavailable saved
+model remains visible and requires an explicit supported selection. Official
+Harness failures never fall back to the direct API or retry paid work automatically.
 
 ## Persistent state, backups and recovery
 

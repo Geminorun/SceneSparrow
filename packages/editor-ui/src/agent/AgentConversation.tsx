@@ -16,7 +16,7 @@ import { errorMessage } from "../feedback/notifications";
 import type { CompositionActions } from "../project-session/composition-actions";
 import { ExchangeComparison } from "../markdown/ExchangeComparison";
 import { agentAttachment, proposalText, type AgentCapture } from "./context";
-import type { AgentCatalog } from "./catalog";
+import { conversationDefaults, type AgentCatalog } from "./catalog";
 
 type Turn = {
   instruction: string;
@@ -63,8 +63,7 @@ export function AgentConversation({
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
   ).agentDefault;
-  const defaults = savedDefaults ??
-    catalog.defaultChoice ?? { engineId: "codex", modelId: "" };
+  const defaults = conversationDefaults(savedDefaults, catalog.defaultChoice);
   const [explicitChoice, setChoice] = useState<{
     engineId: string;
     modelId: string;

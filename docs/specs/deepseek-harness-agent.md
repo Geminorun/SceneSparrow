@@ -1,8 +1,8 @@
 # Native DeepSeek Harness for Web writing
 
-Status — DSH-T01 through DSH-T03 implement the isolated native runner,
-guarded Web conversations and the paired Web release configuration. The
-built-in writing action migration and hosted-provider inference are pending.
+Status — DSH-T01 through DSH-T04 are implemented. The Linux Web release pairs
+both images and uses the native runner for conversations and configured
+DeepSeek writing actions. Hosted-provider inference is pending.
 [Implementation evidence](../validation/deepseek-harness-agent.md)
 
 ## Scope and user experience
@@ -11,9 +11,9 @@ The file-backed Web deployment ships and starts the native DeepSeek Harness
 runner with the application. DeepSeek Harness is the default Agent for new
 configurations. In **Settings → Agent**, the user saves a DeepSeek API key,
 selects a model and starts a conversation from the existing right pane. The
-same Harness eventually handles Generate outline, Write draft and the existing
-AI rewrite from a comment. An explicitly saved Codex preference remains usable
-for conversations.
+same Harness handles Generate outline, Write draft and the existing AI rewrite
+from a comment when the saved writing model uses the official DeepSeek route.
+An explicitly saved Codex preference remains usable for conversations.
 
 A question uses the attached document. A request with an explicit selection
 can produce a replacement. The user reviews the difference and chooses Apply

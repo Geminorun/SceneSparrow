@@ -500,6 +500,10 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   await expect(
     page.getByRole("dialog", { name: "Settings", exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page
+    .getByText("Advanced: direct API compatibility", { exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Default models", exact: true }),
   ).toBeVisible();

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
+import { createServer as createSocketServer } from "node:net";
+import { createInterface } from "node:readline";
 import {
   mkdtemp,
   readFile,
@@ -21,7 +23,7 @@ const unknown = () => ({
   scope: "",
   observedAt: null,
 });
-test("WFW-AC03–04: file writing uses the real bearer worker once per session action and writes only on explicit adoption", async () => {
+async function writingFlow(harness) {
   const directory = await mkdtemp(join(tmpdir(), "scenesparrow-writing-"));
   let calls = 0,
     release,
@@ -49,7 +51,9 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
     calls++;
     observed(parsed);
     await gate;
-    response.writeHead(providerStatus, { "content-type": "application/json" });
+    response.writeHead(providerStatus, {
+      "content-type": "application/json",
+    });
     response.end(
       JSON.stringify(
         providerStatus === 200
@@ -66,6 +70,108 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
       ),
     );
   });
+  const runnerPath = join(directory, "dsh.sock");
+  const runner = createSocketServer((connection) => {
+    connection.on("error", () => {});
+    const lines = createInterface({ input: connection });
+    const send = (value) => connection.write(JSON.stringify(value) + "\n");
+    let initialized = false;
+    lines.on("line", async (line) => {
+      const message = JSON.parse(line);
+      if (!initialized) {
+        initialized = true;
+        assert.equal(message.apiKey, "SYNTHETIC_FILE_WRITING_KEY");
+        send({
+          protocolVersion: 1,
+          ready: true,
+          engine: "deepseek",
+          packageVersion: "0.2.2-rc.5",
+          credentialPresent: true,
+        });
+        return;
+      }
+      const result = (value) =>
+        send({ jsonrpc: "2.0", id: message.id, result: value });
+      const configOptions = [
+        {
+          id: "model",
+          type: "select",
+          currentValue: '["deepseek-official","file-writer"]',
+          options: [
+            { value: '["deepseek-official","file-writer"]', name: "Writer" },
+          ],
+        },
+      ];
+      switch (message.method) {
+        case "initialize":
+          result({
+            protocolVersion: 1,
+            agentInfo: { name: "deepseek-harness-acp" },
+          });
+          break;
+        case "session/new":
+          assert.deepEqual(message.params, {
+            cwd: "/tmp/writing",
+            mcpServers: [],
+          });
+          result({ sessionId: "writing-fixture", configOptions });
+          break;
+        case "session/set_config_option":
+          assert.equal(
+            message.params.value,
+            '["deepseek-official","file-writer"]',
+          );
+          result({ configOptions });
+          break;
+        case "session/prompt": {
+          calls++;
+          const text = message.params.prompt[0].text;
+          assert.match(text, /Never invoke tools/);
+          assert.match(text, /System:\n/);
+          assert.match(text, /User:\n/);
+          observed({ messages: [{ content: text }] });
+          await gate;
+          if (providerStatus === 503) {
+            connection.destroy();
+            break;
+          }
+          if (providerStatus !== 200) {
+            send({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: {
+                code: -32603,
+                message: "PRIVATE_PROVIDER_BODY",
+                data: { sceneSparrowCode: "AGENT_DEEPSEEK_UPSTREAM_FAILED" },
+              },
+            });
+            break;
+          }
+          send({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "writing-fixture",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: output },
+              },
+            },
+          });
+          result({ stopReason: "end_turn" });
+          break;
+        }
+        case "session/close":
+          break;
+        case "session/cancel":
+          break;
+        default:
+          assert.fail(message.method);
+      }
+    });
+  });
+  if (harness)
+    await new Promise((resolve) => runner.listen(runnerPath, resolve));
   await new Promise((resolve) => provider.listen(0, "127.0.0.1", resolve));
   const socket = createServer();
   await new Promise((resolve) => socket.listen(0, "127.0.0.1", resolve));
@@ -89,6 +195,7 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
           SCENESPARROW_MARKDOWN_PROJECTS_DIR: root,
           SCENESPARROW_PROJECT_DIR: unused,
           SCENESPARROW_APP_DATA_DIR: join(directory, "app"),
+          ...(harness ? { SCENESPARROW_DEEPSEEK_SOCKET: runnerPath } : {}),
         },
         stdio: "ignore",
       },
@@ -130,7 +237,9 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
         id: providerId,
         label: "Counted local fixture",
         adapter: "openai_compatible",
-        baseUrl: `http://127.0.0.1:${provider.address().port}/v1`,
+        baseUrl: harness
+          ? "https://api.deepseek.com/v1"
+          : `http://127.0.0.1:${provider.address().port}/v1`,
         authMode: "bearer",
         credentialRevision: null,
         revision: 1,
@@ -184,6 +293,21 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
       revision: project.revision,
     };
     const path = `/markdown-projects/${project.projectId}/writing`;
+    const staleAction = {
+      ...action,
+      actionId: randomUUID(),
+      fingerprint: "0".repeat(64),
+    };
+    assert.equal(
+      (await req(path, staleAction)).data.code,
+      "CONFIGURATION_STALE",
+    );
+    assert.equal(
+      (await req(path, { ...staleAction, fingerprint: action.fingerprint }))
+        .data.code,
+      "REQUEST_ID_REUSED",
+    );
+    assert.equal(calls, 0);
     const first = req(path, action);
     await arrival;
     const duplicate = await req(path, action);
@@ -328,6 +452,12 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
         ranges: [range],
       })
     ).data;
+    assert.equal(
+      (await req(scopedPath, { ...scopedRequest, actionId: randomUUID() })).data
+        .code,
+      "MARKDOWN_LOCKED",
+    );
+    assert.equal(calls, 3);
     const adoption = {
       revision: current.revision,
       commentId,
@@ -358,10 +488,30 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
     };
     const failed = await req(path, failedAction);
     assert.equal(failed.status, 422);
-    assert.equal(failed.data.code, "PROVIDER_SERVER_FAILED");
+    assert.equal(
+      failed.data.code,
+      harness ? "AGENT_DEEPSEEK_UPSTREAM_FAILED" : "PROVIDER_SERVER_FAILED",
+    );
     assert.doesNotMatch(JSON.stringify(failed), /PRIVATE_PROVIDER_BODY/);
     assert.deepEqual(await req(path, failedAction), failed);
     assert.equal(calls, 4);
+    if (harness) {
+      providerStatus = 200;
+      assert.deepEqual(await req(path, failedAction), failed);
+      assert.equal(calls, 4);
+      assert.equal(
+        (await req(path, { ...failedAction, actionId: randomUUID() })).status,
+        200,
+      );
+      assert.equal(calls, 5);
+      providerStatus = 503;
+      const disconnectedAction = { ...failedAction, actionId: randomUUID() };
+      const disconnected = await req(path, disconnectedAction);
+      assert.equal(disconnected.data.code, "AGENT_INTERRUPTED");
+      providerStatus = 200;
+      assert.deepEqual(await req(path, disconnectedAction), disconnected);
+      assert.equal(calls, 6);
+    }
     await writeFile(manuscript, "External newer input");
     assert.equal(
       (await req(path, { ...failedAction, actionId: randomUUID() })).data.code,
@@ -385,12 +535,17 @@ test("WFW-AC03–04: file writing uses the real bearer worker once per session a
       (await req(path, { ...action, revision: reopened.revision })).data.code,
       "ACTION_SESSION_ENDED",
     );
-    assert.equal(calls, 4);
+    assert.equal(calls, harness ? 6 : 4);
     await assert.rejects(access(unused));
   } finally {
     release();
     await stop();
     await new Promise((resolve) => provider.close(resolve));
+    if (harness) await new Promise((resolve) => runner.close(resolve));
     await rm(directory, { recursive: true, force: true });
   }
-});
+}
+
+for (const harness of [false, true])
+  test(`${harness ? "DSH-AC07" : "WFW-AC03–04"}: file writing uses ${harness ? "native Harness" : "direct bearer worker"} once per action and preserves guarded adoption`, () =>
+    writingFlow(harness));

@@ -60,7 +60,9 @@ The release pipeline builds both images and runs a paired Compose smoke with
 disposable volumes. A release records both immutable digests. Deployment tests
 check that both images are pulled before downtime, and that old single-image
 and paired backup configurations remain available for manual rollback.
-Exact release image and paired startup validation is tracked separately.
+The [build-only release check](https://github.com/Geminorun/SceneSparrow/actions/runs/45747042253)
+tracks the exact release Dockerfiles and paired startup separately from the
+controlled-provider tests.
 
 - **DSH-AC05** — Compose resolves the private socket volume, fixed UID,
   read-only root and disabled runner network. The paired smoke checks fresh
@@ -79,3 +81,26 @@ The Chrome lock smoke now waits for save acknowledgment and places the input
 selection on the intended locked paragraph. In the previous GitHub trace,
 the test typed into an unlocked sibling. Both matching lock tests passed
 three local repetitions after the test-only correction.
+
+## DSH-T04 — Writing actions and unified settings
+
+- **DSH-AC07** — Chromium 156 configured a fresh Web installation through
+  Settings → Agent, saved one key in the encrypted vault and chose one
+  Harness model. That model became the conversation default. Actual `dsh`
+  received three controlled Messages requests. The outline was saved directly.
+  The draft required review and adoption. A saved comment produced a scoped
+  suggestion with only the selected paragraph sent to the provider. An
+  identical action reused its receipt. A live lock blocked Apply and the same
+  suggestion applied after explicitly unlocking the paragraph.
+- **DSH-AC08** — Browser fixtures cover fresh settings, exact legacy official
+  model reuse, unavailable models and existing proxy bindings. Selecting a
+  conversation Agent leaves the writing model intact. Web lists direct API
+  profiles under Agent's compatibility section and keeps eligible official
+  DeepSeek profiles in the Harness controls. Paired rollback uses the
+  deployment evidence from DSH-T03.
+
+The service integration runs the existing writing workflow against both
+direct API and native ACP fixtures. Native coverage includes stale settings
+and document revisions, locks, an explicitly retried failure and no direct
+fallback when the official runner is disconnected. Hosted-provider inference
+remains pending before release rollout.

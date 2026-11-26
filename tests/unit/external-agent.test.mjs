@@ -308,3 +308,18 @@ test("DSH-AC05–06 fresh configured Web defaults to DeepSeek while saved incomp
     modelId: "",
   });
 });
+
+test("DSH-AC08 an empty DeepSeek conversation preference inherits writing, while explicit models and Codex stay independent", async () => {
+  const { conversationDefaults } =
+    await import("../../packages/editor-ui/src/agent/catalog.ts");
+  const writing = { engineId: "deepseek", modelId: "deepseek-flash" };
+  assert.deepEqual(conversationDefaults(undefined, writing), writing);
+  assert.deepEqual(
+    conversationDefaults({ engineId: "deepseek", modelId: "" }, writing),
+    writing,
+  );
+  const codex = { engineId: "codex", modelId: "codex-model" };
+  assert.deepEqual(conversationDefaults(codex, writing), codex);
+  const unavailable = { engineId: "deepseek", modelId: "saved-unavailable" };
+  assert.deepEqual(conversationDefaults(unavailable, writing), unavailable);
+});

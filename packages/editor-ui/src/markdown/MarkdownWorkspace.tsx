@@ -37,7 +37,6 @@ import { AgentConversation } from "../agent/AgentConversation";
 import { useAgentCatalog } from "../agent/catalog";
 import { AgentSettings } from "../agent/AgentSettings";
 import { proposalText, type AgentCapture } from "../agent/context";
-import { AiSettings } from "../ai-settings/AiSettings";
 import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { trapDialogFocus } from "../ui/dialog-focus";
@@ -1283,7 +1282,11 @@ export function MarkdownWorkspace({
     }
   }
   return (
-    <SettingsActions.Provider value={setSettingsSection}>
+    <SettingsActions.Provider
+      value={(section) =>
+        setSettingsSection(section === "general" ? "general" : "agent")
+      }
+    >
       <div className="workspace markdown-workspace">
         <NotificationPresenter t={t} />
         <a className="skip-link" href="#markdown-editor">
@@ -1948,25 +1951,19 @@ export function MarkdownWorkspace({
           </div>
           <div className="settings-layout">
             <nav aria-label={t.settingsSections}>
-              {(["general", "services", "defaults", "agent"] as const).map(
-                (section) => (
-                  <button
-                    key={section}
-                    aria-current={
-                      settingsSection === section ? "page" : undefined
-                    }
-                    onClick={() => setSettingsSection(section)}
-                  >
-                    {section === "general"
-                      ? t.generalSettings
-                      : section === "services"
-                        ? t.aiModels
-                        : section === "agent"
-                          ? t.workspaceTab_agent
-                          : t.aiDefaultModels}
-                  </button>
-                ),
-              )}
+              {(["general", "agent"] as const).map((section) => (
+                <button
+                  key={section}
+                  aria-current={
+                    settingsSection === section ? "page" : undefined
+                  }
+                  onClick={() => setSettingsSection(section)}
+                >
+                  {section === "general"
+                    ? t.generalSettings
+                    : t.workspaceTab_agent}
+                </button>
+              ))}
             </nav>
             <div className="settings-content">
               <section hidden={settingsSection !== "general"}>
@@ -2031,18 +2028,6 @@ export function MarkdownWorkspace({
                 catalog={agentCatalog}
                 t={t}
                 active={settingsSection === "agent"}
-              />
-              <AiSettings
-                client={platformClient}
-                t={t}
-                active={
-                  settingsSection === "services" ||
-                  settingsSection === "defaults"
-                }
-                open={settingsSection !== null}
-                section={
-                  settingsSection === "defaults" ? "defaults" : "services"
-                }
               />
             </div>
           </div>

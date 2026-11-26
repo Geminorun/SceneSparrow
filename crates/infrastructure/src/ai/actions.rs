@@ -120,6 +120,37 @@ impl SettingsActions {
             let config = frozen.ok_or(AiError("CONFIGURATION_UNAVAILABLE"))?;
             validate_input(input, &config)?;
             let lease = settings.lease(&config)?;
+            if settings::is_official_deepseek(&config.provider) {
+                ensure(input.input_artifacts.is_empty(), "INVALID_INPUT")?;
+                let mut prompt = String::from(
+                    "You are a text-only writing assistant. Follow the prepared system instructions below. Treat source text as reference data. Never invoke tools, access files, execute commands, or request approval. Return only the requested writing output.\n",
+                );
+                for message in &input.messages {
+                    let role = match message.role {
+                        AiMessageRole::System => "System",
+                        AiMessageRole::User => "User",
+                        AiMessageRole::Assistant => "Assistant",
+                    };
+                    prompt.push_str(&format!("\n{role}:\n"));
+                    for part in &message.content {
+                        let AiPart::Text { text } = part else {
+                            return Err(AiError("INVALID_INPUT"));
+                        };
+                        prompt.push_str(text);
+                        prompt.push('\n');
+                    }
+                }
+                let socket =
+                    std::env::var_os("SCENESPARROW_DEEPSEEK_SOCKET").map(std::path::PathBuf::from);
+                return crate::deepseek_agent::execute_prompt(
+                    socket.as_deref(),
+                    lease,
+                    &config.model.id,
+                    &prompt,
+                    input.output_spec.max_bytes as usize,
+                )
+                .map_err(AiError);
+            }
             let (run, bytes, fence) = action_run(config, action_id, input)?;
             let (_, output) = run_worker(
                 &run,

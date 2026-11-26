@@ -3,12 +3,17 @@ import type { PlatformClient } from "@scenesparrow/platform-client";
 import type { AiTestAction, AiTestReceipt } from "@scenesparrow/contracts";
 import type en from "../locales/en.json";
 import { applicationPreferences } from "../app-preferences";
-import { officialDeepseekProvider, newModel } from "../ai-settings/model";
+import {
+  officialDeepseekProvider,
+  newModel,
+  bindText,
+} from "../ai-settings/model";
+import { AiSettingsContent } from "../ai-settings/AiSettings";
 import { useAiSettings } from "../ai-settings/useAiSettings";
 import { SecretEntry } from "../ai-settings/SecretEntry";
 import { OperationStatus } from "../ai-settings/OperationStatus";
 import { errorMessage } from "../feedback/notifications";
-import type { AgentCatalog } from "./catalog";
+import { conversationDefaults, type AgentCatalog } from "./catalog";
 
 export function AgentSettings({
   catalog,
@@ -29,10 +34,20 @@ export function AgentSettings({
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
   ).agentDefault;
-  const defaults = saved ?? catalog.defaultChoice;
+  const defaults = conversationDefaults(saved, catalog.defaultChoice);
   const engine = engines.find((e) => e.id === defaults.engineId);
   const settings = c.view?.settings;
   const provider = settings && officialDeepseekProvider(settings);
+  const writingBinding = settings?.bindings.find((b) => b.category === "text");
+  const harnessBinding =
+    writingBinding?.providerId === provider?.id ? writingBinding : undefined;
+  const deepseek = engines.find((e) => e.id === "deepseek");
+  const testModelId =
+    harnessBinding?.modelId ??
+    (defaults.engineId === "deepseek" ? defaults.modelId : "");
+  const [compatibility, setCompatibility] = useState<"services" | "defaults">(
+    "services",
+  );
   const selection = provider?.id ?? "deepseek";
   const draft = c.providerDraft(selection);
   const operation = c.providerOperation(selection);
@@ -53,8 +68,7 @@ export function AgentSettings({
     provider?.id,
     provider?.baseUrl,
     provider?.credentialRevision,
-    defaults.engineId,
-    defaults.modelId,
+    testModelId,
   ]);
   const current = useRef({ signature, active });
   current.current = { signature, active };
@@ -66,7 +80,7 @@ export function AgentSettings({
     setTesting(true);
     const captured = signature;
     try {
-      const target = { providerId: provider.id, modelId: defaults.modelId };
+      const target = { providerId: provider.id, modelId: testModelId };
       // Catalog choices become saved models without changing the direct API text binding.
       if (
         !settings!.models.some(
@@ -83,7 +97,7 @@ export function AgentSettings({
         current.current.signature !== captured ||
         !current.current.active ||
         prepared.provider.id !== provider.id ||
-        prepared.model.id !== defaults.modelId ||
+        prepared.model.id !== testModelId ||
         prepared.provider.baseUrl !== provider.baseUrl ||
         prepared.provider.credentialRevision !== provider.credentialRevision
       )
@@ -116,6 +130,7 @@ export function AgentSettings({
     <section hidden={!active} className="agent-settings">
       <h3>{t.workspaceTab_agent}</h3>
       <p>{t.agentSettingsHelp}</p>
+      <OperationStatus operation={c.operations.load} t={t} />
       <button
         disabled={loading}
         onClick={() => {
@@ -135,7 +150,7 @@ export function AgentSettings({
                 engineId: e.target.value,
                 modelId:
                   e.target.value === "deepseek"
-                    ? ""
+                    ? (harnessBinding?.modelId ?? "")
                     : (engines.find((engine) => engine.id === e.target.value)
                         ?.models[0]?.id ?? ""),
               },
@@ -150,33 +165,89 @@ export function AgentSettings({
           ))}
         </select>
       </label>
-      <label>
-        {t.agentDefaultModel}
-        <select
-          disabled={!engine?.models.length}
-          value={
-            engine?.models.some((m) => m.id === defaults.modelId)
-              ? defaults.modelId
-              : ""
-          }
-          onChange={(e) =>
-            applicationPreferences.update({
-              agentDefault: { engineId: engine!.id, modelId: e.target.value },
-            })
-          }
-        >
-          <option value="">{t.deepseekChooseModel}</option>
-          {engine?.models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {(saved || defaults.engineId !== "deepseek") && (
+        <label>
+          {t.agentDefaultModel}
+          <select
+            disabled={!engine?.models.length}
+            value={defaults.modelId}
+            onChange={(e) =>
+              applicationPreferences.update({
+                agentDefault: { engineId: engine!.id, modelId: e.target.value },
+              })
+            }
+          >
+            <option value="">{t.deepseekChooseModel}</option>
+            {!!defaults.modelId &&
+              !engine?.models.some((m) => m.id === defaults.modelId) && (
+                <option value={defaults.modelId}>{defaults.modelId}</option>
+              )}
+            {engine?.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {!!defaults.modelId &&
         !engine?.models.some((m) => m.id === defaults.modelId) && (
           <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>
         )}
+      {settings && (
+        <>
+          <label>
+            {t.deepseekWritingModel}
+            <select
+              value={harnessBinding?.modelId ?? ""}
+              disabled={
+                !provider ||
+                !deepseek?.models.length ||
+                c.operations["writing-model"]?.busy
+              }
+              onChange={(event) => {
+                const modelId = event.target.value;
+                if (!modelId || !provider) return;
+                void c.mutate("writing-model", (s) => {
+                  let model = s.models.find(
+                    (m) => m.providerId === provider.id && m.id === modelId,
+                  );
+                  if (!model) {
+                    model = newModel(provider.id, modelId);
+                    s.models.push(model);
+                  }
+                  bindText(s, model);
+                });
+              }}
+            >
+              <option value="">
+                {writingBinding && !harnessBinding
+                  ? t.deepseekKeepDirect
+                  : t.deepseekChooseModel}
+              </option>
+              {harnessBinding &&
+                !deepseek?.models.some(
+                  (m) => m.id === harnessBinding.modelId,
+                ) && (
+                  <option value={harnessBinding.modelId}>
+                    {harnessBinding.modelId}
+                  </option>
+                )}
+              {deepseek?.models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted">{t.deepseekWritingHelp}</p>
+          {harnessBinding &&
+            !deepseek?.models.some((m) => m.id === harnessBinding.modelId) && (
+              <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>
+            )}
+          <OperationStatus operation={c.operations["writing-model"]} t={t} />
+        </>
+      )}
       {engines.map((e) => (
         <article key={e.id}>
           <strong>{e.label}</strong>
@@ -234,8 +305,7 @@ export function AgentSettings({
                   testing ||
                   !keySaved ||
                   !e.available ||
-                  defaults.engineId !== "deepseek" ||
-                  !e.models.some((m) => m.id === defaults.modelId)
+                  !e.models.some((m) => m.id === testModelId)
                 }
                 onClick={() => void testModel()}
               >
@@ -258,6 +328,32 @@ export function AgentSettings({
           )}
         </article>
       ))}
+      <details className="agent-compatibility">
+        <summary>{t.deepseekCompatibility}</summary>
+        <p>{t.deepseekCompatibilityHelp}</p>
+        <div className="ai-inline-actions">
+          <button
+            aria-pressed={compatibility === "services"}
+            onClick={() => setCompatibility("services")}
+          >
+            {t.aiModels}
+          </button>
+          <button
+            aria-pressed={compatibility === "defaults"}
+            onClick={() => setCompatibility("defaults")}
+          >
+            {t.aiDefaultModels}
+          </button>
+        </div>
+        <AiSettingsContent
+          controller={c}
+          directOnly
+          t={t}
+          open={open}
+          active={active}
+          section={compatibility}
+        />
+      </details>
     </section>
   );
 }

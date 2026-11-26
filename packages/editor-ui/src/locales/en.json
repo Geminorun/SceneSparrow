@@ -685,7 +685,7 @@
   "MARKDOWN_ANCHOR_DETACHED": "Anchor needs repositioning. The original quote and comment are retained.",
   "MARKDOWN_EXCHANGE_EXPORT_CHANGED": "A document changed while preparing the ZIP. Your text is retained. Export again when ready.",
   "workspaceTab_agent": "Agent",
-  "agentSettingsHelp": "External writing Agents use a server connection. Built-in writing actions keep their own model settings.",
+  "agentSettingsHelp": "Configure the writing model and optional conversation Agent preferences. Direct API settings are available below.",
   "agentCheckConnection": "Check connection",
   "agentDefaultEngine": "Default Agent",
   "agentDefaultModel": "Default Agent model",
@@ -755,5 +755,11 @@
   "deepseekTestSuccess": "Native model test succeeded.",
   "aiCredentialUnknown": "Key save outcome is unknown. Check saved settings before trying again.",
   "AGENT_DEEPSEEK_CREDENTIAL_REJECTED": "DeepSeek rejected this key. Replace the official API key and test again.",
-  "AGENT_DEEPSEEK_UPSTREAM_FAILED": "DeepSeek could not complete the model test. Check the model and try again explicitly."
+  "AGENT_DEEPSEEK_UPSTREAM_FAILED": "DeepSeek could not complete the model test. Check the model and try again explicitly.",
+  "deepseekWritingModel": "Harness model for writing actions",
+  "deepseekWritingHelp": "Outline, draft and comment rewrites use this saved model. Conversation Agent choices are independent.",
+  "deepseekKeepDirect": "Keep current direct API binding",
+  "deepseekCompatibility": "Advanced: direct API compatibility",
+  "deepseekCompatibilityHelp": "Manage existing model services and direct API writing defaults here. Select a Harness writing model above to switch.",
+  "deepseekWritingActive": "Harness writing model selected above"
 }
