@@ -207,7 +207,7 @@ Windows/macOS, native credential stores, live providers or unmet large-document
 performance budgets. Rendering remains a separate sample, and arbitrary generated
 code execution remains disabled until platform isolation is implemented and tested.
 
-## Optional external writing runtime
+## Web writing runtimes
 
 The Web application owns the Agent session and guarded Markdown writer.
 `crates/infrastructure/src/codex_agent.rs` connects to a private Unix socket.
@@ -215,7 +215,8 @@ The isolated Linux runner launches Codex App Server over stdio with separate
 credentials and scratch space. The authenticated catalog checks the account
 and models. [Runner guide](codex-writing-runner.md)
 
-The separate [DeepSeek runner](deepseek-writing-runner.md) runs pinned native ACP
-with a writing-only profile and fixed provider relay. Its deterministic Linux
-isolation checks are separate from hosted inference. The Web native adapter and
-default deployment remain pending in DSH-T02/T03.
+The [DeepSeek runner](deepseek-writing-runner.md) runs pinned native ACP with
+a writing-only profile. The Linux Web release pairs the two images and shares
+one private socket volume with the runner. The Web supervisor owns the fixed
+DeepSeek Messages relay. Web readiness is independent of runner connectivity.
+The native adapter uses the existing vault and document write boundary.

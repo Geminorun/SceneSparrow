@@ -1362,9 +1362,9 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
   await expect
     .poll(async () => (await outlineFile(page)).text)
     .toBe(raw.replace("* editable sibling", "- editable sibling edited"));
-  await outlineEditor(page).locator("li").first().click();
-  await outlineEditor(page).press("End");
-  await outlineEditor(page).pressSequentially(" forbidden");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await selectBlocks(outlineEditor(page), "li p", 0, 0);
+  await page.keyboard.type(" forbidden");
   await expect(outlineEditor(page)).not.toContainText("forbidden");
   const input = await source(page);
   await input.fill("Deleted protected source");

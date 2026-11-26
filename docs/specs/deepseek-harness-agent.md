@@ -1,8 +1,9 @@
 # Native DeepSeek Harness for Web writing
 
-Status — DSH-T01 and DSH-T02 implement the isolated native runner and connect
-it to the existing Web conversation and guarded document edits. Hosted-provider
-inference is pending. [Implementation evidence](../validation/deepseek-harness-agent.md)
+Status — DSH-T01 through DSH-T03 implement the isolated native runner,
+guarded Web conversations and the paired Web release configuration. The
+built-in writing action migration and hosted-provider inference are pending.
+[Implementation evidence](../validation/deepseek-harness-agent.md)
 
 ## Scope and user experience
 

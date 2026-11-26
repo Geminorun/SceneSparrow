@@ -53,3 +53,29 @@ and guarded edits. The real Web smoke ran with both advertised model IDs,
 two turns on the same session. The provider fixture verified that a selection
 edit receives only the selected passage. Workspace checks, the production
 build, 14 integration tests and 17 focused browser tests passed.
+
+## DSH-T03 — Paired release and Agent configuration
+
+The release pipeline builds both images and runs a paired Compose smoke with
+disposable volumes. A release records both immutable digests. Deployment tests
+check that both images are pulled before downtime, and that old single-image
+and paired backup configurations remain available for manual rollback.
+Exact release image and paired startup validation is tracked separately.
+
+- **DSH-AC05** — Compose resolves the private socket volume, fixed UID,
+  read-only root and disabled runner network. The paired smoke checks fresh
+  readiness, saving with DeepSeek stopped and restart. The supervisor and
+  deploy fixtures passed locally.
+- **DSH-AC06** — Chromium 156 reached the authenticated Web gateway, loaded the
+  official credential from the encrypted vault and exercised explicit native
+  inference against the controlled provider. A duplicate request had one
+  provider call. A 401 mapped to the credential rejection code with no raw
+  provider details or key in the response. The final native runtime probe
+  also verified the 503 code and recovery on the same bridge. The exact overlay
+  runner image was
+  `sha256:6a9b2644844727e85e0d0f472236b6072bb4fa5bc810310f5b55418857296f1c`.
+
+The Chrome lock smoke now waits for save acknowledgment and places the input
+selection on the intended locked paragraph. In the previous GitHub trace,
+the test typed into an unlocked sibling. Both matching lock tests passed
+three local repetitions after the test-only correction.

@@ -1,11 +1,11 @@
 # Isolated DeepSeek writing runner
 
-This optional Linux runner implements DSH-T01. It does not enable DeepSeek in
-Web settings or change deployment defaults. The actual official `dsh` CLI runs
-ACP stdio inside a dedicated container; SceneSparrow owns all document writes.
-Hosted inference and release rollout remain separate acceptance gates.
+The Linux Web release starts the official `dsh` CLI in a dedicated container.
+It is the default Agent for new Web configurations. SceneSparrow owns all
+document writes. The [Web deployment guide](web-deployment.md) covers the
+paired images and operator settings. Hosted inference remains a release gate.
 
-## Build and start
+## Start a standalone development runner
 
 Use Node 24.9 or later and an unprivileged Docker user. The image pins Node
 24.22.1 by digest and `@deepseek-ai/dsh@0.2.2-rc.5` plus the official profile
@@ -26,7 +26,8 @@ build-only secret. TLS verification remains enabled.
 The socket directory must be empty, mode 0700 and owned by the nonroot launching
 user. The core and runner use the same numeric UID. `SCENESPARROW_DSH_RUNNER_IMAGE`
 can select a trusted locally built image. This is an operator-controlled image
-identity, never a model-selected setting. Stopping the launcher removes the
+identity. Set `SCENESPARROW_DEEPSEEK_SOCKET` on the Web supervisor to the absolute
+`dsh.sock` path. The standalone launcher owns the relay. Stopping it removes the
 container, stops its relay and removes both sockets. After an abrupt host failure,
 verify the processes have stopped before removing stale sockets and restarting.
 
@@ -40,8 +41,8 @@ credentials disappear when the connection or container ends.
 ## Private connection protocol
 
 The private directory and mode-0600 sockets authorize the matching local UID.
-Do not expose or mount them for another user or an unrelated service. Mount the
-directory into the future core with the same ownership; never expose TCP ACP.
+Mount the directory into the core with the same ownership and keep it private
+to these two processes.
 One connection owns one native process and one disposable Harness home.
 
 Connect to `dsh.sock` and send one newline-terminated JSON handshake:
@@ -115,7 +116,7 @@ profile does not activate the excluded modules and accepts no client patches.
 The launcher never runs unrestricted `dsh` on the host.
 
 The native adapter uses the official DeepSeek API-key implementation and
-Anthropic-compatible Messages protocol. A fixed container loopback HTTP adapter
+Anthropic-compatible Messages protocol. A per-connection loopback HTTP adapter
 passes only `POST /anthropic/v1/messages` through `provider.sock` to the trusted
 host relay. The relay forwards only to `https://api.deepseek.com` with TLS
 verification and no redirect following. It admits only the required protocol/key
@@ -123,10 +124,10 @@ headers, bounds both request and response bytes and time, and propagates aborts.
 The native container has no direct external network access. Catalog options come
 from the pinned adapter's advisory catalog; no `/models` proxy route is needed.
 
-`startProviderRelay(directory)` is a small module for the future trusted Web
-supervisor to own. The standalone launcher starts it for this stage. Its optional
-loopback fixture port is used only by the explicit synthetic acceptance probe;
-ACP never accepts a provider address. Production callers omit that argument.
+The Web supervisor starts the relay when `SCENESPARROW_DEEPSEEK_RELAY_DIR` is
+configured. Its optional loopback fixture port is reserved for the synthetic
+acceptance probe. The bridge reports sanitized failure codes for provider HTTP
+errors observed on the corresponding ACP prompt.
 
 ## Verification
 

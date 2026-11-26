@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type {
   AgentProposal,
   AgentSession,
@@ -59,15 +59,23 @@ export function AgentConversation({
     turnId: string,
   ) => Promise<void>;
 }) {
-  const defaults = applicationPreferences.getSnapshot().agentDefault;
-  const [choice, setChoice] = useState({
-    engineId: defaults?.engineId ?? "codex",
-    modelId: defaults?.modelId ?? "",
-  });
-  const engine =
-    catalog.engines.find((e) => e.id === choice.engineId) ?? catalog.engines[0];
+  const savedDefaults = useSyncExternalStore(
+    applicationPreferences.subscribe,
+    applicationPreferences.getSnapshot,
+  ).agentDefault;
+  const defaults = savedDefaults ??
+    catalog.defaultChoice ?? { engineId: "codex", modelId: "" };
+  const [explicitChoice, setChoice] = useState<{
+    engineId: string;
+    modelId: string;
+  } | null>(null);
+  const choice = explicitChoice ?? defaults;
+  const engine = catalog.engines.find((e) => e.id === choice.engineId);
   const model =
-    engine?.models.find((m) => m.id === choice.modelId) ?? engine?.models[0];
+    engine?.models.find((m) => m.id === choice.modelId) ??
+    (choice.engineId !== "deepseek" && !choice.modelId
+      ? engine?.models[0]
+      : undefined);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
   const textRef = useRef(text);
@@ -282,8 +290,8 @@ export function AgentConversation({
           className="quiet-button"
           onClick={() =>
             fresh({
-              engineId: defaults?.engineId ?? "codex",
-              modelId: defaults?.modelId ?? "",
+              engineId: defaults.engineId,
+              modelId: defaults.modelId,
             })
           }
         >
@@ -474,7 +482,13 @@ export function AgentConversation({
               fresh({ engineId: engine!.id, modelId: e.target.value })
             }
           >
-            {!model && <option value="">{t.agentNoModels}</option>}
+            {!model && (
+              <option value="">
+                {engine?.models.length
+                  ? t.deepseekChooseModel
+                  : t.agentNoModels}
+              </option>
+            )}
             {engine?.models.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label}

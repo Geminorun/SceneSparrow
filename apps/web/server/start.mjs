@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { startProviderRelay } from "../../../scripts/agent/deepseek/relay.mjs";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { createDiagnostics, collectChild } from "./diagnostics.mjs";
@@ -22,6 +23,7 @@ export async function startRuntime({
   masterKeyFile,
   codexSocket,
   deepseekSocket,
+  deepseekRelayDirectory,
   signals = process,
   onExit = (code) => {
     process.exitCode = code;
@@ -34,6 +36,11 @@ export async function startRuntime({
 }) {
   validateOrigin(origin);
   if (masterKeyFile !== undefined) await validateMasterKeyFile(masterKeyFile);
+  // Agent availability never gates project read/edit/save readiness.
+  const relay =
+    deepseekRelayDirectory === undefined
+      ? undefined
+      : await startProviderRelay(deepseekRelayDirectory).catch(() => undefined);
   const token = randomBytes(32).toString("hex");
   const native = randomBytes(32).toString("hex");
   // Use an explicit environment so operator configuration cannot reach the core or workers.
@@ -125,6 +132,8 @@ export async function startRuntime({
           await exited;
         }
       } finally {
+        relay?.close();
+        relay?.closeAllConnections();
         clearTimeout(deadline);
         killGroup("SIGKILL");
         signals.removeListener("SIGTERM", terminate);
@@ -233,6 +242,7 @@ if (
         "/run/secrets/ai_master_key",
       codexSocket: process.env.SCENESPARROW_CODEX_SOCKET,
       deepseekSocket: process.env.SCENESPARROW_DEEPSEEK_SOCKET,
+      deepseekRelayDirectory: process.env.SCENESPARROW_DEEPSEEK_RELAY_DIR,
       version,
       buildSha: process.env.SCENESPARROW_BUILD_SHA ?? "unknown",
     });

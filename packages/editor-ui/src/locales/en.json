@@ -748,6 +748,12 @@
   "AGENT_BUSY": "The Agent is busy. Wait for the current operation, then try again.",
   "deepseekConnected": "Runner connected; key saved. A conversation turn verifies the provider key and model.",
   "deepseekNotConfigured": "DeepSeek Harness is not configured. Ask the server operator to connect the isolated runner, then check again.",
-  "deepseekMissingCredential": "Runner connected. Save a key for the official DeepSeek API in Model services, then check again.",
-  "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED": "DeepSeek Harness needs an official DeepSeek API key. Save it in Model services, then check the Agent connection."
+  "deepseekMissingCredential": "Runner connected. Save an official DeepSeek API key here, then choose a model.",
+  "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED": "DeepSeek Harness needs an official DeepSeek API key. Save it in Model services, then check the Agent connection.",
+  "deepseekChooseModel": "Choose a model",
+  "deepseekTestModel": "Test model",
+  "deepseekTestSuccess": "Native model test succeeded.",
+  "aiCredentialUnknown": "Key save outcome is unknown. Check saved settings before trying again.",
+  "AGENT_DEEPSEEK_CREDENTIAL_REJECTED": "DeepSeek rejected this key. Replace the official API key and test again.",
+  "AGENT_DEEPSEEK_UPSTREAM_FAILED": "DeepSeek could not complete the model test. Check the model and try again explicitly."
 }

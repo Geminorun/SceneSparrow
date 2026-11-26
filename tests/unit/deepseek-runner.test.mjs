@@ -131,3 +131,31 @@ test(
     }
   },
 );
+
+test("DSH-AC05 restart removes only a stale owned Unix socket and preserves live sockets/files", async () => {
+  const { createServer } = await import("node:net");
+  const { removeStaleSocket } =
+    await import("../../scripts/agent/deepseek/relay.mjs");
+  const root = await mkdtemp("/tmp/dsh-restart-");
+  const socket = `${root}/runner.sock`;
+  const server = createServer((client) => client.end());
+  try {
+    await new Promise((resolve) => server.listen(socket, resolve));
+    await assert.rejects(removeStaleSocket(socket), /already active/);
+    await new Promise((resolve) => server.close(resolve));
+    // A killed child leaves a real stale socket inode.
+    const child = spawnSync(process.execPath, [
+      "--input-type=module",
+      "-e",
+      `import {createServer} from 'node:net';createServer().listen(${JSON.stringify(socket)},()=>process.kill(process.pid,'SIGKILL'));`,
+    ]);
+    assert.equal(child.signal, "SIGKILL");
+    await removeStaleSocket(socket);
+    await removeStaleSocket(socket);
+    await writeFile(socket, "must survive");
+    await assert.rejects(removeStaleSocket(socket), /owned socket/);
+  } finally {
+    server.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

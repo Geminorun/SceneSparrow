@@ -14,8 +14,9 @@ mapfile -t config < <(python3 - "$incoming/config.json" <<'PY'
 import json, re, sys
 from urllib.parse import urlsplit
 c = json.load(open(sys.argv[1]))
-assert set(c) == {'image', 'origin', 'directory', 'port', 'actor'}
+assert set(c) == {'runnerImage', 'image', 'origin', 'directory', 'port', 'actor'}
 assert re.fullmatch(r'ghcr\.io/[a-z0-9][a-z0-9_./-]*@sha256:[a-f0-9]{64}', c['image'])
+assert re.fullmatch(r'ghcr\.io/[a-z0-9][a-z0-9_./-]*@sha256:[a-f0-9]{64}', c['runnerImage'])
 assert re.fullmatch(r'/[A-Za-z0-9_/-]+', c['directory']) and '..' not in c['directory'].split('/')
 assert c['directory'] not in ('/', '/tmp', '/home', '/srv', '/opt', '/var')
 u = urlsplit(c['origin'])
@@ -23,15 +24,16 @@ assert u.scheme == 'https' and u.hostname and not u.username and not u.password
 assert c['origin'] == 'https://' + u.netloc and re.fullmatch(r'https://[A-Za-z0-9.:-]+', c['origin'])
 assert isinstance(c['port'], int) and 1024 <= c['port'] <= 65535
 assert re.fullmatch(r'[A-Za-z0-9_-]+', c['actor'])
-print(c['image'], c['origin'], c['directory'], c['port'], c['actor'], sep='\n')
+print(c['image'], c['origin'], c['directory'], c['port'], c['actor'], c['runnerImage'], sep='\n')
 PY
 )
-[[ ${#config[@]} == 5 ]] || { echo 'Invalid deployment configuration' >&2; exit 2; }
+[[ ${#config[@]} == 6 ]] || { echo 'Invalid deployment configuration' >&2; exit 2; }
 image=${config[0]}
 origin=${config[1]}
 directory=${config[2]}
 port=${config[3]}
 actor=${config[4]}
+runner_image=${config[5]}
 mkdir -p -- "$directory"
 exec 9>"$directory/deploy.lock"
 flock -x 9
@@ -64,8 +66,8 @@ except Exception:
 PYKEY
 }
 if [[ -e $master_file || -L $master_file ]]; then validate_master_key; fi
-printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
-  "$image" "$origin" "$port" "$next_auth" "$master_file" > "$incoming/runtime.env"
+printf 'SCENESPARROW_IMAGE=%s\nSCENESPARROW_DSH_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
+  "$image" "$runner_image" "$origin" "$port" "$next_auth" "$master_file" > "$incoming/runtime.env"
 docker compose --env-file "$incoming/runtime.env" -f "$incoming/compose.yaml" config --quiet
 registry_config=$(mktemp -d /tmp/scenesparrow-registry.XXXXXXXX)
 export DOCKER_CONFIG=$registry_config
@@ -139,9 +141,10 @@ for volume in scenesparrow-project scenesparrow-appdata; do
   fi
 done
 printf '%s\n' "$image" > "$backup/requested-image"
+printf '%s\n' "$runner_image" > "$backup/requested-runner-image"
 if [[ -f $incoming/operator-auth ]]; then install -m 0444 "$incoming/operator-auth" "$auth_file"; fi
-printf 'SCENESPARROW_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
-  "$image" "$origin" "$port" "$auth_file" "$master_file" > "$incoming/runtime.env"
+printf 'SCENESPARROW_IMAGE=%s\nSCENESPARROW_DSH_IMAGE=%s\nPUBLIC_ORIGIN=%s\nWEB_PORT=%s\nOPERATOR_AUTH_FILE=%s\nAI_MASTER_KEY_FILE=%s\n' \
+  "$image" "$runner_image" "$origin" "$port" "$auth_file" "$master_file" > "$incoming/runtime.env"
 install -m 0600 "$incoming/compose.yaml" "$directory/compose.yaml"
 install -m 0600 "$incoming/runtime.env" "$directory/runtime.env"
 if ! docker compose --env-file "$directory/runtime.env" -f "$directory/compose.yaml" up -d --force-recreate --pull never --wait --wait-timeout 120; then

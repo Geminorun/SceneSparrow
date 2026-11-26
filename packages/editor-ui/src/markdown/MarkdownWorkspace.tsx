@@ -201,6 +201,7 @@ export function MarkdownWorkspace({
     platformClient.agent,
     settingsSection === "agent" ||
       (pane.right.tab === "agent" && pane.visible("right")),
+    platformClient,
   );
   const redraw = () => render((value) => value + 1);
   function install(
@@ -2025,6 +2026,8 @@ export function MarkdownWorkspace({
                 <p className="muted">{t.manualSaveHelp}</p>
               </section>
               <AgentSettings
+                client={platformClient}
+                open={settingsSection !== null}
                 catalog={agentCatalog}
                 t={t}
                 active={settingsSection === "agent"}

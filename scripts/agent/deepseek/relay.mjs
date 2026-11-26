@@ -1,12 +1,13 @@
 // This trusted module runs outside the network-disabled native runner.
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { chmod, lstat } from "node:fs/promises";
+import { chmod, lstat, unlink } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { pathToFileURL } from "node:url";
 import { DEADLINE, MAX_INPUT, MAX_OUTPUT } from "./policy.mjs";
 
 // Both hops admit only the native Messages request. No URL is accepted from ACP.
-export function providerProxy(connect) {
+export function providerProxy(connect, observeStatus = () => {}) {
   return createServer((incoming, outgoing) => {
     if (
       incoming.method !== "POST" ||
@@ -34,6 +35,7 @@ export function providerProxy(connect) {
       request = connect(
         { method: "POST", path: incoming.url, headers },
         (response) => {
+          observeStatus(response.statusCode);
           outgoing.writeHead(response.statusCode, {
             "content-type":
               response.headers["content-type"] ?? "application/json",
@@ -80,6 +82,39 @@ export function providerProxy(connect) {
   });
 }
 
+export async function removeStaleSocket(socket) {
+  let before;
+  try {
+    before = await lstat(socket);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+  if (!before.isSocket() || before.uid !== process.getuid())
+    throw Error("Socket path is not an owned socket");
+  await new Promise((resolve, reject) => {
+    const probe = createConnection(socket);
+    probe.setTimeout(1000, () => {
+      probe.destroy();
+      reject(Error("Socket probe timed out"));
+    });
+    probe.once("connect", () => {
+      probe.destroy();
+      reject(Error("Socket already active"));
+    });
+    probe.once("error", (error) => {
+      if (error.code === "ECONNREFUSED" || error.code === "ENOENT") resolve();
+      else reject(error);
+    });
+  });
+  const after = await lstat(socket).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
+  if (after && after.ino === before.ino && after.dev === before.dev)
+    await unlink(socket);
+  else if (after) throw Error("Socket changed during restart");
+}
+
 export async function startProviderRelay(directory, fixturePort) {
   const metadata = await lstat(directory);
   if (
@@ -106,6 +141,7 @@ export async function startProviderRelay(directory, fixturePort) {
         ),
   );
   const socket = `${directory}/provider.sock`;
+  await removeStaleSocket(socket);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(socket, resolve);

@@ -175,3 +175,70 @@ test("secret entry is masked on first render, with secure password fallback and 
     globalThis.CSS = original;
   }
 });
+
+test("DSH-AC06 official key selection follows binding, explicit preset, then an unambiguous exact bearer origin", async () => {
+  const { officialDeepseekProvider } =
+    await import("../../packages/editor-ui/src/ai-settings/model.ts");
+  const s = settings();
+  const official = (id, root = "https://api.deepseek.com/v1") => ({
+    ...provider(id, root),
+    adapter: "openai_compatible",
+    authMode: "bearer",
+  });
+  s.providers = [
+    official("first"),
+    official("second"),
+    official("proxy", "https://proxy.example/v1"),
+  ];
+  assert.equal(officialDeepseekProvider(s), undefined);
+  s.providers[2].servicePreset = "deepseek";
+  assert.equal(
+    officialDeepseekProvider(s),
+    undefined,
+    "a named proxy never supplies a runner key",
+  );
+  s.providers[1].servicePreset = "deepseek";
+  assert.equal(officialDeepseekProvider(s).id, "second");
+  s.bindings = [
+    { category: "text", providerId: "first", modelId: "retired-exact-model" },
+  ];
+  assert.equal(officialDeepseekProvider(s).id, "first");
+  s.bindings[0].providerId = "proxy";
+  assert.equal(officialDeepseekProvider(s).id, "second");
+  s.providers = [official("only", "https://api.deepseek.com/")];
+  assert.equal(officialDeepseekProvider(s).id, "only");
+  for (const root of [
+    "https://api.deepseek.com.evil/v1",
+    "https://api.deepseek.com/v1?key=x",
+    "http://api.deepseek.com/v1",
+  ]) {
+    s.providers = [official("fake", root)];
+    assert.equal(officialDeepseekProvider(s), undefined);
+  }
+});
+
+test("DSH-AC06 late catalog reads cannot roll back a newer saved model or credential revision", async () => {
+  const { publishSavedAiView } =
+    await import("../../packages/editor-ui/src/ai-settings/saved-view.ts");
+  assert.equal(
+    publishSavedAiView({
+      sessionId: "catalog-race",
+      settings: { revision: 8 },
+    }),
+    true,
+  );
+  assert.equal(
+    publishSavedAiView({
+      sessionId: "catalog-race",
+      settings: { revision: 7 },
+    }),
+    false,
+  );
+  assert.equal(
+    publishSavedAiView({
+      sessionId: "catalog-race",
+      settings: { revision: 9 },
+    }),
+    true,
+  );
+});

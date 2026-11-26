@@ -12,7 +12,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { providerProxy } from "./relay.mjs";
+import { providerProxy, removeStaleSocket } from "./relay.mjs";
 import {
   VERSION,
   MAX_INPUT,
@@ -41,13 +41,6 @@ if (
   );
 process.umask(0o077);
 await mkdir("/tmp/writing", { mode: 0o700 });
-const proxy = providerProxy((options, callback) =>
-  request({ ...options, socketPath: `${SOCKET_ROOT}/provider.sock` }, callback),
-);
-await new Promise((resolve, reject) => {
-  proxy.once("error", reject);
-  proxy.listen(48191, "127.0.0.1", resolve);
-});
 function drain(stream) {
   return new Promise((resolve) => {
     const done = () => {
@@ -76,6 +69,9 @@ const server = createSocketServer(async (stream) => {
   let output = 0;
   let wireOutput = 0;
   let apiKey;
+  let proxy;
+  let providerStatus;
+  const prompts = new Set();
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -120,6 +116,21 @@ const server = createSocketServer(async (stream) => {
     if (first.done || stopped) return;
     apiKey = credentialHandshake(JSON.parse(first.value));
     clearTimeout(handshakeTimer);
+    // A loopback port belongs to exactly one ACP connection, so status cannot cross keys/turns.
+    proxy = providerProxy(
+      (options, callback) =>
+        request(
+          { ...options, socketPath: `${SOCKET_ROOT}/provider.sock` },
+          callback,
+        ),
+      (status) => {
+        providerStatus = status;
+      },
+    );
+    await new Promise((resolve, reject) => {
+      proxy.once("error", reject);
+      proxy.listen(0, "127.0.0.1", resolve);
+    });
     directory = await mkdtemp("/tmp/dsh-home-");
     const profile = `${directory}/profiles/writing`;
     await mkdir(profile, { recursive: true, mode: 0o700 });
@@ -129,10 +140,9 @@ const server = createSocketServer(async (stream) => {
     );
     await writeFile(
       `${profile}/cordis.patch.yml`,
-      (await readFile("/opt/dsh/writing.patch.yml", "utf8")).replace(
-        "/tmp/unused",
-        `${directory}/sessions`,
-      ),
+      (await readFile("/opt/dsh/writing.patch.yml", "utf8"))
+        .replace("/tmp/unused", `${directory}/sessions`)
+        .replace("48191", String(proxy.address().port)),
     );
     if (stopped) return;
     child = spawn(
@@ -181,6 +191,33 @@ const server = createSocketServer(async (stream) => {
             stop();
             break;
           }
+          const promptReply = prompts.delete(message.id);
+          if (message.error) {
+            // Native/provider payloads cannot forge our trusted classification field.
+            message.error = {
+              code: -32603,
+              message: "Native request failed",
+              ...(promptReply && !apiKey
+                ? {
+                    data: {
+                      sceneSparrowCode: "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED",
+                    },
+                  }
+                : {}),
+            };
+          }
+          if (message.error && promptReply && providerStatus >= 400) {
+            message.error = {
+              code: -32603,
+              message: "Provider request failed",
+              data: {
+                sceneSparrowCode:
+                  providerStatus === 401
+                    ? "AGENT_DEEPSEEK_CREDENTIAL_REJECTED"
+                    : "AGENT_DEEPSEEK_UPSTREAM_FAILED",
+              },
+            };
+          }
           // Native ACP advertises generic MCP features; this deployment admits none.
           if (message.result?.agentCapabilities) {
             message.result.agentCapabilities = {
@@ -221,6 +258,18 @@ const server = createSocketServer(async (stream) => {
             });
           continue;
         }
+        if (message.method === "session/prompt") {
+          if (prompts.size) {
+            await send({
+              jsonrpc: "2.0",
+              id: message.id,
+              error: { code: -32600, message: "A prompt is already active" },
+            });
+            continue;
+          }
+          providerStatus = undefined;
+          prompts.add(message.id);
+        }
         if (!child.stdin.write(JSON.stringify(message) + "\n"))
           await drain(child.stdin);
       }
@@ -243,6 +292,8 @@ const server = createSocketServer(async (stream) => {
         /* Exited. */
       }
     }
+    proxy?.close();
+    proxy?.closeAllConnections();
     children.delete(stop);
     lines.close();
     if (directory) await rm(directory, { recursive: true, force: true });
@@ -252,10 +303,9 @@ const server = createSocketServer(async (stream) => {
 server.on("error", () => {
   process.exitCode = 1;
   for (const stop of children) stop();
-  proxy.close();
-  proxy.closeAllConnections();
 });
 const socket = `${SOCKET_ROOT}/dsh.sock`;
+await removeStaleSocket(socket);
 server.listen(socket, async () => {
   await chmod(socket, 0o600);
 });
@@ -263,6 +313,4 @@ for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     server.close();
     for (const stop of children) stop();
-    proxy.close();
-    proxy.closeAllConnections();
   });

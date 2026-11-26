@@ -138,6 +138,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   return {
     agent: {
       catalog: () => request("/v1/agent/catalog"),
+      testDeepseek: (body) => request("/v1/agent/deepseek/test", body),
       create: (project, body) => request(agentPath(project), body),
       read: (project, session) => request(agentPath(project, session)),
       close: (project, session) =>

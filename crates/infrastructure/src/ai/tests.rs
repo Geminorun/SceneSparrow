@@ -1241,3 +1241,108 @@ fn retired_fields_are_read_only_compatibility_and_context_reserves_no_output() {
     old_config["model"]["unexpected"] = serde_json::json!(true);
     assert!(super::legacy::read_configuration(&old_config.to_string()).is_err());
 }
+
+#[test]
+fn dsh_model_test_rejects_proxy_and_retains_receipt_without_redispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let provider = &view.settings.providers[0];
+    store
+        .update_credential(
+            view.settings.revision,
+            &provider.id,
+            Some("SYNTHETIC_PROXY_ONLY"),
+        )
+        .unwrap();
+    let target = AiTestTarget {
+        provider_id: provider.id.clone(),
+        model_id: "manual-model".into(),
+    };
+    let config = store
+        .resolve_test_configuration(&target)
+        .unwrap()
+        .configuration;
+    let mut action = AiTestAction {
+        session_id: store.session_id.clone(),
+        action_id: uuid(),
+        target,
+        fingerprint: config.fingerprint,
+    };
+    let actions = actions::SettingsActions::default();
+    let first = actions.test_deepseek(&store, &action).unwrap();
+    assert_eq!(
+        first.error.as_deref(),
+        Some("AGENT_DEEPSEEK_CREDENTIAL_REQUIRED")
+    );
+    assert_eq!(actions.test_deepseek(&store, &action).unwrap(), first);
+    assert_eq!(
+        actions.test(&store, &action).unwrap_err().0,
+        "REQUEST_ID_REUSED"
+    );
+    action.fingerprint = "another-config".into();
+    assert_eq!(
+        actions.test_deepseek(&store, &action).unwrap_err().0,
+        "REQUEST_ID_REUSED"
+    );
+    action.action_id = uuid();
+    action.session_id = "old-service-session".into();
+    assert_eq!(
+        actions.test_deepseek(&store, &action).unwrap_err().0,
+        "TEST_STATUS_UNKNOWN"
+    );
+}
+
+#[test]
+fn dsh_official_preset_resolves_legacy_ambiguity_but_current_official_binding_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let first_id = view.settings.providers[0].id.clone();
+    let mut view = store
+        .update_credential(view.settings.revision, &first_id, Some("SYNTHETIC_FIRST"))
+        .unwrap();
+    view.settings.providers[0].base_url = "https://api.deepseek.com/v1/".into();
+    let mut second = view.settings.providers[0].clone();
+    second.id = uuid();
+    second.credential_revision = None;
+    second.base_url = "https://api.deepseek.com".into();
+    second.service_preset = Some(AiProviderServicePreset::Deepseek);
+    let second_id = second.id.clone();
+    view.settings.providers.push(second);
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    view = store
+        .update_credential(view.settings.revision, &second_id, Some("SYNTHETIC_SECOND"))
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_FIRST")
+    );
+    view.settings.bindings.clear();
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_SECOND")
+    );
+    view.settings.providers[1].service_preset = None;
+    store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().err().unwrap().0,
+        "CREDENTIAL_UNAVAILABLE"
+    );
+}

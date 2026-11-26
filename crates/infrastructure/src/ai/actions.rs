@@ -169,12 +169,27 @@ impl SettingsActions {
         settings: &settings::SettingsStore,
         action: &AiTestAction,
     ) -> Result<AiTestReceipt> {
+        self.test_using(settings, action, false)
+    }
+    pub fn test_deepseek(
+        &self,
+        settings: &settings::SettingsStore,
+        action: &AiTestAction,
+    ) -> Result<AiTestReceipt> {
+        self.test_using(settings, action, true)
+    }
+    fn test_using(
+        &self,
+        settings: &settings::SettingsStore,
+        action: &AiTestAction,
+        native: bool,
+    ) -> Result<AiTestReceipt> {
         ensure(valid_id(&action.action_id), "INVALID_REQUEST")?;
         ensure(
             action.session_id == settings.session_id,
             "TEST_STATUS_UNKNOWN",
         )?;
-        let digest = hash(&safe(serde_json::to_vec(action))?);
+        let digest = hash(&safe(serde_json::to_vec(&(action, native)))?);
         let cell = {
             let mut tests = safe(self.tests.lock())?;
             if let Some((previous, cell)) = tests.get(&action.action_id) {
@@ -202,7 +217,26 @@ impl SettingsActions {
                     "CONFIGURATION_STALE",
                 )?;
                 tested_root = Some(config.provider.base_url.clone());
+                if native {
+                    ensure(
+                        settings::is_official_deepseek(&config.provider),
+                        "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED",
+                    )?;
+                }
                 let lease = settings.lease(&config)?;
+                if native {
+                    let socket = std::env::var_os("SCENESPARROW_DEEPSEEK_SOCKET")
+                        .map(std::path::PathBuf::from);
+                    crate::deepseek_agent::execute_prompt(
+                        socket.as_deref(),
+                        lease,
+                        &config.model.id,
+                        "Reply with OK.",
+                        4096,
+                    )
+                    .map_err(AiError)?;
+                    return Ok(());
+                }
                 let input = input();
                 let (run, bytes, fence) = action_run(config, &action.action_id, &input)?;
                 run_worker(

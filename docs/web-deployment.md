@@ -138,10 +138,14 @@ and integration tests alongside the Web smoke suite. Failed browser runs upload
 contexts) for seven days. PR checks use read-only permissions and no deployment
 secrets. The **Release gate** requires the release policy and full Foundation
 checks to succeed. It reports their results as an error when blocked. The image
-job then builds and exercises an AMD64 image. On an eligible deployment event,
-it tags and pushes the verified image to
-`ghcr.io/<lowercase-owner>/<lowercase-repository>/web:<commit-sha>`.
-Deployment uses its exact `@sha256:...` digest; there is no arbitrary image input
+job builds both Linux AMD64 images, runs the existing Web smoke and the real
+native DeepSeek isolation probe with a synthetic provider, then starts their
+release Compose pair with disposable volumes. The paired smoke checks missing
+credentials, saving a synthetic key without inference, Web saving after runner
+exit, and runner/Web restart. On an eligible publication event, it pushes the
+tested `web:<commit-sha>` and `deepseek:<commit-sha>` images under
+`ghcr.io/<lowercase-owner>/<lowercase-repository>/`.
+Deployment receives both exact `@sha256:...` digests; there is no arbitrary image input
 or separate rebuild. Build-only manual runs do not log in or publish.
 Actions permissions are contents-read, packages-write only in the image job and
 packages-read for deployment. All deployment events use the same concurrency
@@ -183,7 +187,7 @@ recovery into an empty volume.
 For first server setup, create the directory and secret, configure the existing
 reverse proxy using [the Nginx example](../deploy/nginx.conf.example), then deploy
 from `release/1.0.0` (or a valid matching version tag). The helper uploads configuration into a private temporary directory,
-validates it, takes a deployment lock and pulls the digest before any downtime.
+validates it, takes a deployment lock and pulls both digests before any downtime.
 The server's registry login uses a temporary Docker configuration and the token
 over stdin; the configuration is removed immediately after pull. No credential
 is put in image layers, command arguments, runtime environment files or logs.
@@ -204,6 +208,34 @@ Over-limit streamed responses terminate the connection after headers are sent.
 Treat browser reconnects as expected; Cloudflare may impose its own request limits.
 Basic authentication has browser-managed caching; close the browser profile to
 clear it and rotate the operator secret if access must be revoked.
+
+## Bundled DeepSeek Harness
+
+The release starts the pinned native runner by default. Web owns the fixed official
+Messages relay when `SCENESPARROW_DEEPSEEK_RELAY_DIR=/run/writing-agent` is set.
+`SCENESPARROW_DEEPSEEK_SOCKET=/run/writing-agent/dsh.sock` connects the core.
+Standalone launchers may set only the socket; their existing relay remains theirs.
+Runner startup, restart and credential status never gate `/readyz` or project saving.
+
+The private `scenesparrow-writing-agent` volume contains only mode-0600 sockets.
+Both images seed its mount directory as mode 0700, uid/gid 1000 through Docker
+volume copy-up. It carries no manuscripts or vault files and is not a backup
+source. On restart each owner probes its socket, removes only a stale owned Unix
+socket, and refuses to replace live sockets or ordinary files. The runner has no
+network, uses a read-only root and bounded noexec scratch, drops all capabilities,
+and receives no other volume or application secret. See the
+[runner guide](deepseek-writing-runner.md) for effective profile restrictions.
+
+In Settings → Agent, a fresh configured Web installation selects DeepSeek.
+Existing explicit Codex preferences remain. Save an official DeepSeek API key and
+choose an offered model. The card uses the existing encrypted credential store;
+connection checks read the native catalog without paid inference. **Test model**
+is the explicit inference action. Saved key status is masked and does not claim
+provider authentication. Reuse follows the current exact official bearer profile:
+an official text binding wins, then an explicitly assigned official DeepSeek
+profile, then a single unambiguous official profile. A matching saved model stays
+exact; an unavailable ID requires a new selection. Proxy credentials never reach
+the native runner, and direct API text bindings remain unchanged.
 
 ## Persistent state, backups and recovery
 
@@ -227,8 +259,8 @@ data still present on the volume. An empty first deployment records configuratio
 metadata. A backup failure leaves the service stopped for inspection. A
 same-commit redeployment creates a fresh backup.
 
-Backups include the previous Compose/runtime configuration and requested image
-digest; they intentionally exclude operator credentials and the AI master key. Backups are never deleted
+Backups include the previous Compose/runtime configuration and both requested image
+digests (`requested-image` and `requested-runner-image`); they intentionally exclude operator credentials and the AI master key. Backups are never deleted
 automatically. Monitor disk space, export encrypted copies off-server, and choose
 retention explicitly. No unrelated Docker images, containers or volumes are pruned.
 Global provider/model settings and encrypted API credential revisions persist in
@@ -262,7 +294,7 @@ a master or existing encrypted vault remains session-only.
 A failed replacement may already have migrated databases or accepted writes.
 The helper preserves the failed container/data and backup, reports failure and
 does **not** automatically restore a database or restart the old image. The current
-runtime configuration identifies the attempted image. Inspect readiness/container
+runtime configuration identifies the attempted Web and runner images. Inspect readiness/container
 state without printing credentials:
 
 ```sh
@@ -270,6 +302,18 @@ cd /srv/scenesparrow
 docker compose --env-file runtime.env -f compose.yaml ps
 docker compose --env-file runtime.env -f compose.yaml logs --tail 100
 ```
+
+A manual code rollback uses the backup's **pair** of `compose.yaml` and
+`runtime.env`, after confirming schema compatibility and the data recovery choice
+below. Stop the current definition first, restore both configuration files, and
+start the restored definition with `up -d --remove-orphans --pull never --wait`.
+The saved environment contains `SCENESPARROW_IMAGE` and `SCENESPARROW_DSH_IMAGE`.
+A pre-Harness backup remains valid: its older Compose file requires only the Web
+image and the same command removes the now-unused runner service. Never combine
+an older environment file with the newer Compose definition or invent a runner
+digest. Keep both referenced images available locally or pull their exact digests
+before taking downtime. The socket volume may remain; it contains no durable user
+state and must not be confused with the two persistent data volumes.
 
 For recovery, stop all containers using both volumes and retain an additional
 offline copy of the failed state. Decide explicitly whether to repair forward

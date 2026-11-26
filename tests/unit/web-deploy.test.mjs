@@ -53,6 +53,8 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
       join(incoming, "config.json"),
       JSON.stringify({
         image: "ghcr.io/example/scenesparrow/web@sha256:" + "a".repeat(64),
+        runnerImage:
+          "ghcr.io/example/scenesparrow/deepseek@sha256:" + "b".repeat(64),
         origin: "https://scene.example",
         directory,
         port: 8070,
@@ -186,9 +188,31 @@ if [[ $* == *' up '* && \$TEST_UP_FAIL == 1 ]]; then exit 1; fi
       await readFile(join(directory, "secrets", "operator-auth"), "utf8"),
       /c{6}/,
     );
-    assert.equal((await readdir(join(directory, "backups"))).length, 2);
+    const pairedBackups = await readdir(join(directory, "backups"));
+    assert.equal(pairedBackups.length, 2);
+    const previousEnvironments = await Promise.all(
+      pairedBackups.map((backup) =>
+        readFile(join(directory, "backups", backup, "runtime.env"), "utf8"),
+      ),
+    );
+    assert(
+      previousEnvironments.includes("old-config"),
+      "pre-Harness single-image config remains intact",
+    );
+    assert(
+      previousEnvironments.some(
+        (environment) =>
+          /SCENESPARROW_IMAGE=.*@sha256:a{64}/.test(environment) &&
+          /SCENESPARROW_DSH_IMAGE=.*@sha256:b{64}/.test(environment),
+      ),
+      "paired image identities survive the next rollback backup",
+    );
     assert.equal(await readFile(masterFile, "utf8"), generated);
     const runtimeEnv = await readFile(join(directory, "runtime.env"), "utf8");
+    assert.match(
+      runtimeEnv,
+      /SCENESPARROW_DSH_IMAGE=ghcr.io\/example\/scenesparrow\/deepseek@sha256:b{64}/,
+    );
     assert.match(runtimeEnv, /AI_MASTER_KEY_FILE=.*\/secrets\/ai-master-key/);
     for (const value of [master.trim(), generated.trim()]) {
       assert.ok(!runtimeEnv.includes(value));

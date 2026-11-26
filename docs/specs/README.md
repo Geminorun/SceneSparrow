@@ -65,6 +65,6 @@ The [external writing Agent and Claudian port](external-writing-agent.md)
 spec covers the Web conversation, Agent settings, a Codex adapter, and guarded
 selection edits.
 
-The proposed [native DeepSeek Harness for Web writing](deepseek-harness-agent.md)
+The [native DeepSeek Harness for Web writing](deepseek-harness-agent.md)
 spec covers the default runner, credential reuse, guarded conversation edits,
 and migration of the existing writing actions.

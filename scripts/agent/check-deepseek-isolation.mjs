@@ -44,8 +44,10 @@ const fixture = createServer(async (req, res) => {
     "native effective provider tool inventory is empty",
   );
   const text = JSON.stringify(body.messages);
-  if (text.includes("FIXTURE_REJECT")) {
-    res.writeHead(401, { "content-type": "application/json" });
+  if (text.includes("FIXTURE_REJECT") || text.includes("FIXTURE_UPSTREAM")) {
+    res.writeHead(text.includes("FIXTURE_REJECT") ? 401 : 503, {
+      "content-type": "application/json",
+    });
     res.end(
       JSON.stringify({
         type: "error",
@@ -324,10 +326,44 @@ try {
     sessionId: rejected.sessionId,
     prompt: [{ type: "text", text: "FIXTURE_REJECT" }],
   });
-  assert(denial.error, "provider rejects credential");
+  assert.equal(
+    denial.error?.data?.sceneSparrowCode,
+    "AGENT_DEEPSEEK_CREDENTIAL_REJECTED",
+    "trusted observed upstream 401",
+  );
   assert(
     (await client.rpc("session/close", { sessionId: rejected.sessionId }))
       .result,
+  );
+  const upstream = await session(client);
+  const unavailable = await client.rpc("session/prompt", {
+    sessionId: upstream.sessionId,
+    prompt: [{ type: "text", text: "FIXTURE_UPSTREAM" }],
+  });
+  assert.equal(
+    unavailable.error?.data?.sceneSparrowCode,
+    "AGENT_DEEPSEEK_UPSTREAM_FAILED",
+  );
+  assert(
+    !JSON.stringify(unavailable).includes("authentication_error"),
+    "raw upstream errors never cross ACP",
+  );
+  assert(
+    (await client.rpc("session/close", { sessionId: upstream.sessionId }))
+      .result,
+  );
+  const recoveredSession = await session(client);
+  const recovered = await client.rpc("session/prompt", {
+    sessionId: recoveredSession.sessionId,
+    prompt: [{ type: "text", text: "Normal reply after upstream failure" }],
+  });
+  assert(recovered.result, "per-prompt provider status resets after failure");
+  assert(
+    (
+      await client.rpc("session/close", {
+        sessionId: recoveredSession.sessionId,
+      })
+    ).result,
   );
   const disconnected = await session(client);
   const abandoned = client
@@ -351,7 +387,8 @@ try {
     prompt: [{ type: "text", text: "No credential" }],
   });
   assert(
-    noKey.error && JSON.stringify(noKey).includes("no API key"),
+    noKey.error?.data?.sceneSparrowCode ===
+      "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED",
     JSON.stringify(noKey),
   );
   assert.equal(requests.length, count, "missing key does not contact provider");
