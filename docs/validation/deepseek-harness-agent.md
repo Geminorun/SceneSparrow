@@ -60,9 +60,11 @@ The release pipeline builds both images and runs a paired Compose smoke with
 disposable volumes. A release records both immutable digests. Deployment tests
 check that both images are pulled before downtime, and that old single-image
 and paired backup configurations remain available for manual rollback.
-The [build-only release check](https://github.com/Geminorun/SceneSparrow/actions/runs/45747042253)
-tracks the exact release Dockerfiles and paired startup separately from the
-controlled-provider tests.
+The build-only release workflow checks the exact release Dockerfiles and
+paired startup separately from the controlled-provider tests. The first run
+built both images and passed the individual Web and native runner probes. The
+paired fixture now uses the v4 UUID required by the settings API and waits for
+the Agent catalog after restart. [Build-only release runs](https://github.com/Geminorun/SceneSparrow/actions/workflows/web-deploy.yml?query=branch%3Adocs%2Fdeepseek-harness-agent)
 
 - **DSH-AC05** — Compose resolves the private socket volume, fixed UID,
   read-only root and disabled runner network. The paired smoke checks fresh

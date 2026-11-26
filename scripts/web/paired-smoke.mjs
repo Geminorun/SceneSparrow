@@ -1,6 +1,6 @@
 // Release-only smoke: no hosted inference, publication, or persistent deployment volumes.
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { request } from "node:http";
@@ -77,12 +77,16 @@ try {
           response.on("data", (c) => chunks.push(c));
           response.on("end", () => {
             try {
+              const data = JSON.parse(Buffer.concat(chunks));
+              const code = /^[A-Z_]+$/.test(data?.code ?? "")
+                ? ` (${data.code})`
+                : "";
               assert.equal(
                 response.statusCode,
                 200,
-                `Smoke endpoint failed: ${path}`,
+                `Smoke endpoint failed: ${path}${code}`,
               );
-              resolve(JSON.parse(Buffer.concat(chunks)));
+              resolve(data);
             } catch (error) {
               reject(error);
             }
@@ -95,22 +99,23 @@ try {
       req.on("error", reject);
       req.end(bytes);
     });
-  async function missingKey() {
+  async function waitForAgent(status) {
     let entry;
     for (let i = 0; i < 20; i++) {
       entry = (await call("/api/v1/agent/catalog")).find(
         (e) => e.id === "deepseek",
       );
-      if (entry?.status === "not_authenticated") break;
+      if (entry?.status === status) return entry;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    assert.equal(entry?.status, "not_authenticated");
-    assert(entry.models.length > 0);
+    assert.equal(entry?.status, status);
   }
-  await missingKey();
+  const missingKey = await waitForAgent("not_authenticated");
+  assert(missingKey.models.length > 0);
   let view = await call("/api/v1/ai/settings");
+  const providerId = randomUUID();
   view.settings.providers.push({
-    id: "synthetic-deepseek",
+    id: providerId,
     label: "DeepSeek",
     adapter: "openai_compatible",
     baseUrl: "https://api.deepseek.com/v1",
@@ -126,12 +131,10 @@ try {
   );
   await call("/api/v1/ai/credentials", {
     expectedRevision: view.settings.revision,
-    providerId: "synthetic-deepseek",
+    providerId,
     secret: "SYNTHETIC_CATALOG_ONLY_NO_INFERENCE",
   });
-  const connected = (await call("/api/v1/agent/catalog")).find(
-    (e) => e.id === "deepseek",
-  );
+  const connected = await waitForAgent("ready");
   assert.equal(
     connected.available,
     true,
@@ -153,11 +156,7 @@ try {
   assert.equal(saved.text, "Saved with runner stopped");
   assert.equal((await fetch(`${address}/readyz`)).status, 200);
   compose("start", "deepseek");
-  assert.equal(
-    (await call("/api/v1/agent/catalog")).find((e) => e.id === "deepseek")
-      .available,
-    true,
-  );
+  assert.equal((await waitForAgent("ready")).available, true);
   compose("restart", "web");
   // Web readiness and the relay recover together; stale sockets must not require manual cleanup.
   for (let i = 0; i < 60; i++) {
@@ -169,8 +168,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   assert.equal(
-    (await call("/api/v1/agent/catalog")).find((e) => e.id === "deepseek")
-      .available,
+    (await waitForAgent("ready")).available,
     true,
     "encrypted key survives Web restart",
   );
