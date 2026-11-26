@@ -26,3 +26,30 @@ backpressure and immutable addon loading with a noexec scratch mount.
 The Linux test host accepted Docker resource flags with a cgroup driver of
 `none`. Hard CPU and memory enforcement remains to be verified on a host
 with cgroups.
+
+## DSH-T02 — Web conversation and guarded edits
+
+The private `SCENESPARROW_DEEPSEEK_SOCKET` connection adds DeepSeek Harness to
+the existing Agent catalog alongside Codex. The core sends an official DeepSeek
+credential from the existing vault only to the isolated runner. It selects the
+exact model advertised by ACP and checks the runtime's acknowledgment. A
+question streams committed text. Only a validated final reply can create a
+selection proposal. ACP thoughts and control metadata stay out of the transcript.
+
+- **DSH-AC03** — In Chromium 156, the authenticated Web app sent a question
+  and a selected edit through the pinned native runner and a controlled Messages
+  provider. Before Apply, the Markdown stayed identical. After Apply, the
+  surrounding bytes stayed identical. Adding a live lock after a second proposal
+  caused the core to reject Apply and retain the suggestion. The service fixture
+  also verified stale revision rejection.
+- **DSH-AC04** — The ACP and service fixtures cover duplicate requests,
+  cancellation, disconnect and protocol failures. The shared Agent/browser
+  tests exercise project switching and late-event fencing. The existing Codex
+  adapter remains available through the same engine selector.
+
+Root reviewed the credential filter, bounded ACP transport, scoped proposals
+and guarded edits. The real Web smoke ran with both advertised model IDs,
+`deepseek-flash` and `deepseek-v4-pro`. A separate native ACP probe verified
+two turns on the same session. The provider fixture verified that a selection
+edit receives only the selected passage. Workspace checks, the production
+build, 14 integration tests and 17 focused browser tests passed.

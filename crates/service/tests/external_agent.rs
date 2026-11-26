@@ -577,3 +577,187 @@ async fn ewa_global_catalog_is_authenticated_and_never_generates() {
     assert_eq!(catalog[0]["status"], "not_configured");
     assert_eq!(fixture.calls.load(Ordering::Acquire), 0);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
+    use scenesparrow_application::ai::CredentialLease;
+    use scenesparrow_infrastructure::deepseek_agent::{DeepSeekAgent, WritingAgents};
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixListener,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let socket = root.path().join("fixture.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let native = std::thread::spawn(move || {
+        for _ in 0..5 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&line).unwrap(),
+                json!({"protocolVersion":1,"apiKey":"SYNTHETIC_DSH_SERVICE"})
+            );
+            writeln!(stream, "{}", json!({"protocolVersion":1,"ready":true,"engine":"deepseek","packageVersion":"0.2.2-rc.5","credentialPresent":true})).unwrap();
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                let message: Value = serde_json::from_str(&line).unwrap();
+                let id = &message["id"];
+                let result = match message["method"].as_str().unwrap() {
+                    "initialize" => {
+                        json!({"protocolVersion":1,"agentInfo":{"name":"deepseek-harness-acp"}})
+                    }
+                    "session/new" => {
+                        json!({"sessionId":"native","configOptions":[{"id":"model","type":"select","options":[{"value":"[\"deepseek-official\",\"deepseek-flash\"]","name":"DeepSeek Flash"}]}]})
+                    }
+                    "session/set_config_option" => {
+                        assert_eq!(
+                            message["params"]["value"],
+                            "[\"deepseek-official\",\"deepseek-flash\"]"
+                        );
+                        json!({"configOptions":[{"id":"model","currentValue":message["params"]["value"]}]})
+                    }
+                    "session/prompt" => {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        let prompt = message["params"]["prompt"][0]["text"].as_str().unwrap();
+                        let text = if prompt.contains("\"scope\":\"selection\"") {
+                            json!({"reply":"An edit", "replacement":"新 paragraph"}).to_string()
+                        } else {
+                            "An answer".into()
+                        };
+                        writeln!(stream, "{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"native","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}})).unwrap();
+                        json!({"stopReason":"end_turn"})
+                    }
+                    "session/cancel" => continue,
+                    "session/close" => break,
+                    method => panic!("Unexpected method {method}"),
+                };
+                writeln!(
+                    stream,
+                    "{}",
+                    json!({"jsonrpc":"2.0","id":id,"result":result})
+                )
+                .unwrap();
+            }
+        }
+    });
+    let adapter = WritingAgents {
+        codex: scenesparrow_infrastructure::codex_agent::CodexAgent::new(None),
+        deepseek: DeepSeekAgent::new(
+            Some(socket),
+            Arc::new(|| Ok(CredentialLease::new(Some("SYNTHETIC_DSH_SERVICE".into())))),
+        ),
+    };
+    let app = router_with_agent(root.path(), TOKEN, ORIGIN, Arc::new(adapter)).unwrap();
+    let (_, catalog) = call(&app, "/v1/agent/catalog", None).await;
+    assert_eq!(catalog[0]["id"], "codex");
+    assert_eq!(catalog[1]["id"], "deepseek");
+    assert_eq!(catalog[1]["available"], true);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let (_, project) = call(
+        &app,
+        "/v1/markdown-projects",
+        Some(json!({"text":"\u{feff}# Heading\r\n\r\nTarget 中文\r\n\r\nTail\r\n"})),
+    )
+    .await;
+    let base = format!(
+        "/v1/markdown-projects/{}/agent/sessions",
+        project["projectId"].as_str().unwrap()
+    );
+    let (_, session) = call(
+        &app,
+        &base,
+        Some(json!({"requestId":"native-create","engineId":"deepseek","modelId":"deepseek-flash"})),
+    )
+    .await;
+    let session = format!("{base}/{}", session["id"].as_str().unwrap());
+    let mut question = request(&project, "question", "Question");
+    question["attachment"]["selection"] = Value::Null;
+    assert_eq!(
+        call(&app, &format!("{session}/turns"), Some(question))
+            .await
+            .0,
+        200
+    );
+    assert_eq!(settled(&app, &session).await["proposal"], Value::Null);
+    let mut proposals = vec![];
+    for id in ["apply", "stale", "locked"] {
+        let body = request(&project, id, "Edit");
+        let (_, first) = call(&app, &format!("{session}/turns"), Some(body.clone())).await;
+        let (_, duplicate) = call(&app, &format!("{session}/turns"), Some(body)).await;
+        assert_eq!(first["id"], duplicate["id"]);
+        let done = settled(&app, &session).await;
+        assert_eq!(done["status"], "completed", "{done}");
+        proposals.push(done);
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    let doc = format!(
+        "/v1/markdown-projects/{}/documents/manuscript",
+        project["projectId"].as_str().unwrap()
+    );
+    let (_, locks) = call(&app, &format!("{doc}/annotations"), Some(json!({"action":"lock","revision":project["revision"],"ranges":[request(&project, "range", "x")["attachment"]["selection"]["range"]]}))).await;
+    let apply = |turn: &Value| format!("{session}/turns/{}/apply", turn["id"].as_str().unwrap());
+    assert_eq!(
+        call(
+            &app,
+            &apply(&proposals[2]),
+            Some(json!({"proposalId":proposals[2]["proposal"]["id"]}))
+        )
+        .await
+        .1["code"],
+        "MARKDOWN_LOCKED"
+    );
+    assert_eq!(
+        call(&app, &session, None).await.1["turns"][3]["proposal"],
+        proposals[2]["proposal"]
+    );
+    assert_eq!(
+        call(
+            &app,
+            &format!("{doc}/annotations"),
+            Some(json!({"action":"unlock","id":locks["locks"][0]["id"]}))
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        call(
+            &app,
+            &apply(&proposals[0]),
+            Some(json!({"proposalId":proposals[0]["proposal"]["id"]}))
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        call(&app, &doc, None).await.1["text"],
+        "\u{feff}# Heading\r\n\r\n新 paragraph\r\n\r\nTail\r\n"
+    );
+    assert_eq!(
+        call(
+            &app,
+            &apply(&proposals[1]),
+            Some(json!({"proposalId":proposals[1]["proposal"]["id"]}))
+        )
+        .await
+        .1["code"],
+        "MARKDOWN_CONFLICT"
+    );
+    assert_eq!(
+        call(&app, &session, None).await.1["turns"][2]["proposal"],
+        proposals[1]["proposal"]
+    );
+    native.join().unwrap();
+}

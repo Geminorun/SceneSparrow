@@ -215,6 +215,46 @@ impl SettingsStore {
         )?;
         self.credentials.acquire_scoped_lease(revision)
     }
+    /// Only the dedicated official route may supply credentials to the native runner.
+    pub fn lease_official_deepseek(&self) -> Result<CredentialLease> {
+        let _lock = self.lock()?;
+        let s = self.load()?;
+        let official = |p: &&AiProvider| {
+            p.adapter == AiProviderAdapter::Openaicompatible
+                && word(&p.auth_mode) == "bearer"
+                && matches!(
+                    p.base_url.as_str(),
+                    "https://api.deepseek.com"
+                        | "https://api.deepseek.com/"
+                        | "https://api.deepseek.com/v1"
+                        | "https://api.deepseek.com/v1/"
+                )
+        };
+        // Prefer the current text binding; otherwise require one unambiguous official profile.
+        let bound = s
+            .bindings
+            .iter()
+            .find(|b| b.category == AiCategory::Text)
+            .and_then(|b| {
+                s.providers
+                    .iter()
+                    .filter(official)
+                    .find(|p| p.id == b.provider_id)
+            });
+        let provider = if let Some(p) = bound {
+            p
+        } else {
+            let mut profiles = s.providers.iter().filter(official);
+            let p = profiles.next().ok_or(AiError("CREDENTIAL_UNAVAILABLE"))?;
+            ensure(profiles.next().is_none(), "CREDENTIAL_UNAVAILABLE")?;
+            p
+        };
+        let revision = provider
+            .credential_revision
+            .as_deref()
+            .ok_or(AiError("CREDENTIAL_UNAVAILABLE"))?;
+        self.credentials.acquire_scoped_lease(revision)
+    }
     pub fn resolve_profile(&self, id: &str) -> Result<AiResolvedConfig> {
         let _lock = self.lock()?;
         let s = self.load()?;

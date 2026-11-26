@@ -21,6 +21,7 @@ export async function startRuntime({
   appDataDir = "/data/app",
   masterKeyFile,
   codexSocket,
+  deepseekSocket,
   signals = process,
   onExit = (code) => {
     process.exitCode = code;
@@ -50,6 +51,9 @@ export async function startRuntime({
     SCENESPARROW_APP_DATA_DIR: appDataDir,
     ...(codexSocket !== undefined
       ? { SCENESPARROW_CODEX_SOCKET: codexSocket }
+      : {}),
+    ...(deepseekSocket !== undefined
+      ? { SCENESPARROW_DEEPSEEK_SOCKET: deepseekSocket }
       : {}),
     ...(masterKeyFile !== undefined
       ? { SCENESPARROW_AI_MASTER_KEY_FILE: masterKeyFile }
@@ -228,6 +232,7 @@ if (
         process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
         "/run/secrets/ai_master_key",
       codexSocket: process.env.SCENESPARROW_CODEX_SOCKET,
+      deepseekSocket: process.env.SCENESPARROW_DEEPSEEK_SOCKET,
       version,
       buildSha: process.env.SCENESPARROW_BUILD_SHA ?? "unknown",
     });

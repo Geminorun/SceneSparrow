@@ -80,6 +80,7 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
         ...config,
         corePort: await port(),
         markdownProjectsDir,
+        deepseekSocket: join(directory, "dsh.sock"),
       });
       const fileEnv = JSON.parse(
         await readFile(join(directory, "core-env.json"), "utf8"),
@@ -87,6 +88,10 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
       assert.equal(
         fileEnv.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
         markdownProjectsDir,
+      );
+      assert.equal(
+        fileEnv.SCENESPARROW_DEEPSEEK_SOCKET,
+        join(directory, "dsh.sock"),
       );
       await runtime.stop();
       assert.match(

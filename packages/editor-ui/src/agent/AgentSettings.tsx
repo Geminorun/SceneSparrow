@@ -78,11 +78,17 @@ export function AgentSettings({
           <strong>{e.label}</strong>
           <p role="status">
             {e.available
-              ? t.agentAvailable
+              ? e.id === "deepseek"
+                ? t.deepseekConnected
+                : t.agentAvailable
               : e.status === "not_configured"
-                ? t.AGENT_NOT_CONFIGURED
+                ? e.id === "deepseek"
+                  ? t.deepseekNotConfigured
+                  : t.AGENT_NOT_CONFIGURED
                 : e.status === "not_authenticated"
-                  ? t.AGENT_NOT_AUTHENTICATED
+                  ? e.id === "deepseek"
+                    ? t.deepseekMissingCredential
+                    : t.AGENT_NOT_AUTHENTICATED
                   : t.AGENT_UNAVAILABLE}
           </p>
           <ul>

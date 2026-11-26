@@ -356,6 +356,66 @@ fn credential_rotation_retirement_orphan_inventory_and_session_restart_are_expli
         "CREDENTIAL_UNAVAILABLE"
     );
 }
+
+#[test]
+fn dsh_vault_lease_requires_current_exact_official_origin_and_tracks_rotation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let id = view.settings.providers[0].id.clone();
+    let mut view = store
+        .update_credential(view.settings.revision, &id, Some("SYNTHETIC_DSH_OLD"))
+        .unwrap();
+    for url in [
+        "https://proxy.example/v1",
+        "http://api.deepseek.com/v1",
+        "https://api.deepseek.com.evil/v1",
+        "https://api.deepseek.com/v1?proxy=1",
+        "https://user@api.deepseek.com/v1",
+    ] {
+        view.settings.providers[0].label = "DeepSeek".into();
+        view.settings.providers[0].service_preset = Some(AiProviderServicePreset::Deepseek);
+        view.settings.providers[0].base_url = url.into();
+        view = store
+            .update_settings(&AiSettingsUpdate {
+                expected_revision: view.settings.revision,
+                settings: view.settings.clone(),
+            })
+            .unwrap_or_else(|error| {
+                assert_eq!(error.0, "INVALID_URL");
+                store.read_settings().unwrap()
+            });
+        assert_eq!(
+            store.lease_official_deepseek().err().unwrap().0,
+            "CREDENTIAL_UNAVAILABLE",
+            "{url}"
+        );
+    }
+    view.settings.providers[0].base_url = "https://api.deepseek.com/v1".into();
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    let old = store.lease_official_deepseek().unwrap();
+    assert_eq!(old.expose(), Some("SYNTHETIC_DSH_OLD"));
+    view = store
+        .update_credential(view.settings.revision, &id, Some("SYNTHETIC_DSH_NEW"))
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_DSH_NEW")
+    );
+    assert_eq!(old.expose(), Some("SYNTHETIC_DSH_OLD"));
+    store
+        .update_credential(view.settings.revision, &id, None)
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().err().unwrap().0,
+        "CREDENTIAL_UNAVAILABLE"
+    );
+}
 #[test]
 fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisions() {
     use base64::Engine;

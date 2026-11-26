@@ -745,5 +745,9 @@
   "agentWorking": "Working on the attached selection…",
   "AGENT_INTERRUPTED": "The writing runtime disconnected. Check the connection, then explicitly retry.",
   "AGENT_MODEL_UNAVAILABLE": "This Agent model is unavailable. Check the connection and select an available model.",
-  "AGENT_BUSY": "The Agent is busy. Wait for the current operation, then try again."
+  "AGENT_BUSY": "The Agent is busy. Wait for the current operation, then try again.",
+  "deepseekConnected": "Runner connected; key saved. A conversation turn verifies the provider key and model.",
+  "deepseekNotConfigured": "DeepSeek Harness is not configured. Ask the server operator to connect the isolated runner, then check again.",
+  "deepseekMissingCredential": "Runner connected. Save a key for the official DeepSeek API in Model services, then check again.",
+  "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED": "DeepSeek Harness needs an official DeepSeek API key. Save it in Model services, then check the Agent connection."
 }
