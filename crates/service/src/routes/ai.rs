@@ -79,6 +79,7 @@ where
         .route("/v1/ai/configuration", get(resolve))
         .route("/v1/ai/models/discover", post(discover))
         .route("/v1/ai/connection-tests", post(test))
+        .route("/v1/agent/deepseek/test", post(test_deepseek))
         .route("/v1/ai/connection-tests/prepare", post(prepare_test))
         .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
 }
@@ -227,23 +228,38 @@ async fn discover(
         .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),
     )
 }
+async fn test_deepseek(
+    state: State<Arc<AiState>>,
+    body: Result<Json<AiTestAction>, JsonRejection>,
+) -> Response {
+    test_using(state, body, true).await
+}
 async fn test(
+    state: State<Arc<AiState>>,
+    body: Result<Json<AiTestAction>, JsonRejection>,
+) -> Response {
+    test_using(state, body, false).await
+}
+async fn test_using(
     State(state): State<Arc<AiState>>,
     body: Result<Json<AiTestAction>, JsonRejection>,
+    native: bool,
 ) -> Response {
     let Ok(Json(body)) = body else {
         return api_error(StatusCode::BAD_REQUEST, "INVALID_REQUEST");
     };
-    // Identical concurrent action IDs wait on the same OnceLock receipt. The core
-    // session owns this operation; HTTP timeout/reconnect never starts another ID.
+    // The service session owns the receipt; HTTP reconnect never starts another inference.
     let Ok(slot) = state.blocking_slots.clone().acquire_owned().await else {
         return api_error(StatusCode::SERVICE_UNAVAILABLE, "QUEUE_FULL");
     };
-    let ai = state;
     result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            ai.actions.test(ai.settings()?, &body)
+            if native {
+                state.actions.test_deepseek(state.settings()?, &body)
+            } else {
+                state.actions.test(state.settings()?, &body)
+            }
         })
         .await
         .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),

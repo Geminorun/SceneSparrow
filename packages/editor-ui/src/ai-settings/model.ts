@@ -168,3 +168,27 @@ export function savedTargetSignature(settings: AiSettings, model: AiModel) {
     model,
   ]);
 }
+
+// Match the vault policy: a current official text binding wins, otherwise require one profile.
+export function officialDeepseekProvider(settings: AiSettings) {
+  const candidates = settings.providers.filter(isOfficialDeepseekProvider);
+  const bound = settings.bindings.find((b) => b.category === "text");
+  return (
+    candidates.find((p) => p.id === bound?.providerId) ??
+    candidates.find((p) => p.servicePreset === "deepseek") ??
+    (candidates.length === 1 ? candidates[0] : undefined)
+  );
+}
+
+export function isOfficialDeepseekProvider(p: AiProvider) {
+  return (
+    p.adapter === "openai_compatible" &&
+    p.authMode === "bearer" &&
+    [
+      "https://api.deepseek.com",
+      "https://api.deepseek.com/",
+      "https://api.deepseek.com/v1",
+      "https://api.deepseek.com/v1/",
+    ].includes(p.baseUrl)
+  );
+}

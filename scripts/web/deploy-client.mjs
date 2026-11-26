@@ -26,6 +26,8 @@ if (
   directory.split("/").includes("..") ||
   !/^[a-z0-9][a-z0-9_./-]*$/.test(env.IMAGE_NAME ?? "") ||
   !/^sha256:[a-f0-9]{64}$/.test(env.IMAGE_DIGEST ?? "") ||
+  !/^[a-z0-9][a-z0-9_./-]*$/.test(env.DSH_IMAGE_NAME ?? "") ||
+  !/^sha256:[a-f0-9]{64}$/.test(env.DSH_IMAGE_DIGEST ?? "") ||
   !env.DEPLOY_SSH_KEY ||
   !env.DEPLOY_KNOWN_HOSTS ||
   !env.GHCR_TOKEN
@@ -77,6 +79,7 @@ try {
     join(temporary, "config.json"),
     JSON.stringify({
       image: `${env.IMAGE_NAME}@${env.IMAGE_DIGEST}`,
+      runnerImage: `${env.DSH_IMAGE_NAME}@${env.DSH_IMAGE_DIGEST}`,
       origin,
       directory,
       port: webPort,

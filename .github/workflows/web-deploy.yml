@@ -76,6 +76,8 @@ jobs:
     outputs:
       name: ${{ steps.identity.outputs.name }}
       digest: ${{ steps.publish.outputs.digest }}
+      runner_name: ${{ steps.identity.outputs.runner_name }}
+      runner_digest: ${{ steps.publish.outputs.runner_digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,7 +87,9 @@ jobs:
         with:
           node-version-file: .node-version
       - id: identity
-        run: printf 'name=ghcr.io/%s/web\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: |
+          printf 'name=ghcr.io/%s/web\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          printf 'runner_name=ghcr.io/%s/deepseek\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
@@ -98,7 +102,20 @@ jobs:
           tags: scenesparrow-web:verified
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: scripts/agent/deepseek
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: scenesparrow-dsh:verified
+          cache-from: type=gha,scope=deepseek
+          cache-to: type=gha,mode=max,scope=deepseek
       - run: node scripts/web/container-smoke.mjs scenesparrow-web:verified
+      - run: node scripts/agent/check-deepseek-isolation.mjs
+        env:
+          SCENESPARROW_DSH_RUNNER_IMAGE: scenesparrow-dsh:verified
+      - run: node scripts/web/paired-smoke.mjs scenesparrow-web:verified scenesparrow-dsh:verified
       - name: Revalidate tested release ref before publication
         if: needs.policy.outputs.should_publish == 'true'
         run: node scripts/release/policy.mjs
@@ -112,6 +129,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
           IMAGE_NAME: ${{ steps.identity.outputs.name }}
+          DSH_IMAGE_NAME: ${{ steps.identity.outputs.runner_name }}
         run: |
           set -euo pipefail
           export DOCKER_CONFIG
@@ -124,6 +142,12 @@ jobs:
           digest=${digest##*@}
           [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          docker tag scenesparrow-dsh:verified "$DSH_IMAGE_NAME:$GITHUB_SHA"
+          docker push "$DSH_IMAGE_NAME:$GITHUB_SHA"
+          runner_digest=$(docker image inspect "$DSH_IMAGE_NAME:$GITHUB_SHA" --format '{{index .RepoDigests 0}}')
+          runner_digest=${runner_digest##*@}
+          [[ $runner_digest =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf 'runner_digest=%s\n' "$runner_digest" >> "$GITHUB_OUTPUT"
 
   deploy:
     needs: [policy, release_gate, image]
@@ -154,6 +178,8 @@ jobs:
         env:
           IMAGE_NAME: ${{ needs.image.outputs.name }}
           IMAGE_DIGEST: ${{ needs.image.outputs.digest }}
+          DSH_IMAGE_NAME: ${{ needs.image.outputs.runner_name }}
+          DSH_IMAGE_DIGEST: ${{ needs.image.outputs.runner_digest }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
           DEPLOY_HOST: ${{ secrets.WEB_DEPLOY_HOST }}

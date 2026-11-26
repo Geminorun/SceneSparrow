@@ -603,3 +603,216 @@ test("EWA-AC04 transcript scroll keeps the composer visible and keyboard focus i
   expect(box!.y + box!.height).toBeLessThanOrEqual(800);
   await page.screenshot({ path: ".artifacts/ewa-agent-narrow.png" });
 });
+
+for (const installation of [
+  "fresh",
+  "proxy",
+  "unsupported",
+  "misassigned",
+] as const) {
+  test(`DSH-AC08 ${installation}: one key and model configure writing, while conversation preferences stay independent`, async ({
+    page,
+  }) => {
+    const view = await (await page.request.get("/api/v1/ai/settings")).json();
+    view.settings.providers = [];
+    view.settings.models = [];
+    view.settings.bindings = [];
+    view.presentCredentialRevisions = [];
+    const parameters = {
+      temperatureMilli: null,
+      requestStreaming: false,
+      requestNativeJson: false,
+    };
+    if (installation !== "fresh") {
+      const provider = {
+        id: crypto.randomUUID(),
+        label: installation === "proxy" ? "DeepSeek proxy" : "Saved provider",
+        adapter: "openai_compatible",
+        baseUrl:
+          installation === "proxy"
+            ? "https://proxy.example/v1"
+            : "https://api.deepseek.com/v1",
+        authMode: "bearer",
+        credentialRevision: "saved-key",
+        revision: 1,
+        ...(installation === "misassigned" ? { servicePreset: "openai" } : {}),
+      };
+      view.settings.providers.push(provider);
+      view.presentCredentialRevisions.push("saved-key");
+      view.settings.models.push({
+        providerId: provider.id,
+        id: "saved-unsupported-model",
+        label: "Saved model",
+        capabilities: Object.fromEntries(
+          ["images", "streaming", "nativeJson"].map((kind) => [
+            kind,
+            {
+              state: "unknown",
+              source: "unknown",
+              scope: "",
+              observedAt: null,
+            },
+          ]),
+        ),
+        contextTokens: null,
+        outputTokens: null,
+      });
+      view.settings.bindings.push({
+        category: "text",
+        providerId: provider.id,
+        modelId: "saved-unsupported-model",
+        parameters,
+        revision: 1,
+      });
+    }
+    const original = structuredClone(view.settings.bindings);
+    let credentialWrites = 0;
+    await page.route("**/api/v1/ai/settings", async (route) => {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON();
+        expect(body.expectedRevision).toBe(view.settings.revision);
+        view.settings = body.settings;
+        view.settings.revision++;
+      }
+      await route.fulfill({ json: view });
+    });
+    await page.route("**/api/v1/ai/credentials", async (route) => {
+      const body = route.request().postDataJSON();
+      expect(body.expectedRevision).toBe(view.settings.revision);
+      expect(body.secret).toBe("SYNTHETIC_SETTINGS_KEY");
+      credentialWrites++;
+      view.settings.providers.find(
+        (p: any) => p.id === body.providerId,
+      ).credentialRevision = "new-key";
+      view.presentCredentialRevisions.push("new-key");
+      view.settings.revision++;
+      await route.fulfill({ json: view });
+    });
+    await page.route("**/api/v1/agent/catalog", async (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: "deepseek",
+            label: "DeepSeek Harness",
+            available: !!view.presentCredentialRevisions.length,
+            status: view.presentCredentialRevisions.length
+              ? "available"
+              : "not_authenticated",
+            models: [
+              { id: "deepseek-flash", label: "DeepSeek Flash" },
+              { id: "deepseek-v4-pro", label: "DeepSeek Pro" },
+            ],
+          },
+          {
+            id: "codex",
+            label: "Codex",
+            available: true,
+            models: [{ id: "codex-model", label: "Codex model" }],
+          },
+        ],
+      }),
+    );
+    await setup(page, false);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const settings = page.getByRole("dialog", {
+      name: "Settings",
+      exact: true,
+    });
+    await expect(
+      settings.locator(".settings-layout > nav > button"),
+    ).toHaveText(["General", "Agent"]);
+    await settings.getByRole("button", { name: "Agent", exact: true }).click();
+    const writing = settings.getByRole("combobox", {
+      name: "Harness model for writing actions",
+      exact: true,
+    });
+    await expect(writing).toBeVisible();
+    if (installation === "unsupported" || installation === "misassigned") {
+      await expect(writing).toHaveValue("saved-unsupported-model");
+      await expect(writing.locator("option:checked")).toHaveText(
+        "saved-unsupported-model",
+      );
+    } else {
+      await settings
+        .getByRole("textbox", { name: "New API key", exact: true })
+        .fill("SYNTHETIC_SETTINGS_KEY");
+      await settings
+        .getByRole("button", { name: "Save new key", exact: true })
+        .click();
+      await expect.poll(() => credentialWrites).toBe(1);
+      await expect(
+        settings.getByRole("textbox", { name: "New API key", exact: true }),
+      ).toHaveValue("");
+    }
+    expect(view.settings.bindings).toEqual(original);
+    await writing.selectOption("deepseek-flash");
+    await expect
+      .poll(() => view.settings.bindings[0]?.modelId)
+      .toBe("deepseek-flash");
+    await expect(
+      settings.getByRole("combobox", {
+        name: "Default Agent model",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await settings
+      .getByRole("combobox", { name: "Default Agent", exact: true })
+      .selectOption("codex");
+    await writing.selectOption("deepseek-v4-pro");
+    await expect
+      .poll(() => view.settings.bindings[0]?.modelId)
+      .toBe("deepseek-v4-pro");
+    await expect(
+      settings.getByRole("combobox", { name: "Default Agent", exact: true }),
+    ).toHaveValue("codex");
+    await expect(
+      settings.getByRole("button", { name: "Test model", exact: true }),
+    ).toBeEnabled();
+    expect(credentialWrites).toBe(
+      installation === "unsupported" || installation === "misassigned" ? 0 : 1,
+    );
+    await settings
+      .getByText("Advanced: direct API compatibility", { exact: true })
+      .click();
+    await settings
+      .getByRole("button", { name: "Default models", exact: true })
+      .click();
+    await expect(
+      settings.getByLabel("Manuscript model", { exact: true }),
+    ).toHaveValue("harness");
+    await expect(
+      settings
+        .getByLabel("Manuscript model", { exact: true })
+        .locator("option")
+        .filter({ hasText: "DeepSeek Pro" }),
+    ).toHaveCount(0);
+    if (installation === "proxy") {
+      await settings
+        .getByLabel("Manuscript model", { exact: true })
+        .selectOption(
+          JSON.stringify([original[0].providerId, original[0].modelId]),
+        );
+      await expect
+        .poll(() => view.settings.bindings[0]?.providerId)
+        .toBe(original[0].providerId);
+    }
+    await settings
+      .getByRole("button", { name: "Model services", exact: true })
+      .click();
+    const services = settings.locator(".ai-service-list");
+    await expect(
+      services.getByRole("button", { name: /^DeepSeek/ }),
+    ).toHaveCount(installation === "proxy" ? 1 : 0);
+    if (installation === "misassigned") {
+      await expect(
+        settings.getByRole("textbox", { name: "API root", exact: true }),
+      ).toHaveCount(0);
+    }
+    if (installation === "proxy") {
+      await services.getByRole("button", { name: /DeepSeek proxy/ }).click();
+      await expect(
+        settings.getByRole("textbox", { name: "API root", exact: true }),
+      ).toHaveValue("https://proxy.example/v1");
+    }
+  });
+}

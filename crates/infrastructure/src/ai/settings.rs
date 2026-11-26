@@ -215,6 +215,17 @@ impl SettingsStore {
         )?;
         self.credentials.acquire_scoped_lease(revision)
     }
+    /// Only the dedicated official route may supply credentials to the native runner.
+    pub fn lease_official_deepseek(&self) -> Result<CredentialLease> {
+        let _lock = self.lock()?;
+        let s = self.load()?;
+        let provider = official_deepseek_provider(&s)?;
+        let revision = provider
+            .credential_revision
+            .as_deref()
+            .ok_or(AiError("CREDENTIAL_UNAVAILABLE"))?;
+        self.credentials.acquire_scoped_lease(revision)
+    }
     pub fn resolve_profile(&self, id: &str) -> Result<AiResolvedConfig> {
         let _lock = self.lock()?;
         let s = self.load()?;
@@ -476,4 +487,40 @@ impl AiSettingsPort for SettingsStore {
         )?;
         accept(&ConfigurationGuard::locked(config))
     }
+}
+
+/// Match exact origins, never display labels or service assignments.
+pub fn is_official_deepseek(p: &AiProvider) -> bool {
+    p.adapter == AiProviderAdapter::Openaicompatible
+        && word(&p.auth_mode) == "bearer"
+        && matches!(
+            p.base_url.as_str(),
+            "https://api.deepseek.com"
+                | "https://api.deepseek.com/"
+                | "https://api.deepseek.com/v1"
+                | "https://api.deepseek.com/v1/"
+        )
+}
+fn official_deepseek_provider(s: &AiSettings) -> Result<&AiProvider> {
+    let bound = s
+        .bindings
+        .iter()
+        .find(|b| b.category == AiCategory::Text)
+        .and_then(|b| {
+            s.providers
+                .iter()
+                .find(|p| p.id == b.provider_id && is_official_deepseek(p))
+        });
+    if let Some(p) = bound {
+        return Ok(p);
+    }
+    if let Some(p) = s.providers.iter().find(|p| {
+        is_official_deepseek(p) && p.service_preset == Some(AiProviderServicePreset::Deepseek)
+    }) {
+        return Ok(p);
+    }
+    let mut profiles = s.providers.iter().filter(|p| is_official_deepseek(p));
+    let p = profiles.next().ok_or(AiError("CREDENTIAL_UNAVAILABLE"))?;
+    ensure(profiles.next().is_none(), "CREDENTIAL_UNAVAILABLE")?;
+    Ok(p)
 }

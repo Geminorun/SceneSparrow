@@ -264,3 +264,62 @@ test("EWA-AC06 HTTP catalog uses authenticated global transport without a writin
     globalThis.fetch = original;
   }
 });
+
+test("DSH-AC05–06 fresh configured Web defaults to DeepSeek while saved incompatible models require selection", async () => {
+  const { defaultAgentChoice } =
+    await import("../../packages/editor-ui/src/agent/catalog.ts");
+  const engines = [
+    { id: "codex", status: "not_configured", models: [] },
+    {
+      id: "deepseek",
+      status: "not_authenticated",
+      models: [{ id: "deepseek-flash" }],
+    },
+  ];
+  assert.deepEqual(defaultAgentChoice(engines), {
+    engineId: "deepseek",
+    modelId: "",
+  });
+  const settings = {
+    providers: [
+      {
+        id: "official",
+        adapter: "openai_compatible",
+        authMode: "bearer",
+        baseUrl: "https://api.deepseek.com/v1",
+      },
+    ],
+    bindings: [
+      { category: "text", providerId: "official", modelId: "deepseek-flash" },
+    ],
+  };
+  assert.equal(defaultAgentChoice(engines, settings).modelId, "deepseek-flash");
+  settings.bindings[0].modelId = "retired-model";
+  assert.equal(
+    defaultAgentChoice(engines, settings).modelId,
+    "retired-model",
+    "never substitute the first offered model",
+  );
+  settings.providers[0].baseUrl = "https://proxy.example/v1";
+  assert.equal(defaultAgentChoice(engines, settings).modelId, "");
+  engines[1].status = "not_configured";
+  assert.deepEqual(defaultAgentChoice(engines, settings), {
+    engineId: "codex",
+    modelId: "",
+  });
+});
+
+test("DSH-AC08 an empty DeepSeek conversation preference inherits writing, while explicit models and Codex stay independent", async () => {
+  const { conversationDefaults } =
+    await import("../../packages/editor-ui/src/agent/catalog.ts");
+  const writing = { engineId: "deepseek", modelId: "deepseek-flash" };
+  assert.deepEqual(conversationDefaults(undefined, writing), writing);
+  assert.deepEqual(
+    conversationDefaults({ engineId: "deepseek", modelId: "" }, writing),
+    writing,
+  );
+  const codex = { engineId: "codex", modelId: "codex-model" };
+  assert.deepEqual(conversationDefaults(codex, writing), codex);
+  const unavailable = { engineId: "deepseek", modelId: "saved-unavailable" };
+  assert.deepEqual(conversationDefaults(unavailable, writing), unavailable);
+});

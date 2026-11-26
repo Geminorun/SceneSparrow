@@ -356,6 +356,66 @@ fn credential_rotation_retirement_orphan_inventory_and_session_restart_are_expli
         "CREDENTIAL_UNAVAILABLE"
     );
 }
+
+#[test]
+fn dsh_vault_lease_requires_current_exact_official_origin_and_tracks_rotation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let id = view.settings.providers[0].id.clone();
+    let mut view = store
+        .update_credential(view.settings.revision, &id, Some("SYNTHETIC_DSH_OLD"))
+        .unwrap();
+    for url in [
+        "https://proxy.example/v1",
+        "http://api.deepseek.com/v1",
+        "https://api.deepseek.com.evil/v1",
+        "https://api.deepseek.com/v1?proxy=1",
+        "https://user@api.deepseek.com/v1",
+    ] {
+        view.settings.providers[0].label = "DeepSeek".into();
+        view.settings.providers[0].service_preset = Some(AiProviderServicePreset::Deepseek);
+        view.settings.providers[0].base_url = url.into();
+        view = store
+            .update_settings(&AiSettingsUpdate {
+                expected_revision: view.settings.revision,
+                settings: view.settings.clone(),
+            })
+            .unwrap_or_else(|error| {
+                assert_eq!(error.0, "INVALID_URL");
+                store.read_settings().unwrap()
+            });
+        assert_eq!(
+            store.lease_official_deepseek().err().unwrap().0,
+            "CREDENTIAL_UNAVAILABLE",
+            "{url}"
+        );
+    }
+    view.settings.providers[0].base_url = "https://api.deepseek.com/v1".into();
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    let old = store.lease_official_deepseek().unwrap();
+    assert_eq!(old.expose(), Some("SYNTHETIC_DSH_OLD"));
+    view = store
+        .update_credential(view.settings.revision, &id, Some("SYNTHETIC_DSH_NEW"))
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_DSH_NEW")
+    );
+    assert_eq!(old.expose(), Some("SYNTHETIC_DSH_OLD"));
+    store
+        .update_credential(view.settings.revision, &id, None)
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().err().unwrap().0,
+        "CREDENTIAL_UNAVAILABLE"
+    );
+}
 #[test]
 fn encrypted_settings_restart_rotation_and_failed_commit_reconcile_owned_revisions() {
     use base64::Engine;
@@ -1180,4 +1240,109 @@ fn retired_fields_are_read_only_compatibility_and_context_reserves_no_output() {
     old_config["parameters"]["maxOutputTokens"] = serde_json::json!(64);
     old_config["model"]["unexpected"] = serde_json::json!(true);
     assert!(super::legacy::read_configuration(&old_config.to_string()).is_err());
+}
+
+#[test]
+fn dsh_model_test_rejects_proxy_and_retains_receipt_without_redispatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let provider = &view.settings.providers[0];
+    store
+        .update_credential(
+            view.settings.revision,
+            &provider.id,
+            Some("SYNTHETIC_PROXY_ONLY"),
+        )
+        .unwrap();
+    let target = AiTestTarget {
+        provider_id: provider.id.clone(),
+        model_id: "manual-model".into(),
+    };
+    let config = store
+        .resolve_test_configuration(&target)
+        .unwrap()
+        .configuration;
+    let mut action = AiTestAction {
+        session_id: store.session_id.clone(),
+        action_id: uuid(),
+        target,
+        fingerprint: config.fingerprint,
+    };
+    let actions = actions::SettingsActions::default();
+    let first = actions.test_deepseek(&store, &action).unwrap();
+    assert_eq!(
+        first.error.as_deref(),
+        Some("AGENT_DEEPSEEK_CREDENTIAL_REQUIRED")
+    );
+    assert_eq!(actions.test_deepseek(&store, &action).unwrap(), first);
+    assert_eq!(
+        actions.test(&store, &action).unwrap_err().0,
+        "REQUEST_ID_REUSED"
+    );
+    action.fingerprint = "another-config".into();
+    assert_eq!(
+        actions.test_deepseek(&store, &action).unwrap_err().0,
+        "REQUEST_ID_REUSED"
+    );
+    action.action_id = uuid();
+    action.session_id = "old-service-session".into();
+    assert_eq!(
+        actions.test_deepseek(&store, &action).unwrap_err().0,
+        "TEST_STATUS_UNKNOWN"
+    );
+}
+
+#[test]
+fn dsh_official_preset_resolves_legacy_ambiguity_but_current_official_binding_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SettingsStore::with_credentials(dir.path(), Arc::new(Vault::default())).unwrap();
+    let view = configured(&store, "bearer");
+    let first_id = view.settings.providers[0].id.clone();
+    let mut view = store
+        .update_credential(view.settings.revision, &first_id, Some("SYNTHETIC_FIRST"))
+        .unwrap();
+    view.settings.providers[0].base_url = "https://api.deepseek.com/v1/".into();
+    let mut second = view.settings.providers[0].clone();
+    second.id = uuid();
+    second.credential_revision = None;
+    second.base_url = "https://api.deepseek.com".into();
+    second.service_preset = Some(AiProviderServicePreset::Deepseek);
+    let second_id = second.id.clone();
+    view.settings.providers.push(second);
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    view = store
+        .update_credential(view.settings.revision, &second_id, Some("SYNTHETIC_SECOND"))
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_FIRST")
+    );
+    view.settings.bindings.clear();
+    view = store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().unwrap().expose(),
+        Some("SYNTHETIC_SECOND")
+    );
+    view.settings.providers[1].service_preset = None;
+    store
+        .update_settings(&AiSettingsUpdate {
+            expected_revision: view.settings.revision,
+            settings: view.settings,
+        })
+        .unwrap();
+    assert_eq!(
+        store.lease_official_deepseek().err().unwrap().0,
+        "CREDENTIAL_UNAVAILABLE"
+    );
 }

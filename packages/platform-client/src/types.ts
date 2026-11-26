@@ -81,6 +81,7 @@ import type { AgentEngine } from "@scenesparrow/contracts";
 
 export interface ExternalWritingClient {
   catalog?(): Promise<AgentEngine[]>;
+  testDeepseek?(request: AiTestAction): Promise<AiTestReceipt>;
   create(projectId: string, request: AgentCreateSession): Promise<AgentSession>;
   read(projectId: string, sessionId: string): Promise<AgentSession>;
   close(projectId: string, sessionId: string): Promise<void>;

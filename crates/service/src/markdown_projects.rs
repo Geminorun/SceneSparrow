@@ -19,12 +19,27 @@ struct FileState {
     origin: String,
 }
 pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Router, &'static str> {
-    router_with_agent(
-        root,
-        token,
-        origin,
-        Arc::new(scenesparrow_infrastructure::codex_agent::CodexAgent::configured()),
-    )
+    let ai = Arc::new(crate::ai::AiState::default());
+    let credentials = ai.clone();
+    let adapter = scenesparrow_infrastructure::deepseek_agent::WritingAgents {
+        codex: scenesparrow_infrastructure::codex_agent::CodexAgent::configured(),
+        deepseek: scenesparrow_infrastructure::deepseek_agent::DeepSeekAgent::new(
+            std::env::var_os("SCENESPARROW_DEEPSEEK_SOCKET").map(Into::into),
+            Arc::new(move || {
+                credentials
+                    .settings()
+                    .and_then(|s| s.lease_official_deepseek())
+                    .map_err(|e| {
+                        if e.0 == "CREDENTIAL_UNAVAILABLE" {
+                            "AGENT_DEEPSEEK_CREDENTIAL_REQUIRED"
+                        } else {
+                            "AGENT_STATE_UNAVAILABLE"
+                        }
+                    })
+            }),
+        ),
+    };
+    router_with_state(root, token, origin, Arc::new(adapter), ai)
 }
 /// Explicit dependency injection for ordinary deterministic fixtures.
 pub fn router_with_agent(
@@ -32,6 +47,21 @@ pub fn router_with_agent(
     token: &str,
     origin: &str,
     adapter: Arc<dyn scenesparrow_application::external_agent::WritingAgent>,
+) -> Result<Router, &'static str> {
+    router_with_state(
+        root,
+        token,
+        origin,
+        adapter,
+        Arc::new(crate::ai::AiState::default()),
+    )
+}
+fn router_with_state(
+    root: &std::path::Path,
+    token: &str,
+    origin: &str,
+    adapter: Arc<dyn scenesparrow_application::external_agent::WritingAgent>,
+    ai: Arc<crate::ai::AiState>,
 ) -> Result<Router, &'static str> {
     let store = Arc::new(MarkdownProjects::open(root)?);
     let agent = Arc::new(crate::external_agent::AgentState::new(
@@ -50,7 +80,7 @@ pub fn router_with_agent(
     let state = FileState {
         store,
         agent,
-        ai: Arc::new(crate::ai::AiState::default()),
+        ai,
         authorization: format!("Bearer {token}"),
         origin: origin.into(),
     };

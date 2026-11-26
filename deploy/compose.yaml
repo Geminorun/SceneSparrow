@@ -8,12 +8,15 @@ services:
     stop_grace_period: 60s
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the HTTPS public origin}
+      SCENESPARROW_DEEPSEEK_RELAY_DIR: /run/writing-agent
+      SCENESPARROW_DEEPSEEK_SOCKET: /run/writing-agent/dsh.sock
       SCENESPARROW_AI_MASTER_KEY_FILE: /run/secrets/ai_master_key
     ports:
       - "127.0.0.1:${WEB_PORT:-8070}:8080"
     volumes:
       - project:/data/project
       - appdata:/data/app
+      - writing-agent:/run/writing-agent
     secrets:
       - operator_auth
       - ai_master_key
@@ -32,6 +35,23 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
+  deepseek:
+    image: ${SCENESPARROW_DSH_IMAGE:?Set a runner image digest}
+    init: true
+    user: "1000:1000"
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777
+    mem_limit: 768m
+    pids_limit: 128
+    cpus: 2
+    volumes:
+      - writing-agent:/run/writing-agent
 secrets:
   operator_auth:
     file: ${OPERATOR_AUTH_FILE:?Set the operator secret file path}
@@ -42,3 +62,5 @@ volumes:
     name: scenesparrow-project
   appdata:
     name: scenesparrow-appdata
+  writing-agent:
+    name: scenesparrow-writing-agent

@@ -33,7 +33,8 @@ COPY --from=dependencies /app/apps/web/dist/ apps/web/dist/
 COPY --from=dependencies /app/apps/web/server/ apps/web/server/
 COPY --from=core /app/target/release/scenesparrow-service bin/scenesparrow-service
 COPY scripts/web/ scripts/web/
-RUN mkdir -p /app/crates/infrastructure /data/project /data/app && chmod -R a+rX /app && chown -R node:node /data
+COPY scripts/agent/deepseek/relay.mjs scripts/agent/deepseek/policy.mjs scripts/agent/deepseek/
+RUN mkdir -p /app/crates/infrastructure /data/project /data/app && chmod -R a+rX /app && chown -R node:node /data && install -d -m 0700 -o 1000 -g 1000 /run/writing-agent
 ENV NODE_ENV=production
 USER node
 EXPOSE 8080

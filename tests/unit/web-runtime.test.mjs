@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm, symlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  readFile,
+  rm,
+  symlink,
+  stat,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventEmitter, once } from "node:events";
@@ -80,7 +87,21 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
         ...config,
         corePort: await port(),
         markdownProjectsDir,
+        deepseekSocket: join(directory, "dsh.sock"),
+        deepseekRelayDirectory: directory,
       });
+      assert.equal(
+        (await stat(join(directory, "provider.sock"))).mode & 0o777,
+        0o600,
+      );
+      assert.equal(
+        (
+          await fetch(
+            `http://127.0.0.1:${runtime.gateway.server.address().port}/readyz`,
+          )
+        ).status,
+        200,
+      );
       const fileEnv = JSON.parse(
         await readFile(join(directory, "core-env.json"), "utf8"),
       );
@@ -88,7 +109,14 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
         fileEnv.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
         markdownProjectsDir,
       );
+      assert.equal(
+        fileEnv.SCENESPARROW_DEEPSEEK_SOCKET,
+        join(directory, "dsh.sock"),
+      );
       await runtime.stop();
+      await assert.rejects(stat(join(directory, "provider.sock")), {
+        code: "ENOENT",
+      });
       assert.match(
         await readFile(join(directory, "lifecycle"), "utf8"),
         /\nSIGINT\n$/,

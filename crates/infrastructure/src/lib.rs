@@ -1,4 +1,7 @@
+#[cfg(unix)]
+mod agent_socket;
 pub mod codex_agent;
+pub mod deepseek_agent;
 pub mod diagnostics;
 pub mod external_agent;
 pub mod markdown_projects;
