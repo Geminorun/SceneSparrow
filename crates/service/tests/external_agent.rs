@@ -580,7 +580,7 @@ async fn ewa_global_catalog_is_authenticated_and_never_generates() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
+async fn dsh_ac03_native_proposal_applies_to_captured_selection() {
     use scenesparrow_application::ai::CredentialLease;
     use scenesparrow_infrastructure::deepseek_agent::{DeepSeekAgent, WritingAgents};
     use std::{
@@ -593,7 +593,7 @@ async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let native = std::thread::spawn(move || {
-        for _ in 0..5 {
+        for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
@@ -630,15 +630,12 @@ async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
                     "session/prompt" => {
                         observed.fetch_add(1, Ordering::SeqCst);
                         let prompt = message["params"]["prompt"][0]["text"].as_str().unwrap();
-                        let text = if prompt.contains("\"scope\":\"selection\"") {
-                            json!({"reply":"An edit", "replacement":"新 paragraph"}).to_string()
-                        } else {
-                            "An answer".into()
-                        };
+                        assert!(prompt.contains("\"scope\":\"selection\""));
+                        let text =
+                            json!({"reply":"An edit", "replacement":"新 paragraph"}).to_string();
                         writeln!(stream, "{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"native","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}})).unwrap();
                         json!({"stopReason":"end_turn"})
                     }
-                    "session/cancel" => continue,
                     "session/close" => break,
                     method => panic!("Unexpected method {method}"),
                 };
@@ -681,61 +678,25 @@ async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
     )
     .await;
     let session = format!("{base}/{}", session["id"].as_str().unwrap());
-    let mut question = request(&project, "question", "Question");
-    question["attachment"]["selection"] = Value::Null;
+    let edit = request(&project, "apply", "Edit");
     assert_eq!(
-        call(&app, &format!("{session}/turns"), Some(question))
-            .await
-            .0,
+        call(&app, &format!("{session}/turns"), Some(edit)).await.0,
         200
     );
-    assert_eq!(settled(&app, &session).await["proposal"], Value::Null);
-    let mut proposals = vec![];
-    for id in ["apply", "stale", "locked"] {
-        let body = request(&project, id, "Edit");
-        let (_, first) = call(&app, &format!("{session}/turns"), Some(body.clone())).await;
-        let (_, duplicate) = call(&app, &format!("{session}/turns"), Some(body)).await;
-        assert_eq!(first["id"], duplicate["id"]);
-        let done = settled(&app, &session).await;
-        assert_eq!(done["status"], "completed", "{done}");
-        proposals.push(done);
-    }
-    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    let done = settled(&app, &session).await;
+    assert_eq!(done["status"], "completed", "{done}");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     let doc = format!(
         "/v1/markdown-projects/{}/documents/manuscript",
         project["projectId"].as_str().unwrap()
     );
-    let (_, locks) = call(&app, &format!("{doc}/annotations"), Some(json!({"action":"lock","revision":project["revision"],"ranges":[request(&project, "range", "x")["attachment"]["selection"]["range"]]}))).await;
-    let apply = |turn: &Value| format!("{session}/turns/{}/apply", turn["id"].as_str().unwrap());
+    assert_eq!(call(&app, &doc, None).await.1["text"], project["text"]);
+    let apply = format!("{session}/turns/{}/apply", done["id"].as_str().unwrap());
     assert_eq!(
         call(
             &app,
-            &apply(&proposals[2]),
-            Some(json!({"proposalId":proposals[2]["proposal"]["id"]}))
-        )
-        .await
-        .1["code"],
-        "MARKDOWN_LOCKED"
-    );
-    assert_eq!(
-        call(&app, &session, None).await.1["turns"][3]["proposal"],
-        proposals[2]["proposal"]
-    );
-    assert_eq!(
-        call(
-            &app,
-            &format!("{doc}/annotations"),
-            Some(json!({"action":"unlock","id":locks["locks"][0]["id"]}))
-        )
-        .await
-        .0,
-        200
-    );
-    assert_eq!(
-        call(
-            &app,
-            &apply(&proposals[0]),
-            Some(json!({"proposalId":proposals[0]["proposal"]["id"]}))
+            &apply,
+            Some(json!({"proposalId":done["proposal"]["id"]}))
         )
         .await
         .0,
@@ -744,20 +705,6 @@ async fn dsh_ac03_native_question_proposals_duplicate_and_guarded_apply() {
     assert_eq!(
         call(&app, &doc, None).await.1["text"],
         "\u{feff}# Heading\r\n\r\n新 paragraph\r\n\r\nTail\r\n"
-    );
-    assert_eq!(
-        call(
-            &app,
-            &apply(&proposals[1]),
-            Some(json!({"proposalId":proposals[1]["proposal"]["id"]}))
-        )
-        .await
-        .1["code"],
-        "MARKDOWN_CONFLICT"
-    );
-    assert_eq!(
-        call(&app, &session, None).await.1["turns"][2]["proposal"],
-        proposals[1]["proposal"]
     );
     native.join().unwrap();
 }

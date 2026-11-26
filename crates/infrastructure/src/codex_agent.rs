@@ -4,10 +4,7 @@ use scenesparrow_application::external_agent::*;
 use scenesparrow_domain::contracts::*;
 use serde_json::{Value, json};
 use std::{
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
@@ -147,30 +144,20 @@ impl WritingAgent for CodexAgent {
 #[cfg(unix)]
 mod native {
     use super::*;
-    use std::{
-        io::{Read, Write},
-        os::unix::net::UnixStream,
-        path::Path,
-    };
+    use crate::agent_socket::{AgentSocket, deny_server_request};
+    use std::path::Path;
     const MAX_LINE: usize = 1024 * 1024;
-    const MAX_WIRE: usize = 8 * 1024 * 1024;
     pub(super) struct Rpc {
-        stream: UnixStream,
-        pending: Vec<u8>,
+        socket: AgentSocket,
         early: std::collections::VecDeque<Value>,
-        bytes: usize,
-        messages: usize,
         next_id: u64,
-        cancelled: Arc<AtomicBool>,
-        deadline: Instant,
         active: Option<(String, String)>,
     }
     impl Drop for Rpc {
         fn drop(&mut self) {
             if let Some((thread, turn)) = self.active.take() {
-                let _ = self.send(json!({"id": self.next_id, "method":"turn/interrupt", "params":{"threadId":thread,"turnId":turn}}));
+                let _ = self.socket.send(json!({"id": self.next_id, "method":"turn/interrupt", "params":{"threadId":thread,"turnId":turn}}));
             }
-            let _ = self.stream.shutdown(std::net::Shutdown::Both);
         }
     }
     impl Rpc {
@@ -179,109 +166,34 @@ mod native {
             cancelled: Arc<AtomicBool>,
             timeout: Duration,
         ) -> Result<Self> {
-            let path = socket
-                .filter(|p| p.is_absolute())
-                .ok_or("AGENT_UNAVAILABLE")?;
-            let stream = UnixStream::connect(path).map_err(|_| "AGENT_UNAVAILABLE")?;
-            stream
-                .set_read_timeout(Some(Duration::from_millis(50)))
-                .map_err(|_| "AGENT_UNAVAILABLE")?;
-            stream
-                .set_write_timeout(Some(Duration::from_millis(100)))
-                .map_err(|_| "AGENT_UNAVAILABLE")?;
             let mut rpc = Self {
-                stream,
-                pending: vec![],
+                socket: AgentSocket::connect(socket, cancelled, timeout, MAX_LINE)?,
                 early: Default::default(),
-                bytes: 0,
-                messages: 0,
                 next_id: 1,
-                cancelled,
-                deadline: Instant::now() + timeout,
                 active: None,
             };
             rpc.call(
                 "initialize",
                 json!({"clientInfo":{"name":"scenesparrow-writing","version":"1.0.0"}}),
             )?;
-            rpc.send(json!({"method":"initialized"}))?;
+            rpc.socket.send(json!({"method":"initialized"}))?;
             Ok(rpc)
         }
-        fn send(&mut self, value: Value) -> Result<()> {
-            let mut bytes = serde_json::to_vec(&value).map_err(|_| "AGENT_PROTOCOL_INVALID")?;
-            if bytes.len() > MAX_LINE {
-                return Err("AGENT_CONTEXT_LIMIT");
-            }
-            bytes.push(b'\n');
-            self.stream
-                .write_all(&bytes)
-                .map_err(|_| "AGENT_INTERRUPTED")
-        }
         fn receive(&mut self) -> Result<Value> {
-            if self.cancelled.load(Ordering::Acquire) {
-                return Err("AGENT_CANCELLED");
-            }
-            if Instant::now() >= self.deadline {
-                return Err("AGENT_TIMEOUT");
-            }
+            self.socket.check_active()?;
             match self.early.pop_front() {
                 Some(message) => Ok(message),
-                None => self.receive_wire(),
-            }
-        }
-        fn receive_wire(&mut self) -> Result<Value> {
-            loop {
-                if self.cancelled.load(Ordering::Acquire) {
-                    return Err("AGENT_CANCELLED");
-                }
-                if Instant::now() >= self.deadline {
-                    return Err("AGENT_TIMEOUT");
-                }
-                if let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
-                    if end > MAX_LINE || self.messages >= 32768 {
-                        return Err("AGENT_OUTPUT_LIMIT");
-                    }
-                    let line: Vec<_> = self.pending.drain(..=end).collect();
-                    self.messages += 1;
-                    let value: Value =
-                        serde_json::from_slice(&line).map_err(|_| "AGENT_PROTOCOL_INVALID")?;
-                    // Native approvals, tool calls and every other server request are denied, never answered with approval.
-                    if value.get("method").is_some() && value.get("id").is_some() {
-                        return Err("AGENT_CAPABILITY_DENIED");
-                    }
-                    return Ok(value);
-                }
-                if self.pending.len() > MAX_LINE {
-                    return Err("AGENT_OUTPUT_LIMIT");
-                }
-                let mut buffer = [0; 8192];
-                match self.stream.read(&mut buffer) {
-                    Ok(0) => return Err("AGENT_INTERRUPTED"),
-                    Ok(n) => {
-                        self.bytes += n;
-                        if self.bytes > MAX_WIRE {
-                            return Err("AGENT_OUTPUT_LIMIT");
-                        }
-                        self.pending.extend_from_slice(&buffer[..n]);
-                    }
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock
-                                | std::io::ErrorKind::TimedOut
-                                | std::io::ErrorKind::Interrupted
-                        ) => {}
-                    Err(_) => return Err("AGENT_INTERRUPTED"),
-                }
+                None => deny_server_request(self.socket.receive()?),
             }
         }
         pub(super) fn call(&mut self, method: &str, params: Value) -> Result<Value> {
             let thread_id = params["threadId"].as_str().map(str::to_owned);
             let id = self.next_id;
             self.next_id += 1;
-            self.send(json!({"id":id,"method":method,"params":params}))?;
+            self.socket
+                .send(json!({"id":id,"method":method,"params":params}))?;
             loop {
-                let message = self.receive_wire()?;
+                let message = deny_server_request(self.socket.receive()?)?;
                 if let Some(got) = message.get("id") {
                     if got != &json!(id) {
                         return Err("AGENT_PROTOCOL_INVALID");
@@ -542,6 +454,7 @@ mod tests {
     use std::{
         io::{BufRead, BufReader, Write},
         os::unix::net::UnixListener,
+        sync::atomic::Ordering,
         thread,
     };
     fn input(selected: bool) -> AgentInput {

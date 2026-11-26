@@ -4,10 +4,7 @@ use scenesparrow_domain::contracts::*;
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
@@ -22,6 +19,7 @@ mod tests {
     use std::{
         io::{BufRead, BufReader, Write},
         os::unix::net::UnixListener,
+        sync::atomic::Ordering,
         thread,
     };
     fn input(selected: bool) -> AgentInput {
@@ -498,21 +496,12 @@ impl WritingAgent for DeepSeekAgent {
 #[cfg(unix)]
 mod native {
     use super::*;
-    use std::{
-        io::{Read, Write},
-        os::unix::net::UnixStream,
-        path::Path,
-    };
+    use crate::agent_socket::{AgentSocket, deny_server_request};
+    use std::path::Path;
     const MAX_LINE: usize = 2 * 1024 * 1024;
-    const MAX_WIRE: usize = 8 * 1024 * 1024;
     pub(super) struct Rpc {
-        stream: UnixStream,
-        pending: Vec<u8>,
-        bytes: usize,
-        messages: usize,
+        socket: AgentSocket,
         next_id: u64,
-        cancelled: Arc<AtomicBool>,
-        deadline: Instant,
         session: Option<String>,
         active: bool,
     }
@@ -520,11 +509,10 @@ mod native {
         fn drop(&mut self) {
             if let Some(session) = self.session.take() {
                 if self.active {
-                    let _ = self.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":session}}));
+                    let _ = self.socket.send(json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":session}}));
                 }
-                let _ = self.send(json!({"jsonrpc":"2.0","id":self.next_id,"method":"session/close","params":{"sessionId":session}}));
+                let _ = self.socket.send(json!({"jsonrpc":"2.0","id":self.next_id,"method":"session/close","params":{"sessionId":session}}));
             }
-            let _ = self.stream.shutdown(std::net::Shutdown::Both);
         }
     }
     fn label(s: &str, max: usize) -> bool {
@@ -595,29 +583,15 @@ mod native {
             cancelled: Arc<AtomicBool>,
             timeout: Duration,
         ) -> Result<(Self, Vec<(AgentModel, String)>)> {
-            let path = socket
-                .filter(|p| p.is_absolute())
-                .ok_or("AGENT_UNAVAILABLE")?;
-            let stream = UnixStream::connect(path).map_err(|_| "AGENT_UNAVAILABLE")?;
-            stream
-                .set_read_timeout(Some(Duration::from_millis(50)))
-                .map_err(|_| "AGENT_UNAVAILABLE")?;
-            stream
-                .set_write_timeout(Some(Duration::from_millis(100)))
-                .map_err(|_| "AGENT_UNAVAILABLE")?;
             let mut rpc = Self {
-                stream,
-                pending: vec![],
-                bytes: 0,
-                messages: 0,
+                socket: AgentSocket::connect(socket, cancelled, timeout, MAX_LINE)?,
                 next_id: 1,
-                cancelled,
-                deadline: Instant::now() + timeout,
                 session: None,
                 active: false,
             };
-            rpc.send(json!({"protocolVersion":1,"apiKey":lease.expose()}))?;
-            let greeting = rpc.receive()?;
+            rpc.socket
+                .send(json!({"protocolVersion":1,"apiKey":lease.expose()}))?;
+            let greeting = deny_server_request(rpc.socket.receive()?)?;
             if greeting["protocolVersion"] != 1
                 || greeting["ready"] != true
                 || greeting["engine"] != "deepseek"
@@ -643,68 +617,18 @@ mod native {
             let models = models(&created)?;
             Ok((rpc, models))
         }
-        fn send(&mut self, value: Value) -> Result<()> {
-            let mut bytes = serde_json::to_vec(&value).map_err(|_| "AGENT_PROTOCOL_INVALID")?;
-            if bytes.len() > MAX_LINE {
-                return Err("AGENT_CONTEXT_LIMIT");
-            }
-            bytes.push(b'\n');
-            self.stream
-                .write_all(&bytes)
-                .map_err(|_| "AGENT_INTERRUPTED")
-        }
         fn receive(&mut self) -> Result<Value> {
-            loop {
-                if self.cancelled.load(Ordering::Acquire) {
-                    return Err("AGENT_CANCELLED");
-                }
-                if Instant::now() >= self.deadline {
-                    return Err("AGENT_TIMEOUT");
-                }
-                if let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
-                    if end > MAX_LINE || self.messages >= 32768 {
-                        return Err("AGENT_OUTPUT_LIMIT");
-                    }
-                    let line: Vec<_> = self.pending.drain(..=end).collect();
-                    self.messages += 1;
-                    let value: Value =
-                        serde_json::from_slice(&line).map_err(|_| "AGENT_PROTOCOL_INVALID")?;
-                    if self.messages > 1 && value["jsonrpc"] != "2.0" {
-                        return Err("AGENT_PROTOCOL_INVALID");
-                    }
-                    if value.get("method").is_some() && value.get("id").is_some() {
-                        return Err("AGENT_CAPABILITY_DENIED");
-                    }
-                    return Ok(value);
-                }
-                if self.pending.len() > MAX_LINE {
-                    return Err("AGENT_OUTPUT_LIMIT");
-                }
-                let mut buffer = [0; 8192];
-                match self.stream.read(&mut buffer) {
-                    Ok(0) => return Err("AGENT_INTERRUPTED"),
-                    Ok(n) => {
-                        self.bytes += n;
-                        if self.bytes > MAX_WIRE {
-                            return Err("AGENT_OUTPUT_LIMIT");
-                        }
-                        self.pending.extend_from_slice(&buffer[..n]);
-                    }
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock
-                                | std::io::ErrorKind::TimedOut
-                                | std::io::ErrorKind::Interrupted
-                        ) => {}
-                    Err(_) => return Err("AGENT_INTERRUPTED"),
-                }
+            let message = self.socket.receive()?;
+            if message["jsonrpc"] != "2.0" {
+                return Err("AGENT_PROTOCOL_INVALID");
             }
+            deny_server_request(message)
         }
         fn request(&mut self, method: &str, params: Value) -> Result<u64> {
             let id = self.next_id;
             self.next_id += 1;
-            self.send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
+            self.socket
+                .send(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))?;
             Ok(id)
         }
         fn response(message: &Value, id: u64) -> Result<Value> {
