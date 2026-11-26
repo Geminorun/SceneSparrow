@@ -13,6 +13,7 @@ import type {
   MarkdownDocumentKind,
   MarkdownAnnotations,
   MarkdownRange,
+  AgentProposal,
 } from "@scenesparrow/contracts";
 import {
   ApiError,
@@ -32,6 +33,10 @@ import {
 } from "../feedback/NotificationPresenter";
 import { CompositionActions } from "../project-session/composition-actions";
 import { WorkspaceRibbon } from "../workbench/WorkspaceRibbon";
+import { AgentConversation } from "../agent/AgentConversation";
+import { useAgentCatalog } from "../agent/catalog";
+import { AgentSettings } from "../agent/AgentSettings";
+import { proposalText, type AgentCapture } from "../agent/context";
 import { AiSettings } from "../ai-settings/AiSettings";
 import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
@@ -74,6 +79,7 @@ type Buffer = {
   saving?: boolean;
   failed?: boolean;
   paused?: boolean;
+  pauseReason?: "AGENT_NEWER_INPUT";
   pending?: Promise<void>;
   editedAt: number;
   editorSession: number;
@@ -131,9 +137,16 @@ export function MarkdownWorkspace({
   const [selections, setSelections] = useState<
     Record<
       MarkdownDocumentKind,
-      { ranges: MarkdownRange[]; range: MarkdownRange; source: string } | null
+      {
+        ranges: MarkdownRange[];
+        range: MarkdownRange;
+        source: string;
+        explicit: boolean;
+      } | null
     >
   >({ manuscript: null, outline: null });
+  const selectionsRef = useRef(selections);
+  selectionsRef.current = selections;
   const annotationGeneration = useRef({ manuscript: 0, outline: 0 });
   function annotated(kind: MarkdownDocumentKind, data: MarkdownAnnotations) {
     annotationGeneration.current[kind]++;
@@ -184,6 +197,11 @@ export function MarkdownWorkspace({
   const fileInput = useRef<HTMLInputElement>(null);
   const composition = useRef(new CompositionActions()).current;
   const notice = useNoticeOwner();
+  const agentCatalog = useAgentCatalog(
+    platformClient.agent,
+    settingsSection === "agent" ||
+      (pane.right.tab === "agent" && pane.visible("right")),
+  );
   const redraw = () => render((value) => value + 1);
   function install(
     project: MarkdownProject,
@@ -327,7 +345,10 @@ export function MarkdownWorkspace({
               notice.report("MARKDOWN_DRAFT_NEWER_INPUT");
             }
           }
-          if (!retainedNewerInput) current.paused = false;
+          if (!retainedNewerInput) {
+            current.paused = false;
+            delete current.pauseReason;
+          }
           current.failed = false;
           void refreshAnnotations(kind, saved.projectId).catch(notice.report);
           redraw();
@@ -463,6 +484,20 @@ export function MarkdownWorkspace({
     [outlineCurrent?.project.projectId, outlineCurrent?.editorSession],
   );
   const activeBuffer = documentBufferFor(activeKind());
+  const agentSelection = selections[activeKind()];
+  const agentExcerpt = useMemo(
+    () =>
+      agentSelection?.explicit
+        ? new TextDecoder("utf-8", { ignoreBOM: true })
+            .decode(
+              new TextEncoder()
+                .encode(agentSelection.source)
+                .subarray(agentSelection.range.start, agentSelection.range.end),
+            )
+            .slice(0, 120)
+        : null,
+    [agentSelection],
+  );
   const saving = !!activeBuffer?.saving;
   const saveFailed = !!activeBuffer?.failed;
   const autosavePaused = !!activeBuffer?.paused;
@@ -546,15 +581,17 @@ export function MarkdownWorkspace({
       start: utf8Offset(raw, block.start),
       end: utf8Offset(raw, block.end),
     }));
-    const selection = ranges.length
-      ? {
-          ranges,
-          range: collapsed
-            ? ranges[0]!
-            : { start: utf8Offset(raw, start), end: utf8Offset(raw, end) },
-          source: raw,
-        }
-      : null;
+    const selection =
+      ranges.length || !collapsed
+        ? {
+            ranges,
+            range: collapsed
+              ? ranges[0]!
+              : { start: utf8Offset(raw, start), end: utf8Offset(raw, end) },
+            source: raw,
+            explicit: !collapsed,
+          }
+        : null;
     setSelections((previous) => ({ ...previous, [kind]: selection }));
   }
   function showComments() {
@@ -618,7 +655,8 @@ export function MarkdownWorkspace({
     const locked = selectionLocked(kind);
     const selected = selections[kind];
     const hasSelection =
-      !!selected && selected.source === documentBufferFor(kind)?.text;
+      !!selected?.ranges.length &&
+      selected.source === documentBufferFor(kind)?.text;
     const label = locked ? t.markdownUnlock : t.markdownLockSelection;
     return (
       <div className="markdown-source-actions">
@@ -771,7 +809,7 @@ export function MarkdownWorkspace({
   function toggleLock(kind: MarkdownDocumentKind) {
     const selected = selections[kind];
     const initial = documentBufferFor(kind);
-    if (!selected || !initial) return;
+    if (!selected?.ranges.length || !initial) return;
     void composition
       .run(`lock:${kind}`, async () => {
         if (
@@ -854,6 +892,124 @@ export function MarkdownWorkspace({
         throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
     }
     return capture();
+  }
+  async function prepareAgent(
+    kind: MarkdownDocumentKind,
+    owner: Buffer | null,
+  ): Promise<AgentCapture> {
+    const current = documentBufferFor(kind);
+    if (!current || current !== owner)
+      throw new ApiError("AGENT_CONTEXT_INVALID");
+    const selected = selectionsRef.current[kind];
+    if (selected?.explicit && selected.source !== current.text)
+      throw new ApiError("AGENT_CONTEXT_STALE");
+    if (selected?.explicit && selected.range.end <= selected.range.start)
+      throw new ApiError("AGENT_SELECTION_INVALID");
+    const selection = selected?.explicit
+      ? {
+          range: { ...selected.range },
+          quote: new TextDecoder("utf-8", {
+            fatal: true,
+            ignoreBOM: true,
+          }).decode(
+            new TextEncoder()
+              .encode(current.text)
+              .subarray(selected.range.start, selected.range.end),
+          ),
+        }
+      : null;
+    const captured: AgentCapture = {
+      projectId: current.project.projectId,
+      kind,
+      session: current,
+      epoch: current.epoch,
+      text: current.text,
+      revision: current.project.revision,
+      selection,
+    };
+    const unchanged = () => {
+      if (
+        documentBufferFor(kind) !== current ||
+        current.epoch !== captured.epoch ||
+        current.text !== captured.text
+      )
+        throw new ApiError("AGENT_CONTEXT_STALE");
+    };
+    if (selection) {
+      if (current.pending) await current.pending;
+      unchanged();
+      await save(undefined, kind);
+      unchanged();
+      if (current.pending || current.text !== current.project.text)
+        throw new ApiError("AGENT_CONTEXT_STALE");
+      captured.revision = current.project.revision;
+    }
+    return captured;
+  }
+  function validateAgent(capture: AgentCapture, code = "AGENT_PROPOSAL_STALE") {
+    const current = documentBufferFor(capture.kind);
+    if (
+      current !== capture.session ||
+      current?.project.projectId !== capture.projectId ||
+      current.epoch !== capture.epoch ||
+      current.text !== capture.text ||
+      current.project.revision !== capture.revision ||
+      (capture.selection &&
+        (current.pending || current.project.text !== capture.text))
+    )
+      throw new ApiError(code);
+  }
+  async function applyAgent(
+    capture: AgentCapture,
+    proposal: AgentProposal,
+    sessionId: string,
+    turnId: string,
+  ) {
+    const delivered = await composition.run(
+      `agent:apply:${proposal.id}`,
+      async () => {
+        validateAgent(capture);
+        const current = documentBufferFor(capture.kind)!;
+        const text = proposalText(capture, proposal);
+        current.saving = true;
+        redraw();
+        const pending = platformClient
+          .agent!.apply(capture.projectId, sessionId, turnId, proposal.id)
+          .then((result) => {
+            if (documentBufferFor(capture.kind) !== current) return;
+            current.project = {
+              ...current.project,
+              text,
+              revision: result.revision,
+            };
+            current.failed = false;
+            if (
+              current.epoch === capture.epoch &&
+              current.text === capture.text
+            ) {
+              current.text = text;
+              current.epoch++;
+              current.editorSession++;
+              current.paused = false;
+            } else {
+              current.paused = true;
+              current.pauseReason = "AGENT_NEWER_INPUT";
+              notice.report("AGENT_NEWER_INPUT");
+            }
+            void refreshAnnotations(capture.kind, capture.projectId).catch(
+              notice.report,
+            );
+          })
+          .finally(() => {
+            if (current.pending === pending) delete current.pending;
+            current.saving = false;
+            redraw();
+          });
+        current.pending = pending;
+        await pending;
+      },
+    );
+    if (delivered === false) throw new ApiError("AGENT_CONTEXT_STALE");
   }
   function same(captured: Buffer | null, epoch: number | undefined) {
     if (buffer.current !== captured || captured?.epoch !== epoch)
@@ -1229,7 +1385,7 @@ export function MarkdownWorkspace({
                 t={t}
                 availableTabs={{
                   left: ["structure"],
-                  right: ["planning", "review"],
+                  right: ["planning", "review", "agent"],
                 }}
                 panels={{
                   structure: current ? (
@@ -1289,6 +1445,36 @@ export function MarkdownWorkspace({
                     <>
                       <section
                         role="tabpanel"
+                        id="auxiliary-agent"
+                        aria-labelledby="auxiliary-tab-agent"
+                        hidden={pane.right.tab !== "agent"}
+                        inert={pane.right.tab !== "agent"}
+                        className="agent-panel"
+                      >
+                        <AgentConversation
+                          key={current.project.projectId}
+                          client={platformClient.agent}
+                          catalog={agentCatalog}
+                          projectId={current.project.projectId}
+                          t={t}
+                          active={
+                            pane.right.tab === "agent" && pane.visible("right")
+                          }
+                          composition={composition}
+                          contextLabel={`${activeKind() === "outline" ? t.writingOutline : t.manuscript} · ${agentExcerpt !== null ? `${t.agentSelectionContext}: ${agentExcerpt}` : t.agentDocumentContext}`}
+                          prepareIntent={() => {
+                            const kind = activeKind();
+                            const owner = documentBufferFor(kind);
+                            return () => prepareAgent(kind, owner);
+                          }}
+                          validate={(capture) =>
+                            validateAgent(capture, "AGENT_CONTEXT_STALE")
+                          }
+                          apply={applyAgent}
+                        />
+                      </section>
+                      <section
+                        role="tabpanel"
                         id="auxiliary-review"
                         aria-labelledby="auxiliary-tab-review"
                         hidden={pane.right.tab !== "review"}
@@ -1300,7 +1486,11 @@ export function MarkdownWorkspace({
                           t={t}
                           kind={activeKind()}
                           annotations={annotations[activeKind()]}
-                          selection={selections[activeKind()]}
+                          selection={
+                            selections[activeKind()]?.ranges.length
+                              ? selections[activeKind()]
+                              : null
+                          }
                           composition={composition}
                           prepare={prepareReview}
                           validate={validateReview}
@@ -1351,8 +1541,8 @@ export function MarkdownWorkspace({
                         role="tabpanel"
                         id="auxiliary-planning"
                         aria-labelledby="auxiliary-tab-planning"
-                        hidden={pane.right.tab === "review"}
-                        inert={pane.right.tab === "review"}
+                        hidden={pane.right.tab !== "planning"}
+                        inert={pane.right.tab !== "planning"}
                       >
                         <MarkdownWriting
                           key={current.project.projectId}
@@ -1523,7 +1713,12 @@ export function MarkdownWorkspace({
                 </div>
                 {autosavePaused && (
                   <p className="markdown-conflict">
-                    {t.MARKDOWN_DRAFT_NEWER_INPUT}
+                    {
+                      t[
+                        activeBuffer?.pauseReason ??
+                          "MARKDOWN_DRAFT_NEWER_INPUT"
+                      ]
+                    }
                   </p>
                 )}
                 {!current && !loading && <p>{t.markdownOpenFailed}</p>}
@@ -1547,10 +1742,13 @@ export function MarkdownWorkspace({
                             annotationsRef.current.outline,
                           )
                         }
-                        selection={(ranges, range, source) =>
+                        selection={(ranges, range, source, explicit) =>
                           setSelections((current) => ({
                             ...current,
-                            outline: { ranges, range, source },
+                            outline:
+                              ranges.length || explicit
+                                ? { ranges, range, source, explicit }
+                                : null,
                           }))
                         }
                         annotations={annotations.outline}
@@ -1593,10 +1791,13 @@ export function MarkdownWorkspace({
                             annotationsRef.current.manuscript,
                           )
                         }
-                        selection={(ranges, range, source) =>
+                        selection={(ranges, range, source, explicit) =>
                           setSelections((current) => ({
                             ...current,
-                            manuscript: { ranges, range, source },
+                            manuscript:
+                              ranges.length || explicit
+                                ? { ranges, range, source, explicit }
+                                : null,
                           }))
                         }
                         annotations={annotations.manuscript}
@@ -1746,21 +1947,25 @@ export function MarkdownWorkspace({
           </div>
           <div className="settings-layout">
             <nav aria-label={t.settingsSections}>
-              {(["general", "services", "defaults"] as const).map((section) => (
-                <button
-                  key={section}
-                  aria-current={
-                    settingsSection === section ? "page" : undefined
-                  }
-                  onClick={() => setSettingsSection(section)}
-                >
-                  {section === "general"
-                    ? t.generalSettings
-                    : section === "services"
-                      ? t.aiModels
-                      : t.aiDefaultModels}
-                </button>
-              ))}
+              {(["general", "services", "defaults", "agent"] as const).map(
+                (section) => (
+                  <button
+                    key={section}
+                    aria-current={
+                      settingsSection === section ? "page" : undefined
+                    }
+                    onClick={() => setSettingsSection(section)}
+                  >
+                    {section === "general"
+                      ? t.generalSettings
+                      : section === "services"
+                        ? t.aiModels
+                        : section === "agent"
+                          ? t.workspaceTab_agent
+                          : t.aiDefaultModels}
+                  </button>
+                ),
+              )}
             </nav>
             <div className="settings-content">
               <section hidden={settingsSection !== "general"}>
@@ -1819,6 +2024,11 @@ export function MarkdownWorkspace({
                 )}
                 <p className="muted">{t.manualSaveHelp}</p>
               </section>
+              <AgentSettings
+                catalog={agentCatalog}
+                t={t}
+                active={settingsSection === "agent"}
+              />
               <AiSettings
                 client={platformClient}
                 t={t}

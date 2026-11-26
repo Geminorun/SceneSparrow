@@ -84,3 +84,18 @@ test("cross-tab updates validate, notify once, ignore other storage and handle c
   p.update({ saveMode: "off" });
   assert.equal(calls, 2);
 });
+
+test("Agent defaults persist with the existing application preferences and reject invalid settings", () => {
+  const disk = storage(null),
+    preferences = new ApplicationPreferencesStore(() => disk);
+  preferences.update({
+    agentDefault: { engineId: "codex", modelId: "openai.gpt-5.4" },
+  });
+  assert.deepEqual(
+    new ApplicationPreferencesStore(() => disk).getSnapshot().agentDefault,
+    { engineId: "codex", modelId: "openai.gpt-5.4" },
+  );
+  assert.equal(preferences.getSnapshot().saveDelaySeconds, 10);
+  preferences.update({ agentDefault: { engineId: 1, modelId: "invalid" } });
+  assert.equal(preferences.getSnapshot().agentDefault, undefined);
+});

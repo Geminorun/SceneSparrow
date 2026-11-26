@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type en from "../locales/en.json";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 
-export type AuxiliaryTab = "structure" | "planning" | "review" | "sources";
+export type AuxiliaryTab =
+  "structure" | "planning" | "review" | "sources" | "agent";
 type Side = "left" | "right";
 const groups: Record<Side, AuxiliaryTab[]> = {
   left: ["structure", "sources"],
-  right: ["planning", "review"],
+  right: ["planning", "review", "agent"],
 };
 const media = "(max-width: 1050px)";
 const bounds = { left: [200, 360, 240], right: [280, 520, 340] } as const;
@@ -108,12 +109,12 @@ export function WorkspacePane({
   children,
   panels,
   rightContent,
-  availableTabs = groups,
+  availableTabs = { left: groups.left, right: ["planning", "review"] },
 }: {
   pane: ReturnType<typeof useAuxiliaryPane>;
   t: typeof en;
   children: ReactNode;
-  panels: Record<AuxiliaryTab, ReactNode>;
+  panels: Partial<Record<AuxiliaryTab, ReactNode>>;
   rightContent?: ReactNode;
   availableTabs?: Record<Side, AuxiliaryTab[]>;
 }) {

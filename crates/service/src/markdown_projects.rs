@@ -14,12 +14,42 @@ use std::sync::Arc;
 struct FileState {
     store: Arc<MarkdownProjects>,
     ai: Arc<crate::ai::AiState>,
+    agent: Arc<crate::external_agent::AgentState>,
     authorization: String,
     origin: String,
 }
 pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Router, &'static str> {
+    router_with_agent(
+        root,
+        token,
+        origin,
+        Arc::new(scenesparrow_infrastructure::codex_agent::CodexAgent::configured()),
+    )
+}
+/// Explicit dependency injection for ordinary deterministic fixtures.
+pub fn router_with_agent(
+    root: &std::path::Path,
+    token: &str,
+    origin: &str,
+    adapter: Arc<dyn scenesparrow_application::external_agent::WritingAgent>,
+) -> Result<Router, &'static str> {
+    let store = Arc::new(MarkdownProjects::open(root)?);
+    let agent = Arc::new(crate::external_agent::AgentState::new(
+        scenesparrow_application::external_agent::AgentSessions::new(store.clone(), adapter),
+    ));
+    let weak_agent = Arc::downgrade(&agent);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            let Some(agent) = weak_agent.upgrade() else {
+                break;
+            };
+            let _ = tokio::task::spawn_blocking(move || agent.sessions.expire()).await;
+        }
+    });
     let state = FileState {
-        store: Arc::new(MarkdownProjects::open(root)?),
+        store,
+        agent,
         ai: Arc::new(crate::ai::AiState::default()),
         authorization: format!("Bearer {token}"),
         origin: origin.into(),
@@ -61,6 +91,7 @@ pub fn router(root: &std::path::Path, token: &str, origin: &str) -> Result<Route
             )),
         )
         .merge(crate::ai::settings_routes())
+        .merge(crate::external_agent::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
         // A 2 MiB UTF-8 manuscript can occupy six times as much JSON when escaped.
         .layer(DefaultBodyLimit::max(
@@ -363,4 +394,10 @@ async fn scoped(
         .await
         .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),
     )
+}
+
+impl FromRef<FileState> for Arc<crate::external_agent::AgentState> {
+    fn from_ref(state: &FileState) -> Self {
+        state.agent.clone()
+    }
 }

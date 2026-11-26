@@ -1,4 +1,6 @@
 export type {
+  ExternalWritingClient,
+  AgentEngine,
   BridgeResult,
   DesktopBridge,
   PlatformClient,

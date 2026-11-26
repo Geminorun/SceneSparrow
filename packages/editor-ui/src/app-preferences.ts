@@ -2,6 +2,7 @@ export type SaveMode = "after_delay" | "on_window_change" | "off";
 export type SaveDelay = 5 | 10 | 30;
 export type ApplicationPreferences = {
   version: 1;
+  agentDefault?: { engineId: string; modelId: string };
   saveMode: SaveMode;
   saveDelaySeconds: SaveDelay;
 };
@@ -16,6 +17,17 @@ function validate(value: unknown): ApplicationPreferences {
   if (!p || p.version !== 1) return { ...defaultPreferences };
   return {
     version: 1,
+    ...(typeof p.agentDefault?.engineId === "string" &&
+    typeof p.agentDefault.modelId === "string" &&
+    p.agentDefault.engineId.length <= 128 &&
+    p.agentDefault.modelId.length <= 256
+      ? {
+          agentDefault: {
+            engineId: p.agentDefault.engineId,
+            modelId: p.agentDefault.modelId,
+          },
+        }
+      : {}),
     saveMode: ["after_delay", "on_window_change", "off"].includes(
       p.saveMode ?? "",
     )
@@ -66,7 +78,10 @@ export class ApplicationPreferencesStore {
   };
   update(
     patch: Partial<
-      Pick<ApplicationPreferences, "saveMode" | "saveDelaySeconds">
+      Pick<
+        ApplicationPreferences,
+        "saveMode" | "saveDelaySeconds" | "agentDefault"
+      >
     >,
   ) {
     const next = validate({ ...this.value, ...patch });

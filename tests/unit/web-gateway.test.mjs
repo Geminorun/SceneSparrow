@@ -26,6 +26,14 @@ test("production gateway authenticates all content, enforces origin, strips secr
       res.end("oversized");
       return;
     }
+    if (
+      req.url ===
+      "/v1/markdown-projects/project/agent/sessions/session/turns/turn/events"
+    ) {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(Buffer.alloc(8 * 1024 * 1024 + 1, 97));
+      return;
+    }
     if (req.url === "/v1/events") {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write("data: ready\n\n");
@@ -91,7 +99,9 @@ test("production gateway authenticates all content, enforces origin, strips secr
         req.on("error", reject);
         req.end(body);
       });
-    for (const path of ["/", "/api/v1/project"]) {
+    const agentEvents =
+      "/api/v1/markdown-projects/project/agent/sessions/session/turns/turn/events";
+    for (const path of ["/", "/api/v1/project", agentEvents]) {
       assert.equal(
         (await send(path, { headers: { authorization: "" } })).status,
         401,
@@ -230,6 +240,36 @@ test("production gateway authenticates all content, enforces origin, strips secr
         req.on("error", () => {});
         req.end();
       });
+    assert.equal(
+      (await send(agentEvents, { headers: { origin: "https://evil.example" } }))
+        .status,
+      403,
+    );
+    const bounded = await new Promise((resolve, reject) => {
+      const req = request(
+        {
+          host: "127.0.0.1",
+          port: gateway.server.address().port,
+          path: agentEvents,
+          headers: {
+            host: "scene.example",
+            authorization: `Basic ${Buffer.from(credential).toString("base64")}`,
+          },
+        },
+        (res) => {
+          let bytes = 0;
+          res.on("data", (chunk) => {
+            bytes += chunk.length;
+          });
+          res.on("aborted", () => resolve({ bytes, aborted: true }));
+          res.on("end", () => resolve({ bytes, aborted: false }));
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(bounded.aborted, true);
+    assert.ok(bounded.bytes <= 8 * 1024 * 1024);
     const response = await openStream();
     assert.match(response.chunk.toString(), /data: ready/);
     response.req.destroy();
