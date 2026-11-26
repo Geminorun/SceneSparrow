@@ -214,3 +214,8 @@ The Web application owns the Agent session and guarded Markdown writer.
 The isolated Linux runner launches Codex App Server over stdio with separate
 credentials and scratch space. The authenticated catalog checks the account
 and models. [Runner guide](codex-writing-runner.md)
+
+The separate [DeepSeek runner](deepseek-writing-runner.md) runs pinned native ACP
+with a writing-only profile and fixed provider relay. Its deterministic Linux
+isolation checks are separate from hosted inference. The Web native adapter and
+default deployment remain pending in DSH-T02/T03.

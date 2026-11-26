@@ -1,6 +1,7 @@
 # Native DeepSeek Harness for Web writing
 
-Status — proposed for review. Runtime and hosted-provider validation are pending.
+Status — DSH-T01 implements the isolated native runner and controlled-provider
+validation on Linux. Hosted-provider inference is pending. [Implementation evidence](../validation/deepseek-harness-agent.md)
 
 ## Scope and user experience
 
