@@ -38,6 +38,7 @@ export function AgentConversation({
   t,
   active,
   contextLabel,
+  clearSelection,
   composition,
   prepareIntent,
   validate,
@@ -49,6 +50,7 @@ export function AgentConversation({
   t: typeof en;
   active: boolean;
   contextLabel: string;
+  clearSelection?: (() => void) | undefined;
   composition: CompositionActions;
   prepareIntent: () => () => Promise<AgentCapture>;
   validate: (capture: AgentCapture) => void;
@@ -417,6 +419,15 @@ export function AgentConversation({
         )}
         <div className="agent-context-chip" title={contextLabel}>
           {contextLabel}
+          {clearSelection && (
+            <button
+              className="quiet-button"
+              aria-label={t.agentRemoveQuote}
+              onClick={clearSelection}
+            >
+              ×
+            </button>
+          )}
         </div>
         {!engine?.available && (
           <p role="status">
@@ -430,6 +441,7 @@ export function AgentConversation({
           </p>
         )}
         <textarea
+          id="markdown-agent-composer"
           aria-label={t.agentInstruction}
           placeholder={t.agentPlaceholder}
           value={text}

@@ -451,6 +451,32 @@ impl MarkdownProjects {
                 });
                 self.write_sidecar(id, "comments.json", &data)?;
             }
+            MarkdownAnnotationAction::Edit {
+                id: comment_id,
+                revision,
+                previous_text,
+                text,
+            } => {
+                check(&revision)?;
+                if text.trim().is_empty() || text.len() > 16 * 1024 {
+                    return Err("MARKDOWN_ANCHOR_INVALID");
+                }
+                let mut data: Comments = self.sidecar(id, "comments.json")?;
+                let comment = data
+                    .comments
+                    .iter_mut()
+                    .find(|v| {
+                        v.id == comment_id
+                            && v.kind == kind
+                            && v.status == MarkdownCommentStatus::Open
+                    })
+                    .ok_or("MARKDOWN_ANCHOR_INVALID")?;
+                if comment.text != previous_text {
+                    return Err("MARKDOWN_CONFLICT");
+                }
+                comment.text = text;
+                self.write_sidecar(id, "comments.json", &data)?;
+            }
             MarkdownAnnotationAction::Resolve { id: comment_id } => {
                 let mut data: Comments = self.sidecar(id, "comments.json")?;
                 let comment = data
@@ -799,6 +825,101 @@ mod tests {
                 )
                 .unwrap_err(),
             "MARKDOWN_LOCKED"
+        );
+    }
+    #[test]
+    fn awr_ac02_comment_edits_preserve_identity_and_reject_stale_input() {
+        let root = tempfile::tempdir().unwrap();
+        let store = MarkdownProjects::open(root.path()).unwrap();
+        let p = store.create("A passage 中文".into()).unwrap();
+        let kind = MarkdownDocumentKind::Manuscript;
+        let data = store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                MarkdownAnnotationAction::Comment {
+                    revision: p.revision.clone(),
+                    range: range(&p.text, "passage"),
+                    text: "Original note".into(),
+                },
+            )
+            .unwrap();
+        let original = &data.comments[0];
+        let edit = |revision: &str, previous: &str, text: &str| MarkdownAnnotationAction::Edit {
+            id: original.id.clone(),
+            revision: revision.into(),
+            previous_text: previous.into(),
+            text: text.into(),
+        };
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit("stale", "Original note", "Changed")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "newer", "Changed")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "Original note", " ")
+                )
+                .unwrap_err(),
+            "MARKDOWN_ANCHOR_INVALID"
+        );
+        let edited = store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                edit(&p.revision, "Original note", "补充具体细节"),
+            )
+            .unwrap();
+        assert_eq!(edited.comments[0].id, original.id);
+        assert_eq!(edited.comments[0].anchor.quote, original.anchor.quote);
+        assert_eq!(edited.comments[0].text, "补充具体细节");
+        assert_eq!(store.read(&p.project_id).unwrap().text, p.text);
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "Original note", "Late edit")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                MarkdownAnnotationAction::Resolve {
+                    id: original.id.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind,
+                    edit(&p.revision, "补充具体细节", "Resolved edit")
+                )
+                .unwrap_err(),
+            "MARKDOWN_ANCHOR_INVALID"
         );
     }
     #[test]

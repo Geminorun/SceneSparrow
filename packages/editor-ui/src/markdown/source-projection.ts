@@ -32,6 +32,7 @@ function checkListShape(node: JSONContent) {
   node.content?.forEach(checkListShape);
 }
 function signature(node: JSONContent) {
+  if (node.type === "horizontalRule") return "---\n";
   checkListShape(node);
   return serializeMarkdown(fromEditor({ type: "doc", content: [node] }));
 }
@@ -46,6 +47,7 @@ type MarkdownNode = {
 function safe(node: MarkdownNode, depth = 0): boolean {
   const children = node.children ?? [];
   switch (node.type) {
+    case "thematicBreak":
     case "text":
     case "inlineCode":
     case "break":
@@ -96,8 +98,10 @@ function readProjection(source: string): SourceProjection | null {
   const content = nodes.map((node: AstNode) => {
     const start = node.position!.start.offset! + bom;
     const end = node.position!.end.offset! + bom;
-    const projected = toEditor(parseMarkdown(source.slice(start, end)))
-      .content![0]!;
+    const projected =
+      node.type === "thematicBreak"
+        ? ({ type: "horizontalRule" } as JSONContent)
+        : toEditor(parseMarkdown(source.slice(start, end))).content![0]!;
     function identify(ast: any, projected: JSONContent) {
       if (ast.type === "listItem") {
         const id = crypto.randomUUID();
@@ -287,13 +291,16 @@ function preserveItems(
   return value;
 }
 
-/** Map displayed text offsets through Markdown marks, escapes, entities and code. */
-export function sourceTextRange(
-  source: string,
-  block: SourceBlock,
-  from: number,
-  to: number,
-): { start: number; end: number } | null {
+type TextMap = {
+  source: string;
+  spans: { start: number; end: number }[];
+  containers: { start: number; end: number; from: number; to: number }[];
+  end: number;
+};
+const textMaps = new WeakMap<SourceBlock, TextMap>();
+function sourceTextMap(source: string, block: SourceBlock): TextMap | null {
+  const cached = textMaps.get(block);
+  if (cached?.source === source) return cached;
   const raw = source.slice(block.start, block.end);
   let root: any = fromMarkdown(raw).children[0];
   if (root?.type === "list") root = root.children[0]?.children[0];
@@ -374,11 +381,27 @@ export function sourceTextRange(
   }
   if (!root) return null;
   walk(root);
+  if (!valid) return null;
+  const mapping = { source, spans, containers, end: root.position.end.offset };
+  textMaps.set(block, mapping);
+  return mapping;
+}
+
+/** Map displayed text offsets through Markdown marks, escapes, entities and code. */
+export function sourceTextRange(
+  source: string,
+  block: SourceBlock,
+  from: number,
+  to: number,
+): { start: number; end: number } | null {
+  const mapping = sourceTextMap(source, block);
+  if (!mapping) return null;
+  const { spans, containers } = mapping;
   from = Math.max(0, from);
   to = Math.min(spans.length, to);
-  if (!valid || from >= to) return null;
+  if (from >= to) return null;
   if (from === 0 && to === spans.length)
-    return { start: block.start, end: block.start + root.position.end.offset };
+    return { start: block.start, end: block.start + mapping.end };
   let start = spans[from]!.start,
     end = spans[to - 1]!.end;
   for (const node of containers)

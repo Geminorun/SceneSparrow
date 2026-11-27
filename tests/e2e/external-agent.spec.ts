@@ -30,6 +30,10 @@ async function selectFirst(page: Page) {
   await visual(page).locator("p").first().click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
+  await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
   await expect(page.locator(".agent-context-chip")).toContainText(
     "Selected text",
   );
@@ -431,6 +435,7 @@ test("EWA-AC03 stopping a later turn does not strand an earlier Apply acknowledg
       page.evaluate(() => !!(window as any).agentFixture.releaseApply),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Remove quote", exact: true }).click();
   await visual(page).locator("p").last().click();
   await page.keyboard.press("End");
   await expect(page.locator(".agent-context-chip")).toContainText(
@@ -531,12 +536,17 @@ test("EWA-AC01/04 source selections preserve surrounding raw Markdown bytes", as
   const project = await response.json();
   await page.goto(`/?project=${project.projectId}`);
   await expect(visual(page)).toHaveJSProperty("tagName", "TEXTAREA");
-  await visual(page).evaluate((input: HTMLTextAreaElement) => {
-    const start = input.value.indexOf("Original");
-    input.focus();
-    input.setSelectionRange(start, start + "Original 中文.".length);
-    input.dispatchEvent(new Event("select", { bubbles: true }));
-  });
+  await visual(page).focus();
+  await visual(page).press("ControlOrMeta+Home");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("Home");
+  await visual(page).press("Shift+End");
+  await page
+    .locator(".source-fallback .markdown-source-actions")
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
   await agent(page);
   await expect(page.locator(".agent-context-chip")).toContainText(
     "Original 中文.",
@@ -552,24 +562,23 @@ test("EWA-AC01/04 source selections preserve surrounding raw Markdown bytes", as
   );
 });
 
-test("EWA-AC04 unmapped explicit selections never become whole-document questions", async ({
+test("AWR-AC02 ordinary selection keeps the explicitly attached Agent quote", async ({
   page,
 }) => {
   await setup(page);
   await seed(page);
   await selectFirst(page);
-  await agent(page);
   await visual(page).locator("p").last().click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
-  await expect(page.locator(".agent-context-chip")).not.toContainText(
+  await expect(page.locator(".agent-context-chip")).toContainText(
     "First paragraph.",
   );
-  await send(page, "Revise this unmapped selection");
-  await expect(page.locator(".agent-turn")).toContainText(
-    "Select an exact text range",
+  await send(page, "Revise the attached passage");
+  await expect.poll(() => calls(page, "send")).toHaveLength(1);
+  expect((await calls(page, "send"))[0].body.attachment.selection.quote).toBe(
+    "First paragraph.",
   );
-  expect(await calls(page, "send")).toHaveLength(0);
 });
 
 test("EWA-AC04 transcript scroll keeps the composer visible and keyboard focus in desktop and narrow panes", async ({

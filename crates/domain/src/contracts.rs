@@ -2086,6 +2086,17 @@ pub enum MarkdownAnnotationAction {
         #[serde(rename = "range")]
         range: MarkdownRange,
     },
+    #[serde(rename = "edit")]
+    Edit {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "revision")]
+        revision: String,
+        #[serde(rename = "previousText")]
+        previous_text: String,
+        #[serde(rename = "text")]
+        text: String,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

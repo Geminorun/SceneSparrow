@@ -761,5 +761,9 @@
   "deepseekKeepDirect": "保留当前直接 API 绑定",
   "deepseekCompatibility": "高级：直接 API 兼容设置",
   "deepseekCompatibilityHelp": "在此管理现有模型服务和直接 API 写作默认模型。选择上方的 Harness 写作模型即可切换。",
-  "deepseekWritingActive": "已使用上方选择的 Harness 写作模型"
+  "deepseekWritingActive": "已使用上方选择的 Harness 写作模型",
+  "markdownAsk": "提问",
+  "markdownCommentAction": "批注",
+  "markdownSelectionActions": "选区操作",
+  "agentRemoveQuote": "移除引用"
 }

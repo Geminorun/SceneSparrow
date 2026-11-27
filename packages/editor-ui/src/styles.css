@@ -2629,11 +2629,126 @@ body > .notifications {
   }
 }
 
+.markdown-workspace :is(.outline-surface, .document-layout) {
+  display: block;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 32px 36px 120px;
+}
+.markdown-workspace :is(.outline-surface, .document-layout)[hidden] {
+  display: none;
+}
 .markdown-editor-shell {
   position: relative;
 }
 .markdown-editor-shell .tiptap {
   padding-right: 2.5rem;
+}
+.markdown-editor-shell .tiptap hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.6em 0;
+}
+.markdown-locked-block {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 3px;
+}
+.markdown-block-controls {
+  position: absolute;
+  right: 0;
+  width: 2rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+.markdown-block-controls button {
+  opacity: 0;
+  border: 0;
+  padding: 0.25rem;
+  background: transparent;
+  color: var(--muted);
+}
+.markdown-block-controls.is-hovered button,
+.markdown-block-controls:hover button,
+.markdown-block-controls:focus-within button,
+.markdown-block-controls.is-locked button {
+  opacity: 1;
+}
+.markdown-block-controls.is-locked button {
+  color: var(--accent);
+}
+.markdown-comment-highlight {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-bottom: 1px dotted var(--accent);
+}
+.markdown-comment-marker {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  min-width: 0;
+  padding: 1px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  line-height: 1;
+  vertical-align: middle;
+}
+.markdown-comment-marker svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.markdown-selection-toolbar,
+.markdown-inline-comment {
+  position: fixed;
+  z-index: 35;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: 0 3px 12px #00000012;
+  color: var(--ink);
+}
+.markdown-selection-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+}
+.markdown-selection-toolbar button {
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+}
+.markdown-inline-comment {
+  width: min(300px, calc(100vw - 16px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  padding: 12px;
+}
+.markdown-inline-comment label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.82rem;
+}
+.markdown-inline-comment textarea {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+}
+.markdown-inline-comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.markdown-editor-shell :is(button, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .markdown-review {
   padding: 1rem;
@@ -2665,30 +2780,10 @@ body > .notifications {
   justify-content: flex-end;
   flex-wrap: wrap;
 }
-.markdown-block-controls {
-  position: absolute;
-  right: 0;
-  display: flex;
-  opacity: 0;
-  background: var(--canvas);
-}
-.markdown-block-controls button {
-  border: 0;
-  padding: 0.25rem;
-  background: transparent;
-}
-.markdown-editor-shell:hover .markdown-block-controls,
-.markdown-block-controls:focus-within {
-  opacity: 1;
-}
-.markdown-lock-marker {
-  position: absolute;
-  right: -0.25rem;
-  color: var(--accent);
-  pointer-events: none;
-}
-.markdown-editor-shell:hover .markdown-lock-marker {
-  opacity: 0.3;
+@media (max-width: 600px) {
+  .markdown-workspace :is(.outline-surface, .document-layout) {
+    padding: 24px 16px 90px;
+  }
 }
 
 .agent-panel {

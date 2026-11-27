@@ -761,5 +761,9 @@
   "deepseekKeepDirect": "Keep current direct API binding",
   "deepseekCompatibility": "Advanced: direct API compatibility",
   "deepseekCompatibilityHelp": "Manage existing model services and direct API writing defaults here. Select a Harness writing model above to switch.",
-  "deepseekWritingActive": "Harness writing model selected above"
+  "deepseekWritingActive": "Harness writing model selected above",
+  "markdownAsk": "Ask",
+  "markdownCommentAction": "Comment",
+  "markdownSelectionActions": "Selection actions",
+  "agentRemoveQuote": "Remove quote"
 }

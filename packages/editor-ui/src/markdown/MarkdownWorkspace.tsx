@@ -12,6 +12,7 @@ import type {
   MarkdownDocument,
   MarkdownDocumentKind,
   MarkdownAnnotations,
+  MarkdownComment,
   MarkdownRange,
   AgentProposal,
 } from "@scenesparrow/contracts";
@@ -146,6 +147,13 @@ export function MarkdownWorkspace({
   >({ manuscript: null, outline: null });
   const selectionsRef = useRef(selections);
   selectionsRef.current = selections;
+  const [agentAttachment, setAgentAttachment] = useState<{
+    kind: MarkdownDocumentKind;
+    owner: Buffer;
+    selected: NonNullable<typeof selections.manuscript>;
+  } | null>(null);
+  const agentAttachmentRef = useRef(agentAttachment);
+  agentAttachmentRef.current = agentAttachment;
   const annotationGeneration = useRef({ manuscript: 0, outline: 0 });
   function annotated(kind: MarkdownDocumentKind, data: MarkdownAnnotations) {
     annotationGeneration.current[kind]++;
@@ -234,6 +242,7 @@ export function MarkdownWorkspace({
     setSeparateProject(null);
     setView("manuscript");
     setSelections({ manuscript: null, outline: null });
+    setAgentAttachment(null);
     setAnnotations({
       manuscript: emptyAnnotations(),
       outline: emptyAnnotations(),
@@ -484,7 +493,7 @@ export function MarkdownWorkspace({
     [outlineCurrent?.project.projectId, outlineCurrent?.editorSession],
   );
   const activeBuffer = documentBufferFor(activeKind());
-  const agentSelection = selections[activeKind()];
+  const agentSelection = agentAttachment?.selected;
   const agentExcerpt = useMemo(
     () =>
       agentSelection?.explicit
@@ -661,6 +670,20 @@ export function MarkdownWorkspace({
     return (
       <div className="markdown-source-actions">
         <button
+          disabled={
+            !selected?.explicit ||
+            selected.range.end <= selected.range.start ||
+            selected.source !== documentBufferFor(kind)?.text
+          }
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (sourceOpen.current) closeSource(false);
+            askSelection(kind);
+          }}
+        >
+          {t.markdownAsk}
+        </button>
+        <button
           type="button"
           className="markdown-icon-button"
           aria-label={label}
@@ -772,8 +795,10 @@ export function MarkdownWorkspace({
     current.editedAt = Date.now();
     redraw();
   }
-  function selectedLocks(kind: MarkdownDocumentKind) {
-    const selection = selections[kind];
+  function selectedLocks(
+    kind: MarkdownDocumentKind,
+    selection = selections[kind],
+  ) {
     const locks = annotationsRef.current[kind].locks;
     if (
       !locks.length ||
@@ -806,8 +831,7 @@ export function MarkdownWorkspace({
   function selectionLocked(kind: MarkdownDocumentKind) {
     return selectedLocks(kind).length > 0;
   }
-  function toggleLock(kind: MarkdownDocumentKind) {
-    const selected = selections[kind];
+  function toggleLock(kind: MarkdownDocumentKind, selected = selections[kind]) {
     const initial = documentBufferFor(kind);
     if (!selected?.ranges.length || !initial) return;
     void composition
@@ -817,7 +841,7 @@ export function MarkdownWorkspace({
           selected.source !== initial.text
         )
           throw new ApiError("MARKDOWN_CONFLICT");
-        const existing = selectedLocks(kind);
+        const existing = selectedLocks(kind, selected);
         if (existing.some((lock) => lock.anchors.length > 1)) {
           pane.open("review");
           return;
@@ -867,6 +891,56 @@ export function MarkdownWorkspace({
       projectId: current.project.projectId,
     };
   }
+  function askSelection(kind: MarkdownDocumentKind) {
+    const selected = selectionsRef.current[kind];
+    const owner = documentBufferFor(kind);
+    if (
+      !selected?.explicit ||
+      !owner ||
+      selected.source !== owner.text ||
+      selected.range.end <= selected.range.start
+    )
+      return;
+    setAgentAttachment({ kind, owner, selected });
+    pane.open("agent");
+    requestAnimationFrame(() =>
+      document.getElementById("markdown-agent-composer")?.focus(),
+    );
+  }
+  async function inlineComment(
+    kind: MarkdownDocumentKind,
+    source: string,
+    range: MarkdownRange,
+    text: string,
+    existing?: MarkdownComment,
+    resolve = false,
+  ) {
+    const capture = await prepareReview(kind);
+    if (capture.text !== source) throw new ApiError("MARKDOWN_CONFLICT");
+    validateReview(capture);
+    const ids = new Set(
+      annotationsRef.current[kind].comments.map((comment) => comment.id),
+    );
+    const data = await client.annotate(
+      capture.projectId,
+      kind,
+      existing
+        ? resolve
+          ? { action: "resolve", id: existing.id }
+          : {
+              action: "edit",
+              id: existing.id,
+              revision: capture.revision,
+              previousText: existing.text,
+              text,
+            }
+        : { action: "comment", revision: capture.revision, range, text },
+    );
+    if (documentBufferFor(kind) === capture.session) annotated(kind, data);
+    return data.comments.find((comment) =>
+      existing ? comment.id === existing.id : !ids.has(comment.id),
+    );
+  }
   function validateReview(capture: ReviewCapture) {
     const current = documentBufferFor(capture.kind);
     if (
@@ -900,7 +974,11 @@ export function MarkdownWorkspace({
     const current = documentBufferFor(kind);
     if (!current || current !== owner)
       throw new ApiError("AGENT_CONTEXT_INVALID");
-    const selected = selectionsRef.current[kind];
+    const attached = agentAttachmentRef.current;
+    const selected =
+      attached?.kind === kind && attached.owner === current
+        ? attached.selected
+        : null;
     if (selected?.explicit && selected.source !== current.text)
       throw new ApiError("AGENT_CONTEXT_STALE");
     if (selected?.explicit && selected.range.end <= selected.range.start)
@@ -1465,10 +1543,16 @@ export function MarkdownWorkspace({
                             pane.right.tab === "agent" && pane.visible("right")
                           }
                           composition={composition}
-                          contextLabel={`${activeKind() === "outline" ? t.writingOutline : t.manuscript} · ${agentExcerpt !== null ? `${t.agentSelectionContext}: ${agentExcerpt}` : t.agentDocumentContext}`}
+                          contextLabel={`${(agentAttachment?.kind ?? activeKind()) === "outline" ? t.writingOutline : t.manuscript} · ${agentExcerpt !== null ? `${t.agentSelectionContext}: ${agentExcerpt}` : t.agentDocumentContext}`}
+                          clearSelection={
+                            agentAttachment
+                              ? () => setAgentAttachment(null)
+                              : undefined
+                          }
                           prepareIntent={() => {
-                            const kind = activeKind();
-                            const owner = documentBufferFor(kind);
+                            const kind = agentAttachment?.kind ?? activeKind();
+                            const owner =
+                              agentAttachment?.owner ?? documentBufferFor(kind);
                             return () => prepareAgent(kind, owner);
                           }}
                           validate={(capture) =>
@@ -1756,9 +1840,25 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.outline}
-                        comment={showComments}
-                        lock={() => toggleLock("outline")}
-                        locked={selectionLocked("outline")}
+                        ask={() => askSelection("outline")}
+                        comment={(source, range, text, existing, resolve) =>
+                          inlineComment(
+                            "outline",
+                            source,
+                            range,
+                            text,
+                            existing,
+                            resolve,
+                          )
+                        }
+                        lock={(ranges, source) =>
+                          toggleLock("outline", {
+                            ranges,
+                            range: ranges[0]!,
+                            source,
+                            explicit: false,
+                          })
+                        }
                         scope="outline"
                         autofocus={false}
                         t={{ ...t, markdownText: t.markdownWritingOutline }}
@@ -1805,9 +1905,25 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.manuscript}
-                        comment={showComments}
-                        lock={() => toggleLock("manuscript")}
-                        locked={selectionLocked("manuscript")}
+                        ask={() => askSelection("manuscript")}
+                        comment={(source, range, text, existing, resolve) =>
+                          inlineComment(
+                            "manuscript",
+                            source,
+                            range,
+                            text,
+                            existing,
+                            resolve,
+                          )
+                        }
+                        lock={(ranges, source) =>
+                          toggleLock("manuscript", {
+                            ranges,
+                            range: ranges[0]!,
+                            source,
+                            explicit: false,
+                          })
+                        }
                         t={t}
                         composition={composition}
                         changed={(text) => {

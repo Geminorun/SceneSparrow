@@ -3772,6 +3772,29 @@
               "$ref": "#/definitions/MarkdownRange"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "id", "revision", "previousText", "text"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["edit"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "previousText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
         }
       ]
     },
