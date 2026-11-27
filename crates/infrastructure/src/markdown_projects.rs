@@ -52,6 +52,7 @@ fn outline_base<'de, D: serde::Deserializer<'de>>(
 }
 pub struct MarkdownProjects {
     root: PathBuf,
+    pub(super) research_search: Option<String>,
     pub(super) writer: Mutex<()>,
     #[cfg(test)]
     pub(super) fail_before_commit: std::sync::atomic::AtomicBool,
@@ -105,6 +106,9 @@ impl MarkdownProjects {
         }
         Ok(Self {
             root: io(root.canonicalize())?,
+            research_search: std::env::var("SCENESPARROW_RESEARCH_SEARCH_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             writer: Mutex::new(()),
             #[cfg(test)]
             fail_before_commit: std::sync::atomic::AtomicBool::new(false),

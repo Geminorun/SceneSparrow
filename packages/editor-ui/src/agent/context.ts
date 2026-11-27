@@ -31,6 +31,7 @@ export async function agentAttachment(
   };
 }
 export function proposalText(capture: AgentCapture, proposal: AgentProposal) {
+  if (proposal.context.research) throw new ApiError("AGENT_CAPABILITY_DENIED");
   if (
     proposal.context.projectId !== capture.projectId ||
     proposal.context.kind !== capture.kind ||

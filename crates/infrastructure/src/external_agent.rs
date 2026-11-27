@@ -254,6 +254,15 @@ impl MarkdownProjects {
     }
 }
 impl AgentDocuments for MarkdownProjects {
+    fn research(
+        &self,
+        project: &str,
+        question: &str,
+        quote: &str,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<AgentResearch> {
+        self.research_sources(project, question, quote, cancelled)
+    }
     fn authorize(&self, project: &str) -> Result<()> {
         let _guard = self
             .writer
@@ -417,6 +426,7 @@ impl AgentDocuments for MarkdownProjects {
         }
         Ok(CapturedDocument {
             context: AgentContext {
+                research: None,
                 batch: if attachment.selection.is_none() && text == saved.text {
                     Some(Box::new(batch_context(
                         &text,
@@ -435,6 +445,9 @@ impl AgentDocuments for MarkdownProjects {
         })
     }
     fn recover_apply(&self, proposal: &AgentProposal) -> Result<Option<MarkdownDocument>> {
+        if proposal.context.research.is_some() {
+            return Err("AGENT_CAPABILITY_DENIED");
+        }
         if proposal.batch.is_none() {
             return Ok(None);
         }
@@ -466,6 +479,9 @@ impl AgentDocuments for MarkdownProjects {
         Ok(None)
     }
     fn apply(&self, proposal: &AgentProposal) -> Result<MarkdownDocument> {
+        if proposal.context.research.is_some() {
+            return Err("AGENT_CAPABILITY_DENIED");
+        }
         let _guard = self
             .writer
             .lock()
@@ -512,6 +528,7 @@ mod tests {
         let project = store.create("Prefix 中文 suffix".into()).unwrap();
         let start = project.text.find('中').unwrap();
         let mut attachment = AgentAttachment {
+            research: None,
             kind: MarkdownDocumentKind::Manuscript,
             revision: Some(project.revision.clone()),
             source_digest: project.revision.clone(),
@@ -598,6 +615,7 @@ mod tests {
             .unwrap();
         let start = outline.text.find("Target 中文").unwrap();
         let attachment = AgentAttachment {
+            research: None,
             kind: MarkdownDocumentKind::Outline,
             revision: outline.revision.clone(),
             source_digest: digest(&outline.text),
@@ -665,6 +683,7 @@ mod conversation_tests {
             request_id: id.into(),
             instruction: "First instruction 中文".into(),
             attachment: AgentAttachment {
+                research: None,
                 kind: MarkdownDocumentKind::Manuscript,
                 revision: Some(project.revision.clone()),
                 source_digest: project.revision.clone(),
@@ -813,6 +832,7 @@ mod conversation_tests {
                     request_id: "discard-turn".into(),
                     instruction: "Discard this".into(),
                     attachment: AgentAttachment {
+                        research: None,
                         kind: MarkdownDocumentKind::Manuscript,
                         revision: Some(saved.revision.clone()),
                         source_digest: saved.revision,
@@ -948,6 +968,7 @@ mod batch_tests {
                     request_id: "send".into(),
                     instruction: "Revise this draft".into(),
                     attachment: AgentAttachment {
+                        research: None,
                         kind: doc.kind.clone(),
                         revision: doc.revision.clone(),
                         source_digest: digest(&doc.text),
@@ -1342,6 +1363,7 @@ mod batch_tests {
             .capture(
                 &doc.project_id,
                 &AgentAttachment {
+                    research: None,
                     kind: doc.kind.clone(),
                     revision: changed.revision.clone(),
                     source_digest: digest(&changed.text),

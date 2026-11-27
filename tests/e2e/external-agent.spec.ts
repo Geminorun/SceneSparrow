@@ -27,6 +27,9 @@ async function seed(page: Page) {
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
 }
 async function selectFirst(page: Page) {
+  await page.evaluate(() => {
+    (window as any).agentFixture.explicitSelection = true;
+  });
   await visual(page).locator("p").first().click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");

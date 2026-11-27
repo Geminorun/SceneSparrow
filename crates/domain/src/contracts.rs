@@ -2180,6 +2180,13 @@ pub struct AgentAttachment {
     pub selection: Option<AgentSelection>,
     #[serde(rename = "buffer", deserialize_with = "required_nullable")]
     pub buffer: Option<String>,
+    #[serde(
+        rename = "research",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub research: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2201,6 +2208,13 @@ pub struct AgentContext {
         deserialize_with = "present_nonnull"
     )]
     pub batch: Option<Box<AgentBatchContext>>,
+    #[serde(
+        rename = "research",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub research: Option<Box<AgentResearch>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2551,6 +2565,41 @@ pub struct AgentBatchRevision {
     pub changes: Vec<AgentBatchChange>,
     #[serde(rename = "unresolved")]
     pub unresolved: Vec<AgentUnresolved>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentResearchSource {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "url", deserialize_with = "required_nullable")]
+    pub url: Option<String>,
+    #[serde(rename = "excerpt")]
+    pub excerpt: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentResearchStatus {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "complete")]
+    Complete,
+    #[serde(rename = "partial")]
+    Partial,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "empty")]
+    Empty,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentResearch {
+    #[serde(rename = "status")]
+    pub status: AgentResearchStatus,
+    #[serde(rename = "sources")]
+    pub sources: Vec<AgentResearchSource>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

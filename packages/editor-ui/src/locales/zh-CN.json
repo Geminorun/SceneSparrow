@@ -782,5 +782,16 @@
   "agentBatch_detached": "无法定位原文",
   "agentBatch_clarification": "需要澄清",
   "agentBatchOriginal": "原文",
-  "agentBatchProposed": "建议修改"
+  "agentBatchProposed": "建议修改",
+  "agentResearchContext": "{document} · 只读查证",
+  "agentResearchSources": "查证来源",
+  "agentResearchExcerpt": "检索摘录",
+  "agentResearchWorking": "正在查找来源…",
+  "agentResearch_pending": "正在查找项目参考资料，必要时使用已配置的公开搜索…",
+  "agentResearch_complete": "已获取来源；回答只能依据这些摘录进行查证。",
+  "agentResearch_partial": "来源不完整：部分参考资料或搜索结果不可用。",
+  "agentResearch_unavailable": "公开搜索不可用或尚未配置，现有来源无法证实此说法。",
+  "agentResearch_empty": "未找到匹配来源，现有来源无法证实此说法。",
+  "agentResearch_cancelled": "已取消来源检索。",
+  "agentResearchReadback": "重新打开此对话可加载已保存的来源检索结果。"
 }

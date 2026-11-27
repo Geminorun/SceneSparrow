@@ -782,5 +782,16 @@
   "agentBatch_detached": "Anchor no longer found",
   "agentBatch_clarification": "Needs clarification",
   "agentBatchOriginal": "Original",
-  "agentBatchProposed": "Proposed"
+  "agentBatchProposed": "Proposed",
+  "agentResearchContext": "{document} · Read-only research",
+  "agentResearchSources": "Research sources",
+  "agentResearchExcerpt": "Retrieved excerpt",
+  "agentResearchWorking": "Looking up sources…",
+  "agentResearch_pending": "Looking up project references, then configured public search if needed…",
+  "agentResearch_complete": "Retrieved sources. The answer may verify only what these excerpts support.",
+  "agentResearch_partial": "Partial sources. Some references or search results were unavailable.",
+  "agentResearch_unavailable": "Public search is unavailable or not configured. Available sources cannot verify this claim.",
+  "agentResearch_empty": "No matching sources found. Available sources cannot verify this claim.",
+  "agentResearch_cancelled": "Source lookup was cancelled.",
+  "agentResearchReadback": "Reopen this conversation to load its saved source outcome."
 }

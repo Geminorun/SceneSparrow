@@ -117,3 +117,71 @@ operation remain separate from this Web validation.
 
 - [Batch summary at 1280 × 720](assets/awr-batch-summary-1280.png)
 - [Expanded comparison at 960 × 720](assets/awr-batch-preview-960.png)
+
+## Phase 4 — Read-only selected-text research
+
+The phase starts from `bc21655` and covers AWR-T04 and AWR-AC08–09. Ask
+attaches the captured quote and waits for a question. Product sends carry an
+explicit research marker; older explicit selection consumers retain the
+protected proposal API. Research uses the existing session, turn, event,
+cancellation and durable conversation boundaries. It supplies only the captured
+quote and retrieved evidence as the current writing input, disables proposals
+at both the application and Markdown writer boundaries, and leaves document and
+review sidecars unchanged.
+
+The file-backed project reads small documented `references/*.md` / `*.txt`
+inputs first, with bounded lexical matching for English and Chinese. When those
+sources are insufficient, the application supervises a dependency-free Node
+fetch adapter against one operator-configured HTTPS search endpoint (loopback
+HTTP for local adapters/tests). It supports SearXNG JSON and the documented
+`sources` response. The public query contains only bounded portions of the
+explicit selection and question. Redirects, unsafe URLs, oversized responses,
+and unbounded waits are rejected. See [research sources](../research-sources.md)
+for exact limits, source-file placement, endpoint configuration and supported
+response shapes. The Web supervisor and Compose service forward the setting
+without giving the writing runner a network or file tool.
+
+Source titles, validated links or project reference IDs, excerpts, retrieval
+outcome, original question, and quote are saved on the originating turn before
+answer generation. The conversation displays these actual source records beside
+the answer and restores them from history. Missing, partial, empty, cancelled,
+and unavailable outcomes remain visible. Failed answers retain retrieved
+sources. Explicit retries keep the original quote while its document revision
+remains valid. A failed source readback preserves the settled answer and points
+to reopening the saved conversation.
+
+Ponytail Full and implementation Ponytail Review followed the generated
+contracts, both native text-only adapters, bounded retrieval, writer denials,
+conversation restoration, source links and affected fixtures. Corrections bounded
+large-selection matching, preserved excerpt offsets when Unicode lowercasing
+expands characters, kept valid SearXNG neighbors beside malformed rows, and used
+the contract generator's existing indirect-snapshot rule to keep protocol unions
+small. The root review also traced the project scope and the distinction
+between research and the existing write-capable paths.
+
+Focused verification passed.
+
+- Six application Agent tests, including rejection of research without a quote
+  and of all edit-shaped outputs.
+- Six infrastructure retrieval tests used real local HTTP and supervised Node
+  fetch. They cover Chinese project references first, a question grounded by
+  its selected claim, actual source metadata, durable reopen,
+  unavailable/lost/empty/partial responses, answer failure, and cancellation.
+  Bounded matching and case-expanding Unicode have a focused regression.
+- Both native socket research fixtures verify supplied evidence, plain-text
+  answers, and the existing writing-only policy. The eight existing Agent HTTP
+  tests preserve the explicit selection, batch, cancellation and restart paths.
+- Seven search-adapter HTTP tests exercise both response formats, invalid
+  endpoints, unsafe links, Unicode limits, malformed rows, redirects, response
+  limits, lost/unavailable responses and request abort. Existing JavaScript Agent
+  and Web-supervisor checks pass, including forwarding the configured endpoint.
+- All 26 Agent/conversation browser cases passed. The two research cases passed
+  again with sources initially pending and loaded from the settled conversation.
+  They verify question-before-send, citations after refresh/history navigation,
+  unchanged Markdown/open comments, and cancelled/unavailable retry context.
+- Generated contract consistency, editor TypeScript, scoped Clippy with warnings
+  denied, touched-file formatting and Rust formatting.
+
+These checks use deterministic Agent and search fixtures. Hosted inference,
+live public search, and native desktop operation remain separate from this Web
+validation. The capability provides evidence excerpts from the configured sources.

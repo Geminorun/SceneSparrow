@@ -24,6 +24,7 @@ const fixture = {
   release: null as (() => void) | null,
   hold: false,
   available: true,
+  explicitSelection: false,
   holdSend: false,
   releaseSend: null as (() => void) | null,
   holdApply: false,
@@ -97,6 +98,12 @@ const agent: ExternalWritingClient = {
     sessions.delete(id);
   },
   async send(projectId, id, input) {
+    // Existing editing tests explicitly exercise the protected selection API.
+    if (fixture.explicitSelection)
+      input = {
+        ...input,
+        attachment: { ...input.attachment, research: false },
+      };
     fixture.calls.push({ type: "send", body: input });
     const turn: AgentTurn = {
       id: crypto.randomUUID(),

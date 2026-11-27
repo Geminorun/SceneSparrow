@@ -154,7 +154,7 @@ function fields(s, name, visibility = true) {
       // Keep large snapshots indirect in protocol unions.
       if (
         (name === "AiWorkerControl" && k === "configuration") ||
-        (name === "AgentContext" && k === "batch")
+        (name === "AgentContext" && ["batch", "research"].includes(k))
       )
         type = `Box<${type}>`;
       if (!s.required?.includes(k)) type = `Option<${type}>`;

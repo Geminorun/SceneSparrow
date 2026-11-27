@@ -874,6 +874,7 @@ impl SqliteProjectRepository {
     }
 }
 
+mod markdown_research;
 mod storage;
 mod worker_process;
 

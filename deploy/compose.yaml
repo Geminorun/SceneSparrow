@@ -11,6 +11,7 @@ services:
       SCENESPARROW_DEEPSEEK_RELAY_DIR: /run/writing-agent
       SCENESPARROW_DEEPSEEK_SOCKET: /run/writing-agent/dsh.sock
       SCENESPARROW_AI_MASTER_KEY_FILE: /run/secrets/ai_master_key
+      SCENESPARROW_RESEARCH_SEARCH_URL: ${SCENESPARROW_RESEARCH_SEARCH_URL:-}
     ports:
       - "127.0.0.1:${WEB_PORT:-8070}:8080"
     volumes:

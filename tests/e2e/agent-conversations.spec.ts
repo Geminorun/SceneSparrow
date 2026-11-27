@@ -116,6 +116,8 @@ async function fixture(page: Page, batchPreview = false) {
             selection: body.attachment.selection,
           },
         };
+        if (body.attachment.research)
+          turn.context.research = { status: "pending", sources: [] };
         if (batchPreview) {
           const annotations = await (
             await page.request.get(
@@ -208,14 +210,51 @@ async function fixture(page: Page, batchPreview = false) {
       }
       if (action === "cancel") {
         turn.status = "cancelled";
+        if (turn.context.research?.status === "pending")
+          turn.context.research.status = "cancelled";
         return route.fulfill({ json: turn });
       }
-      if (turn.instruction === "Wait in the original project")
+      if (turn.attachment.research && turn.status === "running") {
+        turn.context.research = {
+          status:
+            turn.instruction === "Wait for source lookup"
+              ? "pending"
+              : turn.instruction === "Unavailable search"
+                ? "unavailable"
+                : "complete",
+          sources: ["Wait for source lookup", "Unavailable search"].includes(
+            turn.instruction,
+          )
+            ? []
+            : [
+                {
+                  id: turn.instruction.includes("公开")
+                    ? "public-1"
+                    : "references/湖泊调查.md",
+                  title: turn.instruction.includes("公开")
+                    ? "Public lake survey · 公开调查"
+                    : "湖泊调查 · Project survey",
+                  url: turn.instruction.includes("公开")
+                    ? "https://evidence.example/lake-survey"
+                    : null,
+                  excerpt:
+                    "调查显示，湖泊面积随季节与水位变化。The measured area varies with water level.",
+                },
+              ],
+        };
+      }
+      if (
+        ["Wait in the original project", "Wait for source lookup"].includes(
+          turn.instruction,
+        )
+      )
         await new Promise<void>((resolve) => {
           held = resolve;
         });
-      turn.status = "completed";
-      turn.reply = `Saved answer: ${turn.instruction}`;
+      if (turn.status !== "cancelled") {
+        turn.status = "completed";
+        turn.reply = `Saved answer: ${turn.instruction}`;
+      }
       const events: unknown[] = [];
       if (
         batchPreview &&
@@ -553,4 +592,142 @@ test("AWR-AC06/12 ordinary send captures the document notes and keeps one compac
   expect(live.text).toContain("Locked ending");
   await page.reload();
   await expect(page.getByText("Applied", { exact: true })).toBeVisible();
+});
+
+test("AWR-AC08 Ask waits for a question, keeps research read-only, and restores project/public citations in history", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await page.goto("/");
+  const editor = page.locator("#markdown-editor");
+  await editor.fill(
+    "鄱阳湖面积约三千平方公里。\n\nKeep this paragraph unchanged.",
+  );
+  await editor.press("Control+s");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  const projectId = new URL(page.url()).searchParams.get("project")!;
+  const path = `/api/v1/markdown-projects/${projectId}/documents/manuscript`;
+  const before = await (await page.request.get(path)).json();
+  const quote = "鄱阳湖面积约三千平方公里。";
+  await page.request.post(`${path}/annotations`, {
+    data: {
+      action: "comment",
+      revision: before.revision,
+      range: { start: 0, end: Buffer.byteLength(quote) },
+      text: "保留此处批注 · Keep this comment",
+    },
+  });
+  const annotations = await (
+    await page.request.get(`${path}/annotations`)
+  ).json();
+  await page.reload();
+  await editor.locator("p").first().click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
+  await expect(composer(page)).toBeFocused();
+  expect(state.submitted).toHaveLength(0);
+  await send(page, "湖泊面积有何依据？");
+  await expect(
+    page.getByText("湖泊调查 · Project survey", { exact: true }),
+  ).toBeVisible();
+  const original = [...state.sessions.values()][0]!;
+  expect(original.turns[0]!.attachment.research).toBe(true);
+  expect(original.turns[0]!.attachment.selection?.quote).toBe(quote);
+  await expect(page.locator(".agent-turn-context")).toHaveText(
+    "Manuscript · Read-only research",
+  );
+  await expect(
+    page.getByRole("button", { name: "Apply", exact: true }),
+  ).toHaveCount(0);
+  await send(page, "请用公开资料查证这句话的出处。");
+  const citation = page.getByRole("link", {
+    name: "Public lake survey · 公开调查",
+    exact: true,
+  });
+  await expect(citation).toHaveAttribute(
+    "href",
+    "https://evidence.example/lake-survey",
+  );
+  await page.reload();
+  await expect(citation).toBeVisible();
+  await expect(
+    page.getByText("湖泊调查 · Project survey", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "New conversation", exact: true })
+    .click();
+  await openHistory(page);
+  await page
+    .getByRole("button", { name: "湖泊面积有何依据？", exact: true })
+    .click();
+  await expect(citation).toBeVisible();
+  expect(await (await page.request.get(path)).json()).toEqual(before);
+  expect(await (await page.request.get(`${path}/annotations`)).json()).toEqual(
+    annotations,
+  );
+});
+
+test("AWR-AC09 cancelled and unavailable research remain retryable with the captured quote", async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await page.goto("/");
+  const editor = page.locator("#markdown-editor");
+  await editor.fill("A selected lake claim.\n\nUnrelated document text.");
+  await editor.press("Control+s");
+  await expect(page.getByTestId("save-status")).toHaveText("Saved");
+  await editor.locator("p").first().click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
+  await send(page, "Wait for source lookup");
+  await expect.poll(state.waiting).toBe(true);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator(".agent-turn")).toHaveAttribute(
+    "data-agent-status",
+    "cancelled",
+  );
+  state.release();
+  await page.reload();
+  await expect(page.locator(".agent-turn")).toContainText(
+    "Source lookup was cancelled.",
+  );
+  await expect(page.locator(".agent-instruction")).toHaveText(
+    "Wait for source lookup",
+  );
+  await editor.locator("p").first().click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
+  await send(page, "Unavailable search");
+  await expect(page.locator(".agent-turn").last()).toContainText(
+    "Public search is unavailable or not configured",
+  );
+  await page.reload();
+  await expect(page.locator(".agent-turn").last()).toContainText(
+    "Unavailable search",
+  );
+  await page
+    .locator(".agent-turn")
+    .first()
+    .getByRole("button", { name: "Retry as a new turn", exact: true })
+    .click();
+  await expect
+    .poll(() => [...state.sessions.values()][0]?.turns.length)
+    .toBe(3);
+  const retried = [...state.sessions.values()][0]!.turns[2]!;
+  expect(retried.attachment.research).toBe(true);
+  expect(retried.attachment.selection?.quote).toBe("A selected lake claim.");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  state.release();
 });

@@ -15,7 +15,7 @@ import type {
   AgentTurnStatus,
 } from "@scenesparrow/contracts";
 import type { ExternalWritingClient } from "@scenesparrow/platform-client";
-import { ApiError } from "@scenesparrow/platform-client";
+import { ApiError, validateExternalLink } from "@scenesparrow/platform-client";
 import type en from "../locales/en.json";
 import { applicationPreferences } from "../app-preferences";
 import {
@@ -189,6 +189,35 @@ export function AgentConversation({
         },
         controller.signal,
       );
+      if (
+        turn.context?.research &&
+        mounted.current &&
+        generation.current === identity &&
+        !controller.signal.aborted
+      ) {
+        const saved = await client
+          .read(projectId, owner.id)
+          .catch((failure) => {
+            if (
+              mounted.current &&
+              generation.current === identity &&
+              !controller.signal.aborted
+            )
+              notice.report(failure);
+            return null;
+          });
+        if (
+          mounted.current &&
+          generation.current === identity &&
+          !controller.signal.aborted
+        ) {
+          const context = saved?.turns.find(
+            (item) => item.id === turn.id,
+          )?.context;
+          if (context) turn.context = context;
+          redraw();
+        }
+      }
       if (generation.current === identity && turn.status === "running")
         throw new ApiError("AGENT_STREAM_INTERRUPTED");
     } catch (failure) {
@@ -328,7 +357,7 @@ export function AgentConversation({
     setChoice({ engineId: created.engineId, modelId: created.modelId });
     return created;
   }
-  async function send(retry?: string) {
+  async function send(retry?: Turn) {
     if (running.current || !client || !engine?.available || !model) return;
     running.current = true;
     setBusy(true);
@@ -350,7 +379,7 @@ export function AgentConversation({
         intent.key,
         async () => {
           if (!valid()) return;
-          const instruction = retry ?? textRef.current;
+          const instruction = retry?.instruction ?? textRef.current;
           if (!instruction.trim()) return;
           const epoch = draftEpoch.current;
           turn = {
@@ -362,10 +391,13 @@ export function AgentConversation({
           };
           setTurns((current) => [...current, turn!]);
           currentTurn.current = turn;
-          const capture = await prepareContext();
+          const capture = retry?.context?.research
+            ? restoreCapture(retry.context)
+            : await prepareContext();
           if (!valid()) return;
           turn.capture = capture;
           const attachment = await agentAttachment(capture);
+          if (capture.selection) attachment.research = true;
           if (!valid()) return;
           validate(capture);
           const conversation = await owner(identity);
@@ -419,6 +451,7 @@ export function AgentConversation({
           conversation.id,
           turn.id,
         );
+        turn.context = settled.context;
         turn.status = settled.status;
         if (settled.status !== "running") turn.progress = "";
         turn.error = settled.errorCode ?? undefined;
@@ -725,27 +758,89 @@ export function AgentConversation({
               <p className="agent-instruction">{turn.instruction}</p>
               {turn.context && (
                 <p className="agent-turn-context muted">
-                  {t.agentBatchContext
-                    .replace(
-                      "{document}",
-                      turn.context.kind === "outline"
-                        ? t.writingOutline
-                        : t.manuscript,
-                    )
-                    .replace(
-                      "{count}",
-                      String(turn.context.batch?.comments.length ?? 0),
-                    )}
+                  {turn.context.research
+                    ? t.agentResearchContext.replace(
+                        "{document}",
+                        turn.context.kind === "outline"
+                          ? t.writingOutline
+                          : t.manuscript,
+                      )
+                    : t.agentBatchContext
+                        .replace(
+                          "{document}",
+                          turn.context.kind === "outline"
+                            ? t.writingOutline
+                            : t.manuscript,
+                        )
+                        .replace(
+                          "{count}",
+                          String(turn.context.batch?.comments.length ?? 0),
+                        )}
                 </p>
               )}
+              {turn.context?.research && (
+                <blockquote className="agent-research-quote">
+                  {turn.context.selection?.quote}
+                </blockquote>
+              )}
               <p className="agent-reply">{turn.reply}</p>
+              {turn.context?.research && (
+                <section
+                  className="agent-research-sources"
+                  aria-label={t.agentResearchSources}
+                >
+                  <p className="muted">
+                    {turn.context.research.status === "pending" &&
+                    turn.status !== "running"
+                      ? t.agentResearchReadback
+                      : t[`agentResearch_${turn.context.research.status}`]}
+                  </p>
+                  {turn.context.research.sources.length > 0 && (
+                    <ul>
+                      {turn.context.research.sources.map((source) => {
+                        let href: string | undefined;
+                        try {
+                          if (source.url) {
+                            validateExternalLink(source.url);
+                            href = source.url;
+                          }
+                        } catch {
+                          /* Persisted external data cannot introduce an unsafe link. */
+                        }
+                        return (
+                          <li key={source.id}>
+                            {href ? (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {source.title}
+                              </a>
+                            ) : (
+                              <strong>{source.title}</strong>
+                            )}
+                            <span className="muted"> [{source.id}]</span>
+                            <details>
+                              <summary>{t.agentResearchExcerpt}</summary>
+                              <p>{source.excerpt}</p>
+                            </details>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              )}
               {(turn.progress || turn.error || turn.status !== "completed") && (
                 <p role="status" className="muted">
                   {turn.error
                     ? errorMessage(turn.error, t)
-                    : turn.progress === "agentWorking"
-                      ? t.agentWorking
-                      : turn.progress || t[`agentStatus_${turn.status}`]}
+                    : turn.progress === "agentResearchWorking"
+                      ? t.agentResearchWorking
+                      : turn.progress === "agentWorking"
+                        ? t.agentWorking
+                        : turn.progress || t[`agentStatus_${turn.status}`]}
                 </p>
               )}
               {turn.proposal && turn.status === "completed" && (
@@ -854,11 +949,13 @@ export function AgentConversation({
                   {!turn.proposal.batch && proposalControls(turn)}
                 </section>
               )}
-              {["failed", "cancelled"].includes(turn.status) && (
-                <button
-                  disabled={busy}
-                  onClick={() => void send(turn.instruction)}
-                >
+              {(["failed", "cancelled"].includes(turn.status) ||
+                (turn.status === "completed" &&
+                  turn.context?.research &&
+                  ["unavailable", "empty", "partial"].includes(
+                    turn.context.research.status,
+                  ))) && (
+                <button disabled={busy} onClick={() => void send(turn)}>
                   {t.agentRetryFresh}
                 </button>
               )}

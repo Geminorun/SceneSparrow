@@ -3938,6 +3938,9 @@
         },
         "buffer": {
           "type": ["string", "null"]
+        },
+        "research": {
+          "type": "boolean"
         }
       }
     },
@@ -3976,6 +3979,9 @@
         },
         "batch": {
           "$ref": "#/definitions/AgentBatchContext"
+        },
+        "research": {
+          "$ref": "#/definitions/AgentResearch"
         }
       }
     },
@@ -4585,6 +4591,49 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentUnresolved"
+          }
+        }
+      }
+    },
+    "AgentResearchSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "url", "excerpt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": ["string", "null"]
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentResearch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sources"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "complete",
+            "partial",
+            "unavailable",
+            "empty",
+            "cancelled"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentResearchSource"
           }
         }
       }
