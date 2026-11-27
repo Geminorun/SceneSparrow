@@ -1,6 +1,9 @@
 import { streamAgentEvents } from "./agent-events";
 import { MARKDOWN_EXCHANGE_MAX_BYTES } from "./types";
 import type {
+  VideoRequestChange,
+  VideoDecision,
+  VideoRender,
   AgentCreateSession,
   AgentConversationAction,
   AgentSendTurn,
@@ -46,6 +49,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | VideoRequestChange
+      | VideoDecision
+      | VideoRender
       | AgentConversationAction
       | AgentCreateSession
       | AgentSendTurn
@@ -77,7 +83,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   ): Promise<T> {
     try {
       const signal = AbortSignal.timeout(
-        path.endsWith("/writing")
+        path.endsWith("/writing") || path.includes("/video/")
           ? 190_000
           : path.includes("connection-tests")
             ? 35_000
@@ -166,6 +172,48 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
           handler,
           signal,
         ),
+    },
+    videoProjects: {
+      read: (id) =>
+        request(`/v1/markdown-projects/${encodeURIComponent(id)}/video`),
+      create: (id) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/video`,
+          undefined,
+          "POST",
+        ),
+      request: (id, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/video/changes`,
+          body,
+        ),
+      decide: (id, body) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/video/decide`,
+          body,
+        ),
+      render: (id, revision) =>
+        request(
+          `/v1/markdown-projects/${encodeURIComponent(id)}/video/render`,
+          { revision },
+        ),
+      bytes: async (id, revision, kind) => {
+        const path = `/v1/markdown-projects/${encodeURIComponent(id)}/video/${kind}?revision=${encodeURIComponent(revision)}`;
+        const signal = AbortSignal.timeout(30000);
+        try {
+          const response = await fetchResponse(`${baseUrl}${path}`, { signal });
+          if (!response.ok) await decodeJson(response, "GET", false, signal);
+          if (Number(response.headers.get("content-length")) > 16 * 1024 * 1024)
+            throw new ApiError("VIDEO_EXPORT_FAILED");
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.length > 16 * 1024 * 1024)
+            throw new ApiError("VIDEO_EXPORT_FAILED");
+          return bytes;
+        } catch (error) {
+          reportTransport(error, path);
+          throw error;
+        }
+      },
     },
     markdownProjects: {
       annotations: (id, kind) =>

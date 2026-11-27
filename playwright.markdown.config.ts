@@ -1,4 +1,4 @@
-import { defineConfig } from "@playwright/test";
+import { defineConfig, chromium } from "@playwright/test";
 import base from "./playwright.config";
 import { resolve } from "node:path";
 
@@ -9,12 +9,17 @@ export default defineConfig({
     "markdown-file-project.spec.ts",
     "external-agent.spec.ts",
     "agent-conversations.spec.ts",
+    "video-project.spec.ts",
   ],
   webServer: {
     ...base.webServer,
     command: "node scripts/dev.mjs",
     url: "http://127.0.0.1:5173",
     env: {
+      SCENESPARROW_RENDER_BROWSER:
+        process.env.SCENESPARROW_RENDER_BROWSER ??
+        process.env.SCENESPARROW_TEST_BROWSER ??
+        chromium.executablePath(),
       SCENESPARROW_MARKDOWN_PROJECTS_DIR: resolve(
         `.local/markdown-e2e-${Date.now()}`,
       ),

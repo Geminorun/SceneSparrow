@@ -54,6 +54,7 @@ pub struct MarkdownProjects {
     root: PathBuf,
     pub(super) research_search: Option<String>,
     pub(super) writer: Mutex<()>,
+    pub(super) video_active: Mutex<std::collections::BTreeSet<String>>,
     #[cfg(test)]
     pub(super) fail_before_commit: std::sync::atomic::AtomicBool,
 }
@@ -110,6 +111,7 @@ impl MarkdownProjects {
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
             writer: Mutex::new(()),
+            video_active: Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(test)]
             fail_before_commit: std::sync::atomic::AtomicBool::new(false),
         })

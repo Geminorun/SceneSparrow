@@ -6,6 +6,10 @@ use std::{
 };
 
 pub(crate) fn document_command(entry: &Path) -> Command {
+    node_command(entry, 384)
+}
+
+pub(crate) fn node_command(entry: &Path, heap_mib: u32) -> Command {
     let mut command = Command::new("node");
     command.env_clear();
     for key in [
@@ -22,7 +26,7 @@ pub(crate) fn document_command(entry: &Path) -> Command {
         }
     }
     command
-        .arg("--max-old-space-size=384")
+        .arg(format!("--max-old-space-size={heap_mib}"))
         .arg(entry)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

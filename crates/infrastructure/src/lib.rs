@@ -5,6 +5,7 @@ pub mod deepseek_agent;
 pub mod diagnostics;
 pub mod external_agent;
 pub mod markdown_projects;
+pub mod video_projects;
 use std::{
     fs::File,
     path::Path,

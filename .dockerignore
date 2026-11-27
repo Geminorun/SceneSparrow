@@ -38,3 +38,5 @@ credentials
 **/*.log
 tmp
 temp
+
+workers/render/.assets

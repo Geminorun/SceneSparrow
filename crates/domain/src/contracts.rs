@@ -2602,6 +2602,123 @@ pub struct AgentResearch {
     pub sources: Vec<AgentResearchSource>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoCompositionDirection {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoComposition {
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "background")]
+    pub background: String,
+    #[serde(rename = "accent")]
+    pub accent: String,
+    #[serde(rename = "direction")]
+    pub direction: VideoCompositionDirection,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoSkill {
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "version")]
+    pub version: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "sha256")]
+    pub sha256: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoProposalStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "discarded")]
+    Discarded,
+    #[serde(rename = "failed")]
+    Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoProposal {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "baseRevision")]
+    pub base_revision: String,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "reply")]
+    pub reply: String,
+    #[serde(rename = "composition", deserialize_with = "required_nullable")]
+    pub composition: Option<VideoComposition>,
+    #[serde(rename = "status")]
+    pub status: VideoProposalStatus,
+    #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+    pub error_code: Option<String>,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoProject {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "composition")]
+    pub composition: VideoComposition,
+    #[serde(rename = "skill")]
+    pub skill: VideoSkill,
+    #[serde(rename = "proposals")]
+    pub proposals: Vec<VideoProposal>,
+    #[serde(rename = "renderRevision", deserialize_with = "required_nullable")]
+    pub render_revision: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoRequestChange {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoDecisionDecision {
+    #[serde(rename = "apply")]
+    Apply,
+    #[serde(rename = "discard")]
+    Discard,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoDecision {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "decision")]
+    pub decision: VideoDecisionDecision,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoRender {
+    #[serde(rename = "revision")]
+    pub revision: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {
     #[serde(rename = "text")]
     Text,

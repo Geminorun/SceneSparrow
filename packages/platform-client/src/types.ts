@@ -2,6 +2,9 @@ export const MARKDOWN_EXCHANGE_MAX_BYTES =
   10 * 1024 * 1024 + 256 * 1024 + 65536;
 
 import type {
+  VideoProject,
+  VideoRequestChange,
+  VideoDecision,
   AgentCreateSession,
   AgentSendTurn,
   AgentSession,
@@ -121,6 +124,18 @@ export interface ExternalWritingClient {
 
 export interface PlatformClient {
   agent?: ExternalWritingClient;
+  videoProjects?: {
+    read(id: string): Promise<VideoProject | null>;
+    create(id: string): Promise<VideoProject>;
+    request(id: string, body: VideoRequestChange): Promise<VideoProject>;
+    decide(id: string, body: VideoDecision): Promise<VideoProject>;
+    render(id: string, revision: string): Promise<VideoProject>;
+    bytes(
+      id: string,
+      revision: string,
+      kind: "render" | "export",
+    ): Promise<Uint8Array>;
+  };
   markdownProjects?: {
     create(text: string): Promise<MarkdownProject>;
     download(

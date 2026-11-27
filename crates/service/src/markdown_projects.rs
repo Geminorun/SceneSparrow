@@ -11,8 +11,10 @@ use axum::{
 use scenesparrow_infrastructure::markdown_projects::MarkdownProjects;
 use std::sync::Arc;
 #[derive(Clone)]
-struct FileState {
-    store: Arc<MarkdownProjects>,
+pub(crate) struct FileState {
+    pub(crate) store: Arc<MarkdownProjects>,
+    pub(crate) video_agent: Arc<dyn scenesparrow_application::external_agent::WritingAgent>,
+    pub(crate) video_slots: Arc<tokio::sync::Semaphore>,
     ai: Arc<crate::ai::AiState>,
     agent: Arc<crate::external_agent::AgentState>,
     authorization: String,
@@ -65,7 +67,10 @@ fn router_with_state(
 ) -> Result<Router, &'static str> {
     let store = Arc::new(MarkdownProjects::open(root)?);
     let agent = Arc::new(crate::external_agent::AgentState::new(
-        scenesparrow_application::external_agent::AgentSessions::new(store.clone(), adapter),
+        scenesparrow_application::external_agent::AgentSessions::new(
+            store.clone(),
+            adapter.clone(),
+        ),
     ));
     let weak_agent = Arc::downgrade(&agent);
     tokio::spawn(async move {
@@ -78,6 +83,8 @@ fn router_with_state(
         }
     });
     let state = FileState {
+        video_agent: adapter,
+        video_slots: Arc::new(tokio::sync::Semaphore::new(1)),
         store,
         agent,
         ai,
@@ -120,6 +127,7 @@ fn router_with_state(
                 scenesparrow_infrastructure::markdown_projects::MAX_EXCHANGE_BYTES,
             )),
         )
+        .merge(crate::video_projects::routes())
         .merge(crate::ai::settings_routes())
         .merge(crate::external_agent::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })

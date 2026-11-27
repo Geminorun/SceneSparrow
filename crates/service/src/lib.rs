@@ -3,6 +3,7 @@ mod external_agent;
 mod jobs;
 pub mod markdown_projects;
 mod routes;
+mod video_projects;
 
 use routes::{ai, manuscript};
 

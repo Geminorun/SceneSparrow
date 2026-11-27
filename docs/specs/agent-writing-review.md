@@ -1,6 +1,7 @@
 # Unified Agent writing and project skills
 
-Status — proposed for implementation.
+Status — AWR-T01 through AWR-T05 implemented.
+[Validation and evidence](../validation/agent-writing-review.md)
 
 ## Delivery
 

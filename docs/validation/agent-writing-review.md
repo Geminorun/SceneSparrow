@@ -185,3 +185,69 @@ Focused verification passed.
 These checks use deterministic Agent and search fixtures. Hosted inference,
 live public search, and native desktop operation remain separate from this Web
 validation. The capability provides evidence excerpts from the configured sources.
+
+## Phase 5 — Exportable Remotion project and native skill capability
+
+Implementation starts from `1ff5cc5` and covers AWR-T05 / AWR-AC10–11. The Web
+workspace opens a project-scoped Video project dialog with the installed official
+skill name/version, ordinary Agent requests, a four-field composition comparison,
+Apply/Discard, ZIP export, and an accepted playable render. English and Simplified
+Chinese strings use the shared catalog. [Runtime and reproduction guide](../video-projects.md)
+
+The official Remotion skill `4.0.547` is prepared from pinned upstream revision
+`a3f4098a2afd0e13f6a6f8c8760e275f75457ea9` with verified archive SHA-256.
+All 133 package files are installed in the created project and
+exported under `.agents/skills/remotion-best-practices/`. Official DeepSeek
+`dsh-skill-filesystem` and `dsh-tool-skill` `0.2.2-rc.5` perform staged native
+loading with only that project's explicit skill root and a contained bundled
+reference. The capability supplies that context through the existing text Agent
+transport. Writing-runner tools and policy remain unchanged.
+
+The bounded fixture changes `composition.json` data rather than generated code.
+The core owns request identities, pending proposals, stale checks and atomic
+adoption of complete immutable project snapshots. Reopen retains settled results;
+interrupted in-flight requests are visibly failed without another inference call.
+Native snapshot/render work releases the Markdown writer lock. Supervision limits
+wall time, heap, worker RSS, protocol/output and artifact sizes and cleans the
+process group. The trusted shipped TypeScript composition consumes only accepted
+validated props. Collaboration writing ZIPs keep their existing safe allowlist.
+
+Focused verification passed.
+
+- Generated contract consistency, complete TypeScript checks, repository Prettier
+  check and service/all-target Clippy with warnings denied. The root ran the
+  workspace-wide `pnpm check` and verified the final supervisor correction
+  against its focused test.
+- All 313 Node unit tests pass, including the unchanged DeepSeek writing policy.
+  The eight existing Agent HTTP tests and six native DeepSeek adapter tests also
+  pass. Two Node video tests verify the bounded data capability, exact preservation of
+  every official file, official native skill-tool loading and bundled reference,
+  and refusal of symlinked resources.
+- Three infrastructure tests cover durable request/review/adoption, repeated
+  dispatch/Apply receipts, unchanged Markdown, stale preview retention, interrupted
+  request recovery and parent symlink denial. The actual exported ZIP is extracted
+  and loaded by the official native capability from its new location.
+- The explicit native adopted-project render fixture passed with installed
+  Chromium. `ffprobe` measured H264, 640 × 360, 60 frames and two seconds; `ffmpeg`
+  decoded the entire video without errors. A local Chromium playback of that
+  adopted MP4 advanced to 0.421 seconds with duration 2 seconds and no media error;
+  frames 0 and 45 show the requested leftward motion and bilingual title. The
+  fixture is ordinarily ignored so
+  environments without a rendering browser do not claim native render evidence.
+- Two Web browser tests passed. They cover actual project creation, export,
+  and supervised MP4 playback (time advances beyond 0.2 seconds at width 640), plus a deterministic
+  normal-request composition diff/adoption fixture preserving newer composer
+  input. The root smoke run independently passed both cases among its 14 tests.
+- The phase 4 research worker was moved under the existing document package to
+  repair the release-version check without adding a package or lock importer.
+  The ten release/research unit checks passed after the move.
+
+Ponytail Review traced archive integrity, filesystem containment, the Markdown
+writer boundary, and renderer configuration. The Web supervisor now passes the
+explicit Chromium path through its core environment allowlist, covered by the
+supervisor test. `docker buildx build --call=check --progress=plain .` passed
+without warnings. The Web Docker image build and launch, hosted inference, and
+Windows/macOS packaging remain unverified. The video capability uses the official
+native skill components with the existing text transport.
+
+- [Web playback and installed Remotion skill](assets/awr-video-playback.png)

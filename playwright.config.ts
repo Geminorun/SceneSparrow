@@ -7,6 +7,7 @@ export default defineConfig({
     "markdown-file-project.spec.ts",
     "external-agent.spec.ts",
     "agent-conversations.spec.ts",
+    "video-project.spec.ts",
   ],
   workers: 1,
   timeout: 90_000,

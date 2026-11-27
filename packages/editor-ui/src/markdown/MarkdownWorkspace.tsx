@@ -44,6 +44,7 @@ import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { trapDialogFocus } from "../ui/dialog-focus";
 import type { Editor } from "@tiptap/core";
+import { VideoProject } from "../video/VideoProject";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { FileMenu } from "./FileMenu";
 import { MarkdownReview, type ReviewCapture } from "./MarkdownReview";
@@ -108,6 +109,7 @@ export function MarkdownWorkspace({
   platformClient: PlatformClient;
 }) {
   const client = platformClient.markdownProjects!;
+  const [videoOpen, setVideoOpen] = useState(false);
   const preferences = useSyncExternalStore(
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
@@ -1468,6 +1470,15 @@ export function MarkdownWorkspace({
       }
     >
       <div className="workspace markdown-workspace">
+        {videoOpen && current ? (
+          <VideoProject
+            key={current.project.projectId}
+            projectId={current.project.projectId}
+            client={platformClient}
+            t={t}
+            close={() => setVideoOpen(false)}
+          />
+        ) : null}
         <NotificationPresenter t={t} />
         <a className="skip-link" href="#markdown-editor">
           {t.skipToWorkbench}
@@ -1484,6 +1495,14 @@ export function MarkdownWorkspace({
         <header className="workspace-header">
           <div className="workspace-brand">{t.appName}</div>
           <div className="workspace-actions">
+            {platformClient.videoProjects && current ? (
+              <button
+                className="quiet-button"
+                onClick={() => setVideoOpen(true)}
+              >
+                {t.videoProject}
+              </button>
+            ) : null}
             <FileMenu
               t={t}
               create={{
