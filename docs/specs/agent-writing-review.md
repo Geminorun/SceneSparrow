@@ -27,6 +27,39 @@ existing file format, writer guarantees, and runtime and credential boundaries.
 | AWR-T04 | 4     | Read-only research from the selection, with sources in the conversation | AWR-AC08–09 |
 | AWR-T05 | 5     | Remotion project template, skill management, and native skill loading   | AWR-AC10–11 |
 
+## UI and interaction requirements
+
+The document is the primary surface. Keep the established SceneSparrow
+paper, panel, ink, and accent tokens, with one type scale and a shared
+spacing rhythm across the editor, Agent, and settings. Keep a continuous
+writing surface with aligned text edges, quiet pane dividers, and a
+dedicated gutter for block controls. Use thin borders and restrained
+elevation to distinguish menus, popovers, and the active controls. Reserve
+accent color for actions and state. Use one icon style and concise labels.
+
+- **Claudian** informs the Agent's compact composer, separate document and
+  per-turn context, searchable history, and provider settings. Keep typing
+  and the latest conversation visible together. Reuse its interaction
+  patterns in SceneSparrow's workbench layout.
+  [Single-pane reference](https://github.com/YishenTu/claudian/blob/2fe7556de0b5f6f4f9c8eaa8206b7e1585b6f892/assets/main-chat-single-pane.png)
+  · [Context tray](https://github.com/YishenTu/claudian/blob/2fe7556de0b5f6f4f9c8eaa8206b7e1585b6f892/src/features/chat/composer/ComposerContextTray.ts#L10)
+  · [DeepSeek settings](https://github.com/YishenTu/claudian/blob/2fe7556de0b5f6f4f9c8eaa8206b7e1585b6f892/src/providers/deepseek/ui/DeepSeekSettingsTab.ts)
+- **Review Comments** informs selection-local actions, a quiet highlight
+  with a small comment marker, and viewing or editing a note near its
+  anchor. Implement these interactions in SceneSparrow's editor with its
+  existing JSON sidecars and clean Markdown.
+  [Selection toolbar](https://github.com/shotashirai1719/obsidian-review-comments/blob/2a3e06c61b44042a16c2753ee6000016ec223e01/src/floating-bar.ts)
+  · [Comment marker and popover](https://github.com/shotashirai1719/obsidian-review-comments/blob/2a3e06c61b44042a16c2753ee6000016ec223e01/src/ui/comment-bubble.ts#L51)
+
+Use the established controls and breakpoints. In the narrow layout, let
+the secondary pane overlay or collapse so the text retains a readable
+width. Wrap long Chinese and English content, including URLs and model
+names, within its own surface. Provide visible keyboard focus, accessible
+names for icon controls, and text or icon cues for states conveyed by
+color. Honor reduced-motion preferences. Keep the editor caret, scroll
+position, and input available through saving, streaming, and background
+status changes.
+
 ## Phase 1 — Restore the shared Markdown editor
 
 Render and edit both documents in the same central canvas with the same
@@ -39,18 +72,25 @@ explicit source and copy actions available from the document header or menu.
 
 Place the lock control at the right edge of each lockable block. Expose it on
 hover and keyboard focus. A locked block has a subtle background across the
-block and a visible lock icon. Use the existing server-backed lock rules for
-both editors.
+block and a visible lock icon. Toggle lock state within the reserved gutter
+so the text keeps its position and width. The lock tint applies to the
+whole block. A comment hint highlights only its anchored span. Use the
+existing server-backed lock rules for both editors.
 
-The selection toolbar has two actions.
+Anchor a compact toolbar near the visible selection and place it within the
+editor viewport. Preserve the selected range when focus moves into the
+toolbar. Show the actions after selection settles and keep them out of the
+way during IME composition. The toolbar has two actions.
 
 - **Ask** attaches the quote and document to the Agent composer and focuses
   its input. The user supplies the question. Phase 4 connects this action to
   source research.
 - **Comment** opens an inline editor at the selection. Saving anchors the
-  instruction and leaves a marker in the document, where the user can read,
-  edit, or resolve it. Selecting text during ordinary editing leaves the
-  conversation attachment unchanged.
+  instruction and leaves a subtle span highlight and a small marker. Open
+  the marker to read, edit, or resolve the note in a popover next to the
+  original text. On Save or Escape, return focus to the originating
+  passage so the user can continue reviewing. Selecting text during
+  ordinary editing leaves the conversation attachment unchanged.
 
 Use the shared editor and annotation APIs. File-backed `manuscript.md` and
 `outline.md` remain the authoritative text. `locks.json` stores protected
@@ -61,10 +101,20 @@ state. Save the captured buffer before anchoring new annotations to it.
 
 The right pane has one **Agent** surface. Its header shows the current
 conversation, **History**, and **New conversation**. The middle shows messages
-and results in order. The composer shows the current document and configured
-Agent and model. **Generate outline** and **Write draft from outline** move
-into the composer's add menu and record progress and results in that
-conversation.
+and results in a single scrolling timeline. Keep the composer docked at
+the bottom. Group the input, a visible Send or Stop action, and the
+configured Agent and model in one compact control. Show the current
+document and any attached quote nearby, with a way to remove the quote.
+**Generate outline** and **Write draft from outline** move into the
+composer's add menu and record progress and results in that conversation.
+
+Keep the empty state brief. Present answers as readable prose and show
+progress near the turn it belongs to. Group secondary details in a
+disclosure. Follow streaming text while the reader is at the end. When
+they scroll back, preserve their reading position and offer a way to jump
+to the latest reply. Keep the composer visible when a long answer, diff,
+or source list wraps.
+[Claudian transcript follow behavior](https://github.com/YishenTu/claudian/blob/2fe7556de0b5f6f4f9c8eaa8206b7e1585b6f892/src/features/chat/rendering/TranscriptFollow.ts#L6)
 
 Reuse the existing generation and adoption rules. A generated outline opens
 in the central Outline tab once saved. Confirm before replacing an existing
@@ -75,8 +125,11 @@ before adoption. Keep pending inputs and revision conflicts recoverable.
 
 Adapt Claudian's compact history interaction to the React workbench. Show
 the current project's conversations in recent-activity order, with title
-search, rename, and open-to-continue. Create the record on the first send and
-derive its initial title from the first instruction.
+search, rename, and open-to-continue. Open history from the header in an
+anchored menu. Put search above the list and keep its focus as results
+filter. Indicate the active conversation and close the menu when a row is
+opened. Create the record on the first send and derive its initial title from
+the first instruction.
 [Claudian history menu](https://github.com/YishenTu/claudian/blob/2fe7556de0b5f6f4f9c8eaa8206b7e1585b6f892/src/features/chat/session-manager/HistoryDropdown.ts#L51)
 
 SceneSparrow owns one JSON record per conversation in application-managed
@@ -98,10 +151,12 @@ runner.
 
 ### Global Agent settings
 
-Show a provider card for each supported Agent. Display connection, masked
-credential, and model availability in the selected card, together with a
-connection check and the default selection. Distinguish a missing runner, a
-missing or rejected key, and an unavailable model with localized status.
+Use a compact provider selector with one detail surface for the selected
+Agent. Put the provider name and connection status together at the top.
+Group masked credential and model controls by purpose. Keep the relevant
+next action visible, such as adding a key or selecting a model. Distinguish
+a missing runner, a missing or rejected key, and an unavailable model with
+localized status.
 Use the global default for a new conversation and allow a model change to
 start a new conversation. Surface existing direct API profiles through
 advanced compatibility settings and retain their saved bindings. Reuse the
@@ -125,12 +180,14 @@ comments. Group overlapping comments into a single replacement. Report
 locked ranges, detached anchors, and comments that need clarification as
 unresolved items.
 
-Show one reviewable diff in the conversation. Associate each replacement
-with its comments and link it to the document. **Apply** writes the group
-in one Markdown save. **Discard** records the outcome and leaves the
-comments open. The Rust writer checks the saved revision, quotes, affected
-comment records, and current locks while holding the project writer
-boundary. Untouched source bytes stay identical.
+Show one reviewable diff in the conversation. Lead with a concise summary of
+applicable and unresolved changes, with a single primary **Apply** action.
+Expand individual changes to see the original and proposed text and jump
+to the corresponding passage. Associate each replacement with its comments.
+**Apply** writes the group in one Markdown save. **Discard** records the
+outcome and leaves the comments open. The Rust writer checks the saved
+revision, quotes, affected comment records, and current locks while holding
+the project writer boundary. Untouched source bytes stay identical.
 
 Capture project and document identity before dispatch. Changes to other
 tabs, selections, and conversations cannot redirect a result. A version
@@ -225,6 +282,17 @@ template fixture.
     change to the template composition. Review the project change, render it
     in the supervised worker, and play the resulting video. Verify the
     writing runner still satisfies its existing tool-policy check.
+12. **AWR-AC12** — Review the implemented workbench in a real Web session
+    at 1280 × 720 with three panes and at 960 × 720 in the narrow layout.
+    Capture a compact set of screenshots in the PR showing the rendered
+    outline with a locked block and open comment, the Agent composer with
+    history open, the batch revision preview, and one provider's settings.
+    Use realistic Chinese and English content. Verify the comment opens
+    without shifting the document and returns focus to the same passage
+    on close. Scroll back during a streamed response and verify the
+    reading position and composer stay in place. Check visible focus and
+    clipping with keyboard navigation and a long message. Review this
+    evidence against the UI requirements before accepting the UI phases.
 
 Use deterministic Agent and search fixtures for ordinary CI. Record real
 Harness loading and Remotion rendering separately in the validation report.
