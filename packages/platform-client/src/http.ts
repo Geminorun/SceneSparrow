@@ -2,6 +2,7 @@ import { streamAgentEvents } from "./agent-events";
 import { MARKDOWN_EXCHANGE_MAX_BYTES } from "./types";
 import type {
   AgentCreateSession,
+  AgentConversationAction,
   AgentSendTurn,
   AgentApply,
   CreateMarkdownProject,
@@ -45,6 +46,7 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
   async function request<T>(
     path: string,
     body?:
+      | AgentConversationAction
       | AgentCreateSession
       | AgentSendTurn
       | AgentApply
@@ -137,6 +139,9 @@ export function createHttpClient(baseUrl = "/api"): PlatformClient {
     `/v1/markdown-projects/${encodeURIComponent(projectId)}/agent/sessions${sessionId ? `/${encodeURIComponent(sessionId)}` : ""}${turnId ? `/turns/${encodeURIComponent(turnId)}` : ""}`;
   return {
     agent: {
+      history: (project) => request(agentPath(project)),
+      conversationAction: (project, session, body) =>
+        request(agentPath(project, session), body),
       catalog: () => request("/v1/agent/catalog"),
       testDeepseek: (body) => request("/v1/agent/deepseek/test", body),
       create: (project, body) => request(agentPath(project), body),

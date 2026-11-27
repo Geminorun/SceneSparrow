@@ -129,17 +129,7 @@ export function AgentSettings({
   return (
     <section hidden={!active} className="agent-settings">
       <h3>{t.workspaceTab_agent}</h3>
-      <p>{t.agentSettingsHelp}</p>
       <OperationStatus operation={c.operations.load} t={t} />
-      <button
-        disabled={loading}
-        onClick={() => {
-          void load();
-          void c.load();
-        }}
-      >
-        {t.agentCheckConnection}
-      </button>
       <label>
         {t.agentDefaultEngine}
         <select
@@ -165,169 +155,195 @@ export function AgentSettings({
           ))}
         </select>
       </label>
-      {(saved || defaults.engineId !== "deepseek") && (
-        <label>
-          {t.agentDefaultModel}
-          <select
-            disabled={!engine?.models.length}
-            value={defaults.modelId}
-            onChange={(e) =>
-              applicationPreferences.update({
-                agentDefault: { engineId: engine!.id, modelId: e.target.value },
-              })
-            }
-          >
-            <option value="">{t.deepseekChooseModel}</option>
-            {!!defaults.modelId &&
-              !engine?.models.some((m) => m.id === defaults.modelId) && (
-                <option value={defaults.modelId}>{defaults.modelId}</option>
-              )}
-            {engine?.models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {!!defaults.modelId &&
-        !engine?.models.some((m) => m.id === defaults.modelId) && (
-          <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>
-        )}
-      {settings && (
-        <>
-          <label>
-            {t.deepseekWritingModel}
-            <select
-              value={harnessBinding?.modelId ?? ""}
-              disabled={
-                !provider ||
-                !deepseek?.models.length ||
-                c.operations["writing-model"]?.busy
-              }
-              onChange={(event) => {
-                const modelId = event.target.value;
-                if (!modelId || !provider) return;
-                void c.mutate("writing-model", (s) => {
-                  let model = s.models.find(
-                    (m) => m.providerId === provider.id && m.id === modelId,
-                  );
-                  if (!model) {
-                    model = newModel(provider.id, modelId);
-                    s.models.push(model);
-                  }
-                  bindText(s, model);
-                });
-              }}
-            >
-              <option value="">
-                {writingBinding && !harnessBinding
-                  ? t.deepseekKeepDirect
-                  : t.deepseekChooseModel}
-              </option>
-              {harnessBinding &&
-                !deepseek?.models.some(
-                  (m) => m.id === harnessBinding.modelId,
-                ) && (
-                  <option value={harnessBinding.modelId}>
-                    {harnessBinding.modelId}
-                  </option>
-                )}
-              {deepseek?.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="muted">{t.deepseekWritingHelp}</p>
-          {harnessBinding &&
-            !deepseek?.models.some((m) => m.id === harnessBinding.modelId) && (
-              <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>
-            )}
-          <OperationStatus operation={c.operations["writing-model"]} t={t} />
-        </>
-      )}
-      {engines.map((e) => (
-        <article key={e.id}>
-          <strong>{e.label}</strong>
-          <p role="status">
-            {e.available
-              ? e.id === "deepseek"
-                ? t.deepseekConnected
-                : t.agentAvailable
-              : e.status === "not_configured"
-                ? e.id === "deepseek"
-                  ? t.deepseekNotConfigured
-                  : t.AGENT_NOT_CONFIGURED
-                : e.status === "not_authenticated"
+      {engines
+        .filter((e) => e.id === engine?.id)
+        .map((e) => (
+          <article key={e.id}>
+            <header className="agent-provider-heading">
+              <strong>{e.label}</strong>
+              <p role="status">
+                {e.available
                   ? e.id === "deepseek"
-                    ? t.deepseekMissingCredential
-                    : t.AGENT_NOT_AUTHENTICATED
-                  : t.AGENT_UNAVAILABLE}
-          </p>
-          {e.id === "deepseek" && settings && (
-            <>
-              {keySaved && <p>{t.aiKeySavedLabel}: ••••••••</p>}
-              <SecretEntry
-                id="agent-deepseek"
-                value={draft.key}
-                revealed={draft.reveal}
-                disabled={operation?.busy}
-                t={t}
-                onChange={(key) =>
-                  c.editProvider(selection, {
-                    key,
-                    root: provider?.baseUrl ?? "https://api.deepseek.com/v1",
-                  })
-                }
-                onReveal={() =>
-                  c.editProvider(selection, { reveal: !draft.reveal })
-                }
-              />
+                    ? t.deepseekConnected
+                    : t.agentAvailable
+                  : e.status === "not_configured"
+                    ? e.id === "deepseek"
+                      ? t.deepseekNotConfigured
+                      : t.AGENT_NOT_CONFIGURED
+                    : e.status === "not_authenticated"
+                      ? e.id === "deepseek"
+                        ? t.deepseekMissingCredential
+                        : t.AGENT_NOT_AUTHENTICATED
+                      : t.AGENT_UNAVAILABLE}
+              </p>{" "}
               <button
-                disabled={!draft.key || operation?.busy}
+                disabled={loading}
                 onClick={() => {
-                  void c
-                    .saveProvider(selection, provider?.id)
-                    .then(() => load());
+                  void load();
+                  void c.load();
                 }}
               >
-                {keySaved ? t.aiReplaceKey : t.aiSaveKey}
+                {t.agentCheckConnection}
               </button>
-              <OperationStatus operation={operation} t={t} />
-              {operation?.credential === "unknown" && (
-                <p role="status">{t.aiCredentialUnknown}</p>
+            </header>
+            {(saved || defaults.engineId !== "deepseek") && (
+              <label>
+                {t.agentDefaultModel}
+                <select
+                  disabled={!engine?.models.length}
+                  value={defaults.modelId}
+                  onChange={(e) =>
+                    applicationPreferences.update({
+                      agentDefault: {
+                        engineId: engine!.id,
+                        modelId: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="">{t.deepseekChooseModel}</option>
+                  {!!defaults.modelId &&
+                    !engine?.models.some((m) => m.id === defaults.modelId) && (
+                      <option value={defaults.modelId}>
+                        {defaults.modelId}
+                      </option>
+                    )}
+                  {engine?.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!!defaults.modelId &&
+              !engine?.models.some((m) => m.id === defaults.modelId) && (
+                <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>
               )}
-              <p className="muted">{t.aiTestQuota}</p>
-              <button
-                disabled={
-                  testing ||
-                  !keySaved ||
-                  !e.available ||
-                  !e.models.some((m) => m.id === testModelId)
-                }
-                onClick={() => void testModel()}
-              >
-                {t.deepseekTestModel}
-              </button>
-              {testing && <p role="status">{t.aiWorking}</p>}
-              {testResult && (
-                <p role="status">
-                  {testResult.receipt?.status === "succeeded"
-                    ? t.deepseekTestSuccess
-                    : errorMessage(
-                        testResult.error ??
-                          testResult.receipt?.error ??
-                          "AGENT_DEEPSEEK_UPSTREAM_FAILED",
-                        t,
+            {settings && engine?.id === "deepseek" && (
+              <>
+                <label>
+                  {t.deepseekWritingModel}
+                  <select
+                    value={harnessBinding?.modelId ?? ""}
+                    disabled={
+                      !provider ||
+                      !deepseek?.models.length ||
+                      c.operations["writing-model"]?.busy
+                    }
+                    onChange={(event) => {
+                      const modelId = event.target.value;
+                      if (!modelId || !provider) return;
+                      void c.mutate("writing-model", (s) => {
+                        let model = s.models.find(
+                          (m) =>
+                            m.providerId === provider.id && m.id === modelId,
+                        );
+                        if (!model) {
+                          model = newModel(provider.id, modelId);
+                          s.models.push(model);
+                        }
+                        bindText(s, model);
+                      });
+                    }}
+                  >
+                    <option value="">
+                      {writingBinding && !harnessBinding
+                        ? t.deepseekKeepDirect
+                        : t.deepseekChooseModel}
+                    </option>
+                    {harnessBinding &&
+                      !deepseek?.models.some(
+                        (m) => m.id === harnessBinding.modelId,
+                      ) && (
+                        <option value={harnessBinding.modelId}>
+                          {harnessBinding.modelId}
+                        </option>
                       )}
-                </p>
-              )}
-            </>
-          )}
-        </article>
-      ))}
+                    {deepseek?.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {harnessBinding &&
+                  !deepseek?.models.some(
+                    (m) => m.id === harnessBinding.modelId,
+                  ) && <p role="status">{t.AGENT_MODEL_UNAVAILABLE}</p>}
+                <OperationStatus
+                  operation={c.operations["writing-model"]}
+                  t={t}
+                />
+              </>
+            )}
+            {e.id === "deepseek" && settings && (
+              <>
+                {keySaved && <p>{t.aiKeySavedLabel}: ••••••••</p>}
+                <SecretEntry
+                  id="agent-deepseek"
+                  value={draft.key}
+                  revealed={draft.reveal}
+                  disabled={operation?.busy}
+                  t={t}
+                  onChange={(key) =>
+                    c.editProvider(selection, {
+                      key,
+                      root: provider?.baseUrl ?? "https://api.deepseek.com/v1",
+                    })
+                  }
+                  onReveal={() =>
+                    c.editProvider(selection, { reveal: !draft.reveal })
+                  }
+                />
+                <button
+                  disabled={!draft.key || operation?.busy}
+                  onClick={() => {
+                    void c
+                      .saveProvider(selection, provider?.id)
+                      .then(() => load());
+                  }}
+                >
+                  {keySaved ? t.aiReplaceKey : t.aiSaveKey}
+                </button>
+                <OperationStatus operation={operation} t={t} />
+                {operation?.credential === "unknown" && (
+                  <p role="status">{t.aiCredentialUnknown}</p>
+                )}
+                <p className="muted">{t.aiTestQuota}</p>
+                <button
+                  disabled={
+                    testing ||
+                    !keySaved ||
+                    !e.available ||
+                    !e.models.some((m) => m.id === testModelId)
+                  }
+                  onClick={() => void testModel()}
+                >
+                  {t.deepseekTestModel}
+                </button>
+                {testing && <p role="status">{t.aiWorking}</p>}
+                {testResult && (
+                  <p role="status">
+                    {testResult.receipt?.status === "succeeded"
+                      ? t.deepseekTestSuccess
+                      : errorMessage(
+                          testResult.error ??
+                            testResult.receipt?.error ??
+                            "AGENT_DEEPSEEK_UPSTREAM_FAILED",
+                          t,
+                        )}
+                  </p>
+                )}
+              </>
+            )}
+          </article>
+        ))}
+      <details className="agent-settings-help">
+        <summary>{t.agentSettingsDetails}</summary>
+        <p>{t.agentSettingsHelp}</p>
+        <p>{t.deepseekWritingHelp}</p>
+      </details>
       <details className="agent-compatibility">
         <summary>{t.deepseekCompatibility}</summary>
         <p>{t.deepseekCompatibilityHelp}</p>

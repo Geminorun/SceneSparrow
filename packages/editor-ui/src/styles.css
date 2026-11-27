@@ -2883,3 +2883,116 @@ body > .notifications {
   gap: 6px;
   margin-block: 12px;
 }
+.agent-heading > strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.agent-history-anchor,
+.agent-add-anchor {
+  position: relative;
+}
+.agent-history-menu,
+.agent-add-menu {
+  position: absolute;
+  z-index: 20;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #0002;
+  padding: 8px;
+}
+.agent-history-menu {
+  top: calc(100% + 8px);
+  right: -36px;
+  width: min(300px, calc(100vw - 48px));
+}
+.agent-history-menu > input {
+  width: 100%;
+}
+.agent-history-list {
+  max-height: 290px;
+  overflow-y: auto;
+}
+.agent-history-row,
+.agent-history-row form {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.agent-history-row input,
+.agent-history-title {
+  min-width: 0;
+  flex: 1;
+}
+.agent-history-title {
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-history-title[aria-current="true"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.agent-add-menu {
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 230px;
+  display: grid;
+  gap: 6px;
+}
+.agent-add-menu button {
+  text-align: start;
+}
+.agent-jump-latest {
+  align-self: center;
+  margin: 4px;
+  font-size: 12px;
+}
+.agent-turn pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+.agent-composer textarea {
+  min-height: 64px;
+  max-height: 120px;
+}
+.agent-review-tools {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.agent-settings > article {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.agent-settings select {
+  width: 100%;
+  min-width: 0;
+}
+.agent-provider-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.agent-provider-heading p {
+  margin: 0;
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+}
+.agent-provider-heading button {
+  margin-inline-start: auto;
+}
+.agent-settings-help {
+  margin-block: 12px;
+}

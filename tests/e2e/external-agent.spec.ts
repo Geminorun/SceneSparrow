@@ -69,7 +69,7 @@ test("@web-smoke EWA-AC04–05 unavailable catalog, bilingual settings and built
 }) => {
   await setup(page, false);
   await expect(
-    page.getByRole("tab", { name: "AI assistant", exact: true }),
+    page.getByRole("tab", { name: "Agent", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await agent(page);
   await expect(
@@ -259,7 +259,7 @@ test("EWA-AC05 global defaults, conversation model and changing engine start fre
     ["claude", "sonnet"],
     ["codex", "openai.gpt-5.4-mini"],
   ]);
-  expect(await calls(page, "close")).toHaveLength(1);
+  expect(await calls(page, "close")).toHaveLength(0);
 });
 
 test("EWA-AC02 a failed selected preflight save preserves local text and never sends", async ({
@@ -304,6 +304,7 @@ test("EWA-AC02 live locks reject Apply while keeping the proposal", async ({
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Lock selected blocks", exact: true })
+    .first()
     .click();
   await expect(
     page.getByRole("button", { name: "Unlock", exact: true }),
@@ -337,7 +338,7 @@ test("EWA-AC03 pending create can stop and a fresh send does not wait for its ac
   expect(await calls(page, "send")).toHaveLength(1);
 });
 
-test("EWA-AC03 changing projects closes the conversation and fences a late stream", async ({
+test("EWA-AC03 changing projects preserves the conversation and fences a late stream", async ({
   page,
 }) => {
   await setup(page);
@@ -357,7 +358,7 @@ test("EWA-AC03 changing projects closes the conversation and fences a late strea
   await expect(
     page.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
-  await expect.poll(() => calls(page, "close")).toHaveLength(1);
+  expect(await calls(page, "close")).toHaveLength(0);
 });
 
 test("EWA-AC04 IME Send waits, pins the original tab and keeps newer composer input", async ({
@@ -398,6 +399,21 @@ test("EWA-AC05 checking repaired availability in Settings updates the visible co
 }) => {
   await setup(page);
   await hold(page, "available", false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const initialSettings = page.getByRole("dialog", {
+    name: "Settings",
+    exact: true,
+  });
+  await initialSettings
+    .getByRole("button", { name: "Agent", exact: true })
+    .click();
+  await initialSettings
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await initialSettings
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+
   await agent(page);
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
@@ -408,7 +424,7 @@ test("EWA-AC05 checking repaired availability in Settings updates the visible co
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await hold(page, "available", true);
   await settings.getByRole("button", { name: "Check connection" }).click();
-  await expect(settings.getByText("Connected", { exact: true })).toHaveCount(2);
+  await expect(settings.getByText("Connected", { exact: true })).toHaveCount(1);
   await settings.getByRole("button", { name: "Close", exact: true }).click();
   await composer(page).fill("Question after repair");
   await expect(
@@ -601,6 +617,28 @@ test("EWA-AC04 transcript scroll keeps the composer visible and keyboard focus i
       .locator(".agent-transcript")
       .evaluate((node) => node.scrollHeight > node.clientHeight),
   ).toBe(true);
+  await hold(page, "hold");
+  await send(page, "A long answer while I read earlier turns");
+  await expect(
+    page.getByRole("button", { name: "Stop", exact: true }),
+  ).toBeVisible();
+  const transcript = page.locator(".agent-transcript");
+  await transcript.evaluate((node) => {
+    node.scrollTop = 0;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await expect(
+    page.getByRole("button", { name: "Latest reply ↓", exact: true }),
+  ).toBeVisible();
+  await release(page);
+  await expect(page.locator(".agent-turn").last()).toHaveAttribute(
+    "data-agent-status",
+    "completed",
+  );
+  expect(await transcript.evaluate((node) => node.scrollTop)).toBeLessThan(4);
+  await page
+    .getByRole("button", { name: "Latest reply ↓", exact: true })
+    .click();
   await expect(composer(page)).toBeInViewport();
   await page.setViewportSize({ width: 760, height: 800 });
   await page
@@ -764,19 +802,27 @@ for (const installation of [
         exact: true,
       }),
     ).toHaveCount(0);
-    await settings
-      .getByRole("combobox", { name: "Default Agent", exact: true })
-      .selectOption("codex");
     await writing.selectOption("deepseek-v4-pro");
     await expect
       .poll(() => view.settings.bindings[0]?.modelId)
       .toBe("deepseek-v4-pro");
+    if (installation === "fresh") {
+      await expect(page.locator(".notifications > *")).toHaveCount(0);
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.screenshot({
+        path: ".artifacts/awr-provider-settings-1280.png",
+      });
+    }
+    await settings
+      .getByRole("combobox", { name: "Default Agent", exact: true })
+      .selectOption("codex");
     await expect(
       settings.getByRole("combobox", { name: "Default Agent", exact: true }),
     ).toHaveValue("codex");
+    await expect(settings.locator(".agent-settings > article")).toHaveCount(1);
     await expect(
       settings.getByRole("button", { name: "Test model", exact: true }),
-    ).toBeEnabled();
+    ).toHaveCount(0);
     expect(credentialWrites).toBe(
       installation === "unsupported" || installation === "misassigned" ? 0 : 1,
     );

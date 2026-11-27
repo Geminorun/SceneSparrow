@@ -3482,6 +3482,9 @@
         },
         "outlineRevision": {
           "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
         }
       }
     },
@@ -4036,7 +4039,14 @@
         "context",
         "status",
         "errorCode",
-        "proposal"
+        "proposal",
+        "instruction",
+        "reply",
+        "outcome",
+        "applyResult",
+        "applyError",
+        "attachment",
+        "createdAt"
       ],
       "properties": {
         "id": {
@@ -4063,13 +4073,52 @@
               "type": "null"
             }
           ]
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "reply": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": ["string", "null"],
+          "enum": ["applied", "discarded", null]
+        },
+        "applyResult": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentApplyResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applyError": {
+          "type": ["string", "null"]
+        },
+        "attachment": {
+          "$ref": "#/definitions/AgentAttachment"
+        },
+        "createdAt": {
+          "type": "integer"
         }
       }
     },
     "AgentSession": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "projectId", "engineId", "modelId", "turns"],
+      "required": [
+        "id",
+        "projectId",
+        "engineId",
+        "modelId",
+        "turns",
+        "requestId",
+        "title",
+        "updatedAt",
+        "generations"
+      ],
       "properties": {
         "id": {
           "type": "string"
@@ -4087,6 +4136,21 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentTurn"
+          }
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
+        },
+        "generations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentGeneration"
           }
         }
       }
@@ -4309,6 +4373,113 @@
           "items": {
             "$ref": "#/definitions/AgentModel"
           }
+        }
+      }
+    },
+    "AgentGeneration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "instruction",
+        "status",
+        "text",
+        "errorCode",
+        "revision",
+        "outlineRevision",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["outline", "draft"]
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/AgentTurnStatus"
+        },
+        "text": {
+          "type": "string"
+        },
+        "errorCode": {
+          "type": ["string", "null"]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "outlineRevision": {
+          "type": ["string", "null"]
+        },
+        "createdAt": {
+          "type": "integer"
+        }
+      }
+    },
+    "AgentConversationHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentId", "conversations"],
+      "properties": {
+        "currentId": {
+          "type": ["string", "null"]
+        },
+        "conversations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentConversationSummary"
+          }
+        }
+      }
+    },
+    "AgentConversationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "value"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["open", "rename", "new", "discard"]
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentConversationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "projectId",
+        "engineId",
+        "modelId",
+        "title",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
         }
       }
     }

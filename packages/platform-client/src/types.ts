@@ -80,6 +80,14 @@ export type { AgentEngine } from "@scenesparrow/contracts";
 import type { AgentEngine } from "@scenesparrow/contracts";
 
 export interface ExternalWritingClient {
+  history?(
+    projectId: string,
+  ): Promise<import("@scenesparrow/contracts").AgentConversationHistory>;
+  conversationAction?(
+    projectId: string,
+    sessionId: string,
+    action: import("@scenesparrow/contracts").AgentConversationAction,
+  ): Promise<void>;
   catalog?(): Promise<AgentEngine[]>;
   testDeepseek?(request: AiTestAction): Promise<AiTestReceipt>;
   create(projectId: string, request: AgentCreateSession): Promise<AgentSession>;

@@ -18,6 +18,7 @@ const client = createHttpClient();
 const sessions = new Map<string, AgentSession>();
 const inputs = new Map<string, AgentSendTurn>();
 const receipts = new Map<string, any>();
+const currentIds = new Map<string, string | null>();
 const fixture = {
   calls: [] as { type: string; body?: any }[],
   release: null as (() => void) | null,
@@ -32,6 +33,22 @@ const fixture = {
 };
 (window as any).agentFixture = fixture;
 const agent: ExternalWritingClient = {
+  async history(projectId) {
+    return {
+      currentId: currentIds.get(projectId) ?? null,
+      conversations: [...sessions.values()]
+        .filter((s) => s.projectId === projectId)
+        .map(({ turns, generations, requestId, ...summary }) => summary),
+    };
+  },
+  async conversationAction(projectId, id, action) {
+    if (action.action === "new") currentIds.set(projectId, null);
+    else if (action.action === "open") currentIds.set(projectId, id);
+    else if (action.action === "rename") sessions.get(id)!.title = action.value;
+    else if (action.action === "discard")
+      sessions.get(id)!.turns.find((t) => t.id === action.value)!.outcome =
+        "discarded";
+  },
   async catalog() {
     fixture.calls.push({ type: "catalog" });
     return [
@@ -64,6 +81,10 @@ const agent: ExternalWritingClient = {
       engineId: request.engineId,
       modelId: request.modelId,
       turns: [],
+      requestId: request.requestId,
+      title: "",
+      updatedAt: Date.now(),
+      generations: [],
     };
     sessions.set(session.id, session);
     return session;
@@ -79,7 +100,14 @@ const agent: ExternalWritingClient = {
     fixture.calls.push({ type: "send", body: input });
     const turn: AgentTurn = {
       id: crypto.randomUUID(),
+      createdAt: Date.now(),
       requestId: input.requestId,
+      instruction: input.instruction,
+      attachment: input.attachment,
+      reply: "",
+      outcome: null,
+      applyResult: null,
+      applyError: null,
       status: "running",
       errorCode: null,
       proposal: null,
@@ -92,6 +120,8 @@ const agent: ExternalWritingClient = {
       },
     };
     sessions.get(id)!.turns.push(turn);
+    sessions.get(id)!.title ||= input.instruction.slice(0, 60);
+    currentIds.set(projectId, id);
     inputs.set(turn.id, input);
     if (fixture.holdSend)
       await new Promise<void>((resolve) => {
@@ -102,7 +132,8 @@ const agent: ExternalWritingClient = {
   async cancel(_, id, turnId) {
     fixture.calls.push({ type: "cancel" });
     const turn = sessions.get(id)!.turns.find((t) => t.id === turnId)!;
-    return { ...turn, status: "cancelled" };
+    turn.status = "cancelled";
+    return turn;
   },
   async stream(projectId, sessionId, turnId, _, handler, signal) {
     const turn = sessions.get(sessionId)!.turns.find((t) => t.id === turnId)!;
@@ -137,7 +168,10 @@ const agent: ExternalWritingClient = {
       reply: "Authoritative final reply",
       errorCode: null,
     });
-    if (!signal.aborted) turn.status = "completed";
+    if (turn.status !== "cancelled") {
+      turn.status = "completed";
+      turn.reply = "Authoritative final reply";
+    }
   },
   async apply(projectId, sessionId, turnId, proposalId) {
     fixture.calls.push({ type: "apply", body: sessionId });

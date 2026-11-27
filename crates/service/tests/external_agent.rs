@@ -46,6 +46,10 @@ impl WritingAgent for Fixture {
         emit: &mut dyn FnMut(AgentDelta) -> Result<()>,
     ) -> Result<AgentOutput> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if input.instruction == "continue-after-restart" {
+            assert_eq!(input.history.len(), 1);
+            assert_eq!(input.history[0].reply, "Finished");
+        }
         assert_eq!(input.context.project_id.len(), 36);
         emit(AgentDelta::Text("Partial 中文".into()))?;
         emit(AgentDelta::Progress("Reading captured document".into()))?;
@@ -707,4 +711,53 @@ async fn dsh_ac03_native_proposal_applies_to_captured_selection() {
         "\u{feff}# Heading\r\n\r\n新 paragraph\r\n\r\nTail\r\n"
     );
     native.join().unwrap();
+}
+
+#[tokio::test]
+async fn awr_ac03_history_http_survives_service_restart_and_rehydrates_native_context() {
+    let (root, app, fixture, project, session) = setup().await;
+    let (status, _) = call(
+        &app,
+        &format!("{session}/turns"),
+        Some(request(&project, "saved-question", "question")),
+    )
+    .await;
+    assert_eq!(status, 200);
+    settled(&app, &session).await;
+    let history = session.rsplit_once('/').unwrap().0;
+    let (_, summary) = call(&app, history, None).await;
+    assert_eq!(summary["conversations"].as_array().unwrap().len(), 1);
+    assert!(summary["conversations"][0].get("turns").is_none());
+    let (status, _) = call(
+        &app,
+        &session,
+        Some(json!({"action":"rename","value":"Saved project conversation"})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    drop(app);
+    let app = router_with_agent(root.path(), TOKEN, ORIGIN, fixture.clone()).unwrap();
+    let (status, restored) = call(&app, &session, None).await;
+    assert_eq!(status, 200);
+    assert_eq!(restored["title"], "Saved project conversation");
+    assert_eq!(restored["turns"][0]["reply"], "Finished");
+    let (status, _) = call(
+        &app,
+        &format!("{session}/turns"),
+        Some(request(&project, "continued", "continue-after-restart")),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(settled(&app, &session).await["status"], "completed");
+    assert_eq!(fixture.calls.load(Ordering::Acquire), 2);
+    let (status, _) = call(
+        &app,
+        &format!("{history}/new"),
+        Some(json!({"action":"new","value":""})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let (_, summary) = call(&app, history, None).await;
+    assert!(summary["currentId"].is_null());
+    assert_eq!(summary["conversations"].as_array().unwrap().len(), 1);
 }

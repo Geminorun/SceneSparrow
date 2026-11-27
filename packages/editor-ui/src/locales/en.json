@@ -765,5 +765,13 @@
   "markdownAsk": "Ask",
   "markdownCommentAction": "Comment",
   "markdownSelectionActions": "Selection actions",
-  "agentRemoveQuote": "Remove quote"
+  "agentRemoveQuote": "Remove quote",
+  "agentHistory": "History",
+  "agentHistorySearch": "Search conversations",
+  "agentRename": "Rename",
+  "agentHistoryEmpty": "No conversations yet.",
+  "agentLatest": "Latest reply ↓",
+  "agentGenerationResult": "Generated result",
+  "agentAdd": "Add action",
+  "agentSettingsDetails": "About Agent settings"
 }

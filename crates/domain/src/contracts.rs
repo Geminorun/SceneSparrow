@@ -1933,6 +1933,13 @@ pub struct MarkdownWritingAction {
         deserialize_with = "present_nonnull"
     )]
     pub outline_revision: Option<String>,
+    #[serde(
+        rename = "conversationId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub conversation_id: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2230,6 +2237,13 @@ pub enum AgentTurnStatus {
     Cancelled,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentTurnOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "discarded")]
+    Discarded,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentTurn {
     #[serde(rename = "id")]
@@ -2244,6 +2258,20 @@ pub struct AgentTurn {
     pub error_code: Option<String>,
     #[serde(rename = "proposal", deserialize_with = "required_nullable")]
     pub proposal: Option<AgentProposal>,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "reply")]
+    pub reply: String,
+    #[serde(rename = "outcome", deserialize_with = "required_nullable")]
+    pub outcome: Option<AgentTurnOutcome>,
+    #[serde(rename = "applyResult", deserialize_with = "required_nullable")]
+    pub apply_result: Option<AgentApplyResult>,
+    #[serde(rename = "applyError", deserialize_with = "required_nullable")]
+    pub apply_error: Option<String>,
+    #[serde(rename = "attachment")]
+    pub attachment: AgentAttachment,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2258,6 +2286,14 @@ pub struct AgentSession {
     pub model_id: String,
     #[serde(rename = "turns")]
     pub turns: Vec<AgentTurn>,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    #[serde(rename = "generations")]
+    pub generations: Vec<AgentGeneration>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2374,6 +2410,78 @@ pub struct AgentEngine {
     pub status: Option<AgentEngineStatus>,
     #[serde(rename = "models")]
     pub models: Vec<AgentModel>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentGenerationKind {
+    #[serde(rename = "outline")]
+    Outline,
+    #[serde(rename = "draft")]
+    Draft,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentGeneration {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "kind")]
+    pub kind: AgentGenerationKind,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "status")]
+    pub status: AgentTurnStatus,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+    pub error_code: Option<String>,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "outlineRevision", deserialize_with = "required_nullable")]
+    pub outline_revision: Option<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationHistory {
+    #[serde(rename = "currentId", deserialize_with = "required_nullable")]
+    pub current_id: Option<String>,
+    #[serde(rename = "conversations")]
+    pub conversations: Vec<AgentConversationSummary>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentConversationActionAction {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "rename")]
+    Rename,
+    #[serde(rename = "new")]
+    New,
+    #[serde(rename = "discard")]
+    Discard,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationAction {
+    #[serde(rename = "action")]
+    pub action: AgentConversationActionAction,
+    #[serde(rename = "value")]
+    pub value: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationSummary {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

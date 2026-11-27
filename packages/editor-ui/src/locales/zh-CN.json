@@ -765,5 +765,13 @@
   "markdownAsk": "提问",
   "markdownCommentAction": "批注",
   "markdownSelectionActions": "选区操作",
-  "agentRemoveQuote": "移除引用"
+  "agentRemoveQuote": "移除引用",
+  "agentHistory": "历史",
+  "agentHistorySearch": "搜索对话",
+  "agentRename": "重命名",
+  "agentHistoryEmpty": "暂无对话。",
+  "agentLatest": "最新回复 ↓",
+  "agentGenerationResult": "生成结果",
+  "agentAdd": "添加操作",
+  "agentSettingsDetails": "关于 Agent 设置"
 }

@@ -5,7 +5,11 @@ import { resolve } from "node:path";
 export default defineConfig({
   ...base,
   testIgnore: [],
-  testMatch: ["markdown-file-project.spec.ts", "external-agent.spec.ts"],
+  testMatch: [
+    "markdown-file-project.spec.ts",
+    "external-agent.spec.ts",
+    "agent-conversations.spec.ts",
+  ],
   webServer: {
     ...base.webServer,
     command: "node scripts/dev.mjs",

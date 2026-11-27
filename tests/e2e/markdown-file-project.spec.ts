@@ -77,6 +77,16 @@ async function closeSource(page: Page) {
     .click();
 }
 
+async function openCommentTools(page: Page) {
+  const tools = page.locator(".agent-review-tools");
+  if (!(await tools.isVisible()))
+    await page
+      .getByRole("button", { name: "Open assistant", exact: true })
+      .click();
+  if ((await tools.getAttribute("open")) === null)
+    await tools.locator("summary").click();
+}
+
 test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local history and same-ID reopen", async ({
   page,
 }) => {
@@ -130,6 +140,9 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   ).toHaveCount(0);
   await expect(
     page.getByRole("tab", { name: "Comments", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: "Agent", exact: true }),
   ).toHaveCount(1);
   const contents = page.getByRole("navigation", {
     name: "Contents",
@@ -394,6 +407,19 @@ async function mockWriting(
   reply: (kind: string) => Promise<string> | string,
 ) {
   const submitted: any[] = [];
+  const results: any[] = [];
+  await page.route(
+    /\/api\/v1\/markdown-projects\/[^/]+\/agent\/sessions\/[^/]+$/,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      const owner = await response.json();
+      owner.generations = results
+        .filter((entry) => entry.conversationId === owner.id)
+        .map(({ conversationId, ...entry }) => entry);
+      await route.fulfill({ response, json: owner });
+    },
+  );
   await page.route("**/api/v1/ai/configuration", (route) =>
     route.fulfill({
       json: { configuration: { fingerprint: "browser-fixture" } },
@@ -403,22 +429,45 @@ async function mockWriting(
     const body = route.request().postDataJSON();
     submitted.push(body);
     try {
-      await route.fulfill({
-        json: { actionId: body.actionId, text: await reply(body.kind) },
+      const text = await reply(body.kind);
+      results.push({
+        conversationId: body.conversationId,
+        id: body.actionId,
+        kind: body.kind,
+        instruction: body.brief,
+        text,
+        status: "completed",
+        errorCode: null,
+        revision: body.revision,
+        outlineRevision: body.outlineRevision ?? null,
+        createdAt: Date.now(),
       });
+      await route.fulfill({ json: { actionId: body.actionId, text } });
     } catch {
       /* A project switch or navigation can close the requesting page. */
     }
   });
   return submitted;
 }
+async function openGenerationMenu(page: Page) {
+  if (!(await page.locator(".agent-add-menu").isVisible()))
+    await page.getByRole("button", { name: "Add action", exact: true }).click();
+}
+async function generateFromComposer(page: Page, kind: "outline" | "draft") {
+  await openGenerationMenu(page);
+  await page
+    .getByRole("button", {
+      name:
+        kind === "outline" ? "Generate Outline" : "Write Draft from Outline",
+      exact: true,
+    })
+    .click();
+}
 async function beginWriting(page: Page) {
   await page
-    .getByRole("textbox", { name: "Writing request", exact: true })
+    .getByRole("textbox", { name: "Message to Agent", exact: true })
     .fill("Write a bilingual story");
-  await page
-    .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "outline");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
   ).toHaveText("OutlineOpening");
@@ -457,9 +506,7 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   await outline.locator("li").click();
   await outline.press("End");
   await outline.pressSequentially(" user ending");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -474,13 +521,12 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   await manuscript(page);
   await expect(editor(page)).toHaveText("Original saved manuscript");
   await page
+    .locator(".writing-view-switch")
     .getByRole("button", { name: "Draft preview", exact: true })
     .click();
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   expect((await savedFile(page)).text).toBe("Original saved manuscript");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
   await expect(editor(page)).toHaveText(/^Draft/);
   expect((await savedFile(page)).text).toMatch(/^# Draft/);
@@ -491,7 +537,7 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   ).toHaveCount(0);
   await outlineTab(page);
   await expect(
-    page.getByRole("textbox", { name: "Writing request", exact: true }),
+    page.getByRole("textbox", { name: "Message to Agent", exact: true }),
   ).toHaveValue("");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
@@ -526,6 +572,7 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await beginWriting(page);
   await manuscript(page);
+  await openGenerationMenu(page);
   const generate = page.getByRole("button", {
     name: "Write Draft from Outline",
     exact: true,
@@ -557,7 +604,7 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   held = new Promise<string>((resolve) => {
     release = resolve;
   });
-  await generate.click();
+  await generateFromComposer(page, "draft");
   await expect.poll(() => submitted.length).toBe(3);
   await projectAction(page, "New manuscript");
   await expect(editor(page)).toHaveText("");
@@ -584,9 +631,7 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
   await preferences(page, "after_delay", "5");
   await beginWriting(page);
   await manuscript(page);
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -696,9 +741,7 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
   await editor(page).fill("Captured buffered text");
   await save(page);
   await arrived;
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -1134,16 +1177,12 @@ test("MOR-AC03: blank brief, failed outline save prevents dispatch, stale draft 
         ? route.fulfill({ status: 409, json: { code: "MARKDOWN_CONFLICT" } })
         : route.continue(),
   );
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await expect(page.getByRole("alert")).toBeVisible();
   expect(submitted).toHaveLength(0);
   await expect(outlineEditor(page)).toContainText("User plan");
   await page.unroute("**/api/v1/markdown-projects/*/documents/outline");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0].brief).toBe("");
   expect(submitted[0].outlineRevision).toBe((await outlineFile(page)).revision);
@@ -1174,9 +1213,7 @@ test("MOR-AC03: an outline saved in another browser atomically rejects draft ado
   await preferences(page, "off");
   await outlineTab(page);
   await outlineEditor(page).fill("Original outline");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -1255,26 +1292,29 @@ test("MOR-AC03: regeneration confirms replacement and retains a result if the ou
   await save(page);
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await page
-    .getByRole("textbox", { name: "Writing request", exact: true })
+    .getByRole("textbox", { name: "Message to Agent", exact: true })
     .fill("Revise the outline");
+  await openGenerationMenu(page);
   const regenerate = page.getByRole("button", {
-    name: "Regenerate Outline",
+    name: "Generate Outline",
     exact: true,
   });
   page.once("dialog", (dialog) => dialog.dismiss());
   await regenerate.click();
-  await expect(regenerate).toBeEnabled();
+  await expect(
+    page.getByRole("textbox", { name: "Message to Agent", exact: true }),
+  ).toHaveValue("Revise the outline");
   expect(submitted).toHaveLength(0);
   page.once("dialog", (dialog) => dialog.accept());
-  await regenerate.click();
+  await generateFromComposer(page, "outline");
   await expect.poll(() => submitted.length).toBe(1);
   await outlineEditor(page).fill("Newer local outline");
   release("# Proposed earlier outline");
-  const retained = page.getByText("Generated outline kept for reference", {
+  const retained = page.getByText("Generated result", {
     exact: true,
   });
   await retained.click();
-  await expect(page.locator(".markdown-retained-outline pre")).toHaveText(
+  await expect(page.locator(".agent-turn pre")).toHaveText(
     "# Proposed earlier outline",
   );
   expect((await outlineFile(page)).text).toBe("Keep this accepted outline");
@@ -1337,7 +1377,7 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
   await outlineTab(page);
   await expect(outlineEditor(page)).toContainText("Plan 中文");
   await selectBlocks(outlineEditor(page), "h1, li", 0, 2);
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await page
     .locator(".markdown-review")
     .getByRole("button", { name: "Lock selected blocks", exact: true })
@@ -1395,10 +1435,8 @@ test("@web-smoke MOR-AC04–05: a generated outline with unsupported syntax is e
   await mockWriting(page, () => raw);
   await page.goto("/");
   await preferences(page, "off");
-  await page.getByRole("textbox", { name: "Writing request" }).fill("Write");
-  await page
-    .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
+  await page.getByRole("textbox", { name: "Message to Agent" }).fill("Write");
+  await generateFromComposer(page, "outline");
   const fallback = page.locator(".outline-surface .source-fallback");
   const input = fallback.getByRole("textbox", { name: "Editable outline" });
   const visible = "# 大纲\n\n> source-only quote\n\n- 中文目标\n- Unlocked\n";
@@ -1516,7 +1554,7 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   await expect(inlineNote.getByRole("textbox")).toBeFocused();
   await inlineNote.getByRole("textbox").fill("Clarify these beats");
   await inlineNote.getByRole("button", { name: "Save", exact: true }).click();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Clarify these beats",
   );
@@ -1528,7 +1566,7 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   await expect(page.locator(".markdown-comment")).toHaveCount(0);
   await page.reload();
   await outlineTab(page);
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Clarify these beats",
   );
@@ -1557,7 +1595,7 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   );
   await page.reload();
   await outlineTab(page);
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await page
     .locator(".markdown-comment")
     .getByRole("button", { name: "Resolve", exact: true })
@@ -1593,7 +1631,7 @@ test("@web-smoke MOR-AC06: comment proposal previews only its scope and a hidden
   });
   await inlineNote.getByRole("textbox").fill("Improve this paragraph");
   await inlineNote.getByRole("button", { name: "Save", exact: true }).click();
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Improve this paragraph",
   );
@@ -1950,11 +1988,9 @@ for (const width of [1280, 960]) {
         .getByRole("button", { name: "Open assistant", exact: true })
         .click();
     await page
-      .getByRole("textbox", { name: "Writing request" })
+      .getByRole("textbox", { name: "Message to Agent" })
       .fill("Write a bilingual outline");
-    await page
-      .getByRole("button", { name: "Generate Outline", exact: true })
-      .click();
+    await generateFromComposer(page, "outline");
     const outline = outlineEditor(page);
     if (width === 960)
       await page
