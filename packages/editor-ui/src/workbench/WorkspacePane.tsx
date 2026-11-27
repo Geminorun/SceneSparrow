@@ -11,7 +11,7 @@ const groups: Record<Side, AuxiliaryTab[]> = {
 };
 const media = "(max-width: 1050px)";
 const bounds = { left: [200, 360, 240], right: [280, 520, 340] } as const;
-export function useAuxiliaryPane() {
+export function useAuxiliaryPane(singleAgent = false) {
   const [narrow, setNarrow] = useState(() => window.matchMedia(media).matches);
   const [preferences, setPreferences] = useState(() => {
     let saved: any = {},
@@ -74,15 +74,23 @@ export function useAuxiliaryPane() {
   }, [preferences]);
   return {
     ...preferences,
+    right: singleAgent
+      ? { ...preferences.right, tab: "agent" as AuxiliaryTab }
+      : preferences.right,
     narrow,
     drawer,
     visible: (side: Side) =>
       narrow ? drawer === side : !preferences[side].collapsed,
     open: (tab: AuxiliaryTab) => {
+      if (singleAgent && groups.right.includes(tab)) tab = "agent";
       const side = groups.left.includes(tab) ? "left" : "right";
       setPreferences((p) => ({
         ...p,
-        [side]: { ...p[side], tab, collapsed: false },
+        [side]: {
+          ...p[side],
+          tab: singleAgent && side === "right" ? p[side].tab : tab,
+          collapsed: false,
+        },
       }));
       if (narrow) setDrawer(side);
     },

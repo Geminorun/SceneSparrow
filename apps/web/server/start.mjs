@@ -19,6 +19,8 @@ export async function startRuntime({
   gatewayPort = 8080,
   projectDir = "/data/project",
   markdownProjectsDir,
+  researchSearchUrl,
+  renderBrowser,
   appDataDir = "/data/app",
   masterKeyFile,
   codexSocket,
@@ -54,6 +56,12 @@ export async function startRuntime({
     SCENESPARROW_PROJECT_DIR: projectDir,
     ...(markdownProjectsDir !== undefined
       ? { SCENESPARROW_MARKDOWN_PROJECTS_DIR: markdownProjectsDir }
+      : {}),
+    ...(researchSearchUrl !== undefined
+      ? { SCENESPARROW_RESEARCH_SEARCH_URL: researchSearchUrl }
+      : {}),
+    ...(renderBrowser !== undefined
+      ? { SCENESPARROW_RENDER_BROWSER: renderBrowser }
       : {}),
     SCENESPARROW_APP_DATA_DIR: appDataDir,
     ...(codexSocket !== undefined
@@ -240,6 +248,8 @@ if (
       masterKeyFile:
         process.env.SCENESPARROW_AI_MASTER_KEY_FILE ??
         "/run/secrets/ai_master_key",
+      researchSearchUrl: process.env.SCENESPARROW_RESEARCH_SEARCH_URL,
+      renderBrowser: process.env.SCENESPARROW_RENDER_BROWSER,
       codexSocket: process.env.SCENESPARROW_CODEX_SOCKET,
       deepseekSocket: process.env.SCENESPARROW_DEEPSEEK_SOCKET,
       deepseekRelayDirectory: process.env.SCENESPARROW_DEEPSEEK_RELAY_DIR,

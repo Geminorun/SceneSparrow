@@ -502,3 +502,7 @@ backup recovery are covered by the release smoke script.
 The external writing Agent uses an optional isolated Codex App Server. The
 standard test suite uses a protocol fixture. For native testing, follow the
 [runner guide](codex-writing-runner.md).
+
+The file-backed Web workspace also exposes the bounded Remotion video project
+fixture. Run `pnpm render:prepare` and configure an installed rendering browser
+before using it. See [video project setup and limits](video-projects.md).

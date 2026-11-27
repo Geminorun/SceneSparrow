@@ -323,3 +323,73 @@ test("DSH-AC08 an empty DeepSeek conversation preference inherits writing, while
   const unavailable = { engineId: "deepseek", modelId: "saved-unavailable" };
   assert.deepEqual(conversationDefaults(unavailable, writing), unavailable);
 });
+
+test("AWR-AC06 grouped replacements preserve BOM, CRLF and all bytes between known scopes", async () => {
+  const { proposalText } =
+    await import("../../packages/editor-ui/src/agent/context.ts");
+  const text =
+    "\ufeff# City\r\n\r\nFirst 中文\r\n\r\nSecond detail\r\n\r\nLocked ending\r\n";
+  const scope = (id, quote) => {
+    const start = Buffer.byteLength(text.slice(0, text.indexOf(quote)));
+    return {
+      id,
+      commentIds: [id],
+      selection: {
+        quote,
+        range: { start, end: start + Buffer.byteLength(quote) },
+      },
+    };
+  };
+  const context = {
+    projectId: "project",
+    kind: "outline",
+    revision: "saved",
+    sourceDigest: "digest",
+    selection: null,
+    batch: {
+      scopes: [scope("first", "First 中文"), scope("second", "Second detail")],
+      comments: [],
+      locks: [],
+      unresolved: [],
+    },
+  };
+  const proposal = {
+    id: "proposal",
+    context,
+    text: "",
+    batch: {
+      changes: [
+        { scopeId: "second", text: "More sound" },
+        { scopeId: "first", text: "清晨" },
+      ],
+      unresolved: [],
+    },
+  };
+  const capture = { ...context, session: {}, epoch: 1, text };
+  assert.equal(
+    proposalText(capture, proposal),
+    text.replace("First 中文", "清晨").replace("Second detail", "More sound"),
+  );
+  assert.throws(
+    () =>
+      proposalText(capture, {
+        ...proposal,
+        batch: {
+          ...proposal.batch,
+          changes: [{ scopeId: "unknown", text: "No" }],
+        },
+      }),
+    /AGENT_PROPOSAL_STALE/,
+  );
+  assert.throws(
+    () =>
+      proposalText(capture, {
+        ...proposal,
+        batch: {
+          ...proposal.batch,
+          changes: [proposal.batch.changes[0], proposal.batch.changes[0]],
+        },
+      }),
+    /AGENT_SELECTION_INVALID/,
+  );
+});

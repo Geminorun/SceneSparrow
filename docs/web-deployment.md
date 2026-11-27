@@ -209,6 +209,10 @@ Treat browser reconnects as expected; Cloudflare may impose its own request limi
 Basic authentication has browser-managed caching; close the browser profile to
 clear it and rotate the operator secret if access must be revoked.
 
+Selected-text research can use operator-provided project reference files and an
+optional `SCENESPARROW_RESEARCH_SEARCH_URL`. See [research sources](research-sources.md)
+for the supported SearXNG/JSON endpoint, query privacy boundary, and retrieval limits.
+
 ## Bundled DeepSeek Harness
 
 The release starts the pinned native runner by default. Web owns the fixed official

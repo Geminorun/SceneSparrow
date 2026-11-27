@@ -68,3 +68,7 @@ selection edits.
 The [native DeepSeek Harness for Web writing](deepseek-harness-agent.md)
 spec covers the default runner, credential reuse, guarded conversation edits,
 and migration of the existing writing actions.
+
+The [unified Agent writing and project skills](agent-writing-review.md) spec
+covers shared Markdown editing, durable conversations, batch comment revision,
+read-only research, and Remotion project skills in five delivery phases.

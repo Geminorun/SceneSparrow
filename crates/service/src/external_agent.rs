@@ -40,11 +40,11 @@ where
         .route("/v1/agent/catalog", get(catalog))
         .route(
             "/v1/markdown-projects/{project}/agent/sessions",
-            post(create),
+            get(history).post(create),
         )
         .route(
             "/v1/markdown-projects/{project}/agent/sessions/{session}",
-            get(read),
+            get(read).post(conversation_action),
         )
         .route(
             "/v1/markdown-projects/{project}/agent/sessions/{session}/close",
@@ -103,6 +103,22 @@ async fn execute<T: serde::Serialize + Send + 'static>(
         Ok(value) => Json(value).into_response(),
         Err(code) => error(code),
     }
+}
+async fn history(State(state): State<Arc<AgentState>>, Path(project): Path<String>) -> Response {
+    execute(state, move |s| s.history(&project)).await
+}
+async fn conversation_action(
+    State(state): State<Arc<AgentState>>,
+    Path((project, session)): Path<(String, String)>,
+    body: std::result::Result<Json<AgentConversationAction>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = body else {
+        return error("AGENT_REQUEST_INVALID");
+    };
+    execute(state, move |s| {
+        s.conversation_action(&project, &session, body)
+    })
+    .await
 }
 async fn catalog(State(state): State<Arc<AgentState>>) -> Response {
     execute(state, |s| s.catalog()).await

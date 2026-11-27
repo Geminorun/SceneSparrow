@@ -2,6 +2,9 @@ export const MARKDOWN_EXCHANGE_MAX_BYTES =
   10 * 1024 * 1024 + 256 * 1024 + 65536;
 
 import type {
+  VideoProject,
+  VideoRequestChange,
+  VideoDecision,
   AgentCreateSession,
   AgentSendTurn,
   AgentSession,
@@ -80,6 +83,14 @@ export type { AgentEngine } from "@scenesparrow/contracts";
 import type { AgentEngine } from "@scenesparrow/contracts";
 
 export interface ExternalWritingClient {
+  history?(
+    projectId: string,
+  ): Promise<import("@scenesparrow/contracts").AgentConversationHistory>;
+  conversationAction?(
+    projectId: string,
+    sessionId: string,
+    action: import("@scenesparrow/contracts").AgentConversationAction,
+  ): Promise<void>;
   catalog?(): Promise<AgentEngine[]>;
   testDeepseek?(request: AiTestAction): Promise<AiTestReceipt>;
   create(projectId: string, request: AgentCreateSession): Promise<AgentSession>;
@@ -113,6 +124,18 @@ export interface ExternalWritingClient {
 
 export interface PlatformClient {
   agent?: ExternalWritingClient;
+  videoProjects?: {
+    read(id: string): Promise<VideoProject | null>;
+    create(id: string): Promise<VideoProject>;
+    request(id: string, body: VideoRequestChange): Promise<VideoProject>;
+    decide(id: string, body: VideoDecision): Promise<VideoProject>;
+    render(id: string, revision: string): Promise<VideoProject>;
+    bytes(
+      id: string,
+      revision: string,
+      kind: "render" | "export",
+    ): Promise<Uint8Array>;
+  };
   markdownProjects?: {
     create(text: string): Promise<MarkdownProject>;
     download(

@@ -87,6 +87,8 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
         ...config,
         corePort: await port(),
         markdownProjectsDir,
+        researchSearchUrl: "https://search.example/search",
+        renderBrowser: "/usr/bin/chromium",
         deepseekSocket: join(directory, "dsh.sock"),
         deepseekRelayDirectory: directory,
       });
@@ -105,6 +107,11 @@ process.on('SIGINT',()=>{appendFileSync(log,'SIGINT\\n');s.close(()=>process.exi
       const fileEnv = JSON.parse(
         await readFile(join(directory, "core-env.json"), "utf8"),
       );
+      assert.equal(
+        fileEnv.SCENESPARROW_RESEARCH_SEARCH_URL,
+        "https://search.example/search",
+      );
+      assert.equal(fileEnv.SCENESPARROW_RENDER_BROWSER, "/usr/bin/chromium");
       assert.equal(
         fileEnv.SCENESPARROW_MARKDOWN_PROJECTS_DIR,
         markdownProjectsDir,

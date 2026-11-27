@@ -112,7 +112,7 @@ crates/
 workers/
   agent/                         # Supervised AI process host
   document/                      # Extraction, visual preparation and serializers
-  render/                        # Separate render smoke sample
+  render/                        # Supervised data-only video project and render sample
 scripts/
   web/                           # Deployment/operator configuration and smoke tools
   release/                       # Version and release-policy tooling
@@ -204,8 +204,12 @@ Use [development setup](development.md) and the
 recorded under [validation/](validation/), with PR `foundation` checks on the
 current merge commit. Linux/browser/mock-provider results do not certify real
 Windows/macOS, native credential stores, live providers or unmet large-document
-performance budgets. Rendering remains a separate sample, and arbitrary generated
-code execution remains disabled until platform isolation is implemented and tested.
+performance budgets. The file-backed Web workspace also exposes a bounded video project: native official
+skill loading supplies context through the text Agent transport, the core adopts
+validated composition data, and a supervised renderer bundles the trusted shipped
+TypeScript template. See [video project boundaries](video-projects.md). Arbitrary
+generated code execution remains disabled until platform isolation is implemented
+and tested.
 
 ## Web writing runtimes
 

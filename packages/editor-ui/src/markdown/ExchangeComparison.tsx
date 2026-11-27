@@ -5,10 +5,12 @@ export function ExchangeComparison({
   current,
   returned,
   t,
+  labels,
 }: {
   current: string;
   returned: string;
   t: typeof en;
+  labels?: { original: string; proposed: string };
 }) {
   let start = 0;
   while (
@@ -35,11 +37,11 @@ export function ExchangeComparison({
   return (
     <div className="markdown-exchange-diff">
       {prefix && <pre>{prefix}</pre>}
-      <h3>{t.markdownCurrentText}</h3>
+      <h3>{labels?.original ?? t.markdownCurrentText}</h3>
       <pre className="markdown-diff-removed">
         {current.slice(start, current.length - end)}
       </pre>
-      <h3>{t.markdownReturnedText}</h3>
+      <h3>{labels?.proposed ?? t.markdownReturnedText}</h3>
       <pre className="markdown-diff-added">
         {returned.slice(start, returned.length - end)}
       </pre>

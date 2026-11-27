@@ -243,7 +243,11 @@ fn resolve(a: &mut MarkdownAnchor, text: &str, revision: &str, parsed: &[Block],
     a.resolved_end = range.map(|v| v.end as i64);
 }
 impl MarkdownProjects {
-    fn sidecar<T: serde::de::DeserializeOwned + Default>(&self, id: &str, name: &str) -> Result<T> {
+    pub(super) fn sidecar<T: serde::de::DeserializeOwned + Default>(
+        &self,
+        id: &str,
+        name: &str,
+    ) -> Result<T> {
         let path = self.validated_directory(id)?.join(name);
         match std::fs::symlink_metadata(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
@@ -254,7 +258,7 @@ impl MarkdownProjects {
             .map_err(|_| "MARKDOWN_ANNOTATIONS_UNAVAILABLE"),
         }
     }
-    fn write_sidecar(&self, id: &str, name: &str, value: &impl Serialize) -> Result<()> {
+    pub(super) fn write_sidecar(&self, id: &str, name: &str, value: &impl Serialize) -> Result<()> {
         let bytes = serde_json::to_vec(value).map_err(|_| "MARKDOWN_ANNOTATIONS_UNAVAILABLE")?;
         if bytes.len() > SIDECAR_LIMIT {
             return Err("MARKDOWN_ANNOTATIONS_UNAVAILABLE");
@@ -266,6 +270,41 @@ impl MarkdownProjects {
         let mut file = io(AtomicWriteFile::open(path))?;
         io(file.write_all(&bytes))?;
         io(file.commit())
+    }
+    pub(super) fn check_agent_comments(
+        &self,
+        id: &str,
+        expected: &[MarkdownComment],
+        resolve: bool,
+    ) -> Result<()> {
+        let mut data: Comments = self.sidecar(id, "comments.json")?;
+        for expected in expected {
+            let current = data
+                .comments
+                .iter_mut()
+                .find(|c| c.id == expected.id)
+                .ok_or("MARKDOWN_CONFLICT")?;
+            let mut original = expected.clone();
+            original.anchor.resolved_start = None;
+            original.anchor.resolved_end = None;
+            let mut actual = current.clone();
+            actual.anchor.resolved_start = None;
+            actual.anchor.resolved_end = None;
+            // Recovery may revisit comments already resolved by this exact proposal.
+            if resolve && actual.status == MarkdownCommentStatus::Resolved {
+                actual.status = MarkdownCommentStatus::Open;
+            }
+            if actual != original {
+                return Err("MARKDOWN_CONFLICT");
+            }
+            if resolve {
+                current.status = MarkdownCommentStatus::Resolved;
+            }
+        }
+        if resolve {
+            self.write_sidecar(id, "comments.json", &data)?;
+        }
+        Ok(())
     }
     pub(super) fn annotations_inner(
         &self,
@@ -449,6 +488,32 @@ impl MarkdownProjects {
                     text,
                     status: MarkdownCommentStatus::Open,
                 });
+                self.write_sidecar(id, "comments.json", &data)?;
+            }
+            MarkdownAnnotationAction::Edit {
+                id: comment_id,
+                revision,
+                previous_text,
+                text,
+            } => {
+                check(&revision)?;
+                if text.trim().is_empty() || text.len() > 16 * 1024 {
+                    return Err("MARKDOWN_ANCHOR_INVALID");
+                }
+                let mut data: Comments = self.sidecar(id, "comments.json")?;
+                let comment = data
+                    .comments
+                    .iter_mut()
+                    .find(|v| {
+                        v.id == comment_id
+                            && v.kind == kind
+                            && v.status == MarkdownCommentStatus::Open
+                    })
+                    .ok_or("MARKDOWN_ANCHOR_INVALID")?;
+                if comment.text != previous_text {
+                    return Err("MARKDOWN_CONFLICT");
+                }
+                comment.text = text;
                 self.write_sidecar(id, "comments.json", &data)?;
             }
             MarkdownAnnotationAction::Resolve { id: comment_id } => {
@@ -799,6 +864,101 @@ mod tests {
                 )
                 .unwrap_err(),
             "MARKDOWN_LOCKED"
+        );
+    }
+    #[test]
+    fn awr_ac02_comment_edits_preserve_identity_and_reject_stale_input() {
+        let root = tempfile::tempdir().unwrap();
+        let store = MarkdownProjects::open(root.path()).unwrap();
+        let p = store.create("A passage 中文".into()).unwrap();
+        let kind = MarkdownDocumentKind::Manuscript;
+        let data = store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                MarkdownAnnotationAction::Comment {
+                    revision: p.revision.clone(),
+                    range: range(&p.text, "passage"),
+                    text: "Original note".into(),
+                },
+            )
+            .unwrap();
+        let original = &data.comments[0];
+        let edit = |revision: &str, previous: &str, text: &str| MarkdownAnnotationAction::Edit {
+            id: original.id.clone(),
+            revision: revision.into(),
+            previous_text: previous.into(),
+            text: text.into(),
+        };
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit("stale", "Original note", "Changed")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "newer", "Changed")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "Original note", " ")
+                )
+                .unwrap_err(),
+            "MARKDOWN_ANCHOR_INVALID"
+        );
+        let edited = store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                edit(&p.revision, "Original note", "补充具体细节"),
+            )
+            .unwrap();
+        assert_eq!(edited.comments[0].id, original.id);
+        assert_eq!(edited.comments[0].anchor.quote, original.anchor.quote);
+        assert_eq!(edited.comments[0].text, "补充具体细节");
+        assert_eq!(store.read(&p.project_id).unwrap().text, p.text);
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind.clone(),
+                    edit(&p.revision, "Original note", "Late edit")
+                )
+                .unwrap_err(),
+            "MARKDOWN_CONFLICT"
+        );
+        store
+            .annotate(
+                &p.project_id,
+                kind.clone(),
+                MarkdownAnnotationAction::Resolve {
+                    id: original.id.clone(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .annotate(
+                    &p.project_id,
+                    kind,
+                    edit(&p.revision, "补充具体细节", "Resolved edit")
+                )
+                .unwrap_err(),
+            "MARKDOWN_ANCHOR_INVALID"
         );
     }
     #[test]

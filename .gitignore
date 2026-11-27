@@ -94,3 +94,5 @@ $RECYCLE.BIN/
 # Intentionally track small media fixtures, design documents, migrations,
 # JSON Schemas, translations, toolchain pins, and dependency lockfiles.
 # Do not add blanket media exclusions: runtime output belongs in ignored paths.
+
+workers/render/.assets/

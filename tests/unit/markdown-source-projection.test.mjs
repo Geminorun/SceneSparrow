@@ -96,3 +96,64 @@ test("MOR-AC04: visual protection permits an ancestor rename and rejects structu
     false,
   );
 });
+
+test("AWR-AC01: mixed visual Markdown preserves thematic break and untouched bytes", () => {
+  for (const rule of ["---", "* * *", "___"]) {
+    const source = `\ufeff# 中文 Outline\r\n\r\n${rule}\r\n\r\nA **bold** paragraph.\r\n\r\n* Parent\r\n  * *Nested* child\r\n\r\nTail.\r\n`;
+    const projection = projectSource(source);
+    assert.ok(projection);
+    assert.equal(projection.document.content[1].type, "horizontalRule");
+    assert.equal(sourceFromEditor(projection, projection.document), source);
+    const document = structuredClone(projection.document);
+    document.content.at(-1).content[0].text = "Edited tail.";
+    assert.equal(
+      sourceFromEditor(projection, document),
+      source.replace("Tail.", "Edited tail."),
+    );
+  }
+});
+
+test("AWR-AC02: source comments highlight only anchored text through Markdown marks and shifted bytes", async () => {
+  const { createRequire } = await import("node:module");
+  const require = createRequire(
+    new URL("../../packages/editor-ui/package.json", import.meta.url),
+  );
+  const { Node, Schema } = require("@tiptap/pm/model");
+  const { anchorRange, commentSpans } =
+    await import("../../packages/editor-ui/src/markdown/editor-annotations.ts");
+  const schema = new Schema({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: { group: "block", content: "text*" },
+      text: { group: "inline" },
+    },
+  });
+  const source = "A **bold** and 中文 tail";
+  const doc = Node.fromJSON(schema, {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "A bold and 中文 tail" }],
+      },
+    ],
+  });
+  const start = source.indexOf("**bold**");
+  const end = source.indexOf(" tail");
+  assert.deepEqual(commentSpans(doc, source, { start, end }), [
+    { from: 3, to: 14 },
+  ]);
+  const anchor = {
+    quote: "中文",
+    resolvedStart: source.indexOf("中文"),
+    resolvedEnd: source.indexOf("中文") + 6,
+  };
+  assert.deepEqual(anchorRange("Prefix\n\n" + source, anchor), {
+    start: 23,
+    end: 25,
+  });
+  assert.equal(
+    anchorRange("中文 中文", { ...anchor, resolvedStart: 1, resolvedEnd: 2 }),
+    null,
+  );
+});

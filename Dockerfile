@@ -9,7 +9,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/desktop/package.json apps/desktop/package.json
 COPY packages/ packages/
 COPY workers/ workers/
-RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; pnpm install --frozen-lockfile'
+RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi; pnpm install --frozen-lockfile && pnpm render:prepare'
 COPY apps/web/ apps/web/
 RUN SCENESPARROW_BUILD_SHA="$SCENESPARROW_BUILD_SHA" pnpm --filter @scenesparrow/web build
 
@@ -22,7 +22,7 @@ RUN --mount=type=secret,id=build_ca sh -c 'if [ -f /run/secrets/build_ca ]; then
 FROM node:24.22.1-bookworm-slim AS runtime
 ARG SCENESPARROW_BUILD_SHA=unknown
 ENV SCENESPARROW_BUILD_SHA=$SCENESPARROW_BUILD_SHA
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libfontconfig1 libfreetype6 fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 libfontconfig1 libfreetype6 fonts-dejavu-core chromium fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Keep the build-time workspace path: Rust workers use CARGO_MANIFEST_DIR.
 COPY --from=dependencies /app/node_modules/ node_modules/
@@ -35,7 +35,7 @@ COPY --from=core /app/target/release/scenesparrow-service bin/scenesparrow-servi
 COPY scripts/web/ scripts/web/
 COPY scripts/agent/deepseek/relay.mjs scripts/agent/deepseek/policy.mjs scripts/agent/deepseek/
 RUN mkdir -p /app/crates/infrastructure /data/project /data/app && chmod -R a+rX /app && chown -R node:node /data && install -d -m 0700 -o 1000 -g 1000 /run/writing-agent
-ENV NODE_ENV=production
+ENV NODE_ENV=production SCENESPARROW_RENDER_BROWSER=/usr/bin/chromium
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=40s --retries=6 CMD ["node", "-e", "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

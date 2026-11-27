@@ -11,8 +11,10 @@ use axum::{
 use scenesparrow_infrastructure::markdown_projects::MarkdownProjects;
 use std::sync::Arc;
 #[derive(Clone)]
-struct FileState {
-    store: Arc<MarkdownProjects>,
+pub(crate) struct FileState {
+    pub(crate) store: Arc<MarkdownProjects>,
+    pub(crate) video_agent: Arc<dyn scenesparrow_application::external_agent::WritingAgent>,
+    pub(crate) video_slots: Arc<tokio::sync::Semaphore>,
     ai: Arc<crate::ai::AiState>,
     agent: Arc<crate::external_agent::AgentState>,
     authorization: String,
@@ -65,7 +67,10 @@ fn router_with_state(
 ) -> Result<Router, &'static str> {
     let store = Arc::new(MarkdownProjects::open(root)?);
     let agent = Arc::new(crate::external_agent::AgentState::new(
-        scenesparrow_application::external_agent::AgentSessions::new(store.clone(), adapter),
+        scenesparrow_application::external_agent::AgentSessions::new(
+            store.clone(),
+            adapter.clone(),
+        ),
     ));
     let weak_agent = Arc::downgrade(&agent);
     tokio::spawn(async move {
@@ -78,6 +83,8 @@ fn router_with_state(
         }
     });
     let state = FileState {
+        video_agent: adapter,
+        video_slots: Arc::new(tokio::sync::Semaphore::new(1)),
         store,
         agent,
         ai,
@@ -120,6 +127,7 @@ fn router_with_state(
                 scenesparrow_infrastructure::markdown_projects::MAX_EXCHANGE_BYTES,
             )),
         )
+        .merge(crate::video_projects::routes())
         .merge(crate::ai::settings_routes())
         .merge(crate::external_agent::routes())
         .fallback(|| async { api_error(StatusCode::NOT_FOUND, "NOT_FOUND") })
@@ -231,50 +239,98 @@ async fn writing(
     crate::ai::result(
         tokio::task::spawn_blocking(move || {
             let _slot = slot;
-            let outline_revision = if body.kind == contracts::MarkdownWritingActionKind::Draft {
-                ensure(body.outline_revision.is_some(), "MARKDOWN_WRITING_INVALID")?;
-                body.outline_revision.as_deref()
-            } else {
-                None
-            };
-            let outline = state
-                .store
-                .writing_snapshot(&id, &body.revision, outline_revision)
-                .map_err(AiError)?;
-            if let Some(outline) = outline {
-                body.outline = outline.text;
-            }
-            let target = if body.kind == contracts::MarkdownWritingActionKind::Outline {
-                contracts::MarkdownDocumentKind::Outline
-            } else {
-                contracts::MarkdownDocumentKind::Manuscript
-            };
-            let annotations = state.store.annotations(&id, target).map_err(AiError)?;
-            let mut protected = std::collections::BTreeSet::new();
-            for lock in annotations.locks {
-                for anchor in lock.anchors {
-                    ensure(anchor.resolved_start.is_some(), "MARKDOWN_LOCK_CONFLICT")?;
-                    protected.insert(anchor.quote);
-                }
-            }
-            let input = markdown_writing::input(&body, &protected.into_iter().collect::<Vec<_>>())?;
-            let context =
-                serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;
-            let text = state.ai.actions.text(
-                state.ai.settings()?,
-                scenesparrow_infrastructure::ai::actions::TextAction {
-                    action_id: &body.action_id,
-                    session_id: &body.session_id,
-                    fingerprint: &body.fingerprint,
-                    context: &context,
-                    input: &input,
+            let conversation = body.conversation_id.clone();
+            let generation = contracts::AgentGeneration {
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| AiError("AGENT_STATE_UNAVAILABLE"))?
+                    .as_millis() as i64,
+                id: body.action_id.clone(),
+                kind: if body.kind == contracts::MarkdownWritingActionKind::Outline {
+                    contracts::AgentGenerationKind::Outline
+                } else {
+                    contracts::AgentGenerationKind::Draft
                 },
-            )?;
-            markdown_writing::validate_output(&text)?;
-            Ok(MarkdownWritingResult {
-                action_id: body.action_id,
-                text,
-            })
+                instruction: body.brief.clone(),
+                status: contracts::AgentTurnStatus::Running,
+                text: String::new(),
+                error_code: None,
+                revision: body.revision.clone(),
+                outline_revision: body.outline_revision.clone(),
+            };
+            if let Some(conversation) = &conversation {
+                state
+                    .agent
+                    .sessions
+                    .record_generation(&id, conversation, generation.clone())
+                    .map_err(AiError)?;
+            }
+            let result: std::result::Result<MarkdownWritingResult, AiError> = (|| {
+                let outline_revision = if body.kind == contracts::MarkdownWritingActionKind::Draft {
+                    ensure(body.outline_revision.is_some(), "MARKDOWN_WRITING_INVALID")?;
+                    body.outline_revision.as_deref()
+                } else {
+                    None
+                };
+                let outline = state
+                    .store
+                    .writing_snapshot(&id, &body.revision, outline_revision)
+                    .map_err(AiError)?;
+                if let Some(outline) = outline {
+                    body.outline = outline.text;
+                }
+                let target = if body.kind == contracts::MarkdownWritingActionKind::Outline {
+                    contracts::MarkdownDocumentKind::Outline
+                } else {
+                    contracts::MarkdownDocumentKind::Manuscript
+                };
+                let annotations = state.store.annotations(&id, target).map_err(AiError)?;
+                let mut protected = std::collections::BTreeSet::new();
+                for lock in annotations.locks {
+                    for anchor in lock.anchors {
+                        ensure(anchor.resolved_start.is_some(), "MARKDOWN_LOCK_CONFLICT")?;
+                        protected.insert(anchor.quote);
+                    }
+                }
+                let input =
+                    markdown_writing::input(&body, &protected.into_iter().collect::<Vec<_>>())?;
+                let context =
+                    serde_json::to_string(&(&id, &body)).map_err(|_| AiError("INVALID_REQUEST"))?;
+                let text = state.ai.actions.text(
+                    state.ai.settings()?,
+                    scenesparrow_infrastructure::ai::actions::TextAction {
+                        action_id: &body.action_id,
+                        session_id: &body.session_id,
+                        fingerprint: &body.fingerprint,
+                        context: &context,
+                        input: &input,
+                    },
+                )?;
+                markdown_writing::validate_output(&text)?;
+                Ok(MarkdownWritingResult {
+                    action_id: body.action_id.clone(),
+                    text,
+                })
+            })();
+            if let Some(conversation) = &conversation {
+                let mut settled = generation;
+                match &result {
+                    Ok(value) => {
+                        settled.status = contracts::AgentTurnStatus::Completed;
+                        settled.text = value.text.clone();
+                    }
+                    Err(error) => {
+                        settled.status = contracts::AgentTurnStatus::Failed;
+                        settled.error_code = Some(error.0.into());
+                    }
+                }
+                state
+                    .agent
+                    .sessions
+                    .record_generation(&id, conversation, settled)
+                    .map_err(AiError)?;
+            }
+            result
         })
         .await
         .unwrap_or(Err(AiError("WORKER_INTERRUPTED"))),

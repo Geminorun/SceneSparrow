@@ -1933,6 +1933,13 @@ pub struct MarkdownWritingAction {
         deserialize_with = "present_nonnull"
     )]
     pub outline_revision: Option<String>,
+    #[serde(
+        rename = "conversationId",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub conversation_id: Option<String>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2086,6 +2093,17 @@ pub enum MarkdownAnnotationAction {
         #[serde(rename = "range")]
         range: MarkdownRange,
     },
+    #[serde(rename = "edit")]
+    Edit {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "revision")]
+        revision: String,
+        #[serde(rename = "previousText")]
+        previous_text: String,
+        #[serde(rename = "text")]
+        text: String,
+    },
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2162,6 +2180,13 @@ pub struct AgentAttachment {
     pub selection: Option<AgentSelection>,
     #[serde(rename = "buffer", deserialize_with = "required_nullable")]
     pub buffer: Option<String>,
+    #[serde(
+        rename = "research",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub research: Option<bool>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2176,6 +2201,20 @@ pub struct AgentContext {
     pub source_digest: String,
     #[serde(rename = "selection", deserialize_with = "required_nullable")]
     pub selection: Option<AgentSelection>,
+    #[serde(
+        rename = "batch",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub batch: Option<Box<AgentBatchContext>>,
+    #[serde(
+        rename = "research",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub research: Option<Box<AgentResearch>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2206,6 +2245,13 @@ pub struct AgentProposal {
     pub context: AgentContext,
     #[serde(rename = "text")]
     pub text: String,
+    #[serde(
+        rename = "batch",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub batch: Option<AgentBatchRevision>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentTurnStatus {
@@ -2217,6 +2263,13 @@ pub enum AgentTurnStatus {
     Failed,
     #[serde(rename = "cancelled")]
     Cancelled,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentTurnOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "discarded")]
+    Discarded,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2233,6 +2286,20 @@ pub struct AgentTurn {
     pub error_code: Option<String>,
     #[serde(rename = "proposal", deserialize_with = "required_nullable")]
     pub proposal: Option<AgentProposal>,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "reply")]
+    pub reply: String,
+    #[serde(rename = "outcome", deserialize_with = "required_nullable")]
+    pub outcome: Option<AgentTurnOutcome>,
+    #[serde(rename = "applyResult", deserialize_with = "required_nullable")]
+    pub apply_result: Option<AgentApplyResult>,
+    #[serde(rename = "applyError", deserialize_with = "required_nullable")]
+    pub apply_error: Option<String>,
+    #[serde(rename = "attachment")]
+    pub attachment: AgentAttachment,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2247,6 +2314,14 @@ pub struct AgentSession {
     pub model_id: String,
     #[serde(rename = "turns")]
     pub turns: Vec<AgentTurn>,
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    #[serde(rename = "generations")]
+    pub generations: Vec<AgentGeneration>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2363,6 +2438,285 @@ pub struct AgentEngine {
     pub status: Option<AgentEngineStatus>,
     #[serde(rename = "models")]
     pub models: Vec<AgentModel>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentGenerationKind {
+    #[serde(rename = "outline")]
+    Outline,
+    #[serde(rename = "draft")]
+    Draft,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentGeneration {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "kind")]
+    pub kind: AgentGenerationKind,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "status")]
+    pub status: AgentTurnStatus,
+    #[serde(rename = "text")]
+    pub text: String,
+    #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+    pub error_code: Option<String>,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "outlineRevision", deserialize_with = "required_nullable")]
+    pub outline_revision: Option<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationHistory {
+    #[serde(rename = "currentId", deserialize_with = "required_nullable")]
+    pub current_id: Option<String>,
+    #[serde(rename = "conversations")]
+    pub conversations: Vec<AgentConversationSummary>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentConversationActionAction {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "rename")]
+    Rename,
+    #[serde(rename = "new")]
+    New,
+    #[serde(rename = "discard")]
+    Discard,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationAction {
+    #[serde(rename = "action")]
+    pub action: AgentConversationActionAction,
+    #[serde(rename = "value")]
+    pub value: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentConversationSummary {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEditScope {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "selection")]
+    pub selection: AgentSelection,
+    #[serde(rename = "commentIds")]
+    pub comment_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentUnresolvedReason {
+    #[serde(rename = "locked")]
+    Locked,
+    #[serde(rename = "detached")]
+    Detached,
+    #[serde(rename = "clarification")]
+    Clarification,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentUnresolved {
+    #[serde(rename = "commentIds")]
+    pub comment_ids: Vec<String>,
+    #[serde(rename = "reason")]
+    pub reason: AgentUnresolvedReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchContext {
+    #[serde(rename = "comments")]
+    pub comments: Vec<MarkdownComment>,
+    #[serde(rename = "locks")]
+    pub locks: Vec<MarkdownLock>,
+    #[serde(rename = "scopes")]
+    pub scopes: Vec<AgentEditScope>,
+    #[serde(rename = "unresolved")]
+    pub unresolved: Vec<AgentUnresolved>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchChange {
+    #[serde(rename = "scopeId")]
+    pub scope_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchRevision {
+    #[serde(rename = "changes")]
+    pub changes: Vec<AgentBatchChange>,
+    #[serde(rename = "unresolved")]
+    pub unresolved: Vec<AgentUnresolved>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentResearchSource {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "url", deserialize_with = "required_nullable")]
+    pub url: Option<String>,
+    #[serde(rename = "excerpt")]
+    pub excerpt: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentResearchStatus {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "complete")]
+    Complete,
+    #[serde(rename = "partial")]
+    Partial,
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    #[serde(rename = "empty")]
+    Empty,
+    #[serde(rename = "cancelled")]
+    Cancelled,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentResearch {
+    #[serde(rename = "status")]
+    pub status: AgentResearchStatus,
+    #[serde(rename = "sources")]
+    pub sources: Vec<AgentResearchSource>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoCompositionDirection {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoComposition {
+    #[serde(rename = "title")]
+    pub title: String,
+    #[serde(rename = "background")]
+    pub background: String,
+    #[serde(rename = "accent")]
+    pub accent: String,
+    #[serde(rename = "direction")]
+    pub direction: VideoCompositionDirection,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoSkill {
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "version")]
+    pub version: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "sha256")]
+    pub sha256: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoProposalStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "discarded")]
+    Discarded,
+    #[serde(rename = "failed")]
+    Failed,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoProposal {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "baseRevision")]
+    pub base_revision: String,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+    #[serde(rename = "reply")]
+    pub reply: String,
+    #[serde(rename = "composition", deserialize_with = "required_nullable")]
+    pub composition: Option<VideoComposition>,
+    #[serde(rename = "status")]
+    pub status: VideoProposalStatus,
+    #[serde(rename = "errorCode", deserialize_with = "required_nullable")]
+    pub error_code: Option<String>,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoProject {
+    #[serde(rename = "projectId")]
+    pub project_id: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "composition")]
+    pub composition: VideoComposition,
+    #[serde(rename = "skill")]
+    pub skill: VideoSkill,
+    #[serde(rename = "proposals")]
+    pub proposals: Vec<VideoProposal>,
+    #[serde(rename = "renderRevision", deserialize_with = "required_nullable")]
+    pub render_revision: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoRequestChange {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "revision")]
+    pub revision: String,
+    #[serde(rename = "engineId")]
+    pub engine_id: String,
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    #[serde(rename = "instruction")]
+    pub instruction: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VideoDecisionDecision {
+    #[serde(rename = "apply")]
+    Apply,
+    #[serde(rename = "discard")]
+    Discard,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoDecision {
+    #[serde(rename = "requestId")]
+    pub request_id: String,
+    #[serde(rename = "decision")]
+    pub decision: VideoDecisionDecision,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VideoRender {
+    #[serde(rename = "revision")]
+    pub revision: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

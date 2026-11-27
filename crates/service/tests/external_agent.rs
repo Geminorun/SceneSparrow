@@ -46,6 +46,10 @@ impl WritingAgent for Fixture {
         emit: &mut dyn FnMut(AgentDelta) -> Result<()>,
     ) -> Result<AgentOutput> {
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if input.instruction == "continue-after-restart" {
+            assert_eq!(input.history.len(), 1);
+            assert_eq!(input.history[0].reply, "Finished");
+        }
         assert_eq!(input.context.project_id.len(), 36);
         emit(AgentDelta::Text("Partial 中文".into()))?;
         emit(AgentDelta::Progress("Reading captured document".into()))?;
@@ -75,7 +79,32 @@ impl WritingAgent for Fixture {
                 let _ = emit(AgentDelta::Progress(String::new()));
             }
         }
+        if input.instruction == "batch-revise" {
+            let batch = input
+                .context
+                .batch
+                .as_ref()
+                .expect("server captured comments");
+            return Ok(AgentOutput {
+                reply: "Two edits; locked note left open.".into(),
+                replacement: None,
+                changes: Some(
+                    batch
+                        .scopes
+                        .iter()
+                        .enumerate()
+                        .map(
+                            |(n, scope)| scenesparrow_service::contracts::AgentBatchChange {
+                                scope_id: scope.id.clone(),
+                                text: format!("Revised {} 中文", n + 1),
+                            },
+                        )
+                        .collect(),
+                ),
+            });
+        }
         Ok(AgentOutput {
+            changes: None,
             reply: "Finished".into(),
             replacement: if input.instruction == "oversized" {
                 Some("x".repeat(MAX_OUTPUT_BYTES + 1))
@@ -707,4 +736,156 @@ async fn dsh_ac03_native_proposal_applies_to_captured_selection() {
         "\u{feff}# Heading\r\n\r\n新 paragraph\r\n\r\nTail\r\n"
     );
     native.join().unwrap();
+}
+
+#[tokio::test]
+async fn awr_ac03_history_http_survives_service_restart_and_rehydrates_native_context() {
+    let (root, app, fixture, project, session) = setup().await;
+    let (status, _) = call(
+        &app,
+        &format!("{session}/turns"),
+        Some(request(&project, "saved-question", "question")),
+    )
+    .await;
+    assert_eq!(status, 200);
+    settled(&app, &session).await;
+    let history = session.rsplit_once('/').unwrap().0;
+    let (_, summary) = call(&app, history, None).await;
+    assert_eq!(summary["conversations"].as_array().unwrap().len(), 1);
+    assert!(summary["conversations"][0].get("turns").is_none());
+    let (status, _) = call(
+        &app,
+        &session,
+        Some(json!({"action":"rename","value":"Saved project conversation"})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    drop(app);
+    let app = router_with_agent(root.path(), TOKEN, ORIGIN, fixture.clone()).unwrap();
+    let (status, restored) = call(&app, &session, None).await;
+    assert_eq!(status, 200);
+    assert_eq!(restored["title"], "Saved project conversation");
+    assert_eq!(restored["turns"][0]["reply"], "Finished");
+    let (status, _) = call(
+        &app,
+        &format!("{session}/turns"),
+        Some(request(&project, "continued", "continue-after-restart")),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(settled(&app, &session).await["status"], "completed");
+    assert_eq!(fixture.calls.load(Ordering::Acquire), 2);
+    let (status, _) = call(
+        &app,
+        &format!("{history}/new"),
+        Some(json!({"action":"new","value":""})),
+    )
+    .await;
+    assert_eq!(status, 200);
+    let (_, summary) = call(&app, history, None).await;
+    assert!(summary["currentId"].is_null());
+    assert_eq!(summary["conversations"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn awr_ac06_ac07_http_batch_scopes_apply_once_and_restore_after_acknowledgement_loss() {
+    let (root, app, fixture, project, session) = setup().await;
+    let project_path = format!(
+        "/v1/markdown-projects/{}",
+        project["projectId"].as_str().unwrap()
+    );
+    let text = "# 城市\r\n\r\nFirst 中文\r\n\r\nSecond detail\r\n\r\nLocked ending\r\n";
+    let doc_path = format!("{project_path}/documents/outline");
+    let (_, doc) = call(&app, &doc_path, Some(json!({"revision":null,"text":text}))).await;
+    for quote in ["First 中文", "Second detail", "Locked ending"] {
+        let start = text.find(quote).unwrap();
+        let range = json!({"start":start,"end":start+quote.len()});
+        assert_eq!(call(&app, &format!("{doc_path}/annotations"), Some(json!({"action":"comment","revision":doc["revision"],"range":range,"text":format!("Improve {quote}")}))).await.0, 200);
+        if quote == "Locked ending" {
+            assert_eq!(
+                call(
+                    &app,
+                    &format!("{doc_path}/annotations"),
+                    Some(json!({"action":"lock","revision":doc["revision"],"ranges":[range]}))
+                )
+                .await
+                .0,
+                200
+            );
+        }
+    }
+    let body = json!({"requestId":"batch","instruction":"batch-revise","attachment":{"kind":"outline","revision":doc["revision"],"sourceDigest":doc["revision"],"buffer":null,"selection":null}});
+    assert_eq!(
+        call(&app, &format!("{session}/turns"), Some(body)).await.0,
+        200
+    );
+    let done = settled(&app, &session).await;
+    assert_eq!(done["status"], "completed", "{done}");
+    assert_eq!(
+        done["context"]["batch"]["comments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(
+        done["proposal"]["batch"]["changes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        done["proposal"]["batch"]["unresolved"][0]["reason"],
+        "locked"
+    );
+    let path = format!("{session}/turns/{}/apply", done["id"].as_str().unwrap());
+    let body = json!({"proposalId":done["proposal"]["id"]});
+    let result = call(&app, &path, Some(body.clone())).await;
+    assert_eq!(result.0, 200, "{result:?}");
+    let (_, saved) = call(&app, &doc_path, None).await;
+    assert_eq!(
+        saved["text"],
+        text.replace("First 中文", "Revised 1 中文")
+            .replace("Second detail", "Revised 2 中文")
+    );
+    assert_eq!(call(&app, &path, Some(body.clone())).await, result);
+    let (_, notes) = call(&app, &format!("{doc_path}/annotations"), None).await;
+    assert_eq!(
+        notes["comments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["status"] == "resolved")
+            .count(),
+        2
+    );
+    // Lose only the conversation acknowledgement; the proposal receipt must recover it after restart.
+    let file = root
+        .path()
+        .join(project["projectId"].as_str().unwrap())
+        .join("conversations")
+        .join(format!("{}.json", session.rsplit('/').next().unwrap()));
+    let mut view: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    view["turns"][0]["outcome"] = Value::Null;
+    view["turns"][0]["applyResult"] = Value::Null;
+    std::fs::write(&file, serde_json::to_vec(&view).unwrap()).unwrap();
+    drop(app);
+    let restarted = router_with_agent(root.path(), TOKEN, ORIGIN, fixture.clone()).unwrap();
+    assert_eq!(
+        call(&restarted, &session, None).await.1["turns"][0]["outcome"],
+        "applied"
+    );
+    assert_eq!(
+        call(
+            &restarted,
+            &session,
+            Some(json!({"action":"discard","value":done["id"]}))
+        )
+        .await
+        .1["code"],
+        "AGENT_PROPOSAL_STALE"
+    );
+    assert_eq!(call(&restarted, &path, Some(body)).await, result);
+    assert_eq!(fixture.calls.load(Ordering::Acquire), 1);
 }

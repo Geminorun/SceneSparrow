@@ -3482,6 +3482,9 @@
         },
         "outlineRevision": {
           "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
         }
       }
     },
@@ -3772,6 +3775,29 @@
               "$ref": "#/definitions/MarkdownRange"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "id", "revision", "previousText", "text"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["edit"]
+            },
+            "id": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "previousText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
         }
       ]
     },
@@ -3912,6 +3938,9 @@
         },
         "buffer": {
           "type": ["string", "null"]
+        },
+        "research": {
+          "type": "boolean"
         }
       }
     },
@@ -3947,6 +3976,12 @@
               "type": "null"
             }
           ]
+        },
+        "batch": {
+          "$ref": "#/definitions/AgentBatchContext"
+        },
+        "research": {
+          "$ref": "#/definitions/AgentResearch"
         }
       }
     },
@@ -3997,6 +4032,9 @@
         "text": {
           "type": "string",
           "maxLength": 262144
+        },
+        "batch": {
+          "$ref": "#/definitions/AgentBatchRevision"
         }
       }
     },
@@ -4013,7 +4051,14 @@
         "context",
         "status",
         "errorCode",
-        "proposal"
+        "proposal",
+        "instruction",
+        "reply",
+        "outcome",
+        "applyResult",
+        "applyError",
+        "attachment",
+        "createdAt"
       ],
       "properties": {
         "id": {
@@ -4040,13 +4085,52 @@
               "type": "null"
             }
           ]
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "reply": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": ["string", "null"],
+          "enum": ["applied", "discarded", null]
+        },
+        "applyResult": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AgentApplyResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applyError": {
+          "type": ["string", "null"]
+        },
+        "attachment": {
+          "$ref": "#/definitions/AgentAttachment"
+        },
+        "createdAt": {
+          "type": "integer"
         }
       }
     },
     "AgentSession": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "projectId", "engineId", "modelId", "turns"],
+      "required": [
+        "id",
+        "projectId",
+        "engineId",
+        "modelId",
+        "turns",
+        "requestId",
+        "title",
+        "updatedAt",
+        "generations"
+      ],
       "properties": {
         "id": {
           "type": "string"
@@ -4064,6 +4148,21 @@
           "type": "array",
           "items": {
             "$ref": "#/definitions/AgentTurn"
+          }
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
+        },
+        "generations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentGeneration"
           }
         }
       }
@@ -4286,6 +4385,436 @@
           "items": {
             "$ref": "#/definitions/AgentModel"
           }
+        }
+      }
+    },
+    "AgentGeneration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "instruction",
+        "status",
+        "text",
+        "errorCode",
+        "revision",
+        "outlineRevision",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["outline", "draft"]
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/AgentTurnStatus"
+        },
+        "text": {
+          "type": "string"
+        },
+        "errorCode": {
+          "type": ["string", "null"]
+        },
+        "revision": {
+          "type": "string"
+        },
+        "outlineRevision": {
+          "type": ["string", "null"]
+        },
+        "createdAt": {
+          "type": "integer"
+        }
+      }
+    },
+    "AgentConversationHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["currentId", "conversations"],
+      "properties": {
+        "currentId": {
+          "type": ["string", "null"]
+        },
+        "conversations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentConversationSummary"
+          }
+        }
+      }
+    },
+    "AgentConversationAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "value"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["open", "rename", "new", "discard"]
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentConversationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "projectId",
+        "engineId",
+        "modelId",
+        "title",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "integer"
+        }
+      }
+    },
+    "AgentEditScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selection", "commentIds"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/definitions/AgentSelection"
+        },
+        "commentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AgentUnresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commentIds", "reason"],
+      "properties": {
+        "commentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["locked", "detached", "clarification"]
+        }
+      }
+    },
+    "AgentBatchContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comments", "locks", "scopes", "unresolved"],
+      "properties": {
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownComment"
+          }
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownLock"
+          }
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentEditScope"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentUnresolved"
+          }
+        }
+      }
+    },
+    "AgentBatchChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeId", "text"],
+      "properties": {
+        "scopeId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "AgentBatchRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changes", "unresolved"],
+      "properties": {
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentBatchChange"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentUnresolved"
+          }
+        }
+      }
+    },
+    "AgentResearchSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "url", "excerpt"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": ["string", "null"]
+        },
+        "excerpt": {
+          "type": "string"
+        }
+      }
+    },
+    "AgentResearch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sources"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "complete",
+            "partial",
+            "unavailable",
+            "empty",
+            "cancelled"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentResearchSource"
+          }
+        }
+      }
+    },
+    "VideoComposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "background", "accent", "direction"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "background": {
+          "type": "string"
+        },
+        "accent": {
+          "type": "string"
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["left", "right"]
+        }
+      }
+    },
+    "VideoSkill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "revision", "sha256"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        }
+      }
+    },
+    "VideoProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "baseRevision",
+        "instruction",
+        "reply",
+        "composition",
+        "status",
+        "errorCode",
+        "engineId",
+        "modelId"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "baseRevision": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        },
+        "reply": {
+          "type": "string"
+        },
+        "composition": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/VideoComposition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["running", "pending", "applied", "discarded", "failed"]
+        },
+        "errorCode": {
+          "type": ["string", "null"]
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        }
+      }
+    },
+    "VideoProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectId",
+        "revision",
+        "composition",
+        "skill",
+        "proposals",
+        "renderRevision"
+      ],
+      "properties": {
+        "projectId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "composition": {
+          "$ref": "#/definitions/VideoComposition"
+        },
+        "skill": {
+          "$ref": "#/definitions/VideoSkill"
+        },
+        "proposals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VideoProposal"
+          }
+        },
+        "renderRevision": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "VideoRequestChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "revision",
+        "engineId",
+        "modelId",
+        "instruction"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "engineId": {
+          "type": "string"
+        },
+        "modelId": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        }
+      }
+    },
+    "VideoDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestId", "decision"],
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["apply", "discard"]
+        }
+      }
+    },
+    "VideoRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision"],
+      "properties": {
+        "revision": {
+          "type": "string"
         }
       }
     }

@@ -88,6 +88,7 @@ mod tests {
     #[test]
     fn drafts_require_an_outline_and_allow_an_empty_brief() {
         let mut action = MarkdownWritingAction {
+            conversation_id: None,
             action_id: String::new(),
             session_id: String::new(),
             fingerprint: String::new(),

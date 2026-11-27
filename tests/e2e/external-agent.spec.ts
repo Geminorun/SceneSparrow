@@ -27,9 +27,16 @@ async function seed(page: Page) {
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
 }
 async function selectFirst(page: Page) {
+  await page.evaluate(() => {
+    (window as any).agentFixture.explicitSelection = true;
+  });
   await visual(page).locator("p").first().click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
+  await page
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
   await expect(page.locator(".agent-context-chip")).toContainText(
     "Selected text",
   );
@@ -65,7 +72,7 @@ test("@web-smoke EWA-AC04–05 unavailable catalog, bilingual settings and built
 }) => {
   await setup(page, false);
   await expect(
-    page.getByRole("tab", { name: "AI assistant", exact: true }),
+    page.getByRole("tab", { name: "Agent", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
   await agent(page);
   await expect(
@@ -255,7 +262,7 @@ test("EWA-AC05 global defaults, conversation model and changing engine start fre
     ["claude", "sonnet"],
     ["codex", "openai.gpt-5.4-mini"],
   ]);
-  expect(await calls(page, "close")).toHaveLength(1);
+  expect(await calls(page, "close")).toHaveLength(0);
 });
 
 test("EWA-AC02 a failed selected preflight save preserves local text and never sends", async ({
@@ -300,6 +307,7 @@ test("EWA-AC02 live locks reject Apply while keeping the proposal", async ({
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Lock selected blocks", exact: true })
+    .first()
     .click();
   await expect(
     page.getByRole("button", { name: "Unlock", exact: true }),
@@ -333,7 +341,7 @@ test("EWA-AC03 pending create can stop and a fresh send does not wait for its ac
   expect(await calls(page, "send")).toHaveLength(1);
 });
 
-test("EWA-AC03 changing projects closes the conversation and fences a late stream", async ({
+test("EWA-AC03 changing projects preserves the conversation and fences a late stream", async ({
   page,
 }) => {
   await setup(page);
@@ -353,7 +361,7 @@ test("EWA-AC03 changing projects closes the conversation and fences a late strea
   await expect(
     page.getByRole("button", { name: "Apply", exact: true }),
   ).toHaveCount(0);
-  await expect.poll(() => calls(page, "close")).toHaveLength(1);
+  expect(await calls(page, "close")).toHaveLength(0);
 });
 
 test("EWA-AC04 IME Send waits, pins the original tab and keeps newer composer input", async ({
@@ -394,6 +402,21 @@ test("EWA-AC05 checking repaired availability in Settings updates the visible co
 }) => {
   await setup(page);
   await hold(page, "available", false);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const initialSettings = page.getByRole("dialog", {
+    name: "Settings",
+    exact: true,
+  });
+  await initialSettings
+    .getByRole("button", { name: "Agent", exact: true })
+    .click();
+  await initialSettings
+    .getByRole("button", { name: "Check connection", exact: true })
+    .click();
+  await initialSettings
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+
   await agent(page);
   await expect(
     page.getByRole("button", { name: "Send", exact: true }),
@@ -404,7 +427,7 @@ test("EWA-AC05 checking repaired availability in Settings updates the visible co
   const settings = page.getByRole("dialog", { name: "Settings", exact: true });
   await hold(page, "available", true);
   await settings.getByRole("button", { name: "Check connection" }).click();
-  await expect(settings.getByText("Connected", { exact: true })).toHaveCount(2);
+  await expect(settings.getByText("Connected", { exact: true })).toHaveCount(1);
   await settings.getByRole("button", { name: "Close", exact: true }).click();
   await composer(page).fill("Question after repair");
   await expect(
@@ -431,6 +454,7 @@ test("EWA-AC03 stopping a later turn does not strand an earlier Apply acknowledg
       page.evaluate(() => !!(window as any).agentFixture.releaseApply),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Remove quote", exact: true }).click();
   await visual(page).locator("p").last().click();
   await page.keyboard.press("End");
   await expect(page.locator(".agent-context-chip")).toContainText(
@@ -531,12 +555,17 @@ test("EWA-AC01/04 source selections preserve surrounding raw Markdown bytes", as
   const project = await response.json();
   await page.goto(`/?project=${project.projectId}`);
   await expect(visual(page)).toHaveJSProperty("tagName", "TEXTAREA");
-  await visual(page).evaluate((input: HTMLTextAreaElement) => {
-    const start = input.value.indexOf("Original");
-    input.focus();
-    input.setSelectionRange(start, start + "Original 中文.".length);
-    input.dispatchEvent(new Event("select", { bubbles: true }));
-  });
+  await visual(page).focus();
+  await visual(page).press("ControlOrMeta+Home");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("ArrowDown");
+  await visual(page).press("Home");
+  await visual(page).press("Shift+End");
+  await page
+    .locator(".source-fallback .markdown-source-actions")
+    .getByRole("button", { name: "Ask", exact: true })
+    .click();
   await agent(page);
   await expect(page.locator(".agent-context-chip")).toContainText(
     "Original 中文.",
@@ -552,24 +581,23 @@ test("EWA-AC01/04 source selections preserve surrounding raw Markdown bytes", as
   );
 });
 
-test("EWA-AC04 unmapped explicit selections never become whole-document questions", async ({
+test("AWR-AC02 ordinary selection keeps the explicitly attached Agent quote", async ({
   page,
 }) => {
   await setup(page);
   await seed(page);
   await selectFirst(page);
-  await agent(page);
   await visual(page).locator("p").last().click();
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
-  await expect(page.locator(".agent-context-chip")).not.toContainText(
+  await expect(page.locator(".agent-context-chip")).toContainText(
     "First paragraph.",
   );
-  await send(page, "Revise this unmapped selection");
-  await expect(page.locator(".agent-turn")).toContainText(
-    "Select an exact text range",
+  await send(page, "Revise the attached passage");
+  await expect.poll(() => calls(page, "send")).toHaveLength(1);
+  expect((await calls(page, "send"))[0].body.attachment.selection.quote).toBe(
+    "First paragraph.",
   );
-  expect(await calls(page, "send")).toHaveLength(0);
 });
 
 test("EWA-AC04 transcript scroll keeps the composer visible and keyboard focus in desktop and narrow panes", async ({
@@ -592,6 +620,28 @@ test("EWA-AC04 transcript scroll keeps the composer visible and keyboard focus i
       .locator(".agent-transcript")
       .evaluate((node) => node.scrollHeight > node.clientHeight),
   ).toBe(true);
+  await hold(page, "hold");
+  await send(page, "A long answer while I read earlier turns");
+  await expect(
+    page.getByRole("button", { name: "Stop", exact: true }),
+  ).toBeVisible();
+  const transcript = page.locator(".agent-transcript");
+  await transcript.evaluate((node) => {
+    node.scrollTop = 0;
+    node.dispatchEvent(new Event("scroll"));
+  });
+  await expect(
+    page.getByRole("button", { name: "Latest reply ↓", exact: true }),
+  ).toBeVisible();
+  await release(page);
+  await expect(page.locator(".agent-turn").last()).toHaveAttribute(
+    "data-agent-status",
+    "completed",
+  );
+  expect(await transcript.evaluate((node) => node.scrollTop)).toBeLessThan(4);
+  await page
+    .getByRole("button", { name: "Latest reply ↓", exact: true })
+    .click();
   await expect(composer(page)).toBeInViewport();
   await page.setViewportSize({ width: 760, height: 800 });
   await page
@@ -755,19 +805,27 @@ for (const installation of [
         exact: true,
       }),
     ).toHaveCount(0);
-    await settings
-      .getByRole("combobox", { name: "Default Agent", exact: true })
-      .selectOption("codex");
     await writing.selectOption("deepseek-v4-pro");
     await expect
       .poll(() => view.settings.bindings[0]?.modelId)
       .toBe("deepseek-v4-pro");
+    if (installation === "fresh") {
+      await expect(page.locator(".notifications > *")).toHaveCount(0);
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.screenshot({
+        path: ".artifacts/awr-provider-settings-1280.png",
+      });
+    }
+    await settings
+      .getByRole("combobox", { name: "Default Agent", exact: true })
+      .selectOption("codex");
     await expect(
       settings.getByRole("combobox", { name: "Default Agent", exact: true }),
     ).toHaveValue("codex");
+    await expect(settings.locator(".agent-settings > article")).toHaveCount(1);
     await expect(
       settings.getByRole("button", { name: "Test model", exact: true }),
-    ).toBeEnabled();
+    ).toHaveCount(0);
     expect(credentialWrites).toBe(
       installation === "unsupported" || installation === "misassigned" ? 0 : 1,
     );

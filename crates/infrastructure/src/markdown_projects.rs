@@ -52,9 +52,11 @@ fn outline_base<'de, D: serde::Deserializer<'de>>(
 }
 pub struct MarkdownProjects {
     root: PathBuf,
+    pub(super) research_search: Option<String>,
     pub(super) writer: Mutex<()>,
+    pub(super) video_active: Mutex<std::collections::BTreeSet<String>>,
     #[cfg(test)]
-    fail_before_commit: std::sync::atomic::AtomicBool,
+    pub(super) fail_before_commit: std::sync::atomic::AtomicBool,
 }
 pub(super) fn io<T>(result: std::io::Result<T>) -> Result<T> {
     result.map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")
@@ -105,7 +107,11 @@ impl MarkdownProjects {
         }
         Ok(Self {
             root: io(root.canonicalize())?,
+            research_search: std::env::var("SCENESPARROW_RESEARCH_SEARCH_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             writer: Mutex::new(()),
+            video_active: Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(test)]
             fail_before_commit: std::sync::atomic::AtomicBool::new(false),
         })

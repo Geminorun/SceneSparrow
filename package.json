@@ -26,7 +26,8 @@
     "env:check": "node scripts/doctor.mjs",
     "release:version": "node scripts/release/version.mjs",
     "perf:s1": "SCENESPARROW_PERFORMANCE=1 playwright test tests/e2e/performance.spec.ts",
-    "test:e2e:markdown": "playwright test --config playwright.markdown.config.ts"
+    "test:e2e:markdown": "playwright test --config playwright.markdown.config.ts",
+    "render:prepare": "node workers/render/src/install-skill.mjs"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

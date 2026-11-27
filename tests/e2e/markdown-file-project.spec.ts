@@ -77,6 +77,16 @@ async function closeSource(page: Page) {
     .click();
 }
 
+async function openCommentTools(page: Page) {
+  const tools = page.locator(".agent-review-tools");
+  if (!(await tools.isVisible()))
+    await page
+      .getByRole("button", { name: "Open assistant", exact: true })
+      .click();
+  if ((await tools.getAttribute("open")) === null)
+    await tools.locator("summary").click();
+}
+
 test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local history and same-ID reopen", async ({
   page,
 }) => {
@@ -130,6 +140,9 @@ test("@web-smoke MAW-AC01–02: restored chrome, panes, visual editing, local hi
   ).toHaveCount(0);
   await expect(
     page.getByRole("tab", { name: "Comments", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("tab", { name: "Agent", exact: true }),
   ).toHaveCount(1);
   const contents = page.getByRole("navigation", {
     name: "Contents",
@@ -394,6 +407,19 @@ async function mockWriting(
   reply: (kind: string) => Promise<string> | string,
 ) {
   const submitted: any[] = [];
+  const results: any[] = [];
+  await page.route(
+    /\/api\/v1\/markdown-projects\/[^/]+\/agent\/sessions\/[^/]+$/,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      const owner = await response.json();
+      owner.generations = results
+        .filter((entry) => entry.conversationId === owner.id)
+        .map(({ conversationId, ...entry }) => entry);
+      await route.fulfill({ response, json: owner });
+    },
+  );
   await page.route("**/api/v1/ai/configuration", (route) =>
     route.fulfill({
       json: { configuration: { fingerprint: "browser-fixture" } },
@@ -403,22 +429,45 @@ async function mockWriting(
     const body = route.request().postDataJSON();
     submitted.push(body);
     try {
-      await route.fulfill({
-        json: { actionId: body.actionId, text: await reply(body.kind) },
+      const text = await reply(body.kind);
+      results.push({
+        conversationId: body.conversationId,
+        id: body.actionId,
+        kind: body.kind,
+        instruction: body.brief,
+        text,
+        status: "completed",
+        errorCode: null,
+        revision: body.revision,
+        outlineRevision: body.outlineRevision ?? null,
+        createdAt: Date.now(),
       });
+      await route.fulfill({ json: { actionId: body.actionId, text } });
     } catch {
       /* A project switch or navigation can close the requesting page. */
     }
   });
   return submitted;
 }
+async function openGenerationMenu(page: Page) {
+  if (!(await page.locator(".agent-add-menu").isVisible()))
+    await page.getByRole("button", { name: "Add action", exact: true }).click();
+}
+async function generateFromComposer(page: Page, kind: "outline" | "draft") {
+  await openGenerationMenu(page);
+  await page
+    .getByRole("button", {
+      name:
+        kind === "outline" ? "Generate Outline" : "Write Draft from Outline",
+      exact: true,
+    })
+    .click();
+}
 async function beginWriting(page: Page) {
   await page
-    .getByRole("textbox", { name: "Writing request", exact: true })
+    .getByRole("textbox", { name: "Message to Agent", exact: true })
     .fill("Write a bilingual story");
-  await page
-    .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "outline");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
   ).toHaveText("OutlineOpening");
@@ -457,9 +506,7 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   await outline.locator("li").click();
   await outline.press("End");
   await outline.pressSequentially(" user ending");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -474,13 +521,12 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   await manuscript(page);
   await expect(editor(page)).toHaveText("Original saved manuscript");
   await page
+    .locator(".writing-view-switch")
     .getByRole("button", { name: "Draft preview", exact: true })
     .click();
   await preview.getByRole("button", { name: "Close", exact: true }).click();
   expect((await savedFile(page)).text).toBe("Original saved manuscript");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await preview.getByRole("button", { name: "Use Draft", exact: true }).click();
   await expect(editor(page)).toHaveText(/^Draft/);
   expect((await savedFile(page)).text).toMatch(/^# Draft/);
@@ -491,7 +537,7 @@ test("@web-smoke WFW-AC03: generate directly into the outline and review drafts 
   ).toHaveCount(0);
   await outlineTab(page);
   await expect(
-    page.getByRole("textbox", { name: "Writing request", exact: true }),
+    page.getByRole("textbox", { name: "Message to Agent", exact: true }),
   ).toHaveValue("");
   await expect(
     page.getByRole("textbox", { name: "Editable outline", exact: true }),
@@ -526,6 +572,7 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await beginWriting(page);
   await manuscript(page);
+  await openGenerationMenu(page);
   const generate = page.getByRole("button", {
     name: "Write Draft from Outline",
     exact: true,
@@ -557,7 +604,7 @@ test("WFW-AC04: repeated clicks dispatch once, typing stays writable, conflicts 
   held = new Promise<string>((resolve) => {
     release = resolve;
   });
-  await generate.click();
+  await generateFromComposer(page, "draft");
   await expect.poll(() => submitted.length).toBe(3);
   await projectAction(page, "New manuscript");
   await expect(editor(page)).toHaveText("");
@@ -584,9 +631,7 @@ test("WFW-AC03–04: in-flight adoption preserves newer input and pauses autosav
   await preferences(page, "after_delay", "5");
   await beginWriting(page);
   await manuscript(page);
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -696,9 +741,7 @@ test("WFW-AC03: adoption waits for an in-flight save of exactly the captured tex
   await editor(page).fill("Captured buffered text");
   await save(page);
   await arrived;
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -1134,16 +1177,12 @@ test("MOR-AC03: blank brief, failed outline save prevents dispatch, stale draft 
         ? route.fulfill({ status: 409, json: { code: "MARKDOWN_CONFLICT" } })
         : route.continue(),
   );
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await expect(page.getByRole("alert")).toBeVisible();
   expect(submitted).toHaveLength(0);
   await expect(outlineEditor(page)).toContainText("User plan");
   await page.unroute("**/api/v1/markdown-projects/*/documents/outline");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0].brief).toBe("");
   expect(submitted[0].outlineRevision).toBe((await outlineFile(page)).revision);
@@ -1174,9 +1213,7 @@ test("MOR-AC03: an outline saved in another browser atomically rejects draft ado
   await preferences(page, "off");
   await outlineTab(page);
   await outlineEditor(page).fill("Original outline");
-  await page
-    .getByRole("button", { name: "Write Draft from Outline", exact: true })
-    .click();
+  await generateFromComposer(page, "draft");
   const preview = page.getByRole("region", {
     name: "Draft preview",
     exact: true,
@@ -1255,26 +1292,29 @@ test("MOR-AC03: regeneration confirms replacement and retains a result if the ou
   await save(page);
   await expect(page.getByTestId("save-status")).toHaveText("Saved");
   await page
-    .getByRole("textbox", { name: "Writing request", exact: true })
+    .getByRole("textbox", { name: "Message to Agent", exact: true })
     .fill("Revise the outline");
+  await openGenerationMenu(page);
   const regenerate = page.getByRole("button", {
-    name: "Regenerate Outline",
+    name: "Generate Outline",
     exact: true,
   });
   page.once("dialog", (dialog) => dialog.dismiss());
   await regenerate.click();
-  await expect(regenerate).toBeEnabled();
+  await expect(
+    page.getByRole("textbox", { name: "Message to Agent", exact: true }),
+  ).toHaveValue("Revise the outline");
   expect(submitted).toHaveLength(0);
   page.once("dialog", (dialog) => dialog.accept());
-  await regenerate.click();
+  await generateFromComposer(page, "outline");
   await expect.poll(() => submitted.length).toBe(1);
   await outlineEditor(page).fill("Newer local outline");
   release("# Proposed earlier outline");
-  const retained = page.getByText("Generated outline kept for reference", {
+  const retained = page.getByText("Generated result", {
     exact: true,
   });
   await retained.click();
-  await expect(page.locator(".markdown-retained-outline pre")).toHaveText(
+  await expect(page.locator(".agent-turn pre")).toHaveText(
     "# Proposed earlier outline",
   );
   expect((await outlineFile(page)).text).toBe("Keep this accepted outline");
@@ -1337,8 +1377,9 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
   await outlineTab(page);
   await expect(outlineEditor(page)).toContainText("Plan 中文");
   await selectBlocks(outlineEditor(page), "h1, li", 0, 2);
+  await openCommentTools(page);
   await page
-    .locator(".outline-surface")
+    .locator(".markdown-review")
     .getByRole("button", { name: "Lock selected blocks", exact: true })
     .click();
   await expect
@@ -1355,7 +1396,11 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
         .locator(".outline-surface .markdown-lock-marker")
         .evaluateAll(
           (nodes) =>
-            new Set(nodes.map((node) => (node as HTMLElement).style.top)).size,
+            new Set(
+              nodes.map(
+                (node) => (node as HTMLElement).parentElement!.style.top,
+              ),
+            ).size,
         ),
     )
     .toBe(3);
@@ -1385,17 +1430,16 @@ test("@web-smoke MOR-AC04: shared block locks survive reload, guard source and v
 test("@web-smoke MOR-AC04–05: a generated outline with unsupported syntax is editable, lockable, and commentable", async ({
   page,
 }) => {
-  const raw = "\ufeff# 大纲\r\n\r\n---\r\n\r\n- 中文目标\r\n- Unlocked\r\n";
+  const raw =
+    "\ufeff# 大纲\r\n\r\n> source-only quote\r\n\r\n- 中文目标\r\n- Unlocked\r\n";
   await mockWriting(page, () => raw);
   await page.goto("/");
   await preferences(page, "off");
-  await page.getByRole("textbox", { name: "Writing request" }).fill("Write");
-  await page
-    .getByRole("button", { name: "Generate Outline", exact: true })
-    .click();
+  await page.getByRole("textbox", { name: "Message to Agent" }).fill("Write");
+  await generateFromComposer(page, "outline");
   const fallback = page.locator(".outline-surface .source-fallback");
   const input = fallback.getByRole("textbox", { name: "Editable outline" });
-  const visible = "# 大纲\n\n---\n\n- 中文目标\n- Unlocked\n";
+  const visible = "# 大纲\n\n> source-only quote\n\n- 中文目标\n- Unlocked\n";
   await expect(input).toHaveValue(visible);
   expect((await outlineFile(page)).text).toBe(raw);
   async function selectText(field: typeof input, quote: string) {
@@ -1427,7 +1471,10 @@ test("@web-smoke MOR-AC04–05: a generated outline with unsupported syntax is e
   await input.fill(visible.replace("中文目标", "Blocked"));
   await expect(input).toHaveValue(visible);
   const updated = visible
-    .replace("---", "---\n\nExtra paragraph before the locked block")
+    .replace(
+      "> source-only quote",
+      "> source-only quote\n\nExtra paragraph before the locked block",
+    )
     .replace("Unlocked", "Edited");
   await input.fill(updated);
   await selectText(input, "中文目标");
@@ -1440,7 +1487,7 @@ test("@web-smoke MOR-AC04–05: a generated outline with unsupported syntax is e
     `\ufeff${updated.replaceAll("\n", "\r\n")}`,
   );
   const modalSource = await source(page);
-  await modalSource.fill(updated.replace("---\n\n", ""));
+  await modalSource.fill(updated.replace("> source-only quote\n\n", ""));
   await selectText(modalSource, "Edited");
   await page
     .getByRole("dialog", { name: "Markdown source" })
@@ -1497,15 +1544,17 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   await expect(outlineEditor(page)).toContainText("Comment span");
   await selectBlocks(outlineEditor(page), "h1, li", 0, 2);
   await page
-    .locator(".outline-surface")
-    .getByRole("button", { name: "Comment on selection", exact: true })
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Comment", exact: true })
     .click();
-  await expect(page.locator("#markdown-comment-composer")).toBeFocused();
-  await page.locator("#markdown-comment-composer").fill("Clarify these beats");
-  await page
-    .locator(".markdown-review")
-    .getByRole("button", { name: "Comment on selection", exact: true })
-    .click();
+  const inlineNote = page.getByRole("dialog", {
+    name: "Comments and locks",
+    exact: true,
+  });
+  await expect(inlineNote.getByRole("textbox")).toBeFocused();
+  await inlineNote.getByRole("textbox").fill("Clarify these beats");
+  await inlineNote.getByRole("button", { name: "Save", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Clarify these beats",
   );
@@ -1517,7 +1566,7 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   await expect(page.locator(".markdown-comment")).toHaveCount(0);
   await page.reload();
   await outlineTab(page);
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Clarify these beats",
   );
@@ -1546,7 +1595,7 @@ test("@web-smoke MOR-AC05: multi-block comments follow outline, survive edits an
   );
   await page.reload();
   await outlineTab(page);
-  await page.getByRole("tab", { name: "Comments", exact: true }).click();
+  await openCommentTools(page);
   await page
     .locator(".markdown-comment")
     .getByRole("button", { name: "Resolve", exact: true })
@@ -1573,16 +1622,16 @@ test("@web-smoke MOR-AC06: comment proposal previews only its scope and a hidden
   await expect(outlineEditor(page)).toContainText("Target paragraph 中文");
   await selectBlocks(outlineEditor(page), "p", 0, 0);
   await page
-    .locator(".outline-surface")
-    .getByRole("button", { name: "Comment on selection", exact: true })
+    .getByRole("toolbar", { name: "Selection actions" })
+    .getByRole("button", { name: "Comment", exact: true })
     .click();
-  await page
-    .locator("#markdown-comment-composer")
-    .fill("Improve this paragraph");
-  await page
-    .locator(".markdown-review")
-    .getByRole("button", { name: "Comment on selection", exact: true })
-    .click();
+  const inlineNote = page.getByRole("dialog", {
+    name: "Comments and locks",
+    exact: true,
+  });
+  await inlineNote.getByRole("textbox").fill("Improve this paragraph");
+  await inlineNote.getByRole("button", { name: "Save", exact: true }).click();
+  await openCommentTools(page);
   await expect(page.locator(".markdown-comment")).toContainText(
     "Improve this paragraph",
   );
@@ -1922,4 +1971,250 @@ test("@web-smoke MOR-AC09: null outline base adds a saved empty file and legacy 
   await expect(preview).toHaveCount(0);
   expect((await savedFile(page)).text).toBe("Legacy manuscript return");
   expect(await outlineFile(page)).toEqual(empty);
+});
+
+for (const width of [1280, 960]) {
+  test(`AWR-AC01–02/12: shared canvas and inline review at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 720 });
+    const raw =
+      "\ufeff# 城市之声 · City voices\r\n\r\n---\r\n\r\nA **quiet** opening.\r\n\r\n* 街道清晨\r\n  * *Nested* detail\r\n\r\nReview this passage 中文.\r\n";
+    await mockWriting(page, () => raw);
+    await page.goto("/");
+    await preferences(page, "off");
+    if (width === 960)
+      await page
+        .getByRole("button", { name: "Open assistant", exact: true })
+        .click();
+    await page
+      .getByRole("textbox", { name: "Message to Agent" })
+      .fill("Write a bilingual outline");
+    await generateFromComposer(page, "outline");
+    const outline = outlineEditor(page);
+    if (width === 960)
+      await page
+        .getByRole("button", { name: "Close assistant", exact: true })
+        .click();
+    await expect(outline.locator("hr")).toBeVisible();
+    await expect(outline.locator("li li em")).toHaveText("Nested");
+    const canvas = page.locator(".outline-surface .markdown-editor-shell");
+    const firstLock = canvas.locator(".markdown-block-controls button").first();
+    const before = await outline.locator("h1").boundingBox();
+    await firstLock.focus();
+    await expect(firstLock).toBeFocused();
+    await firstLock.press("Enter");
+    await expect(outline.locator("h1")).toHaveClass(/markdown-locked-block/);
+    const after = await outline.locator("h1").boundingBox();
+    expect(after?.x).toBe(before?.x);
+    expect(after?.width).toBe(before?.width);
+    const paragraph = outline.locator(":scope > p").last();
+    await paragraph.click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    const toolbar = page.getByRole("toolbar", { name: "Selection actions" });
+    await expect(toolbar.getByRole("button")).toHaveCount(2);
+    await expect(
+      toolbar.getByRole("button", { name: "Ask", exact: true }),
+    ).toBeVisible();
+    const passageBefore = await paragraph.boundingBox();
+    await toolbar.getByRole("button", { name: "Comment", exact: true }).click();
+    const popover = page.getByRole("dialog", {
+      name: "Comments and locks",
+      exact: true,
+    });
+    await expect(popover.getByRole("textbox")).toBeFocused();
+    await popover
+      .getByRole("textbox")
+      .fill("补充现场细节 · Add a concrete detail.");
+    await popover.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(popover).toBeHidden();
+    await expect(outline).toBeFocused();
+    expect((await paragraph.boundingBox())?.y).toBe(passageBefore?.y);
+    await expect(outline.locator(".markdown-comment-highlight")).toHaveText(
+      "Review this passage 中文.",
+    );
+    const noteId = (await annotationsFile(page)).comments[0].id;
+    await outline.locator(".markdown-comment-marker").click();
+    await expect(popover.getByRole("textbox")).toHaveValue(
+      "补充现场细节 · Add a concrete detail.",
+    );
+    await popover.getByRole("textbox").fill("Revised instruction 中文");
+    await popover.getByRole("button", { name: "Save", exact: true }).click();
+    expect((await annotationsFile(page)).comments[0].id).toBe(noteId);
+    await page.reload();
+    await page
+      .locator(".writing-view-switch")
+      .getByRole("button", { name: "Outline", exact: true })
+      .click();
+    if (width === 1280) {
+      const heading = page
+        .getByRole("navigation", { name: "Contents", exact: true })
+        .getByRole("button", { name: "城市之声 · City voices", exact: true });
+      await expect(heading).toBeVisible();
+      await heading.click();
+      await expect(outline).toBeFocused();
+    }
+    await outline.locator(".markdown-comment-marker").click();
+    await expect(popover.getByRole("textbox")).toHaveValue(
+      "Revised instruction 中文",
+    );
+    await page.screenshot({
+      path: `.artifacts/awr-phase-1-outline-${width}.png`,
+    });
+    await popover.getByRole("textbox").press("Escape");
+    await expect(outline).toBeFocused();
+    await paragraph.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" Edited.");
+    await save(page);
+    expect((await outlineFile(page)).text).toBe(
+      raw.replace(
+        "Review this passage 中文.",
+        "Review this passage 中文. Edited.",
+      ),
+    );
+    await paragraph.click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    await toolbar.getByRole("button", { name: "Ask", exact: true }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Message to Agent" }),
+    ).toBeFocused();
+    await expect(page.locator(".agent-context-chip")).toContainText(
+      "Review this passage 中文. Edited.",
+    );
+    if (width === 960)
+      await page
+        .getByRole("button", { name: "Close assistant", exact: true })
+        .click();
+    await outline.locator("h1").click();
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Shift+End");
+    if (width === 960)
+      await page
+        .getByRole("button", { name: "Open assistant", exact: true })
+        .click();
+    await expect(page.locator(".agent-context-chip")).toContainText(
+      "Review this passage 中文. Edited.",
+    );
+    if (width === 960)
+      await page
+        .getByRole("button", { name: "Close assistant", exact: true })
+        .click();
+    await manuscript(page);
+    await editor(page).fill("Manuscript block 中文");
+    const manuscriptLock = page
+      .locator(".document-layout .markdown-block-controls button")
+      .first();
+    await manuscriptLock.focus();
+    await manuscriptLock.press("Enter");
+    await expect(editor(page).locator("p").first()).toHaveClass(
+      /markdown-locked-block/,
+    );
+    const manuscriptWidth = await editor(page).boundingBox();
+    await page
+      .locator(".writing-view-switch")
+      .getByRole("button", { name: "Outline", exact: true })
+      .click();
+    expect((await outline.boundingBox())?.width).toBe(manuscriptWidth?.width);
+    await outline.locator(".markdown-comment-marker").click();
+    await popover.getByRole("button", { name: "Resolve", exact: true }).click();
+    await expect(outline.locator(".markdown-comment-marker")).toHaveCount(0);
+    expect((await annotationsFile(page)).comments[0].status).toBe("resolved");
+  });
+}
+
+test("AWR-AC02: inline comment saves preserve newer drafts, note ownership and IME input", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await preferences(page, "off");
+  await editor(page).fill("A passage to review.");
+  async function comment() {
+    await editor(page)
+      .locator(":scope > p")
+      .first()
+      .click({ position: { x: 8, y: 8 } });
+    await page.keyboard.press("ControlOrMeta+Home");
+    for (let index = 0; index < "A passage to review.".length; index++)
+      await page.keyboard.press("Shift+ArrowRight");
+    await page
+      .getByRole("toolbar", { name: "Selection actions" })
+      .getByRole("button", { name: "Comment", exact: true })
+      .click();
+  }
+  const popover = page.getByRole("dialog", {
+    name: "Comments and locks",
+    exact: true,
+  });
+  let release: () => void = () => {};
+  let held: Promise<void> = Promise.resolve();
+  let pending = false;
+  await page.route(/\/documents\/manuscript\/annotations$/, async (route) => {
+    if (
+      route.request().method() === "POST" &&
+      ["comment", "edit"].includes(route.request().postDataJSON().action)
+    ) {
+      pending = true;
+      await held;
+    }
+    await route.continue();
+  });
+  const hold = () => {
+    pending = false;
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  };
+  await comment();
+  await popover.getByRole("textbox").fill("Initial note");
+  hold();
+  await popover.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => pending).toBe(true);
+  await popover.getByRole("textbox").fill("Newer draft while saving");
+  release();
+  await expect(
+    popover.getByRole("button", { name: "Save", exact: true }),
+  ).toBeEnabled();
+  await expect(popover.getByRole("textbox")).toHaveValue(
+    "Newer draft while saving",
+  );
+  await popover.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(popover).toBeHidden();
+  expect((await annotationsFile(page, "manuscript")).comments).toHaveLength(1);
+  await editor(page).locator(".markdown-comment-marker").click();
+  await popover.getByRole("textbox").fill("Delayed old note");
+  hold();
+  await popover.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => pending).toBe(true);
+  await popover.getByRole("textbox").press("Escape");
+  await comment();
+  await popover.getByRole("textbox").fill("Newly opened note");
+  release();
+  await expect(
+    popover.getByRole("button", { name: "Save", exact: true }),
+  ).toBeEnabled();
+  await expect(popover.getByRole("textbox")).toBeFocused();
+  await expect(popover.getByRole("textbox")).toHaveValue("Newly opened note");
+  await popover.getByRole("textbox").dispatchEvent("compositionstart");
+  await popover.getByRole("button", { name: "Save", exact: true }).click();
+  await popover.getByRole("textbox").fill("最终批注 · Final IME note");
+  await popover.getByRole("textbox").dispatchEvent("compositionend");
+  await expect(popover).toBeHidden();
+  const comments = (await annotationsFile(page, "manuscript")).comments;
+  expect(comments).toHaveLength(2);
+  expect(comments[0].text).toBe("Delayed old note");
+  expect(comments[1].text).toBe("最终批注 · Final IME note");
+  await editor(page).locator(".markdown-comment-marker").first().click();
+  await popover.getByRole("textbox").dispatchEvent("compositionstart");
+  await popover.getByRole("button", { name: "Resolve", exact: true }).click();
+  expect((await annotationsFile(page, "manuscript")).comments[0].status).toBe(
+    "open",
+  );
+  await popover.getByRole("textbox").dispatchEvent("compositionend");
+  await expect(popover).toBeHidden();
+  expect((await annotationsFile(page, "manuscript")).comments[0].status).toBe(
+    "resolved",
+  );
 });

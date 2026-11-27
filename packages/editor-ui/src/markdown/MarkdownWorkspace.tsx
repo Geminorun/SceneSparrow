@@ -12,8 +12,10 @@ import type {
   MarkdownDocument,
   MarkdownDocumentKind,
   MarkdownAnnotations,
+  MarkdownComment,
   MarkdownRange,
   AgentProposal,
+  AgentGeneration,
 } from "@scenesparrow/contracts";
 import {
   ApiError,
@@ -37,10 +39,12 @@ import { AgentConversation } from "../agent/AgentConversation";
 import { useAgentCatalog } from "../agent/catalog";
 import { AgentSettings } from "../agent/AgentSettings";
 import { proposalText, type AgentCapture } from "../agent/context";
+import { commentSpans } from "./editor-annotations";
 import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { trapDialogFocus } from "../ui/dialog-focus";
 import type { Editor } from "@tiptap/core";
+import { VideoProject } from "../video/VideoProject";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { FileMenu } from "./FileMenu";
 import { MarkdownReview, type ReviewCapture } from "./MarkdownReview";
@@ -51,11 +55,7 @@ import {
   utf16Offset,
   utf8Offset,
 } from "./source-projection";
-import {
-  MarkdownWriting,
-  type WritingCapture,
-  type WritingDraft,
-} from "./MarkdownWriting";
+import { type WritingCapture, type WritingDraft } from "./MarkdownWriting";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { ExchangeReview } from "./ExchangeReview";
 import { HeadingNavigation } from "./HeadingNavigation";
@@ -109,6 +109,7 @@ export function MarkdownWorkspace({
   platformClient: PlatformClient;
 }) {
   const client = platformClient.markdownProjects!;
+  const [videoOpen, setVideoOpen] = useState(false);
   const preferences = useSyncExternalStore(
     applicationPreferences.subscribe,
     applicationPreferences.getSnapshot,
@@ -146,6 +147,13 @@ export function MarkdownWorkspace({
   >({ manuscript: null, outline: null });
   const selectionsRef = useRef(selections);
   selectionsRef.current = selections;
+  const [agentAttachment, setAgentAttachment] = useState<{
+    kind: MarkdownDocumentKind;
+    owner: Buffer;
+    selected: NonNullable<typeof selections.manuscript>;
+  } | null>(null);
+  const agentAttachmentRef = useRef(agentAttachment);
+  agentAttachmentRef.current = agentAttachment;
   const annotationGeneration = useRef({ manuscript: 0, outline: 0 });
   function annotated(kind: MarkdownDocumentKind, data: MarkdownAnnotations) {
     annotationGeneration.current[kind]++;
@@ -167,7 +175,7 @@ export function MarkdownWorkspace({
     )
       annotated(kind, data);
   }
-  const pane = useAuxiliaryPane();
+  const pane = useAuxiliaryPane(true);
   const [view, setView] = useState<
     "manuscript" | "outline" | "draft" | "exchange"
   >("manuscript");
@@ -234,6 +242,7 @@ export function MarkdownWorkspace({
     setSeparateProject(null);
     setView("manuscript");
     setSelections({ manuscript: null, outline: null });
+    setAgentAttachment(null);
     setAnnotations({
       manuscript: emptyAnnotations(),
       outline: emptyAnnotations(),
@@ -484,7 +493,7 @@ export function MarkdownWorkspace({
     [outlineCurrent?.project.projectId, outlineCurrent?.editorSession],
   );
   const activeBuffer = documentBufferFor(activeKind());
-  const agentSelection = selections[activeKind()];
+  const agentSelection = agentAttachment?.selected;
   const agentExcerpt = useMemo(
     () =>
       agentSelection?.explicit
@@ -602,9 +611,13 @@ export function MarkdownWorkspace({
       setSelections((previous) => ({ ...previous, [kind]: selection }));
     }
     pane.open("review");
-    requestAnimationFrame(() =>
-      document.getElementById("markdown-comment-composer")?.focus(),
-    );
+    requestAnimationFrame(() => {
+      const tools = document.getElementById(
+        "agent-review-tools",
+      ) as HTMLDetailsElement | null;
+      if (tools) tools.open = true;
+      document.getElementById("markdown-comment-composer")?.focus();
+    });
   }
   function sourceField(kind: MarkdownDocumentKind, dialog = false) {
     const scope = dialog ? "source" : `source:${kind}`;
@@ -660,6 +673,20 @@ export function MarkdownWorkspace({
     const label = locked ? t.markdownUnlock : t.markdownLockSelection;
     return (
       <div className="markdown-source-actions">
+        <button
+          disabled={
+            !selected?.explicit ||
+            selected.range.end <= selected.range.start ||
+            selected.source !== documentBufferFor(kind)?.text
+          }
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            if (sourceOpen.current) closeSource(false);
+            askSelection(kind);
+          }}
+        >
+          {t.markdownAsk}
+        </button>
         <button
           type="button"
           className="markdown-icon-button"
@@ -772,8 +799,10 @@ export function MarkdownWorkspace({
     current.editedAt = Date.now();
     redraw();
   }
-  function selectedLocks(kind: MarkdownDocumentKind) {
-    const selection = selections[kind];
+  function selectedLocks(
+    kind: MarkdownDocumentKind,
+    selection = selections[kind],
+  ) {
     const locks = annotationsRef.current[kind].locks;
     if (
       !locks.length ||
@@ -806,8 +835,7 @@ export function MarkdownWorkspace({
   function selectionLocked(kind: MarkdownDocumentKind) {
     return selectedLocks(kind).length > 0;
   }
-  function toggleLock(kind: MarkdownDocumentKind) {
-    const selected = selections[kind];
+  function toggleLock(kind: MarkdownDocumentKind, selected = selections[kind]) {
     const initial = documentBufferFor(kind);
     if (!selected?.ranges.length || !initial) return;
     void composition
@@ -817,9 +845,15 @@ export function MarkdownWorkspace({
           selected.source !== initial.text
         )
           throw new ApiError("MARKDOWN_CONFLICT");
-        const existing = selectedLocks(kind);
+        const existing = selectedLocks(kind, selected);
         if (existing.some((lock) => lock.anchors.length > 1)) {
           pane.open("review");
+          requestAnimationFrame(() => {
+            const tools = document.getElementById(
+              "agent-review-tools",
+            ) as HTMLDetailsElement | null;
+            if (tools) tools.open = true;
+          });
           return;
         }
         const capture = await prepareReview(kind, existing.length === 0);
@@ -867,6 +901,56 @@ export function MarkdownWorkspace({
       projectId: current.project.projectId,
     };
   }
+  function askSelection(kind: MarkdownDocumentKind) {
+    const selected = selectionsRef.current[kind];
+    const owner = documentBufferFor(kind);
+    if (
+      !selected?.explicit ||
+      !owner ||
+      selected.source !== owner.text ||
+      selected.range.end <= selected.range.start
+    )
+      return;
+    setAgentAttachment({ kind, owner, selected });
+    pane.open("agent");
+    requestAnimationFrame(() =>
+      document.getElementById("markdown-agent-composer")?.focus(),
+    );
+  }
+  async function inlineComment(
+    kind: MarkdownDocumentKind,
+    source: string,
+    range: MarkdownRange,
+    text: string,
+    existing?: MarkdownComment,
+    resolve = false,
+  ) {
+    const capture = await prepareReview(kind);
+    if (capture.text !== source) throw new ApiError("MARKDOWN_CONFLICT");
+    validateReview(capture);
+    const ids = new Set(
+      annotationsRef.current[kind].comments.map((comment) => comment.id),
+    );
+    const data = await client.annotate(
+      capture.projectId,
+      kind,
+      existing
+        ? resolve
+          ? { action: "resolve", id: existing.id }
+          : {
+              action: "edit",
+              id: existing.id,
+              revision: capture.revision,
+              previousText: existing.text,
+              text,
+            }
+        : { action: "comment", revision: capture.revision, range, text },
+    );
+    if (documentBufferFor(kind) === capture.session) annotated(kind, data);
+    return data.comments.find((comment) =>
+      existing ? comment.id === existing.id : !ids.has(comment.id),
+    );
+  }
   function validateReview(capture: ReviewCapture) {
     const current = documentBufferFor(capture.kind);
     if (
@@ -893,6 +977,77 @@ export function MarkdownWorkspace({
     }
     return capture();
   }
+  async function openGeneration(entry: AgentGeneration) {
+    const context = capture();
+    if (
+      context.revision !== entry.revision ||
+      (entry.kind === "draft" &&
+        context.outline?.revision !== entry.outlineRevision)
+    )
+      throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+    if (
+      entry.kind === "outline" &&
+      context.outline?.text.trim() &&
+      context.outline.text !== entry.text &&
+      !window.confirm(t.markdownReplaceOutlineConfirm)
+    )
+      return;
+    const candidate = { capture: context, text: entry.text };
+    if (entry.kind === "outline") await useOutline(candidate);
+    else {
+      draftRef.current = candidate;
+      setDraft(candidate);
+      setView("draft");
+    }
+  }
+  async function generateInConversation(
+    kind: "outline" | "draft",
+    brief: string,
+    conversation: () => Promise<string>,
+  ) {
+    const context = await prepareWriting(kind);
+    if (
+      kind === "outline" &&
+      context.outline?.text.trim() &&
+      !window.confirm(t.markdownReplaceOutlineConfirm)
+    )
+      return false;
+    const conversationId = await conversation();
+    if (draftChanged({ capture: context, text: "" }))
+      throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+    const [settings, ready] = await Promise.all([
+      platformClient.readAiSettings(),
+      platformClient.resolveAiConfiguration(),
+    ]);
+    if (draftChanged({ capture: context, text: "" }))
+      throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
+    const result = await platformClient.markdownProjects!.write(
+      context.projectId,
+      {
+        actionId: crypto.randomUUID(),
+        sessionId: settings.sessionId,
+        fingerprint: ready.configuration.fingerprint,
+        kind,
+        brief,
+        outline: context.outline?.text ?? "",
+        text: context.text,
+        revision: context.revision,
+        conversationId,
+        ...(kind === "draft"
+          ? { outlineRevision: context.outline!.revision! }
+          : {}),
+      },
+    );
+    const candidate = { capture: context, text: result.text };
+    if (buffer.current !== context.session) return true;
+    if (kind === "outline") await useOutline(candidate);
+    else {
+      draftRef.current = candidate;
+      setDraft(candidate);
+      setView("draft");
+    }
+    return true;
+  }
   async function prepareAgent(
     kind: MarkdownDocumentKind,
     owner: Buffer | null,
@@ -900,7 +1055,11 @@ export function MarkdownWorkspace({
     const current = documentBufferFor(kind);
     if (!current || current !== owner)
       throw new ApiError("AGENT_CONTEXT_INVALID");
-    const selected = selectionsRef.current[kind];
+    const attached = agentAttachmentRef.current;
+    const selected =
+      attached?.kind === kind && attached.owner === current
+        ? attached.selected
+        : null;
     if (selected?.explicit && selected.source !== current.text)
       throw new ApiError("AGENT_CONTEXT_STALE");
     if (selected?.explicit && selected.range.end <= selected.range.start)
@@ -935,7 +1094,13 @@ export function MarkdownWorkspace({
       )
         throw new ApiError("AGENT_CONTEXT_STALE");
     };
-    if (selection) {
+    if (
+      selection ||
+      current.text !== current.project.text ||
+      annotationsRef.current[kind].comments.some(
+        (comment) => comment.status === "open",
+      )
+    ) {
       if (current.pending) await current.pending;
       unchanged();
       await save(undefined, kind);
@@ -968,19 +1133,36 @@ export function MarkdownWorkspace({
     const delivered = await composition.run(
       `agent:apply:${proposal.id}`,
       async () => {
-        validateAgent(capture);
-        const current = documentBufferFor(capture.kind)!;
-        const text = proposalText(capture, proposal);
+        const current = documentBufferFor(capture.kind);
+        if (proposal.batch) {
+          if (
+            current !== capture.session ||
+            current?.project.projectId !== capture.projectId ||
+            current.epoch !== capture.epoch ||
+            current.text !== capture.text ||
+            current.pending ||
+            current.text !== current.project.text
+          )
+            throw new ApiError("AGENT_CONTEXT_STALE");
+        } else validateAgent(capture);
+        if (!current) throw new ApiError("AGENT_CONTEXT_STALE");
+        const proposedText = proposal.batch
+          ? null
+          : proposalText(capture, proposal);
         current.saving = true;
         redraw();
         const pending = platformClient
           .agent!.apply(capture.projectId, sessionId, turnId, proposal.id)
-          .then((result) => {
+          .then(async (result) => {
+            const saved = proposal.batch
+              ? await client.readDocument(capture.projectId, capture.kind)
+              : null;
             if (documentBufferFor(capture.kind) !== current) return;
+            const text = saved?.text ?? proposedText!;
             current.project = {
               ...current.project,
               text,
-              revision: result.revision,
+              revision: saved?.revision ?? result.revision,
             };
             current.failed = false;
             if (
@@ -1288,6 +1470,15 @@ export function MarkdownWorkspace({
       }
     >
       <div className="workspace markdown-workspace">
+        {videoOpen && current ? (
+          <VideoProject
+            key={current.project.projectId}
+            projectId={current.project.projectId}
+            client={platformClient}
+            t={t}
+            close={() => setVideoOpen(false)}
+          />
+        ) : null}
         <NotificationPresenter t={t} />
         <a className="skip-link" href="#markdown-editor">
           {t.skipToWorkbench}
@@ -1304,6 +1495,14 @@ export function MarkdownWorkspace({
         <header className="workspace-header">
           <div className="workspace-brand">{t.appName}</div>
           <div className="workspace-actions">
+            {platformClient.videoProjects && current ? (
+              <button
+                className="quiet-button"
+                onClick={() => setVideoOpen(true)}
+              >
+                {t.videoProject}
+              </button>
+            ) : null}
             <FileMenu
               t={t}
               create={{
@@ -1389,7 +1588,7 @@ export function MarkdownWorkspace({
                 t={t}
                 availableTabs={{
                   left: ["structure"],
-                  right: ["planning", "review", "agent"],
+                  right: ["agent"],
                 }}
                 panels={{
                   structure: current ? (
@@ -1465,113 +1664,162 @@ export function MarkdownWorkspace({
                             pane.right.tab === "agent" && pane.visible("right")
                           }
                           composition={composition}
-                          contextLabel={`${activeKind() === "outline" ? t.writingOutline : t.manuscript} · ${agentExcerpt !== null ? `${t.agentSelectionContext}: ${agentExcerpt}` : t.agentDocumentContext}`}
+                          contextLabel={`${(agentAttachment?.kind ?? activeKind()) === "outline" ? t.writingOutline : t.manuscript} · ${agentExcerpt !== null ? `${t.agentSelectionContext}: ${agentExcerpt}` : t.agentDocumentContext}`}
+                          clearSelection={
+                            agentAttachment
+                              ? () => setAgentAttachment(null)
+                              : undefined
+                          }
                           prepareIntent={() => {
-                            const kind = activeKind();
-                            const owner = documentBufferFor(kind);
+                            const kind = agentAttachment?.kind ?? activeKind();
+                            const owner =
+                              agentAttachment?.owner ?? documentBufferFor(kind);
                             return () => prepareAgent(kind, owner);
                           }}
                           validate={(capture) =>
                             validateAgent(capture, "AGENT_CONTEXT_STALE")
                           }
                           apply={applyAgent}
-                        />
-                      </section>
-                      <section
-                        role="tabpanel"
-                        id="auxiliary-review"
-                        aria-labelledby="auxiliary-tab-review"
-                        hidden={pane.right.tab !== "review"}
-                        inert={pane.right.tab !== "review"}
-                      >
-                        <MarkdownReview
-                          key={current.project.projectId}
-                          client={platformClient}
-                          t={t}
-                          kind={activeKind()}
-                          annotations={annotations[activeKind()]}
-                          selection={
-                            selections[activeKind()]?.ranges.length
-                              ? selections[activeKind()]
-                              : null
-                          }
-                          composition={composition}
-                          prepare={prepareReview}
-                          validate={validateReview}
-                          annotated={(capture, data) => {
+                          restoreCapture={(context) => {
+                            const owner = documentBufferFor(context.kind);
                             if (
-                              documentBufferFor(capture.kind) ===
-                              capture.session
-                            ) {
-                              if (
-                                documentBufferFor(capture.kind)?.project
-                                  .revision === capture.revision
-                              )
-                                annotated(capture.kind, data);
-                              else
+                              !owner ||
+                              owner.project.projectId !== context.projectId ||
+                              (!context.batch &&
+                                owner.project.revision !== context.revision) ||
+                              owner.text !== owner.project.text
+                            )
+                              throw new ApiError("MARKDOWN_CONFLICT");
+                            return {
+                              projectId: context.projectId,
+                              kind: context.kind,
+                              session: owner,
+                              epoch: owner.epoch,
+                              text: owner.text,
+                              revision: context.revision,
+                              selection: context.selection,
+                            };
+                          }}
+                          jump={(context, scope) => {
+                            const owner = documentBufferFor(context.kind);
+                            if (
+                              !owner ||
+                              owner.project.projectId !== context.projectId ||
+                              owner.project.revision !== context.revision ||
+                              owner.text !== owner.project.text
+                            )
+                              throw new ApiError("MARKDOWN_CONFLICT");
+                            flushSync(() =>
+                              setView(
+                                context.kind === "outline"
+                                  ? "outline"
+                                  : "manuscript",
+                              ),
+                            );
+                            const target =
+                              context.kind === "outline"
+                                ? outlineEditor.current
+                                : editor.current;
+                            if (!target) {
+                              openSource(
+                                utf16Offset(owner.text, scope.range.start),
+                              );
+                              const input = sourceInput.current;
+                              if (input) {
+                                input.setSelectionRange(
+                                  input.selectionStart,
+                                  visibleSource(
+                                    owner.text.slice(
+                                      0,
+                                      utf16Offset(owner.text, scope.range.end),
+                                    ),
+                                  ).length,
+                                );
+                                selectSource(input, context.kind);
+                              }
+                              return;
+                            }
+                            const sourceRange = {
+                              start: utf16Offset(owner.text, scope.range.start),
+                              end: utf16Offset(owner.text, scope.range.end),
+                            };
+                            const spans = commentSpans(
+                              target.state.doc,
+                              owner.text,
+                              sourceRange,
+                            );
+                            if (spans.length)
+                              target
+                                .chain()
+                                .focus()
+                                .setTextSelection({
+                                  from: spans[0]!.from,
+                                  to: spans.at(-1)!.to,
+                                })
+                                .scrollIntoView()
+                                .run();
+                          }}
+                          generate={generateInConversation}
+                          openGeneration={openGeneration}
+                          review={
+                            <MarkdownReview
+                              key={current.project.projectId}
+                              client={platformClient}
+                              t={t}
+                              kind={activeKind()}
+                              annotations={annotations[activeKind()]}
+                              selection={
+                                selections[activeKind()]?.ranges.length
+                                  ? selections[activeKind()]
+                                  : null
+                              }
+                              composition={composition}
+                              prepare={prepareReview}
+                              validate={validateReview}
+                              annotated={(capture, data) => {
+                                if (
+                                  documentBufferFor(capture.kind) ===
+                                  capture.session
+                                ) {
+                                  if (
+                                    documentBufferFor(capture.kind)?.project
+                                      .revision === capture.revision
+                                  )
+                                    annotated(capture.kind, data);
+                                  else
+                                    void refreshAnnotations(
+                                      capture.kind,
+                                      capture.projectId,
+                                    ).catch(notice.report);
+                                }
+                              }}
+                              applied={(capture, saved) => {
+                                const current = documentBufferFor(capture.kind);
+                                if (current !== capture.session) return;
+                                current.project = saved;
+                                if (current.epoch === capture.epoch) {
+                                  current.text = saved.text;
+                                  current.epoch++;
+                                  current.editorSession++;
+                                } else current.paused = true;
                                 void refreshAnnotations(
                                   capture.kind,
-                                  capture.projectId,
+                                  saved.projectId,
                                 ).catch(notice.report);
-                            }
-                          }}
-                          applied={(capture, saved) => {
-                            const current = documentBufferFor(capture.kind);
-                            if (current !== capture.session) return;
-                            current.project = saved;
-                            if (current.epoch === capture.epoch) {
-                              current.text = saved.text;
-                              current.epoch++;
-                              current.editorSession++;
-                            } else current.paused = true;
-                            void refreshAnnotations(
-                              capture.kind,
-                              saved.projectId,
-                            ).catch(notice.report);
-                            redraw();
-                          }}
-                          locate={(comment) => {
-                            if (comment.anchor.resolvedStart !== null)
-                              openSource(
-                                utf16Offset(
-                                  documentBufferFor(comment.kind)?.text ?? "",
-                                  comment.anchor.resolvedStart,
-                                ),
-                              );
-                          }}
-                        />
-                      </section>
-                      <section
-                        role="tabpanel"
-                        id="auxiliary-planning"
-                        aria-labelledby="auxiliary-tab-planning"
-                        hidden={pane.right.tab !== "planning"}
-                        inert={pane.right.tab !== "planning"}
-                      >
-                        <MarkdownWriting
-                          key={current.project.projectId}
-                          client={platformClient}
-                          t={t}
-                          composition={composition}
-                          capture={prepareWriting}
-                          validate={(capture) => {
-                            if (
-                              draftChanged({
-                                capture,
-                                text: "",
-                              })
-                            )
-                              throw new ApiError("MARKDOWN_DRAFT_CONFLICT");
-                          }}
-                          outline={outlineCurrent ? outlineText : null}
-                          onOutline={useOutline}
-                          onDraft={(candidate) => {
-                            if (buffer.current !== candidate.capture.session)
-                              return;
-                            draftRef.current = candidate;
-                            setDraft(candidate);
-                            setView("draft");
-                          }}
+                                redraw();
+                              }}
+                              locate={(comment) => {
+                                if (comment.anchor.resolvedStart !== null)
+                                  openSource(
+                                    utf16Offset(
+                                      documentBufferFor(comment.kind)?.text ??
+                                        "",
+                                      comment.anchor.resolvedStart,
+                                    ),
+                                  );
+                              }}
+                            />
+                          }
                         />
                       </section>
                     </>
@@ -1756,9 +2004,25 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.outline}
-                        comment={showComments}
-                        lock={() => toggleLock("outline")}
-                        locked={selectionLocked("outline")}
+                        ask={() => askSelection("outline")}
+                        comment={(source, range, text, existing, resolve) =>
+                          inlineComment(
+                            "outline",
+                            source,
+                            range,
+                            text,
+                            existing,
+                            resolve,
+                          )
+                        }
+                        lock={(ranges, source) =>
+                          toggleLock("outline", {
+                            ranges,
+                            range: ranges[0]!,
+                            source,
+                            explicit: false,
+                          })
+                        }
                         scope="outline"
                         autofocus={false}
                         t={{ ...t, markdownText: t.markdownWritingOutline }}
@@ -1805,9 +2069,25 @@ export function MarkdownWorkspace({
                           }))
                         }
                         annotations={annotations.manuscript}
-                        comment={showComments}
-                        lock={() => toggleLock("manuscript")}
-                        locked={selectionLocked("manuscript")}
+                        ask={() => askSelection("manuscript")}
+                        comment={(source, range, text, existing, resolve) =>
+                          inlineComment(
+                            "manuscript",
+                            source,
+                            range,
+                            text,
+                            existing,
+                            resolve,
+                          )
+                        }
+                        lock={(ranges, source) =>
+                          toggleLock("manuscript", {
+                            ranges,
+                            range: ranges[0]!,
+                            source,
+                            explicit: false,
+                          })
+                        }
                         t={t}
                         composition={composition}
                         changed={(text) => {
