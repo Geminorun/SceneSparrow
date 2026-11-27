@@ -59,3 +59,61 @@ operation remain separate from this Web validation.
 - [Agent history at 1280 × 720](assets/awr-agent-history-1280.png)
 - [Agent history at 960 × 720](assets/awr-agent-history-960.png)
 - [Provider settings at 1280 × 720](assets/awr-provider-settings-1280.png)
+
+## Phase 3 — One revision from pending comments
+
+The phase starts from `4203871` and covers AWR-T03, AWR-AC06–07, and the
+batch preview portion of AWR-AC12. Ordinary document sends capture the saved
+Markdown, open comment records and resolved ranges, and live locks. The core
+groups overlapping anchors into stable scopes before sending the full document
+to the writing runner. Questions produce answers; edit instructions can produce
+one grouped proposal. Locked, detached, and omitted unclear scopes remain
+unresolved. The existing explicit selection API, direct writing fallback,
+generated outline flow, and collaboration ZIP allowlist remain in place.
+
+The conversation shows captured document/comment context, one applicable and
+unresolved summary, a primary Apply action, secondary Discard, and expandable
+Original/Proposed comparisons linked to their notes and source passages. The
+proposal keeps its original project/document identity across navigation. Apply
+rechecks original bytes, saved revision, affected comment snapshots and current
+locks under the existing writer mutex, performs one Markdown save, and resolves
+only the comments attached to saved changes.
+
+A proposal-specific receipt records the exact target before that save. A retry
+or restart can complete pending comment resolution without another Markdown
+write and restore an applied disposition after a lost conversation
+acknowledgement. A completed proposal is persisted before entering the writer.
+Transient storage failures allow an explicit retry with the same proposal;
+conflicts retain the preview and require a fresh turn. Receipt files stay in
+application-managed project storage and are excluded from collaboration ZIPs.
+
+Ponytail Full and Ponytail Review followed the generated contracts, both native
+adapters, conversation persistence, annotation snapshots, writer, and browser
+callers. Corrections fenced undurable proposals, restored landed outcomes before
+Discard, cleared a recovered Apply error, and retained the existing question
+path while an unrelated selection Apply acknowledgement is pending and no open
+notes or unsaved edits require a new saved capture. Scope stays within the
+existing single-operator Web workspace and its bounded runner context/output.
+
+Focused verification passed.
+
+- Generated contract consistency, editor TypeScript checks, touched-file
+  Prettier checks, Rust formatting, and scoped Clippy with warnings denied.
+- Application Agent tests, infrastructure conversation/batch tests, both native
+  socket fixture suites, and the Agent HTTP suite. Cases cover two edits plus
+  one locked note in each document, overlapping and detached anchors, unclear
+  scopes/questions, unknown scope rejection, stale text/locks/comment records,
+  transient write retry, duplicate Apply, Discard, and restart between the
+  Markdown commit and its acknowledgements.
+- Nine external-Agent JavaScript unit tests, including exact UTF-8 grouped
+  patches with BOM and CRLF preservation.
+- All 24 conversation and external-Agent browser cases passed on the final UI.
+  The focused rerun covered batch preview and the pending-Apply question regression.
+
+The bilingual captures show the locked passage, the unresolved note, and the
+visible composer. The browser fixture supplies deterministic proposals. The Rust
+HTTP tests exercise the actual writer. Hosted inference and native desktop
+operation remain separate from this Web validation.
+
+- [Batch summary at 1280 × 720](assets/awr-batch-summary-1280.png)
+- [Expanded comparison at 960 × 720](assets/awr-batch-preview-960.png)

@@ -11,6 +11,7 @@ import type {
   AgentGeneration,
   AgentProposal,
   AgentSession,
+  AgentSelection,
   AgentTurnStatus,
 } from "@scenesparrow/contracts";
 import type { ExternalWritingClient } from "@scenesparrow/platform-client";
@@ -55,6 +56,7 @@ export function AgentConversation({
   validate,
   apply,
   restoreCapture,
+  jump,
   generate,
   openGeneration,
   review,
@@ -76,6 +78,7 @@ export function AgentConversation({
     turnId: string,
   ) => Promise<void>;
   restoreCapture: (context: AgentContext) => AgentCapture;
+  jump?: (context: AgentContext, selection: AgentSelection) => void;
   generate: (
     kind: "outline" | "draft",
     brief: string,
@@ -511,6 +514,69 @@ export function AgentConversation({
       void refreshHistory().catch(notice.report);
     }
   }
+  function proposalControls(turn: Turn) {
+    return turn.outcome ? (
+      <p role="status">
+        {turn.outcome === "applied" ? t.agentApplied : t.agentDiscarded}
+      </p>
+    ) : (
+      <div className="agent-toolbar">
+        <button
+          className={turn.proposal?.batch ? "primary-button" : undefined}
+          disabled={turn.applying}
+          onClick={() => {
+            if (turn.applying || !turn.sessionId || !turn.id) return;
+            turn.applying = true;
+            redraw();
+            void Promise.resolve()
+              .then(() => {
+                const capture =
+                  turn.capture ?? restoreCapture(turn.proposal!.context);
+                if (!turn.proposal!.batch)
+                  proposalText(capture, turn.proposal!);
+                return apply(
+                  capture,
+                  turn.proposal!,
+                  turn.sessionId!,
+                  turn.id!,
+                );
+              })
+              .then(() => {
+                turn.outcome = "applied";
+                delete turn.error;
+              })
+              .catch((failure) => {
+                turn.error = failure;
+                notice.report(failure);
+              })
+              .finally(() => {
+                turn.applying = false;
+                redraw();
+              });
+          }}
+        >
+          {t.agentApply}
+        </button>
+        <button
+          disabled={turn.applying}
+          onClick={() =>
+            void client
+              ?.conversationAction?.(projectId, turn.sessionId!, {
+                action: "discard",
+                value: turn.id!,
+              })
+              .then(() => {
+                turn.outcome = "discarded";
+                redraw();
+              })
+              .catch(notice.report)
+          }
+        >
+          {t.agentDiscard}
+        </button>
+      </div>
+    );
+  }
   const timeline = [
     ...turns.map((turn) => ({ createdAt: turn.createdAt, turn, entry: null })),
     ...[...generations, ...(pendingGeneration ? [pendingGeneration] : [])].map(
@@ -657,6 +723,21 @@ export function AgentConversation({
               data-agent-status={turn.status}
             >
               <p className="agent-instruction">{turn.instruction}</p>
+              {turn.context && (
+                <p className="agent-turn-context muted">
+                  {t.agentBatchContext
+                    .replace(
+                      "{document}",
+                      turn.context.kind === "outline"
+                        ? t.writingOutline
+                        : t.manuscript,
+                    )
+                    .replace(
+                      "{count}",
+                      String(turn.context.batch?.comments.length ?? 0),
+                    )}
+                </p>
+              )}
               <p className="agent-reply">{turn.reply}</p>
               {(turn.progress || turn.error || turn.status !== "completed") && (
                 <p role="status" className="muted">
@@ -672,74 +753,105 @@ export function AgentConversation({
                   className="agent-proposal"
                   aria-label={t.agentProposal}
                 >
-                  <ExchangeComparison
-                    current={turn.proposal.context.selection?.quote ?? ""}
-                    returned={turn.proposal.text}
-                    t={t}
-                  />
-                  {turn.outcome ? (
-                    <p role="status">
-                      {turn.outcome === "applied"
-                        ? t.agentApplied
-                        : t.agentDiscarded}
-                    </p>
+                  {turn.proposal.batch ? (
+                    <>
+                      <p className="agent-batch-summary">
+                        {t.agentBatchSummary
+                          .replace(
+                            "{changes}",
+                            String(turn.proposal.batch.changes.length),
+                          )
+                          .replace(
+                            "{unresolved}",
+                            String(
+                              turn.proposal.batch.unresolved.reduce(
+                                (n, item) => n + item.commentIds.length,
+                                0,
+                              ),
+                            ),
+                          )}
+                      </p>
+                      {proposalControls(turn)}
+                      {turn.proposal.batch.changes.map((change, index) => {
+                        const scope = turn.proposal!.context.batch!.scopes.find(
+                          (scope) => scope.id === change.scopeId,
+                        )!;
+                        return (
+                          <details
+                            className="agent-batch-change"
+                            key={change.scopeId}
+                          >
+                            <summary>
+                              {t.agentBatchChange.replace(
+                                "{number}",
+                                String(index + 1),
+                              )}
+                            </summary>
+                            <ul className="agent-batch-comments">
+                              {scope.commentIds.map((id) => (
+                                <li key={id}>
+                                  {
+                                    turn.proposal!.context.batch!.comments.find(
+                                      (c) => c.id === id,
+                                    )?.text
+                                  }
+                                </li>
+                              ))}
+                            </ul>
+                            <ExchangeComparison
+                              current={scope.selection.quote}
+                              returned={change.text}
+                              t={t}
+                              labels={{
+                                original: t.agentBatchOriginal,
+                                proposed: t.agentBatchProposed,
+                              }}
+                            />
+                            {jump && (
+                              <button
+                                className="quiet-button"
+                                onClick={() => {
+                                  try {
+                                    jump(
+                                      turn.proposal!.context,
+                                      scope.selection,
+                                    );
+                                  } catch (failure) {
+                                    notice.report(failure);
+                                  }
+                                }}
+                              >
+                                {t.agentBatchJump}
+                              </button>
+                            )}
+                          </details>
+                        );
+                      })}
+                      {turn.proposal.batch.unresolved.length > 0 && (
+                        <ul className="agent-batch-unresolved">
+                          {turn.proposal.batch.unresolved.flatMap((item) =>
+                            item.commentIds.map((id) => (
+                              <li key={id}>
+                                <span>{t[`agentBatch_${item.reason}`]}</span>:{" "}
+                                {
+                                  turn.proposal!.context.batch!.comments.find(
+                                    (c) => c.id === id,
+                                  )?.text
+                                }
+                              </li>
+                            )),
+                          )}
+                        </ul>
+                      )}
+                    </>
                   ) : (
-                    <div className="agent-toolbar">
-                      <button
-                        disabled={turn.applying}
-                        onClick={() => {
-                          if (turn.applying || !turn.sessionId || !turn.id)
-                            return;
-                          turn.applying = true;
-                          redraw();
-                          void Promise.resolve()
-                            .then(() => {
-                              const capture =
-                                turn.capture ??
-                                restoreCapture(turn.proposal!.context);
-                              proposalText(capture, turn.proposal!);
-                              return apply(
-                                capture,
-                                turn.proposal!,
-                                turn.sessionId!,
-                                turn.id!,
-                              );
-                            })
-                            .then(() => {
-                              turn.outcome = "applied";
-                              delete turn.error;
-                            })
-                            .catch((failure) => {
-                              turn.error = failure;
-                              notice.report(failure);
-                            })
-                            .finally(() => {
-                              turn.applying = false;
-                              redraw();
-                            });
-                        }}
-                      >
-                        {t.agentApply}
-                      </button>
-                      <button
-                        disabled={turn.applying}
-                        onClick={() =>
-                          void client
-                            ?.conversationAction?.(projectId, turn.sessionId!, {
-                              action: "discard",
-                              value: turn.id!,
-                            })
-                            .then(() => {
-                              turn.outcome = "discarded";
-                              redraw();
-                            })
-                            .catch(notice.report)
-                        }
-                      >
-                        {t.agentDiscard}
-                      </button>
-                    </div>
+                    <ExchangeComparison
+                      current={turn.proposal.context.selection?.quote ?? ""}
+                      returned={turn.proposal.text}
+                      t={t}
+                    />
                   )}
+                  {!turn.proposal.batch && proposalControls(turn)}
                 </section>
               )}
               {["failed", "cancelled"].includes(turn.status) && (

@@ -243,7 +243,11 @@ fn resolve(a: &mut MarkdownAnchor, text: &str, revision: &str, parsed: &[Block],
     a.resolved_end = range.map(|v| v.end as i64);
 }
 impl MarkdownProjects {
-    fn sidecar<T: serde::de::DeserializeOwned + Default>(&self, id: &str, name: &str) -> Result<T> {
+    pub(super) fn sidecar<T: serde::de::DeserializeOwned + Default>(
+        &self,
+        id: &str,
+        name: &str,
+    ) -> Result<T> {
         let path = self.validated_directory(id)?.join(name);
         match std::fs::symlink_metadata(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
@@ -254,7 +258,7 @@ impl MarkdownProjects {
             .map_err(|_| "MARKDOWN_ANNOTATIONS_UNAVAILABLE"),
         }
     }
-    fn write_sidecar(&self, id: &str, name: &str, value: &impl Serialize) -> Result<()> {
+    pub(super) fn write_sidecar(&self, id: &str, name: &str, value: &impl Serialize) -> Result<()> {
         let bytes = serde_json::to_vec(value).map_err(|_| "MARKDOWN_ANNOTATIONS_UNAVAILABLE")?;
         if bytes.len() > SIDECAR_LIMIT {
             return Err("MARKDOWN_ANNOTATIONS_UNAVAILABLE");
@@ -266,6 +270,41 @@ impl MarkdownProjects {
         let mut file = io(AtomicWriteFile::open(path))?;
         io(file.write_all(&bytes))?;
         io(file.commit())
+    }
+    pub(super) fn check_agent_comments(
+        &self,
+        id: &str,
+        expected: &[MarkdownComment],
+        resolve: bool,
+    ) -> Result<()> {
+        let mut data: Comments = self.sidecar(id, "comments.json")?;
+        for expected in expected {
+            let current = data
+                .comments
+                .iter_mut()
+                .find(|c| c.id == expected.id)
+                .ok_or("MARKDOWN_CONFLICT")?;
+            let mut original = expected.clone();
+            original.anchor.resolved_start = None;
+            original.anchor.resolved_end = None;
+            let mut actual = current.clone();
+            actual.anchor.resolved_start = None;
+            actual.anchor.resolved_end = None;
+            // Recovery may revisit comments already resolved by this exact proposal.
+            if resolve && actual.status == MarkdownCommentStatus::Resolved {
+                actual.status = MarkdownCommentStatus::Open;
+            }
+            if actual != original {
+                return Err("MARKDOWN_CONFLICT");
+            }
+            if resolve {
+                current.status = MarkdownCommentStatus::Resolved;
+            }
+        }
+        if resolve {
+            self.write_sidecar(id, "comments.json", &data)?;
+        }
+        Ok(())
     }
     pub(super) fn annotations_inner(
         &self,

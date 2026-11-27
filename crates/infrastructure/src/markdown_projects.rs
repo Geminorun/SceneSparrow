@@ -54,7 +54,7 @@ pub struct MarkdownProjects {
     root: PathBuf,
     pub(super) writer: Mutex<()>,
     #[cfg(test)]
-    fail_before_commit: std::sync::atomic::AtomicBool,
+    pub(super) fail_before_commit: std::sync::atomic::AtomicBool,
 }
 pub(super) fn io<T>(result: std::io::Result<T>) -> Result<T> {
     result.map_err(|_| "MARKDOWN_STORAGE_UNAVAILABLE")

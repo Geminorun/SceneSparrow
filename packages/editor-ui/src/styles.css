@@ -2996,3 +2996,26 @@ body > .notifications {
 .agent-settings-help {
   margin-block: 12px;
 }
+
+.agent-turn-context {
+  font-size: 0.78rem;
+}
+.agent-batch-summary {
+  font-weight: 600;
+}
+.agent-batch-change {
+  border-top: 1px solid var(--border);
+  padding-block: 0.55rem;
+}
+.agent-batch-change > summary {
+  cursor: pointer;
+}
+.agent-batch-comments,
+.agent-batch-unresolved {
+  margin-block: 0.5rem;
+  padding-inline-start: 1.1rem;
+  font-size: 0.82rem;
+}
+.agent-batch-unresolved span {
+  font-weight: 600;
+}

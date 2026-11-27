@@ -39,6 +39,7 @@ import { AgentConversation } from "../agent/AgentConversation";
 import { useAgentCatalog } from "../agent/catalog";
 import { AgentSettings } from "../agent/AgentSettings";
 import { proposalText, type AgentCapture } from "../agent/context";
+import { commentSpans } from "./editor-annotations";
 import { WorkspacePane, useAuxiliaryPane } from "../workbench/WorkspacePane";
 import { WorkspaceIcon } from "../ui/WorkspaceIcon";
 import { trapDialogFocus } from "../ui/dialog-focus";
@@ -1091,7 +1092,13 @@ export function MarkdownWorkspace({
       )
         throw new ApiError("AGENT_CONTEXT_STALE");
     };
-    if (selection) {
+    if (
+      selection ||
+      current.text !== current.project.text ||
+      annotationsRef.current[kind].comments.some(
+        (comment) => comment.status === "open",
+      )
+    ) {
       if (current.pending) await current.pending;
       unchanged();
       await save(undefined, kind);
@@ -1124,19 +1131,36 @@ export function MarkdownWorkspace({
     const delivered = await composition.run(
       `agent:apply:${proposal.id}`,
       async () => {
-        validateAgent(capture);
-        const current = documentBufferFor(capture.kind)!;
-        const text = proposalText(capture, proposal);
+        const current = documentBufferFor(capture.kind);
+        if (proposal.batch) {
+          if (
+            current !== capture.session ||
+            current?.project.projectId !== capture.projectId ||
+            current.epoch !== capture.epoch ||
+            current.text !== capture.text ||
+            current.pending ||
+            current.text !== current.project.text
+          )
+            throw new ApiError("AGENT_CONTEXT_STALE");
+        } else validateAgent(capture);
+        if (!current) throw new ApiError("AGENT_CONTEXT_STALE");
+        const proposedText = proposal.batch
+          ? null
+          : proposalText(capture, proposal);
         current.saving = true;
         redraw();
         const pending = platformClient
           .agent!.apply(capture.projectId, sessionId, turnId, proposal.id)
-          .then((result) => {
+          .then(async (result) => {
+            const saved = proposal.batch
+              ? await client.readDocument(capture.projectId, capture.kind)
+              : null;
             if (documentBufferFor(capture.kind) !== current) return;
+            const text = saved?.text ?? proposedText!;
             current.project = {
               ...current.project,
               text,
-              revision: result.revision,
+              revision: saved?.revision ?? result.revision,
             };
             current.failed = false;
             if (
@@ -1642,7 +1666,8 @@ export function MarkdownWorkspace({
                             if (
                               !owner ||
                               owner.project.projectId !== context.projectId ||
-                              owner.project.revision !== context.revision ||
+                              (!context.batch &&
+                                owner.project.revision !== context.revision) ||
                               owner.text !== owner.project.text
                             )
                               throw new ApiError("MARKDOWN_CONFLICT");
@@ -1655,6 +1680,65 @@ export function MarkdownWorkspace({
                               revision: context.revision,
                               selection: context.selection,
                             };
+                          }}
+                          jump={(context, scope) => {
+                            const owner = documentBufferFor(context.kind);
+                            if (
+                              !owner ||
+                              owner.project.projectId !== context.projectId ||
+                              owner.project.revision !== context.revision ||
+                              owner.text !== owner.project.text
+                            )
+                              throw new ApiError("MARKDOWN_CONFLICT");
+                            flushSync(() =>
+                              setView(
+                                context.kind === "outline"
+                                  ? "outline"
+                                  : "manuscript",
+                              ),
+                            );
+                            const target =
+                              context.kind === "outline"
+                                ? outlineEditor.current
+                                : editor.current;
+                            if (!target) {
+                              openSource(
+                                utf16Offset(owner.text, scope.range.start),
+                              );
+                              const input = sourceInput.current;
+                              if (input) {
+                                input.setSelectionRange(
+                                  input.selectionStart,
+                                  visibleSource(
+                                    owner.text.slice(
+                                      0,
+                                      utf16Offset(owner.text, scope.range.end),
+                                    ),
+                                  ).length,
+                                );
+                                selectSource(input, context.kind);
+                              }
+                              return;
+                            }
+                            const sourceRange = {
+                              start: utf16Offset(owner.text, scope.range.start),
+                              end: utf16Offset(owner.text, scope.range.end),
+                            };
+                            const spans = commentSpans(
+                              target.state.doc,
+                              owner.text,
+                              sourceRange,
+                            );
+                            if (spans.length)
+                              target
+                                .chain()
+                                .focus()
+                                .setTextSelection({
+                                  from: spans[0]!.from,
+                                  to: spans.at(-1)!.to,
+                                })
+                                .scrollIntoView()
+                                .run();
                           }}
                           generate={generateInConversation}
                           openGeneration={openGeneration}

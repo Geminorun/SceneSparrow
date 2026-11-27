@@ -2194,6 +2194,13 @@ pub struct AgentContext {
     pub source_digest: String,
     #[serde(rename = "selection", deserialize_with = "required_nullable")]
     pub selection: Option<AgentSelection>,
+    #[serde(
+        rename = "batch",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub batch: Option<Box<AgentBatchContext>>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2224,6 +2231,13 @@ pub struct AgentProposal {
     pub context: AgentContext,
     #[serde(rename = "text")]
     pub text: String,
+    #[serde(
+        rename = "batch",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_nonnull"
+    )]
+    pub batch: Option<AgentBatchRevision>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentTurnStatus {
@@ -2482,6 +2496,61 @@ pub struct AgentConversationSummary {
     pub title: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: i64,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEditScope {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "selection")]
+    pub selection: AgentSelection,
+    #[serde(rename = "commentIds")]
+    pub comment_ids: Vec<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentUnresolvedReason {
+    #[serde(rename = "locked")]
+    Locked,
+    #[serde(rename = "detached")]
+    Detached,
+    #[serde(rename = "clarification")]
+    Clarification,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentUnresolved {
+    #[serde(rename = "commentIds")]
+    pub comment_ids: Vec<String>,
+    #[serde(rename = "reason")]
+    pub reason: AgentUnresolvedReason,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchContext {
+    #[serde(rename = "comments")]
+    pub comments: Vec<MarkdownComment>,
+    #[serde(rename = "locks")]
+    pub locks: Vec<MarkdownLock>,
+    #[serde(rename = "scopes")]
+    pub scopes: Vec<AgentEditScope>,
+    #[serde(rename = "unresolved")]
+    pub unresolved: Vec<AgentUnresolved>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchChange {
+    #[serde(rename = "scopeId")]
+    pub scope_id: String,
+    #[serde(rename = "text")]
+    pub text: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentBatchRevision {
+    #[serde(rename = "changes")]
+    pub changes: Vec<AgentBatchChange>,
+    #[serde(rename = "unresolved")]
+    pub unresolved: Vec<AgentUnresolved>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AiCategory {

@@ -3973,6 +3973,9 @@
               "type": "null"
             }
           ]
+        },
+        "batch": {
+          "$ref": "#/definitions/AgentBatchContext"
         }
       }
     },
@@ -4023,6 +4026,9 @@
         "text": {
           "type": "string",
           "maxLength": 262144
+        },
+        "batch": {
+          "$ref": "#/definitions/AgentBatchRevision"
         }
       }
     },
@@ -4480,6 +4486,106 @@
         },
         "updatedAt": {
           "type": "integer"
+        }
+      }
+    },
+    "AgentEditScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "selection", "commentIds"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/definitions/AgentSelection"
+        },
+        "commentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AgentUnresolved": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commentIds", "reason"],
+      "properties": {
+        "commentIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["locked", "detached", "clarification"]
+        }
+      }
+    },
+    "AgentBatchContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comments", "locks", "scopes", "unresolved"],
+      "properties": {
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownComment"
+          }
+        },
+        "locks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MarkdownLock"
+          }
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentEditScope"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentUnresolved"
+          }
+        }
+      }
+    },
+    "AgentBatchChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scopeId", "text"],
+      "properties": {
+        "scopeId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      }
+    },
+    "AgentBatchRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changes", "unresolved"],
+      "properties": {
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentBatchChange"
+          }
+        },
+        "unresolved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AgentUnresolved"
+          }
         }
       }
     }

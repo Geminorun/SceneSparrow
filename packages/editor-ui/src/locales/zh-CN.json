@@ -773,5 +773,14 @@
   "agentLatest": "最新回复 ↓",
   "agentGenerationResult": "生成结果",
   "agentAdd": "添加操作",
-  "agentSettingsDetails": "关于 Agent 设置"
+  "agentSettingsDetails": "关于 Agent 设置",
+  "agentBatchContext": "{document} · {count} 条待处理批注",
+  "agentBatchSummary": "{changes} 处修改 · {unresolved} 条批注未处理",
+  "agentBatchChange": "修改 {number}",
+  "agentBatchJump": "前往原文",
+  "agentBatch_locked": "原文已锁定",
+  "agentBatch_detached": "无法定位原文",
+  "agentBatch_clarification": "需要澄清",
+  "agentBatchOriginal": "原文",
+  "agentBatchProposed": "建议修改"
 }

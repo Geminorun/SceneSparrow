@@ -8,7 +8,7 @@ import type {
 
 const composer = (page: Page) =>
   page.getByRole("textbox", { name: "Message to Agent" });
-async function fixture(page: Page) {
+async function fixture(page: Page, batchPreview = false) {
   const sessions = new Map<string, AgentSession>();
   const current = new Map<string, string | null>();
   const submitted: {
@@ -44,7 +44,7 @@ async function fixture(page: Page) {
     async (route) => {
       const path = new URL(route.request().url()).pathname;
       const match = path.match(
-        /markdown-projects\/([^/]+)\/agent\/sessions(?:\/([^/]+))?(?:\/turns(?:\/([^/]+)(?:\/(events|cancel))?)?)?$/,
+        /markdown-projects\/([^/]+)\/agent\/sessions(?:\/([^/]+))?(?:\/turns(?:\/([^/]+)(?:\/(events|cancel|apply))?)?)?$/,
       )!;
       const [, projectId, id, turnId, action] = match;
       const body = route.request().postDataJSON();
@@ -116,6 +116,50 @@ async function fixture(page: Page) {
             selection: body.attachment.selection,
           },
         };
+        if (batchPreview) {
+          const annotations = await (
+            await page.request.get(
+              `/api/v1/markdown-projects/${projectId}/documents/${turn.context.kind}/annotations`,
+            )
+          ).json();
+          const comments = annotations.comments.filter(
+            (c: any) => c.status === "open",
+          );
+          const scopes = comments
+            .filter(
+              (c: any) =>
+                c.anchor.resolvedStart !== null &&
+                !annotations.locks.some((l: any) =>
+                  l.anchors.some(
+                    (a: any) =>
+                      a.resolvedStart < c.anchor.resolvedEnd &&
+                      a.resolvedEnd > c.anchor.resolvedStart,
+                  ),
+                ),
+            )
+            .map((c: any) => ({
+              id: `scope-${c.id}`,
+              selection: {
+                range: {
+                  start: c.anchor.resolvedStart,
+                  end: c.anchor.resolvedEnd,
+                },
+                quote: c.anchor.quote,
+              },
+              commentIds: [c.id],
+            }));
+          turn.context.batch = {
+            comments,
+            locks: annotations.locks,
+            scopes,
+            unresolved: comments
+              .filter(
+                (c: any) =>
+                  !scopes.some((scope: any) => scope.commentIds.includes(c.id)),
+              )
+              .map((c: any) => ({ commentIds: [c.id], reason: "locked" })),
+          };
+        }
         submitted.push({
           session: id,
           instruction: turn.instruction,
@@ -130,6 +174,38 @@ async function fixture(page: Page) {
         return route.fulfill({ json: turn });
       }
       const turn = session.turns.find((t) => t.id === turnId)!;
+      if (action === "apply") {
+        const docPath = `/api/v1/markdown-projects/${projectId}/documents/${turn.context.kind}`;
+        const doc = await (await page.request.get(docPath)).json();
+        const { proposalText } =
+          await import("../../packages/editor-ui/src/agent/context");
+        const text = proposalText(
+          { ...turn.context, session: {}, epoch: 0, text: doc.text },
+          turn.proposal!,
+        );
+        const saved = await page.request.post(docPath, {
+          data: { revision: doc.revision, text },
+        });
+        expect(saved.ok()).toBe(true);
+        const result = await saved.json();
+        for (const change of turn.proposal!.batch!.changes) {
+          const scope = turn.context.batch!.scopes.find(
+            (scope) => scope.id === change.scopeId,
+          )!;
+          for (const id of scope.commentIds)
+            await page.request.post(`${docPath}/annotations`, {
+              data: { action: "resolve", id },
+            });
+        }
+        turn.outcome = "applied";
+        turn.applyResult = {
+          projectId: projectId!,
+          kind: turn.context.kind,
+          revision: result.revision,
+          proposalId: turn.proposal!.id,
+        };
+        return route.fulfill({ json: turn.applyResult });
+      }
       if (action === "cancel") {
         turn.status = "cancelled";
         return route.fulfill({ json: turn });
@@ -140,9 +216,49 @@ async function fixture(page: Page) {
         });
       turn.status = "completed";
       turn.reply = `Saved answer: ${turn.instruction}`;
+      const events: unknown[] = [];
+      if (
+        batchPreview &&
+        turn.context.batch &&
+        turn.instruction.startsWith("Revise")
+      ) {
+        turn.proposal = {
+          id: randomUUID(),
+          context: turn.context,
+          text: "",
+          batch: {
+            changes: turn.context.batch.scopes.map((scope, n) => ({
+              scopeId: scope.id,
+              text:
+                n === 0
+                  ? "清晨，城市醒来 · The city wakes at dawn."
+                  : "A tram crosses the square; 铃声传来。",
+            })),
+            unresolved: turn.context.batch.unresolved,
+          },
+        };
+        events.push({
+          type: "proposal",
+          sequence: 1,
+          projectId,
+          sessionId: id,
+          turnId,
+          proposal: turn.proposal,
+        });
+      }
+      events.push({
+        type: "final",
+        sequence: events.length + 1,
+        projectId,
+        sessionId: id,
+        turnId,
+        status: turn.status,
+        reply: turn.reply,
+        errorCode: null,
+      });
       await route.fulfill({
         contentType: "text/event-stream",
-        body: `event: agent\ndata: ${JSON.stringify([{ type: "final", sequence: 1, projectId, sessionId: id, turnId, status: turn.status, reply: turn.reply, errorCode: null }])}\n\n`,
+        body: `event: agent\ndata: ${JSON.stringify(events)}\n\n`,
       });
     },
   );
@@ -337,4 +453,104 @@ test("AWR-AC04/12 unified generation, chronological results, compact history and
   await openHistory(page);
   await expect(composer(page)).toBeInViewport();
   await page.screenshot({ path: ".artifacts/awr-agent-history-960.png" });
+});
+
+test("AWR-AC06/12 ordinary send captures the document notes and keeps one compact batch preview", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const state = await fixture(page, true);
+  await page.goto("/");
+  await expect(page.locator("#markdown-editor")).toBeVisible();
+  const projectId = new URL(page.url()).searchParams.get("project")!;
+  const text =
+    "# 城市之声 · City voices\n\nFirst opening 中文\n\nSecond detail\n\nLocked ending\n";
+  const docPath = `/api/v1/markdown-projects/${projectId}/documents/outline`;
+  const saved = await (
+    await page.request.post(docPath, { data: { revision: null, text } })
+  ).json();
+  for (const quote of [
+    "First opening 中文",
+    "Second detail",
+    "Locked ending",
+  ]) {
+    const start = Buffer.byteLength(text.slice(0, text.indexOf(quote)));
+    const range = { start, end: start + Buffer.byteLength(quote) };
+    const result = await page.request.post(`${docPath}/annotations`, {
+      data: {
+        action: "comment",
+        revision: saved.revision,
+        range,
+        text:
+          quote === "First opening 中文"
+            ? "让开场更有画面感 · Add a vivid opening"
+            : quote === "Second detail"
+              ? "Add a concrete sound in the square"
+              : "Keep the quiet ending",
+      },
+    });
+    expect(result.ok()).toBe(true);
+    if (quote === "Locked ending")
+      expect(
+        (
+          await page.request.post(`${docPath}/annotations`, {
+            data: { action: "lock", revision: saved.revision, ranges: [range] },
+          })
+        ).ok(),
+      ).toBe(true);
+  }
+  await page.reload();
+  await page
+    .locator(".writing-view-switch")
+    .getByRole("button", { name: "Outline", exact: true })
+    .click();
+  await page.locator("#markdown-outline-editor p").first().click();
+  await page.keyboard.press("End");
+  await send(page, "Revise this draft using the comments · 按批注修改");
+  await expect(page.locator(".agent-batch-summary")).toHaveText(
+    "2 applicable · 1 unresolved",
+  );
+  expect(
+    [...state.sessions.values()][0]!.turns[0]!.attachment.selection,
+  ).toBeNull();
+  await expect(page.locator(".agent-turn-context")).toHaveText(
+    "Outline · 3 open comments",
+  );
+  await expect(
+    page.getByRole("button", { name: "Apply", exact: true }),
+  ).toHaveClass("primary-button");
+  await page.screenshot({ path: ".artifacts/awr-batch-summary-1280.png" });
+  await page.locator(".agent-batch-change summary").first().click();
+  await expect(page.locator(".agent-batch-change").first()).toContainText(
+    "让开场更有画面感",
+  );
+  await expect(
+    page.getByRole("button", { name: "Apply", exact: true }),
+  ).toHaveCount(1);
+  await expect(composer(page)).toBeInViewport();
+  await page.screenshot({ path: ".artifacts/awr-batch-preview-1280.png" });
+  await page.setViewportSize({ width: 960, height: 720 });
+  await page
+    .getByRole("button", { name: "Open assistant", exact: true })
+    .click();
+  await expect(composer(page)).toBeInViewport();
+  await page.screenshot({ path: ".artifacts/awr-batch-preview-960.png" });
+  await page.locator(".agent-batch-change summary").first().click();
+  await page.screenshot({ path: ".artifacts/awr-batch-summary-960.png" });
+  await page.locator(".agent-batch-change summary").first().click();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page
+    .getByRole("button", { name: "Go to passage", exact: true })
+    .click();
+  await expect(page.locator("#markdown-outline-editor")).toBeFocused();
+  await expect(page.locator(".agent-context-chip")).toContainText(
+    "Displayed document",
+  );
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.getByText("Applied", { exact: true })).toBeVisible();
+  const live = await (await page.request.get(docPath)).json();
+  expect(live.text).toContain("The city wakes at dawn");
+  expect(live.text).toContain("Locked ending");
+  await page.reload();
+  await expect(page.getByText("Applied", { exact: true })).toBeVisible();
 });

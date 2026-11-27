@@ -151,8 +151,11 @@ function fields(s, name, visibility = true) {
   return Object.entries(s.properties ?? {})
     .map(([k, v]) => {
       let type = rust(v, name + pascal(k));
-      // Keep the large immutable snapshot indirect in the framed control union.
-      if (name === "AiWorkerControl" && k === "configuration")
+      // Keep large snapshots indirect in protocol unions.
+      if (
+        (name === "AiWorkerControl" && k === "configuration") ||
+        (name === "AgentContext" && k === "batch")
+      )
         type = `Box<${type}>`;
       if (!s.required?.includes(k)) type = `Option<${type}>`;
       const optional = !s.required?.includes(k);

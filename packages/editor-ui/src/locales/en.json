@@ -773,5 +773,14 @@
   "agentLatest": "Latest reply ↓",
   "agentGenerationResult": "Generated result",
   "agentAdd": "Add action",
-  "agentSettingsDetails": "About Agent settings"
+  "agentSettingsDetails": "About Agent settings",
+  "agentBatchContext": "{document} · {count} open comments",
+  "agentBatchSummary": "{changes} applicable · {unresolved} unresolved",
+  "agentBatchChange": "Change {number}",
+  "agentBatchJump": "Go to passage",
+  "agentBatch_locked": "Locked passage",
+  "agentBatch_detached": "Anchor no longer found",
+  "agentBatch_clarification": "Needs clarification",
+  "agentBatchOriginal": "Original",
+  "agentBatchProposed": "Proposed"
 }

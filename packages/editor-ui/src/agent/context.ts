@@ -31,6 +31,43 @@ export async function agentAttachment(
   };
 }
 export function proposalText(capture: AgentCapture, proposal: AgentProposal) {
+  if (
+    proposal.context.projectId !== capture.projectId ||
+    proposal.context.kind !== capture.kind ||
+    proposal.context.revision !== capture.revision
+  )
+    throw new ApiError("AGENT_PROPOSAL_STALE");
+  if (proposal.batch) {
+    const scopes = proposal.context.batch?.scopes;
+    if (!scopes) throw new ApiError("AGENT_PROPOSAL_STALE");
+    const bytes = new TextEncoder().encode(capture.text);
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    const changes = proposal.batch.changes
+      .map((change) => {
+        const scope = scopes.find((scope) => scope.id === change.scopeId);
+        if (!scope) throw new ApiError("AGENT_PROPOSAL_STALE");
+        const { start, end } = scope.selection.range;
+        if (
+          start < 0 ||
+          end > bytes.length ||
+          start >= end ||
+          decoder.decode(bytes.subarray(start, end)) !== scope.selection.quote
+        )
+          throw new ApiError("AGENT_SELECTION_INVALID");
+        return { start, end, text: change.text };
+      })
+      .sort((a, b) => b.start - a.start);
+    if (changes.some((c, i) => i > 0 && c.end > changes[i - 1]!.start))
+      throw new ApiError("AGENT_SELECTION_INVALID");
+    let text = "",
+      end = bytes.length;
+    for (const change of changes) {
+      text =
+        change.text + decoder.decode(bytes.subarray(change.end, end)) + text;
+      end = change.start;
+    }
+    return decoder.decode(bytes.subarray(0, end)) + text;
+  }
   const selection = capture.selection;
   if (
     !selection ||
