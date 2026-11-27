@@ -2,7 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { endpointUrl, search } from "../../workers/research/search.mjs";
+import {
+  endpointUrl,
+  search,
+} from "../../workers/document/src/research-search.mjs";
 
 async function server(t, handler) {
   const app = createServer(handler);

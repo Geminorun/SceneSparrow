@@ -190,8 +190,8 @@ impl MarkdownProjects {
     }
 }
 fn public_search(endpoint: &str, question: &str, cancelled: &AtomicBool) -> Result<AgentResearch> {
-    let entry =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../workers/research/search.mjs");
+    let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../workers/document/src/research-search.mjs");
     let mut child = WorkerChild(
         document_command(&entry)
             .spawn()
